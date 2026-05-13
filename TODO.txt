@@ -1,0 +1,606 @@
+================================================================================
+  GVD NVR — MASTER TODO LIST
+  Commercial Network Video Recorder Platform
+  Created: 06 March 2026
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PHASE 1 — CORE NVR STABILITY & BUG FIXES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[ x ] 1.1  CRITICAL BUG — Fix WebSocket router using wrong config keys
+         File: backend/app/core/websocket_router.py
+         Fix:  settings.SECRET_KEY → settings.JWT_SECRET_KEY
+               settings.ALGORITHM  → settings.JWT_ALGORITHM
+
+[ x ] 1.2  CRITICAL BUG — Fix duplicate "system" key in ConnectionManager + double-accept + wrong connect call
+         File: backend/app/core/websocket.py
+         Fix:  Remove duplicate "system": set() entry in _connections dict
+               Fixed double websocket.accept() (router accepts, manager does not)
+               Fixed channel iteration bug (pass list, not per-string loop)
+
+[ x ] 1.3  CRITICAL BUG — Add missing PTZ endpoints in camera router
+         File: backend/app/cameras/router.py + onvif_service.py
+         Add:  DELETE /{id}/ptz/presets/{preset_token} — ONVIF RemovePreset
+
+[ x ] 1.4  BUG — Rate limiter cleanup task never started
+         File: backend/app/main.py
+         Fix:  Call auth_limiter.start_cleanup() on startup
+
+[ x ] 1.5  FEATURE — Email / SMTP notification service
+         Backend: backend/app/notifications/smtp_service.py  [NEW]
+                  SMTP config settings added to DEFAULT_SETTINGS
+                  NotificationService._dispatch() wired to send email
+                  POST /api/notifications/email/test  [NEW]
+         Templates: camera_offline, camera_online, recording_error,
+                    storage_low, storage_full, recording_gap, test
+
+[ x ] 1.6  FEATURE — Config backup and restore
+         Backend: GET /api/settings/backup  — JSON export w/ masked secrets
+                  POST /api/settings/restore — import by object type
+
+[ x ] 1.7  FEATURE — Recording lock / protect
+         Backend: locked, locked_by, locked_at added to Recording model
+                  PUT /api/recordings/{id}/lock
+                  PUT /api/recordings/{id}/unlock
+                  Retention service skips locked recordings
+         Frontend: lockRecording() / unlockRecording() in api/recordings.js
+
+[ x ] 1.8  FEATURE — Stream failover (main → sub stream)
+         File: backend/app/services/ffmpeg_manager.py
+         Logic: Fails 3x on main → switches to sub_stream_url
+                _try_recover_main() attempts main recovery after 30 min
+                failover_active flag exposed in health_check()
+
+[ x ] 1.9  FEATURE — Recording health monitor
+         File: backend/app/services/camera_monitor.py
+         Logic: Checks last DB segment end_time vs now
+                Gap > 2× segment_duration → NotificationEvent.RECORDING_GAP
+                WebSocket broadcast on gap
+                NotificationEvent.RECORDING_GAP added to models.py
+
+[ x ] 1.10 FEATURE — System health dashboard (backend)
+         File: backend/app/monitoring/router.py
+         Add:  GET /api/monitoring/health — cameras, FFmpeg, go2rtc, storage
+
+[ x ] 1.11 FEATURE — Variable speed playback in frontend
+         Status: Already fully implemented in TimelinePlayer.js (0.5x–8x)
+
+[ x ] 1.12 FEATURE — PTZ presets UI
+         File: frontend/src/components/nvr/PTZControls.js
+         Added: Delete preset (Trash2 icon per preset, hover reveal)
+                ptzDeletePreset() added to api/cameras.js
+
+[ x ] 1.13 FEATURE — Custom camera grid layouts
+         File: frontend/src/components/nvr/CameraGrid.js  [REWRITTEN]
+         Add:  LayoutPicker toolbar (1x1 / 2x2 / 3x3 / 4x4 / 5x5)
+               layout / onLayoutChange props for parent control
+               onInstantPlayback prop propagated to CameraCard
+
+[ x ] 1.14 FEATURE — Instant playback (last 5 min)
+         File: frontend/src/components/nvr/CameraCard.js
+         Add:  PlayCircle button in hover overlay (only when recording)
+               Calls onInstantPlayback(camera) prop
+
+[ x ] 1.15 DATABASE MIGRATION — Phase 1
+         File: backend/migrations/versions/20260306_000000_phase1_features.py
+         Added: locked, locked_by, locked_at to recordings
+         Run:   alembic upgrade head  ← DONE
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PHASE 2 — PROFESSIONAL PLAYBACK & RECORDING FEATURES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[ x ] 2.1  FEATURE — Pre/post event buffer recording
+         File: backend/app/services/ffmpeg_manager.py
+         Add:  start_buffer_recording() with pre/post seconds
+               Auto-stop via _stop_buffer_after()
+               POST /api/cameras/{id}/buffer-record endpoint
+               Tags continuous recording as event when already recording
+
+[ x ] 2.2  FEATURE — Event / schedule triggered recording
+         Backend: Recording schedule config per camera (JSON in cameras table)
+                  CameraFormDialog has full schedule builder with periods
+                  Schedule types: time_based with day/time periods
+         Frontend: CameraFormDialog.js — schedule builder with day toggles + time ranges
+
+[ x ] 2.3  FEATURE — Multi-camera synchronized playback
+         File: frontend/src/components/nvr/MultiCameraPlayback.js
+         Done: Select up to N cameras, single timeline controls all,
+               Grid layout (1x1-4x4), per-camera maximize, date picker
+
+[ x ] 2.4  FEATURE — Recording calendar view
+         File: frontend/src/components/nvr/RecordingCalendar.js  [NEW]
+         Done: Monthly calendar with recording dot indicators per day
+               Green highlight for days with recordings
+               Click day → jump to timeline for that day
+               Integrated in Playback page sidebar
+
+[ x ] 2.5  FEATURE — Thumbnail timeline scrubbing
+         Backend: GET /api/recordings/thumbnail/{camera_id}?timestamp=
+                  FFmpeg extracts single JPEG frame on demand
+                  Cached in data/thumbnails/{camera_id}/
+         Frontend: Hover on timeline bar shows thumbnail preview popup
+                   getThumbnailUrl() in api/recordings.js
+
+[ x ] 2.6  FEATURE — Frame-by-frame navigation
+         File: frontend/src/components/nvr/TimelinePlayer.js
+         Done: stepFrame(direction) using 1/fps step
+               Keyboard: comma = prev frame, period = next frame
+               ChevronLeft/ChevronRight buttons in playback controls
+               Full keyboard shortcuts: Space, arrows, brackets, B
+
+[ x ] 2.7  FEATURE — Smart clip export
+         Backend: POST /api/recordings/export/multi-segment
+                  Accept multiple time ranges across cameras
+                  FFmpeg concat with optional burn_timestamp flag
+         Frontend: ClipBuilder.js component — mark IN/OUT points, queue segments
+                   Export with progress polling, download link on completion
+
+[ x ] 2.8  FEATURE — Bookmark / flag recordings
+         Backend: bookmarks table (id, camera_id, recording_id, timestamp,
+                  note, user_id, created_at)
+                  CRUD: /api/bookmarks (POST, GET, PATCH, DELETE)
+                  Ownership check: only owner or admin can edit/delete
+         Frontend: Bookmark button in playback toolbar (B key shortcut)
+                   createBookmark() in api/bookmarks.js
+                   Playback.js wired with bookmarkMutation
+
+[ x ] 2.9  FEATURE — Camera sequence / tour mode
+         File: frontend/src/components/nvr/CameraGrid.js
+         Done: Tour state (tourActive, tourIndex, tourDwell)
+               Start/stop tour with Play/Pause button
+               Configurable dwell time: 5-60s select dropdown
+               Tour timer cycles through online cameras
+               1x1 forced layout during tour, progress indicator
+
+[ x ] 2.10 DATABASE MIGRATION — Phase 2
+         File: migrations/versions/20260307_000000_phase2_bookmarks.py
+         Done: bookmarks table with camera_id, recording_id, timestamp, note, user_id
+               trigger_type column added to recordings (default 'continuous')
+               recording_schedule column already existed on cameras
+         Run:  alembic upgrade head  ← DONE
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PHASE 3 — EVENT MANAGEMENT, ALARMS & MOTION DETECTION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[x] 3.1  FEATURE — Grid-based motion detection engine
+         Backend: backend/app/services/motion_service.py  [NEW]
+                  Per-camera motion sensitivity grid (configurable zones + sensitivity 1-10)
+                  FFmpeg motion_detector filter → webhook to backend
+                  Motion events stored in events table
+                  Separate detection schedule (arm/disarm times per camera)
+         Frontend: Camera settings > Motion tab
+                   Visual grid editor on camera snapshot (click to toggle cells)
+                   Sensitivity slider per zone
+
+[x] 3.2  FEATURE — Video loss / camera tamper alarms
+         Backend: Detect stream loss > threshold → fire VideoLoss event
+                  Detect static image (scene freeze) > 30s → Tamper event
+                  Detect image blocked (solid dark/bright) → Tamper event
+                  All events → notifications + WebSocket broadcast
+         Frontend: Alarm indicator badge on camera card (VideoLoss / Tamper)
+                   Alarm log filter by event type
+
+[x] 3.3  FEATURE — Event linkage rules engine
+         Backend: backend/app/events/linkage_service.py  [NEW]
+                  Rule: IF <trigger> THEN <actions[]>
+                  Triggers: motion_detected, video_loss, camera_offline,
+                            storage_low, disk_full, tamper_detected
+                  Actions: start_recording, send_email, send_webhook,
+                           trigger_alarm_output, notify_channel
+                  Rules stored in DB: event_linkage_rules table
+                  Rules evaluated async on each event
+         Frontend: Settings > Event Linkage (visual rule builder)
+                   Add rule: pick trigger → pick one or more actions → save
+
+[x] 3.4  FEATURE — Privacy masking (blackout zones)
+         Backend: Per-camera privacy mask config stored as JSONB
+                  Masks applied at FFmpeg pipeline level via lavfi drawbox filter
+                  PUT /api/cameras/{id}/privacy-masks
+                  GET /api/cameras/{id}/privacy-masks
+         Frontend: Camera settings > Privacy Masks tab
+                   Draw rectangular mask zones on camera snapshot
+                   Masks rendered in live view and recordings
+
+[x] 3.5  FEATURE — Recording schedule builder
+         Backend: recording_schedule JSONB column on cameras
+                  Schedule types: always_on, time_based, motion_only, manual
+                  POST /api/cameras/{id}/recording-schedule
+                  FFmpeg manager respects schedule (start/stop recording window)
+         Frontend: Camera settings > Recording Schedule tab
+                   Visual weekly time grid (24h x 7 days)
+                   Color coding: continuous (blue), motion-only (yellow), off (grey)
+
+[x] 3.6  FEATURE — Alarm / event log page
+         Route: /events
+         Features:
+           - Real-time event feed via WebSocket
+           - Filter by: camera, event type, severity, date range
+           - Acknowledge / clear events
+           - Mark as false alarm
+           - Export event log as CSV
+           - Unacknowledged count badge in sidebar nav
+
+[x] 3.7  FEATURE — Pre/post event buffer recording
+         Backend: Circular in-memory segment queue per camera (configurable 10-60s)
+                  On motion/alarm trigger → flush pre-buffer + continue post-buffer
+                  Saved as trigger_type = motion | alarm | schedule | manual
+                  Avoids full continuous recording where not needed (storage saving)
+
+[x] 3.8  DATABASE MIGRATION — Phase 3
+         Add:  events table (id, camera_id, event_type, severity, triggered_at,
+                             acknowledged, acknowledged_by, note, metadata JSONB)
+               event_linkage_rules table (id, name, trigger, actions JSONB,
+                                          enabled, schedule JSONB)
+               recording_schedule column to cameras (JSONB)
+               privacy_masks column to cameras (JSONB)
+         Run:  alembic revision -m "phase3_events_motion"
+               alembic upgrade head
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PHASE 4 — STORAGE MANAGEMENT & DATA PROTECTION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[ ] 4.1  FEATURE — Multi-pool storage with priority & quota
+         Backend: Per-camera storage pool assignment
+                  Pool types: local_path, nfs_mount, smb_mount
+                  Priority ordering: primary → failover pool
+                  Per-pool write quota, overflow behaviour (stop | overwrite oldest)
+                  Automatic failover write when primary pool is full or unhealthy
+                  GET /api/storage/pools/{id}/health
+
+[ ] 4.2  FEATURE — Disk health monitoring (S.M.A.R.T)
+         Backend: backend/app/services/disk_health_service.py  [NEW]
+                  Poll S.M.A.R.T data via smartctl every 6h
+                  Track: reallocated sectors, pending sectors, temperature, power-on hours
+                  Fire DiskWarning / DiskFail event if thresholds exceeded
+                  GET /api/monitoring/disks — returns all disk health summaries
+         Frontend: Health dashboard > Disk Health section
+                   Temperature gauge, health score badge, reallocated sector count
+
+[ ] 4.3  FEATURE — NAS / NFS / SMB remote storage
+         Backend: Mount remote shares at startup via fstab or runtime mount
+                  Test connectivity: POST /api/storage/pools/test-connection
+                  Graceful degradation: fall back to local if NAS unreachable
+                  Re-mount polling service on NAS disconnect
+
+[ ] 4.4  FEATURE — Redundant recording (mirror streams)
+         Backend: Optional second storage pool per camera for mirror write
+                  Both pools get identical segment files written simultaneously
+                  If primary write fails, only mirror write continues (no data loss)
+                  Configurable per camera (redundancy_enabled flag)
+
+[ ] 4.5  FEATURE — Recording integrity verification
+         Backend: SHA-256 checksum computed and stored per recording segment
+                  Checksums stored in recordings.checksum column
+                  Background job: verify checksums nightly (flag corrupted files)
+                  GET /api/recordings/{id}/verify — on-demand integrity check
+         Frontend: Recordings list: integrity status icon (verified / corrupted / unchecked)
+
+[ ] 4.6  FEATURE — Digitally signed evidence export
+         Backend: Export MP4 with embedded SHA-256 + timestamp + NVR serial in metadata
+                  Sign export package with RSA private key
+                  Include chain-of-custody PDF (camera, operator, time range, hash)
+                  POST /api/recordings/export/evidence
+         Frontend: Export dialog > "Evidence Package" toggle
+                   Download as .zip (MP4 + custody PDF + signature file)
+
+[ ] 4.7  FEATURE — Cloud backup for recordings
+         Backend: backend/app/storage/cloud_backup_service.py  [NEW]
+                  Supported: AWS S3, Backblaze B2, generic S3-compatible
+                  Per-camera cloud backup toggle + retention rule
+                  Upload runs off-hours (configurable schedule)
+                  Resumable multipart upload for large files
+                  GET /api/storage/cloud/status — sync status per camera
+
+[ ] 4.8  FEATURE — Storage analytics & capacity planning
+         Backend: GET /api/monitoring/storage/analytics
+                  Daily write rate per camera (MB/day average, 7/30/90 day)
+                  Projected days-until-full per storage pool
+                  Top consumers (camera + pool ranked by usage)
+         Frontend: Storage page > Analytics tab
+                   Bar chart: daily write by camera
+                   "Estimated full in N days" warning banner
+
+[ ] 4.9  DATABASE MIGRATION — Phase 4
+         Add:  recordings.checksum (VARCHAR 64)
+               recordings.redundant_path (VARCHAR, nullable)
+               storage_pools.pool_type (local | nfs | smb | s3)
+               storage_pools.mount_options (JSONB)
+               storage_pools.cloud_config (JSONB, encrypted)
+               disk_health_snapshots table
+         Run:  alembic revision -m "phase4_storage_protection"
+               alembic upgrade head
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PHASE 5 — SECURITY, COMPLIANCE & AUDIT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[ ] 5.1  SECURITY — HTTPS / TLS enforcement
+         Backend: Auto-generate self-signed cert on first run (stored in data/certs/)
+                  Support custom certificate upload (PEM + KEY)
+                  HSTS header enforced when HTTPS active
+                  Redirect HTTP → HTTPS
+                  Endpoints: POST /api/settings/tls/upload
+                             GET  /api/settings/tls/status
+
+[ ] 5.2  SECURITY — ONVIF credential encryption in DB
+         Backend: AES-256-GCM encrypt onvif_username, onvif_password at rest
+                  Encryption key derived from SECRET_KEY + machine fingerprint
+                  Decrypt transparently in ONVIFService before each call
+                  Re-encrypt all existing creds on migration
+
+[ ] 5.3  SECURITY — Two-factor authentication (TOTP)
+         Backend: backend/app/auth/totp_service.py  [NEW]
+                  TOTP secret generation + QR code (RFC 6238 / Google Authenticator)
+                  POST /api/auth/2fa/enable  — generate secret + QR
+                  POST /api/auth/2fa/verify  — confirm TOTP token
+                  POST /api/auth/2fa/disable — admin or self
+                  Login flow: requires TOTP token when 2FA enabled
+         Frontend: Profile > Security > Enable Two-Factor Authentication
+                   QR scan step + 6-digit confirm field
+
+[ ] 5.4  SECURITY — IP allow-list for admin access
+         Backend: Configurable IP whitelist in settings (CIDR notation supported)
+                  Middleware validates request IP against list (admin routes only)
+                  Bypass rule for localhost always allowed
+
+[ ] 5.5  SECURITY — Session management
+         Backend: Track active sessions per user (session_id, ip, user_agent, last_seen)
+                  Max concurrent sessions per user (configurable, default 3)
+                  Force-logout endpoint: DELETE /api/auth/sessions/{session_id}
+                  Admin: view all active sessions across all users
+         Frontend: Profile > Active Sessions list
+                   "Logout all other devices" button
+
+[ ] 5.6  SECURITY — Password policy enforcement
+         Backend: Configurable: min length, require uppercase/number/symbol, expiry
+                  Reject last N passwords (password history)
+                  Force password reset on first login for admin-created accounts
+         Frontend: Password change form validates policy live
+                   Password expiry warning banner (N days before expiry)
+
+[ ] 5.7  COMPLIANCE — GDPR / data privacy controls
+         Backend: Data retention policy per camera (auto-purge after N days)
+                  Right to erasure: DELETE /api/recordings/purge?camera_id=&before=
+                  Export personal data: GET /api/audit/export?user_id= (CSV)
+                  Privacy notice shown on first login (accept required)
+         Frontend: Settings > Privacy & Compliance
+                   Retention period per camera
+                   One-click purge with confirmation dialog
+
+[ ] 5.8  COMPLIANCE — Security audit report
+         Backend: GET /api/audit/report?from=&to= — machine-readable or PDF
+                  Covers: logins, failed logins, recording access, exports, config changes
+                  Exportable as PDF with company logo slot
+         Frontend: Audit > Report tab
+                   Date range picker + "Generate Report" button
+                   Download PDF / CSV
+
+[ ] 5.9  SECURITY — Signed recording download tokens
+         Backend: Expiring signed token for all recording downloads (15-min TTL)
+                  GET /api/recordings/{id}/download-token → {token, expires_at}
+                  Actual file served only with valid token via separate endpoint
+                  Prevents direct URL sharing / hotlinking of recordings
+
+[ ] 5.10 DATABASE MIGRATION — Phase 5
+         Add:  users.totp_secret (VARCHAR, encrypted, nullable)
+               users.totp_enabled (BOOLEAN default false)
+               users.password_changed_at (TIMESTAMP)
+               users.force_password_reset (BOOLEAN default false)
+               user_sessions table (id, user_id, session_id, ip, user_agent, last_seen)
+         Run:  alembic revision -m "phase5_security_compliance"
+               alembic upgrade head
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PHASE 6 — USER MANAGEMENT & ACCESS CONTROL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[ x ] 6.1  FEATURE — First-user admin + locked registration
+         Already implemented in prior sessions.
+         Backend: POST /api/auth/register blocked after first user (HTTP 403)
+                  GET /api/auth/setup → {"setup_required": bool}
+                  First user auto-assigned admin role
+         Frontend: Login shows Register tab only when setup_required = true
+
+[ x ] 6.2  FEATURE — Admin user management UI
+         Already implemented in prior sessions.
+         Route: /settings/users
+         Features: List users, create user, edit role/status, disable/enable,
+                   force password reset, view audit events inline
+
+[ ] 6.3  FEATURE — Camera-level access control (per user)
+         Backend: user_camera_access table (user_id, camera_id)
+                  Admin role: all cameras always accessible
+                  Operator / Viewer: only cameras in their access list
+                  All camera queries filtered by access list for non-admin users
+         Frontend: User edit dialog > Camera Access tab
+                   Toggle list of cameras per user
+
+[ ] 6.4  FEATURE — Time-bound access schedules
+         Backend: users.access_schedule JSONB — allowed hours per day of week
+                  Middleware: if schedule set, reject login outside allowed window
+                  Admin always exempt
+         Frontend: User edit dialog > Access Hours tab
+                   Weekly time grid (same UI as recording schedule)
+
+[ ] 6.5  FEATURE — User groups
+         Backend: user_groups table (id, name, description)
+                  user_group_members table (group_id, user_id)
+                  group_camera_access table (group_id, camera_id)
+                  Camera access = union of user's personal + group grants
+         Frontend: Settings > Groups — create/edit groups, assign members + cameras
+
+[ ] 6.6  FEATURE — Custom roles with fine-grained permissions
+         Backend: permissions system already uses JSON array on roles
+                  Extend permission list to cover: events.acknowledge,
+                  recordings.export, recordings.delete, cameras.ptz,
+                  cameras.manage, users.manage, settings.manage, audit.view
+                  UI to build custom role from permission checkboxes
+         Frontend: Settings > Roles — create/edit custom roles
+                   Permission matrix table (feature rows × allow/deny columns)
+
+[ ] 6.7  DATABASE MIGRATION — Phase 6
+         Add:  user_camera_access table (user_id UUID, camera_id UUID, PK both)
+               user_groups table + user_group_members + group_camera_access
+               users.access_schedule (JSONB, nullable)
+         Run:  alembic revision -m "phase6_access_control"
+               alembic upgrade head
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PHASE 7 — DEPLOYMENT, LICENSING & PACKAGING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[ ] 7.1  LICENSING — Hardware fingerprint system
+         File: backend/app/core/licensing.py  [NEW]
+         Logic: Device fingerprint from MAC address + CPU serial + disk serial
+                License file encrypted with RSA private key (offline activation)
+                Check on startup: valid | expired | camera count exceeded | tampered
+                Grace period: 7-day trial if no license present
+                Endpoint: GET /api/license/status
+
+[ ] 7.2  LICENSING — Camera tier enforcement
+         Tiers:   Starter (4 cameras), Professional (16), Business (32),
+                  Enterprise (64), Unlimited
+         Backend: Hard block on adding camera beyond licensed tier
+                  API response includes license_limit in camera list
+         Frontend: Camera add button disabled + tooltip when at tier limit
+                   Upgrade prompt with tier comparison table
+
+[ ] 7.3  DEPLOYMENT — Docker Compose production setup
+         File: docker-compose.yml (project root)
+         Services:
+           - nvr-backend  (FastAPI, port 8000)
+           - nvr-frontend (nginx serving React build, port 443 with TLS)
+           - postgres      (5432, only reachable internally)
+           - go2rtc        (1984 API, 8554 RTSP, 8555 WebRTC)
+         Volumes: recordings, thumbnails, exports, certs, db data
+         Healthchecks on all services
+         .env.docker with all service URLs pre-configured
+
+[ ] 7.4  DEPLOYMENT — Single-server Linux install script
+         File: install.sh
+         Steps: Check dependencies (Docker ≥24, ffmpeg, openssl)
+                Prompt: admin email, admin password, license key, storage path
+                Generate .env from prompts
+                Initialize DB + run migrations
+                Start all services via docker compose
+                Create systemd unit for auto-start on reboot
+                Print: access URL, admin credentials, first steps
+
+[ ] 7.5  DEPLOYMENT — Auto-update system
+         Backend: GET  /api/system/updates/check — compare VERSION against update server
+                  POST /api/system/updates/apply  — pull new image + restart
+                  Automatic DB migration on new version startup
+                  Rollback: keep previous image; revert if startup health check fails
+         Frontend: Settings > System > Updates — version info + "Check for updates" button
+
+[ ] 7.6  FEATURE — NTP time synchronisation
+         Backend: System time source configuration (NTP server address)
+                  POST /api/settings/ntp/sync — force immediate sync
+                  GET  /api/settings/ntp/status — drift, last sync time, source
+                  All recorded timestamps authoritative from NTP-synced clock
+         Frontend: Settings > System > Time & NTP
+                   Current time, NTP server field, last sync status
+
+[ ] 7.7  FRONTEND — System settings completeness
+         Add pages:
+           Settings > Email / SMTP (test button)
+           Settings > Licensing (activate, view tier, camera usage bar)
+           Settings > System (version, uptime, CPU/RAM, restart services)
+           Settings > Backup & Restore (download config JSON, upload to restore)
+           Settings > Time & NTP
+           Settings > TLS / HTTPS (cert upload, self-signed generate)
+           Settings > Network (DDNS config, port settings)
+
+[ ] 7.8  FEATURE — DDNS / remote access configuration
+         Backend: Support No-IP, DynDNS, Cloudflare DDNS record update
+                  Background task updates DDNS hostname every 15 min
+                  GET /api/settings/network/ddns/status
+         Frontend: Settings > Network > Remote Access
+                   DDNS provider dropdown, hostname, credentials, status indicator
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CROSS-CUTTING CONCERNS (ALL PHASES)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[ ] X.1  SECURITY — Replace in-memory rate limiter with Redis
+         When: Before multi-worker / multi-node deployment
+         File: backend/app/core/rate_limiter.py
+         Drop-in: slowapi with Redis backend
+
+[ ] X.2  SECURITY — Recording download signed tokens (see 5.9)
+         Add expiring signed tokens for every /recordings/{id}/download call
+         Token = HMAC-SHA256(recording_id + expiry + user_id, SECRET_KEY)
+         15-minute TTL, single-use
+
+[ ] X.3  PERFORMANCE — Composite database indexes
+         Add: (camera_id, start_time) on recordings
+              (camera_id, triggered_at) on events
+              (camera_id, created_at) on audit_logs
+              (user_id, created_at) on audit_logs
+         Run via migration after Phase 3
+
+[ ] X.4  PERFORMANCE — FFmpeg GPU transcoding
+         Detect NVENC (NVIDIA), VAAPI (Intel/AMD), VideoToolbox (macOS) on startup
+         Auto-select hardware encoder if available; fall back to libx264
+         Config flag: hardware_transcoding = auto | nvenc | vaapi | software
+         Critical for deployments running 16+ cameras on a single server
+
+[ ] X.5  PERFORMANCE — Thumbnail generation background job
+         Generate 1 JPEG thumbnail per 30 s of recording (via FFmpeg)
+         Stored in data/thumbnails/{camera_id}/{recording_id}/
+         Used by timeline scrub hover (Phase 2.5) and event log previews
+         Job runs at low priority, throttled to avoid I/O spikes
+
+[ ] X.6  RELIABILITY — Watchdog service for FFmpeg processes
+         Current camera_monitor checks DB gaps; add OS-level process watchdog
+         If FFmpeg PID dies without panic → immediate restart without waiting for gap check
+         Max 3 restarts in 60 s before marking camera as "failed" and alerting
+
+[ ] X.7  TESTING — Backend unit + integration tests
+         Priority: ffmpeg_manager, retention_service, recording_service,
+                   motion_service, event_linkage_service, auth/permissions
+         Framework: pytest + pytest-asyncio + httpx (TestClient)
+         Target: 75% coverage on core services
+         CI: GitHub Actions workflow running tests + alembic upgrade test
+
+[ ] X.8  TESTING — Frontend component tests
+         Priority: TimelinePlayer, CameraCard, CameraGrid, PTZControls,
+                   MotionZoneEditor, EventLinkageBuilder
+         Framework: React Testing Library + Jest
+         Target: critical user flows fully covered (add camera, view live, playback)
+
+[ ] X.9  DOCS — API documentation polish
+         FastAPI auto-generates /docs (Swagger UI)
+         Add response_model, summary, description, request examples to all endpoints
+         Tag grouping: cameras, recordings, events, storage, auth, monitoring
+         Export OpenAPI JSON for integration partners
+
+[ ] X.10 RELIABILITY — Graceful shutdown with in-flight recording protection
+         On SIGTERM: finish current recording segment before shutting down FFmpeg
+         Commit all in-flight DB writes before closing DB connections
+         Currently uvicorn SIGTERM kills FFmpeg mid-segment (file corruption risk)
+
+================================================================================
+  SUMMARY
+================================================================================
+
+  Phase 1  — Core NVR Stability & Bug Fixes        (15 tasks, mostly done)
+  Phase 2  — Professional Playback & Recording      (10 tasks)  ~3 weeks
+  Phase 3  — Event Management, Alarms & Motion      ( 8 tasks)  ~3 weeks
+  Phase 4  — Storage Management & Data Protection   ( 9 tasks)  ~3 weeks
+  Phase 5  — Security, Compliance & Audit           (10 tasks)  ~3 weeks
+  Phase 6  — User Management & Access Control       ( 7 tasks)  ~2 weeks
+  Phase 7  — Deployment, Licensing & Packaging      ( 8 tasks)  ~2 weeks
+  Cross-cutting                                     (10 tasks)  ongoing
+
+  TOTAL: 77 tasks
+
+  IMMEDIATE NEXT: Phase 6.1 (first-user admin + registration lock)
+                  Phase 3.1 (motion detection — core commercial differentiator)
+
+================================================================================

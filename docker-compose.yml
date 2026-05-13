@@ -1,0 +1,184 @@
+# =============================================================================
+# GVD NVR — Docker Compose (production)
+# =============================================================================
+# Usage:
+#   cp .env.example .env          # fill in required values
+#   docker compose up -d
+#
+# Services:
+#   db        — PostgreSQL 16
+#   go2rtc    — RTSP restreamer + WebRTC gateway
+#   backend   — FastAPI NVR API
+#   frontend  — React SPA served by nginx
+#   nginx     — Reverse proxy (HTTPS termination, routes /api → backend)
+# =============================================================================
+
+version: "3.9"
+
+services:
+
+  # ── PostgreSQL ─────────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: gvd_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: gvd_nvr
+      POSTGRES_USER: ${DB_USER:-nvr}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-nvr} -d gvd_nvr"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal
+
+  # ── go2rtc ─────────────────────────────────────────────────────────────────
+  go2rtc:
+    image: alexxit/go2rtc:latest
+    container_name: gvd_go2rtc
+    restart: unless-stopped
+    network_mode: host          # host mode for RTSP multicast/STUN discovery
+    volumes:
+      - ./go2rtc.yaml:/config/go2rtc.yaml:ro
+      - go2rtc_data:/tmp/go2rtc
+    environment:
+      - GO2RTC_CONFIG=/config/go2rtc.yaml
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:1984/api/streams || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  # ── Backend ────────────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: gvd_backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ENV: production
+      DATABASE_URL: postgresql+asyncpg://${DB_USER:-nvr}:${DB_PASSWORD}@db:5432/gvd_nvr
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required}
+      JWT_ACCESS_TOKEN_EXPIRE_HOURS: ${JWT_ACCESS_TOKEN_EXPIRE_HOURS:-24}
+      JWT_REFRESH_TOKEN_EXPIRE_DAYS: ${JWT_REFRESH_TOKEN_EXPIRE_DAYS:-30}
+      GO2RTC_URL: http://host.docker.internal:1984
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
+      ONVIF_XADDR_HOST: ${ONVIF_XADDR_HOST:-}
+      ONVIF_DEVICE_USERNAME: ${ONVIF_DEVICE_USERNAME:-admin}
+      ONVIF_DEVICE_PASSWORD: ${ONVIF_DEVICE_PASSWORD:-admin}
+      STORAGE_PATH: /data/recordings
+      THUMBNAIL_PATH: /data/thumbnails
+      EXPORT_PATH: /data/exports
+      DATA_PATH: /data
+      CERT_PATH: /data/certs
+      NGINX_CERT_PATH: /data/certs    # shared volume — nginx mounts the same dir
+      CLOUD_STORAGE_ENABLED: ${CLOUD_STORAGE_ENABLED:-false}
+      CLOUD_S3_ENDPOINT: ${CLOUD_S3_ENDPOINT:-}
+      CLOUD_S3_BUCKET: ${CLOUD_S3_BUCKET:-}
+      CLOUD_S3_ACCESS_KEY: ${CLOUD_S3_ACCESS_KEY:-}
+      CLOUD_S3_SECRET_KEY: ${CLOUD_S3_SECRET_KEY:-}
+    volumes:
+      - recordings:/data/recordings
+      - thumbnails:/data/thumbnails
+      - exports:/data/exports
+      - certs:/data/certs
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - internal
+    ports:
+      # WS-Discovery multicast listener (UDP 3702). May require host network mode
+      # for reliable multicast across the LAN.
+      - "3702:3702/udp"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+
+  # ── Migration runner (runs once, exits) ────────────────────────────────────
+  migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: gvd_migrate
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${DB_USER:-nvr}:${DB_PASSWORD}@db:5432/gvd_nvr
+    command: ["python", "-m", "alembic", "upgrade", "head"]
+    networks:
+      - internal
+
+  # ── Frontend ───────────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        REACT_APP_API_URL: ${FRONTEND_API_URL:-/api}
+        REACT_APP_WS_URL: ${FRONTEND_WS_URL:-/api/ws}
+        REACT_APP_GO2RTC_URL: ${FRONTEND_GO2RTC_URL:-/go2rtc}
+    container_name: gvd_frontend
+    restart: unless-stopped
+    networks:
+      - internal
+
+  # ── Nginx reverse proxy ────────────────────────────────────────────────────
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: gvd_nginx
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      # TLS certs are managed by the backend (POST /api/settings/tls/upload or
+      # the bootstrap self-signed generator) and exposed to nginx through this
+      # shared volume.
+      - certs:/etc/nginx/ssl:ro
+      - recordings:/data/recordings:ro
+      - thumbnails:/data/thumbnails:ro
+      - exports:/data/exports:ro
+    depends_on:
+      - backend
+      - frontend
+      - go2rtc
+    networks:
+      - internal
+
+# ── Networks ──────────────────────────────────────────────────────────────────
+networks:
+  internal:
+    driver: bridge
+
+# ── Volumes ───────────────────────────────────────────────────────────────────
+volumes:
+  db_data:
+  go2rtc_data:
+  recordings:
+  thumbnails:
+  exports:
+  certs:

@@ -1,0 +1,77 @@
+# =============================================================================
+# go2rtc DaemonSet — runs on every node that has cameras on the local network.
+# go2rtc needs hostNetwork for RTSP multicast / STUN / WS-Discovery.
+# In cloud K8s you may prefer a Deployment with hostNetwork instead.
+# =============================================================================
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: gvd-go2rtc
+  namespace: gvd-nvr
+spec:
+  selector:
+    matchLabels:
+      app: gvd-go2rtc
+  template:
+    metadata:
+      labels:
+        app: gvd-go2rtc
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+        - name: go2rtc
+          image: alexxit/go2rtc:latest
+          ports:
+            - containerPort: 1984
+              name: api
+            - containerPort: 8554
+              name: rtsp
+            - containerPort: 8555
+              name: webrtc
+          volumeMounts:
+            - name: go2rtc-config
+              mountPath: /config/go2rtc.yaml
+              subPath: go2rtc.yaml
+            - name: go2rtc-data
+              mountPath: /tmp/go2rtc
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /api/streams
+              port: 1984
+            initialDelaySeconds: 10
+            periodSeconds: 15
+      volumes:
+        - name: go2rtc-config
+          configMap:
+            name: gvd-go2rtc-config
+        - name: go2rtc-data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gvd-go2rtc-config
+  namespace: gvd-nvr
+data:
+  go2rtc.yaml: |
+    api:
+      listen: ":1984"
+      origin: "*"
+    rtsp:
+      listen: ":8554"
+    webrtc:
+      listen: ":8555"
+      candidates:
+        - 127.0.0.1:8555
+        - stun:8555
+    log:
+      level: info
+    streams:

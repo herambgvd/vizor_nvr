@@ -1,0 +1,44 @@
+# =============================================================================
+# GVD NVR v2.0 — Runtime Dependencies
+# =============================================================================
+
+# ── Core ────────────────────────────────────────────────────────────
+fastapi
+uvicorn
+pydantic
+python-dotenv
+python-multipart
+PyYAML
+
+# ── Database ────────────────────────────────────────────────────────
+SQLAlchemy
+asyncpg
+alembic
+psycopg2-binary
+
+# ── Auth & Security ─────────────────────────────────────────────────
+bcrypt
+passlib
+python-jose
+
+# ── HTTP / Networking ───────────────────────────────────────────────
+httpx
+
+# ── Cloud Storage (S3/RustFS/MinIO) ────────────────────────────────
+boto3
+
+# ── System monitoring ──────────────────────────────────────────────
+psutil
+
+# ── ONVIF (optional — install for ONVIF discovery + PTZ) ──────────
+onvif-zeep
+WSDiscovery
+
+# =============================================================================
+# Dev Dependencies (install separately: pip install -r requirements-dev.txt)
+# =============================================================================
+# black==26.1.0
+# flake8==7.3.0
+# isort==8.0.0
+# mypy==1.19.1
+# pytest==9.0.2

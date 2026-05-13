@@ -1,0 +1,286 @@
+# =============================================================================
+# GVD NVR — Application Factory
+# =============================================================================
+# Entry point: uvicorn app.main:app  (from backend/ directory)
+# =============================================================================
+
+import logging
+import sys
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
+
+from app import __version__
+from app.config import settings
+from app.database import init_db, async_session_maker
+
+# ── Logging ──────────────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.DEBUG if settings.ENV == "development" else logging.INFO,
+    format="%(asctime)s  %(levelname)-8s  %(name)-30s  %(message)s",
+    stream=sys.stdout,
+)
+# Silence noisy third-party loggers
+for _noisy in ("watchfiles", "httpcore", "httpx", "hpack", "urllib3", "multipart"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
+logger = logging.getLogger("app")
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Lifespan — startup / shutdown
+# ══════════════════════════════════════════════════════════════════════
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    # ── Startup ──────────────────────────────────────────────────────
+    logger.info(f"GVD NVR v{__version__} starting (env={settings.ENV})")
+
+    # Create database tables
+    await init_db()
+
+    # Seed defaults
+    async with async_session_maker() as db:
+        from app.auth.service import AuthService
+        from app.settings.service import SettingsService
+        await AuthService.seed_roles(db)
+        await SettingsService.seed_defaults(db)
+
+    # One-shot backfill: re-encrypt any legacy plaintext ONVIF credentials.
+    # Idempotent — already-encrypted rows skipped.
+    try:
+        from app.core.crypto import backfill_encrypt_credentials
+        await backfill_encrypt_credentials()
+    except Exception as _e:
+        logger.warning(f"ONVIF credential backfill failed: {_e}")
+
+    # Ensure storage directories (incl. data/ and data/certs/)
+    settings.ensure_directories()
+
+    # TLS: emit a self-signed cert on first boot so HTTPS is usable out of
+    # the box. Operator can replace it via POST /api/settings/tls/upload.
+    try:
+        from app.settings.tls_service import ensure_present as _ensure_tls
+        _ensure_tls()
+    except Exception as _e:
+        logger.warning(f"TLS bootstrap failed: {_e}")
+
+    # Mount static file directories
+    import os
+    for name, path in [
+        ("recordings", str(settings.STORAGE_PATH)),
+        ("thumbnails", str(settings.THUMBNAIL_PATH)),
+        ("hls", str(settings.HLS_PATH)),
+        ("exports", str(settings.EXPORT_PATH)),
+    ]:
+        os.makedirs(path, exist_ok=True)
+        application.mount(f"/{name}", StaticFiles(directory=path), name=name)
+
+    # Start background services
+    from app.monitoring.service import monitoring_service
+    from app.services.camera_monitor import camera_monitor
+    from app.services.retention_service import retention_service
+    from app.services.recovery_service import recovery_service
+    from app.notifications.service import notification_service
+    from app.services.prebuffer_service import prebuffer_service
+    from app.core.rate_limiter import auth_limiter
+
+    await monitoring_service.start()
+    await prebuffer_service.start()
+    await camera_monitor.start()
+    await retention_service.start()
+    await notification_service.start()
+    auth_limiter.start_cleanup()  # Prevent in-memory leak under sustained traffic
+
+    # S.M.A.R.T disk health poller (no-op if smartctl missing)
+    try:
+        from app.services.disk_health_service import disk_health_service
+        await disk_health_service.start()
+    except Exception as _e:
+        logger.warning(f"disk_health_service start skipped: {_e}")
+
+    # Thumbnail pre-generation background job (X.5)
+    from app.services.thumbnail_service import thumbnail_service
+    await thumbnail_service.start()
+
+    # Sync all cameras to go2rtc (register main + sub streams on startup)
+    try:
+        from app.services.go2rtc_manager import go2rtc_manager
+        from app.cameras.models import Camera
+        from sqlalchemy import select
+        async with async_session_maker() as db:
+            result = await db.execute(
+                select(Camera).where(Camera.is_enabled.is_(True))
+            )
+            cameras = result.scalars().all()
+            synced = 0
+            for cam in cameras:
+                if cam.main_stream_url:
+                    await go2rtc_manager.add_stream(cam.id, cam.main_stream_url)
+                    synced += 1
+                if cam.sub_stream_url:
+                    await go2rtc_manager.add_stream(f"{cam.id}_sub", cam.sub_stream_url)
+        logger.info(f"go2rtc: synced {synced} camera streams on startup")
+    except Exception as _e:
+        logger.warning(f"go2rtc startup sync failed (go2rtc may not be running yet): {_e}")
+
+    # Recover FFmpeg processes
+    if settings.FFMPEG_RECOVERY_ENABLED:
+        await recovery_service.recover()
+
+    # OS-level watchdog: detect hung / dead FFmpeg processes between segment cycles
+    from app.services.ffmpeg_manager import ffmpeg_manager as _ffmgr
+    await _ffmgr.start_watchdog()
+
+    # Start ONVIF event pull service
+    from app.cameras.onvif_event_service import onvif_event_service as _oes
+    await _oes.start_all()
+
+    # Start ONVIF device discovery publisher (NVR as ONVIF device)
+    from app.onvif_device.discovery import onvif_discovery_publisher
+    await onvif_discovery_publisher.start()
+
+    logger.info("All services started — NVR is ready")
+
+    yield
+
+    # ── Shutdown ─────────────────────────────────────────────────────
+    logger.info("Shutting down...")
+
+    from app.services.ffmpeg_manager import ffmpeg_manager
+    from app.services.go2rtc_manager import go2rtc_manager
+    from app.notifications.service import notification_service
+
+    from app.cameras.onvif_event_service import onvif_event_service as _oes
+    await _oes.stop_all()
+    from app.onvif_device.discovery import onvif_discovery_publisher
+    await onvif_discovery_publisher.stop()
+    await camera_monitor.stop()
+    await prebuffer_service.stop()
+    await retention_service.stop()
+    await monitoring_service.stop()
+    await notification_service.stop()
+    await ffmpeg_manager.stop_watchdog()
+    try:
+        from app.services.disk_health_service import disk_health_service
+        await disk_health_service.stop()
+    except Exception:
+        pass
+    try:
+        from app.services.thumbnail_service import thumbnail_service
+        await thumbnail_service.stop()
+    except Exception:
+        pass
+    await ffmpeg_manager.cleanup()
+    await go2rtc_manager.close()
+
+    logger.info("Shutdown complete")
+
+
+# ══════════════════════════════════════════════════════════════════════
+# App creation
+# ══════════════════════════════════════════════════════════════════════
+
+app = FastAPI(
+    title="GVD NVR API",
+    description=(
+        "Network Video Recorder with RBAC, ONVIF, PTZ, multi-stream, "
+        "storage pools, integrity verification, signed evidence export, "
+        "and TOTP 2FA. Auth: JWT bearer or signed download tokens. "
+        "Audit log accessible via /api/audit/logs."
+    ),
+    version=__version__,
+    lifespan=lifespan,
+    docs_url="/api/docs" if settings.ENV == "development" else None,
+    redoc_url="/api/redoc" if settings.ENV == "development" else None,
+    openapi_tags=[
+        {"name": "Authentication", "description": "Login, sessions, 2FA, roles, ACL"},
+        {"name": "Cameras", "description": "Cameras, ONVIF, PTZ, motion zones, privacy masks"},
+        {"name": "Recordings", "description": "Playback, export, integrity, evidence bundles"},
+        {"name": "Events", "description": "Motion / tamper / video-loss + linkage rules"},
+        {"name": "Storage", "description": "Pools, tiers, S.M.A.R.T disk health, analytics"},
+        {"name": "Monitoring", "description": "CPU/RAM, FFmpeg, bandwidth, disk health"},
+        {"name": "Settings", "description": "System settings, TLS, backup/restore"},
+        {"name": "System", "description": "License, NTP, DDNS, updates"},
+        {"name": "Audit", "description": "Audit log, compliance reports, GDPR export"},
+    ],
+)
+
+
+# ── CORS ─────────────────────────────────────────────────────────────
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Admin route IP allow-list (Phase 5.4). No-op when the setting is empty.
+from app.core.ip_allowlist import IPAllowlistMiddleware
+app.add_middleware(IPAllowlistMiddleware)
+
+
+# ── Global exception handler ────────────────────────────────────────
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.exception(f"Unhandled error: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"},
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Register routers
+# ══════════════════════════════════════════════════════════════════════
+
+from app.auth.router import router as auth_router
+from app.cameras.router import router as cameras_router
+from app.recordings.router import router as recordings_router
+from app.bookmarks.router import router as bookmarks_router
+from app.events.router import router as events_router
+from app.storage.router import router as storage_router
+from app.monitoring.router import router as monitoring_router
+from app.monitoring.camera_health_router import router as camera_health_router
+from app.settings.router import router as settings_router
+from app.settings.backup_router import router as backup_router
+from app.audit.router import router as audit_router
+from app.notifications.router import router as notifications_router
+from app.core.websocket_router import router as websocket_router
+from app.system.router import router as system_router
+from app.onvif_device.router import router as onvif_device_router
+
+app.include_router(auth_router, prefix="/api")
+app.include_router(cameras_router, prefix="/api")
+app.include_router(recordings_router, prefix="/api")
+app.include_router(bookmarks_router, prefix="/api")
+app.include_router(events_router, prefix="/api")
+app.include_router(storage_router, prefix="/api")
+app.include_router(monitoring_router, prefix="/api")
+app.include_router(camera_health_router, prefix="/api")
+app.include_router(settings_router, prefix="/api")
+app.include_router(backup_router, prefix="/api")
+app.include_router(audit_router, prefix="/api")
+app.include_router(notifications_router, prefix="/api")
+app.include_router(websocket_router, prefix="/api")
+app.include_router(system_router, prefix="/api")
+
+# ONVIF device endpoints are NOT under /api (VMS expects root-level paths)
+app.include_router(onvif_device_router)
+
+
+# ── Health check ─────────────────────────────────────────────────────
+@app.get("/api/health")
+async def health():
+    from app.services.go2rtc_manager import go2rtc_manager
+    from app.services.ffmpeg_manager import ffmpeg_manager
+    go2rtc_ok = await go2rtc_manager.is_healthy()
+    return {
+        "status": "ok",
+        "version": __version__,
+        "go2rtc": "connected" if go2rtc_ok else "disconnected",
+        "active_recordings": ffmpeg_manager.active_count,
+    }

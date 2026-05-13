@@ -1,0 +1,26 @@
+# =============================================================================
+# go2rtc configuration template — GENERATED FILE, DO NOT EDIT DIRECTLY
+# =============================================================================
+# This file is generated from go2rtc.yaml.template by install.sh or
+# scripts/generate-go2rtc-config.py using environment variables.
+# Edit the template or env vars instead.
+# =============================================================================
+
+api:
+  listen: ":1984"
+  origin: "http://localhost"
+
+rtsp:
+  listen: ":8554"
+
+webrtc:
+  listen: ":8555"
+  candidates:
+    - 192.168.1.79:8555
+    - 127.0.0.1:8555
+    - stun:8555
+
+log:
+  level: info
+
+streams:

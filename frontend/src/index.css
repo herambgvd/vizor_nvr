@@ -1,0 +1,180 @@
+/* =============================================================================
+ * GVD NVR — Vercel-style dark theme
+ * Near-black surface, subtle zinc panels, blue accent + top-right aurora glow.
+ * =============================================================================
+ */
+
+@import url("https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body {
+  margin: 0;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: "Geist", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+code, pre, .font-mono {
+  font-family: "Geist Mono", "JetBrains Mono", "Fira Code", monospace;
+}
+
+@layer base {
+  :root,
+  .dark {
+    /* Near-black canvas */
+    --background: 0 0% 4%;
+    --foreground: 0 0% 98%;
+
+    --card: 0 0% 6%;
+    --card-foreground: 0 0% 98%;
+
+    --popover: 0 0% 7%;
+    --popover-foreground: 0 0% 98%;
+
+    /* Blue primary — Vercel-style #3b82f6 family */
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 0 0% 10%;
+    --secondary-foreground: 0 0% 98%;
+
+    --muted: 0 0% 10%;
+    --muted-foreground: 0 0% 63%;
+
+    --accent: 217 91% 60%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 0 0% 15%;
+    --input: 0 0% 12%;
+    --ring: 217 91% 60%;
+
+    --chart-1: 217 91% 60%;
+    --chart-2: 192 95% 56%;
+    --chart-3: 263 70% 65%;
+    --chart-4: 38 92% 55%;
+    --chart-5: 142 71% 50%;
+
+    --success: 142 71% 50%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 55%;
+    --warning-foreground: 0 0% 0%;
+
+    --radius: 0.625rem;
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  body { @apply bg-background text-foreground; }
+
+  ::selection {
+    background: hsl(217 91% 60% / 0.35);
+    color: hsl(0 0% 100%);
+  }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: hsl(0 0% 18%);
+  border-radius: 8px;
+  border: 2px solid hsl(var(--background));
+}
+::-webkit-scrollbar-thumb:hover { background: hsl(0 0% 28%); }
+
+/* =============================================================================
+ * Aurora — top-right blue gradient glow
+ * =============================================================================
+ */
+@layer utilities {
+  .aurora {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    overflow: hidden;
+  }
+  .aurora::before {
+    content: "";
+    position: absolute;
+    top: -20%;
+    right: -10%;
+    width: 75vw;
+    height: 75vw;
+    max-width: 1100px;
+    max-height: 1100px;
+    background: radial-gradient(
+      circle at center,
+      hsl(217 91% 60% / 0.35) 0%,
+      hsl(217 91% 60% / 0.15) 25%,
+      hsl(263 70% 60% / 0.10) 45%,
+      transparent 65%
+    );
+    filter: blur(60px);
+    border-radius: 50%;
+    animation: aurora-shift 18s ease-in-out infinite;
+  }
+  .aurora::after {
+    content: "";
+    position: absolute;
+    top: -10%;
+    right: 8%;
+    width: 35vw;
+    height: 35vw;
+    max-width: 600px;
+    max-height: 600px;
+    background: radial-gradient(
+      circle at center,
+      hsl(192 95% 65% / 0.30) 0%,
+      hsl(217 91% 60% / 0.10) 40%,
+      transparent 70%
+    );
+    filter: blur(40px);
+    border-radius: 50%;
+  }
+
+  .glass {
+    background: hsl(0 0% 6% / 0.6);
+    backdrop-filter: blur(16px) saturate(140%);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+    border: 1px solid hsl(0 0% 100% / 0.06);
+  }
+
+  .text-balance { text-wrap: balance; }
+
+  .text-gradient-blue {
+    background: linear-gradient(
+      135deg,
+      hsl(0 0% 100%) 0%,
+      hsl(217 91% 75%) 50%,
+      hsl(192 95% 65%) 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .vercel-card {
+    background: hsl(0 0% 6%);
+    border: 1px solid hsl(0 0% 15%);
+    border-radius: var(--radius);
+    transition: border-color 0.2s ease, transform 0.2s ease;
+  }
+  .vercel-card:hover { border-color: hsl(0 0% 25%); }
+}
+
+@keyframes aurora-shift {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50%      { transform: translate(-4%, 3%) scale(1.05); }
+}

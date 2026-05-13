@@ -1,0 +1,326 @@
+# =============================================================================
+# Storage Router
+# =============================================================================
+
+from typing import List
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.database import get_db
+from app.storage.models import (
+    StoragePoolCreate, StoragePoolUpdate, StoragePoolResponse,
+    TierRuleCreate, TierRuleResponse, StorageSummary,
+    CloudConfigCreate, CloudConfigUpdate, CloudConfigResponse, CloudUploadJob,
+)
+from app.storage.service import StorageService
+from app.core.dependencies import get_admin_user
+from app.core.audit_logger import write_audit, client_ip
+
+router = APIRouter(prefix="/storage", tags=["Storage"])
+svc = StorageService()
+
+
+# ── Summary ────────────────────────────────────────────────────────
+
+@router.get("/summary", response_model=StorageSummary)
+async def storage_summary(
+    user: dict = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await svc.get_summary(db)
+
+
+# ── Pool CRUD ──────────────────────────────────────────────────────
+
+@router.get("/pools", response_model=List[StoragePoolResponse])
+async def list_pools(
+    user: dict = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    pools = await svc.get_all_pools(db)
+    # Enrich with disk usage
+    result = []
+    for pool in pools:
+        disk = svc.get_disk_usage(pool.path)
+        used = svc.get_pool_used_bytes(pool.path)
+        result.append(StoragePoolResponse(
+            **{c.name: getattr(pool, c.name) for c in pool.__table__.columns},
+            used_bytes=used,
+            free_bytes=max(0, (pool.max_size_bytes or disk["total_bytes"]) - used),
+            recording_count=0,
+        ))
+    return result
+
+
+@router.get("/analytics")
+async def storage_analytics(
+    user: dict = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Daily write rate per camera (last 7/30/90 days) + projected
+    days-until-full per pool. Used by the Storage > Analytics tab."""
+    from sqlalchemy import text
+    # Per-camera daily byte rate
+    rows7 = (await db.execute(text("""
+        SELECT camera_id, COALESCE(SUM(file_size), 0) AS total
+        FROM recordings
+        WHERE start_time >= datetime('now', '-7 days')
+        GROUP BY camera_id
+    """))).fetchall()
+    rows30 = (await db.execute(text("""
+        SELECT camera_id, COALESCE(SUM(file_size), 0) AS total
+        FROM recordings
+        WHERE start_time >= datetime('now', '-30 days')
+        GROUP BY camera_id
+    """))).fetchall()
+    rows90 = (await db.execute(text("""
+        SELECT camera_id, COALESCE(SUM(file_size), 0) AS total
+        FROM recordings
+        WHERE start_time >= datetime('now', '-90 days')
+        GROUP BY camera_id
+    """))).fetchall()
+
+    per_camera = {}
+    for cid, total in rows7:
+        per_camera.setdefault(cid, {})["bytes_per_day_7d"] = total / 7.0
+    for cid, total in rows30:
+        per_camera.setdefault(cid, {})["bytes_per_day_30d"] = total / 30.0
+    for cid, total in rows90:
+        per_camera.setdefault(cid, {})["bytes_per_day_90d"] = total / 90.0
+
+    # Per-pool days-until-full
+    summary = await svc.get_summary(db)
+    pools_proj = []
+    for p in summary["pools"]:
+        rate = 0
+        # Estimate daily aggregate write rate to this pool from 30-day cameras
+        # (cheap heuristic — production tooling can refine).
+        free = p["free_bytes"]
+        # Sum per_camera bytes_per_day_30d for cameras pinned to this pool
+        from sqlalchemy import text as _t
+        cams = (await db.execute(_t(
+            "SELECT id FROM cameras WHERE storage_pool_id = :pid"
+        ), {"pid": p["id"]})).fetchall()
+        for (cid,) in cams:
+            rate += per_camera.get(cid, {}).get("bytes_per_day_30d", 0)
+        days_left = (free / rate) if rate > 0 else None
+        pools_proj.append({
+            "pool_id": p["id"], "pool_name": p["name"],
+            "free_bytes": free, "daily_write_bytes": rate,
+            "projected_days_until_full": round(days_left, 1) if days_left else None,
+        })
+
+    return {
+        "per_camera": per_camera,
+        "pools": pools_proj,
+        "top_consumers_30d": sorted(
+            [{"camera_id": cid, **v} for cid, v in per_camera.items()],
+            key=lambda x: x.get("bytes_per_day_30d", 0),
+            reverse=True,
+        )[:10],
+    }
+
+
+@router.get("/pools/{pool_id}/health")
+async def pool_health(
+    pool_id: str,
+    user: dict = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Cheap writability check for a pool — path exists, writable,
+    has >=1 GiB headroom (or remaining quota). Used by failover decisions."""
+    info = await svc.get_pool_health(db, pool_id)
+    if info is None:
+        raise HTTPException(404, "Pool not found")
+    return info
+
+
+@router.post("/pools/test-connection")
+async def test_pool_connection(
+    body: dict,
+    user: dict = Depends(get_admin_user),
+):
+    """Pre-flight check for NAS/NFS/SMB mounts before creating a pool.
+    Body: {path: str}. Returns {ok, writable, message}."""
+    path = body.get("path", "")
+    if not path:
+        raise HTTPException(400, "path is required")
+    import os
+    info = {"path": path, "exists": os.path.isdir(path),
+            "writable": os.access(path, os.W_OK) if os.path.isdir(path) else False,
+            "message": "ok"}
+    if not info["exists"]:
+        info["message"] = "Path does not exist on backend host (mount it via fstab/docker volume first)"
+    elif not info["writable"]:
+        info["message"] = "Path exists but is not writable by the backend process"
+    return info
+
+
+@router.post("/pools", response_model=StoragePoolResponse, status_code=201)
+async def create_pool(
+    data: StoragePoolCreate,
+    request: Request,
+    user: dict = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    pool = await svc.create_pool(db, data)
+    await write_audit(
+        db, action="storage_pool_create", user_id=user["id"], username=user["username"],
+        ip_address=client_ip(request), resource_type="storage_pool", resource_id=pool.id,
+    )
+    await db.commit()
+    return StoragePoolResponse(
+        **{c.name: getattr(pool, c.name) for c in pool.__table__.columns},
+        used_bytes=0, free_bytes=0, recording_count=0,
+    )
+
+
+@router.put("/pools/{pool_id}", response_model=StoragePoolResponse)
+async def update_pool(
+    pool_id: str,
+    data: StoragePoolUpdate,
+    user: dict = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    pool = await svc.update_pool(db, pool_id, data)
+    if not pool:
+        raise HTTPException(404, "Pool not found")
+    return StoragePoolResponse(
+        **{c.name: getattr(pool, c.name) for c in pool.__table__.columns},
+        used_bytes=0, free_bytes=0, recording_count=0,
+    )
+
+
+@router.delete("/pools/{pool_id}", status_code=204)
+async def delete_pool(
+    pool_id: str,
+    request: Request,
+    user: dict = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not await svc.delete_pool(db, pool_id):
+        raise HTTPException(404)
+    await write_audit(
+        db, action="storage_pool_delete", user_id=user["id"], username=user["username"],
+        ip_address=client_ip(request), resource_type="storage_pool", resource_id=pool_id,
+        severity="warning",
+    )
+    await db.commit()
+
+
+# ── Tier Rules ─────────────────────────────────────────────────────
+
+@router.get("/rules", response_model=List[TierRuleResponse])
+async def list_tier_rules(
+    user: dict = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await svc.get_all_rules(db)
+
+
+@router.post("/rules", response_model=TierRuleResponse, status_code=201)
+async def create_tier_rule(
+    data: TierRuleCreate,
+    user: dict = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await svc.create_rule(db, data)
+
+
+@router.delete("/rules/{rule_id}", status_code=204)
+async def delete_tier_rule(
+    rule_id: str,
+    user: dict = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not await svc.delete_rule(db, rule_id):
+        raise HTTPException(404)
+
+
+# ── System Disk Explorer ───────────────────────────────────────────
+
+@router.get("/disks")
+async def system_disks(
+    user: dict = Depends(get_admin_user),
+):
+    """Get system disk partitions and usage info."""
+    return await svc.get_system_disk_info()
+
+
+# ── Cloud Storage Config ───────────────────────────────────────────
+
+@router.get("/cloud", response_model=list[CloudConfigResponse])
+async def list_cloud_configs(
+    user: dict = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    configs = await svc.get_all_cloud_configs(db)
+    return [CloudConfigResponse.model_validate(c) for c in configs]
+
+
+@router.post("/cloud", response_model=CloudConfigResponse, status_code=201)
+async def create_cloud_config(
+    data: CloudConfigCreate,
+    request: Request,
+    user: dict = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    cfg = await svc.create_cloud_config(db, data)
+    await write_audit(
+        db, action="cloud_config_create", user_id=user["id"], username=user["username"],
+        ip_address=client_ip(request), resource_type="cloud_config", resource_id=cfg.id,
+    )
+    await db.commit()
+    return CloudConfigResponse.model_validate(cfg)
+
+
+@router.put("/cloud/{config_id}", response_model=CloudConfigResponse)
+async def update_cloud_config(
+    config_id: str,
+    data: CloudConfigUpdate,
+    user: dict = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    cfg = await svc.update_cloud_config(db, config_id, data)
+    if not cfg:
+        raise HTTPException(404, "Cloud config not found")
+    return CloudConfigResponse.model_validate(cfg)
+
+
+@router.delete("/cloud/{config_id}", status_code=204)
+async def delete_cloud_config(
+    config_id: str,
+    request: Request,
+    user: dict = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not await svc.delete_cloud_config(db, config_id):
+        raise HTTPException(404)
+    await write_audit(
+        db, action="cloud_config_delete", user_id=user["id"], username=user["username"],
+        ip_address=client_ip(request), resource_type="cloud_config", resource_id=config_id,
+        severity="warning",
+    )
+    await db.commit()
+
+
+@router.post("/cloud/{config_id}/test")
+async def test_cloud_config(
+    config_id: str,
+    user: dict = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    cfg = await svc.get_cloud_config(db, config_id)
+    if not cfg:
+        raise HTTPException(404, "Cloud config not found")
+    return await svc.test_cloud_connection(cfg)
+
+
+@router.post("/cloud/upload")
+async def upload_to_cloud(
+    job: CloudUploadJob,
+    user: dict = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await svc.upload_recording_to_cloud(db, job.recording_id, job.cloud_config_id)

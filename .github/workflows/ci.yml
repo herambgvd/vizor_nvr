@@ -1,0 +1,198 @@
+# =============================================================================
+# GVD NVR — Continuous Integration
+# =============================================================================
+# Triggers on push/PR to main. Runs lint, unit tests, integration tests,
+# Docker build verification, and frontend build verification.
+# =============================================================================
+
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "20"
+
+jobs:
+  # ── Backend lint + unit tests ───────────────────────────────────────────────
+  backend-unit:
+    name: Backend Unit Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: gvd_nvr_test
+          POSTGRES_USER: nvr
+          POSTGRES_PASSWORD: nvr_test_pass
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio httpx
+
+      - name: Run unit tests (no lifespan)
+        env:
+          DATABASE_URL: postgresql+asyncpg://nvr:nvr_test_pass@localhost:5432/gvd_nvr_test
+          JWT_SECRET_KEY: ci-test-secret-key-do-not-use-in-production
+          ENV: testing
+          STORAGE_PATH: /tmp/gvd-nvr-test/recordings
+          THUMBNAIL_PATH: /tmp/gvd-nvr-test/thumbnails
+          EXPORT_PATH: /tmp/gvd-nvr-test/exports
+          CERT_PATH: /tmp/gvd-nvr-test/certs
+        run: |
+          mkdir -p /tmp/gvd-nvr-test/{recordings,thumbnails,exports,certs}
+          pytest tests/ -v --ignore=tests/integration -m "not lifespan"
+
+  # ── Backend integration tests ───────────────────────────────────────────────
+  backend-integration:
+    name: Backend Integration Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: gvd_nvr_test
+          POSTGRES_USER: nvr
+          POSTGRES_PASSWORD: nvr_test_pass
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio httpx
+
+      - name: Run integration tests
+        env:
+          DATABASE_URL: postgresql+asyncpg://nvr:nvr_test_pass@localhost:5432/gvd_nvr_test
+          JWT_SECRET_KEY: ci-test-secret-key-do-not-use-in-production
+          ENV: testing
+          REDIS_URL: redis://localhost:6379/0
+          STORAGE_PATH: /tmp/gvd-nvr-test/recordings
+          THUMBNAIL_PATH: /tmp/gvd-nvr-test/thumbnails
+          EXPORT_PATH: /tmp/gvd-nvr-test/exports
+          CERT_PATH: /tmp/gvd-nvr-test/certs
+          GO2RTC_URL: http://localhost:1984
+        run: |
+          mkdir -p /tmp/gvd-nvr-test/{recordings,thumbnails,exports,certs}
+          pytest tests/integration/ -v
+
+  # ── Frontend build + lint ───────────────────────────────────────────────────
+  frontend:
+    name: Frontend Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build production bundle
+        env:
+          CI: true
+          REACT_APP_API_URL: /api
+          REACT_APP_WS_URL: /api/ws
+          REACT_APP_GO2RTC_URL: /go2rtc
+        run: npm run build
+
+  # ── Docker build verification ───────────────────────────────────────────────
+  docker-build:
+    name: Docker Build Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: backend
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: frontend
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── Capacity test script validation ─────────────────────────────────────────
+  capacity-test-script:
+    name: Validate Capacity Scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Validate Python syntax
+        run: |
+          python -m py_compile backend/scripts/capacity-testing/capacity_test.py
+          python -m py_compile backend/scripts/capacity-testing/simulate_camera_load.py
+          python -m py_compile scripts/generate-go2rtc-config.py
