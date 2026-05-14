@@ -67,21 +67,21 @@ const RecordingModeTab = ({ camera, cameraId }) => {
             onClick={() => setMode(m.value)}
             className={`flex flex-col text-left px-4 py-3 rounded-lg border-2 transition-all ${
               mode === m.value
-                ? "border-slate-900 bg-zinc-950/40 dark:bg-zinc-900/60"
-                : "border-white/10  hover:border-slate-400"
+                ? "border-slate-900 bg-card/40 dark:bg-primary/60"
+                : "border-border  hover:border-slate-400"
             }`}
           >
             <span className="text-sm font-medium text-white ">
               {m.label}
             </span>
-            <span className="text-xs text-zinc-500 mt-0.5">{m.desc}</span>
+            <span className="text-xs text-muted-foreground mt-0.5">{m.desc}</span>
           </button>
         ))}
       </div>
       <button
         onClick={() => saveMutation.mutate(mode)}
         disabled={saveMutation.isPending || mode === camera?.recording_mode}
-        className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-zinc-900 text-white rounded-md disabled:opacity-50 hover:bg-zinc-900/60 transition-colors"
+        className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-primary text-white rounded-md disabled:opacity-50 hover:bg-primary/60 transition-colors"
       >
         <Save className="h-4 w-4" />
         {saveMutation.isPending ? "Saving…" : "Save Recording Mode"}

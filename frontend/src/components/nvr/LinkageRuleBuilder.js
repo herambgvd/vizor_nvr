@@ -431,7 +431,7 @@ export const LinkageRuleBuilder = () => {
                     className={`text-xs px-1.5 py-0.5 rounded ${
                       rule.enabled
                         ? "bg-green-100 text-green-700"
-                        : "bg-white/[0.06] text-zinc-500"
+                        : "bg-card/70 text-muted-foreground"
                     }`}
                   >
                     {rule.enabled ? "Active" : "Disabled"}

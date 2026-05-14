@@ -98,7 +98,7 @@ const AuditLog = () => {
           >
             Audit Log
           </h1>
-          <p className="text-zinc-500 mt-1">
+          <p className="text-muted-foreground mt-1">
             Track system actions and changes
           </p>
         </div>
@@ -114,8 +114,8 @@ const AuditLog = () => {
       </div>
 
       {/* filters */}
-      <div className="bg-zinc-950 border border-white/10 rounded-lg p-4 mb-6">
-        <div className="flex items-center gap-2 mb-3 text-sm text-zinc-500 font-medium">
+      <div className="bg-card border border-border rounded-lg p-4 mb-6">
+        <div className="flex items-center gap-2 mb-3 text-sm text-muted-foreground font-medium">
           <Filter className="h-4 w-4" />
           Filters
         </div>
@@ -145,7 +145,7 @@ const AuditLog = () => {
           <div>
             <Label className="text-xs">User</Label>
             <div className="relative">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-zinc-500" />
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
                 value={userFilter}
                 onChange={(e) => {
@@ -183,16 +183,16 @@ const AuditLog = () => {
       </div>
 
       {/* table */}
-      <div className="bg-zinc-950 border border-white/10 rounded-lg overflow-hidden">
+      <div className="bg-card border border-border rounded-lg overflow-hidden">
         {isLoading ? (
-          <div className="p-10 text-center text-zinc-500">Loading…</div>
+          <div className="p-10 text-center text-muted-foreground">Loading…</div>
         ) : logs.length === 0 ? (
-          <div className="p-10 text-center text-zinc-500">
+          <div className="p-10 text-center text-muted-foreground">
             No audit entries found
           </div>
         ) : (
           <table className="w-full text-sm">
-            <thead className="bg-zinc-950/40 border-b border-white/10">
+            <thead className="bg-card/40 border-b border-border">
               <tr>
                 <th className="text-left px-4 py-3 text-zinc-400 font-medium">
                   Time
@@ -218,9 +218,9 @@ const AuditLog = () => {
               {logs.map((log) => (
                 <tr
                   key={log.id}
-                  className="border-b border-slate-100 last:border-0 hover:bg-zinc-950/40/50"
+                  className="border-b border-slate-100 last:border-0 hover:bg-card/40/50"
                 >
-                  <td className="px-4 py-3 whitespace-nowrap text-zinc-500">
+                  <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">
                     {log.created_at
                       ? format(new Date(log.created_at), "MMM d, yyyy HH:mm:ss")
                       : "-"}
@@ -236,14 +236,14 @@ const AuditLog = () => {
                       ? `${log.resource_type}/${log.resource_id ?? ""}`
                       : "-"}
                   </td>
-                  <td className="px-4 py-3 text-zinc-500 text-xs truncate max-w-[250px]">
+                  <td className="px-4 py-3 text-muted-foreground text-xs truncate max-w-[250px]">
                     {log.details
                       ? typeof log.details === "string"
                         ? log.details
                         : JSON.stringify(log.details)
                       : "-"}
                   </td>
-                  <td className="px-4 py-3 text-zinc-500 text-xs font-mono">
+                  <td className="px-4 py-3 text-muted-foreground text-xs font-mono">
                     {log.ip_address || "-"}
                   </td>
                 </tr>
@@ -256,7 +256,7 @@ const AuditLog = () => {
       {/* pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-between mt-4">
-          <p className="text-sm text-zinc-500">
+          <p className="text-sm text-muted-foreground">
             Page {page} of {totalPages}
           </p>
           <div className="flex gap-2">
@@ -290,14 +290,14 @@ const colorMap = {
   update: "bg-blue-100 text-blue-700",
   delete: "bg-red-100 text-red-700",
   login: "bg-purple-100 text-purple-700",
-  logout: "bg-white/[0.04] text-zinc-400",
+  logout: "bg-card/60 text-zinc-400",
 };
 
 const ActionBadge = ({ action }) => {
   const key = Object.keys(colorMap).find((k) =>
     action?.toLowerCase().includes(k),
   );
-  const cls = key ? colorMap[key] : "bg-white/[0.04] text-zinc-400";
+  const cls = key ? colorMap[key] : "bg-card/60 text-zinc-400";
   return (
     <span
       className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${cls}`}

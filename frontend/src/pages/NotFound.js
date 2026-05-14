@@ -10,7 +10,7 @@ import { Button } from "../components/ui/button";
 const NotFound = () => {
   const navigate = useNavigate();
   return (
-    <div className="min-h-screen flex items-center justify-center bg-zinc-950">
+    <div className="min-h-screen flex items-center justify-center bg-card">
       <div className="text-center max-w-md px-6">
         <p
           className="text-7xl font-bold text-slate-200 mb-4"
@@ -24,7 +24,7 @@ const NotFound = () => {
         >
           Page Not Found
         </h1>
-        <p className="text-zinc-500 mb-8 text-sm">
+        <p className="text-muted-foreground mb-8 text-sm">
           The page you're looking for doesn't exist or has been moved.
         </p>
         <div className="flex items-center justify-center gap-3">
@@ -32,7 +32,7 @@ const NotFound = () => {
             <ArrowLeft className="h-4 w-4 mr-2" />
             Go Back
           </Button>
-          <Button asChild className="bg-zinc-900 hover:bg-zinc-900/60">
+          <Button asChild className="bg-primary hover:bg-primary/60">
             <Link to="/">
               <Home className="h-4 w-4 mr-2" />
               Dashboard

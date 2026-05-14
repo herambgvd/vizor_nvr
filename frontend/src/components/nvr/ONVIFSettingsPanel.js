@@ -126,10 +126,10 @@ const EventsTab = ({ camera, cameraId }) => {
 
   if (!camera?.onvif_host) {
     return (
-      <div className="text-center py-12 text-zinc-500">
+      <div className="text-center py-12 text-muted-foreground">
         <Radio className="h-10 w-10 mx-auto mb-3 text-slate-300" />
         <p className="text-sm">No ONVIF host configured for this camera.</p>
-        <p className="text-xs text-zinc-500 mt-1">
+        <p className="text-xs text-muted-foreground mt-1">
           Set the ONVIF host in camera settings to enable event pull.
         </p>
       </div>
@@ -139,12 +139,12 @@ const EventsTab = ({ camera, cameraId }) => {
   return (
     <div className="space-y-6">
       {/* Enable toggle */}
-      <div className="flex items-center justify-between p-4 bg-zinc-950/40 dark:bg-zinc-900/60 rounded-lg">
+      <div className="flex items-center justify-between p-4 bg-card/40 dark:bg-primary/60 rounded-lg">
         <div>
           <p className="text-sm font-medium text-white ">
             ONVIF Event Pull
           </p>
-          <p className="text-xs text-zinc-500 mt-0.5">
+          <p className="text-xs text-muted-foreground mt-0.5">
             Subscribe to real-time camera events via ONVIF PullPoint
           </p>
         </div>
@@ -161,7 +161,7 @@ const EventsTab = ({ camera, cameraId }) => {
             <p className="text-sm font-medium text-white ">
               Event Topics
             </p>
-            <p className="text-xs text-zinc-500">
+            <p className="text-xs text-muted-foreground">
               Leave all unchecked to subscribe to all events
             </p>
           </div>
@@ -182,16 +182,16 @@ const EventsTab = ({ camera, cameraId }) => {
                 className={cn(
                   "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm text-left transition-colors border",
                   checked
-                    ? "bg-zinc-900 text-white border-slate-900"
-                    : "bg-zinc-950 dark:bg-zinc-900 text-zinc-200  border-white/10  hover:border-slate-400",
+                    ? "bg-primary text-white border-slate-900"
+                    : "bg-card dark:bg-primary text-zinc-200  border-border  hover:border-slate-400",
                 )}
               >
                 <div
                   className={cn(
                     "h-4 w-4 rounded flex-shrink-0 border-2 transition-colors",
                     checked
-                      ? "border-white bg-zinc-950"
-                      : "border-white/15 ",
+                      ? "border-white bg-card"
+                      : "border-border ",
                   )}
                 >
                   {checked && (
@@ -266,7 +266,7 @@ const ImagingTab = ({ camera, cameraId }) => {
 
   if (!camera?.onvif_host) {
     return (
-      <div className="text-center py-12 text-zinc-500">
+      <div className="text-center py-12 text-muted-foreground">
         <Image className="h-10 w-10 mx-auto mb-3 text-slate-300" />
         <p className="text-sm">No ONVIF host configured for this camera.</p>
       </div>
@@ -276,8 +276,8 @@ const ImagingTab = ({ camera, cameraId }) => {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <RefreshCw className="h-6 w-6 animate-spin text-zinc-500" />
-        <span className="ml-2 text-sm text-zinc-500">Loading imaging settings…</span>
+        <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+        <span className="ml-2 text-sm text-muted-foreground">Loading imaging settings…</span>
       </div>
     );
   }
@@ -286,7 +286,7 @@ const ImagingTab = ({ camera, cameraId }) => {
     return (
       <div className="text-center py-12">
         <AlertTriangle className="h-10 w-10 mx-auto mb-3 text-amber-400" />
-        <p className="text-sm text-zinc-500">Could not load imaging settings from camera.</p>
+        <p className="text-sm text-muted-foreground">Could not load imaging settings from camera.</p>
         <Button variant="outline" size="sm" className="mt-3" onClick={refetch}>
           Retry
         </Button>
@@ -298,7 +298,7 @@ const ImagingTab = ({ camera, cameraId }) => {
     <div className="space-y-2">
       <div className="flex items-center justify-between">
         <Label className="text-sm">{label}</Label>
-        <span className="text-xs text-zinc-500 font-mono w-8 text-right">
+        <span className="text-xs text-muted-foreground font-mono w-8 text-right">
           {settings[field] != null ? Math.round(settings[field]) : "—"}
         </span>
       </div>
@@ -317,7 +317,7 @@ const ImagingTab = ({ camera, cameraId }) => {
     <div className="space-y-6">
       {/* Basic image quality */}
       <div className="space-y-4">
-        <p className="text-sm font-semibold text-zinc-200  border-b border-white/10  pb-2">
+        <p className="text-sm font-semibold text-zinc-200  border-b border-border  pb-2">
           Image Quality
         </p>
         <SliderRow label="Brightness" field="brightness" min={-100} max={100} />
@@ -328,7 +328,7 @@ const ImagingTab = ({ camera, cameraId }) => {
 
       {/* Mode selects */}
       <div className="space-y-4">
-        <p className="text-sm font-semibold text-zinc-200  border-b border-white/10  pb-2">
+        <p className="text-sm font-semibold text-zinc-200  border-b border-border  pb-2">
           Camera Modes
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -386,7 +386,7 @@ const ImagingTab = ({ camera, cameraId }) => {
 
       {/* Autofocus */}
       <div className="space-y-3">
-        <p className="text-sm font-semibold text-zinc-200  border-b border-white/10  pb-2">
+        <p className="text-sm font-semibold text-zinc-200  border-b border-border  pb-2">
           Focus Control
         </p>
         <div className="flex items-center gap-2 flex-wrap">
@@ -480,7 +480,7 @@ const DigitalIOTab = ({ camera, cameraId }) => {
 
   if (!camera?.onvif_host) {
     return (
-      <div className="text-center py-12 text-zinc-500">
+      <div className="text-center py-12 text-muted-foreground">
         <Zap className="h-10 w-10 mx-auto mb-3 text-slate-300" />
         <p className="text-sm">No ONVIF host configured for this camera.</p>
       </div>
@@ -501,28 +501,28 @@ const DigitalIOTab = ({ camera, cameraId }) => {
         </div>
 
         {relaysLoading ? (
-          <div className="flex items-center gap-2 py-6 text-zinc-500 text-sm">
+          <div className="flex items-center gap-2 py-6 text-muted-foreground text-sm">
             <RefreshCw className="h-4 w-4 animate-spin" /> Loading relay outputs…
           </div>
         ) : relaysError ? (
-          <p className="text-sm text-zinc-500 py-4">
+          <p className="text-sm text-muted-foreground py-4">
             <AlertTriangle className="h-4 w-4 inline mr-1 text-amber-400" />
             Could not load relay outputs from camera.
           </p>
         ) : !relays?.length ? (
-          <p className="text-sm text-zinc-500 py-4">No relay outputs reported by camera.</p>
+          <p className="text-sm text-muted-foreground py-4">No relay outputs reported by camera.</p>
         ) : (
           <div className="space-y-2">
             {(relays || []).map((relay) => (
               <div
                 key={relay.token}
-                className="flex items-center justify-between p-3 bg-zinc-950/40 dark:bg-zinc-900/60 rounded-lg border border-white/10 "
+                className="flex items-center justify-between p-3 bg-card/40 dark:bg-primary/60 rounded-lg border border-border "
               >
                 <div>
                   <p className="text-sm font-medium text-white ">
                     {relay.token}
                   </p>
-                  <p className="text-xs text-zinc-500 capitalize">
+                  <p className="text-xs text-muted-foreground capitalize">
                     Mode: {relay.mode || "—"} · Delay: {relay.delay_time || "0"}s
                   </p>
                 </div>
@@ -569,16 +569,16 @@ const DigitalIOTab = ({ camera, cameraId }) => {
         </div>
 
         {inputsLoading ? (
-          <div className="flex items-center gap-2 py-6 text-zinc-500 text-sm">
+          <div className="flex items-center gap-2 py-6 text-muted-foreground text-sm">
             <RefreshCw className="h-4 w-4 animate-spin" /> Loading digital inputs…
           </div>
         ) : inputsError ? (
-          <p className="text-sm text-zinc-500 py-4">
+          <p className="text-sm text-muted-foreground py-4">
             <AlertTriangle className="h-4 w-4 inline mr-1 text-amber-400" />
             Could not load digital inputs from camera.
           </p>
         ) : !inputs?.length ? (
-          <p className="text-sm text-zinc-500 py-4">No digital inputs reported by camera.</p>
+          <p className="text-sm text-muted-foreground py-4">No digital inputs reported by camera.</p>
         ) : (
           <div className="space-y-2">
             {(inputs || []).map((input) => {
@@ -586,7 +586,7 @@ const DigitalIOTab = ({ camera, cameraId }) => {
               return (
                 <div
                   key={input.token}
-                  className="flex items-center justify-between p-3 bg-zinc-950/40 dark:bg-zinc-900/60 rounded-lg border border-white/10 "
+                  className="flex items-center justify-between p-3 bg-card/40 dark:bg-primary/60 rounded-lg border border-border "
                 >
                   <div className="flex items-center gap-3">
                     {isActive ? (
@@ -598,7 +598,7 @@ const DigitalIOTab = ({ camera, cameraId }) => {
                       <p className="text-sm font-medium text-white ">
                         {input.token}
                       </p>
-                      <p className="text-xs text-zinc-500 capitalize">
+                      <p className="text-xs text-muted-foreground capitalize">
                         Idle state: {input.idle_state || "—"}
                       </p>
                     </div>
@@ -676,7 +676,7 @@ const SystemTab = ({ camera, cameraId }) => {
 
   if (!camera?.onvif_host) {
     return (
-      <div className="text-center py-12 text-zinc-500">
+      <div className="text-center py-12 text-muted-foreground">
         <Cpu className="h-10 w-10 mx-auto mb-3 text-slate-300" />
         <p className="text-sm">No ONVIF host configured for this camera.</p>
       </div>
@@ -685,7 +685,7 @@ const SystemTab = ({ camera, cameraId }) => {
 
   const InfoRow = ({ label, value }) => (
     <div className="flex items-start justify-between py-2 border-b border-slate-100  last:border-0">
-      <span className="text-xs text-zinc-500 dark:text-zinc-500 w-36 flex-shrink-0">{label}</span>
+      <span className="text-xs text-muted-foreground dark:text-muted-foreground w-36 flex-shrink-0">{label}</span>
       <span className="text-xs font-medium text-white  text-right break-all">
         {value || "—"}
       </span>
@@ -696,21 +696,21 @@ const SystemTab = ({ camera, cameraId }) => {
     <div className="space-y-6">
       {/* Device info */}
       <div>
-        <p className="text-sm font-semibold text-zinc-200  border-b border-white/10  pb-2 mb-3 flex items-center gap-2">
+        <p className="text-sm font-semibold text-zinc-200  border-b border-border  pb-2 mb-3 flex items-center gap-2">
           <Info className="h-4 w-4" />
           Device Information
         </p>
         {infoLoading ? (
-          <div className="flex items-center gap-2 py-4 text-zinc-500 text-sm">
+          <div className="flex items-center gap-2 py-4 text-muted-foreground text-sm">
             <RefreshCw className="h-4 w-4 animate-spin" /> Loading device info…
           </div>
         ) : infoError ? (
-          <p className="text-sm text-zinc-500 py-2">
+          <p className="text-sm text-muted-foreground py-2">
             <AlertTriangle className="h-4 w-4 inline mr-1 text-amber-400" />
             Could not retrieve device information.
           </p>
         ) : deviceInfo ? (
-          <div className="bg-zinc-950/40 dark:bg-zinc-900/60 rounded-lg p-3">
+          <div className="bg-card/40 dark:bg-primary/60 rounded-lg p-3">
             <InfoRow label="Manufacturer" value={deviceInfo.manufacturer} />
             <InfoRow label="Model" value={deviceInfo.model} />
             <InfoRow label="Firmware Version" value={deviceInfo.firmware_version} />
@@ -722,17 +722,17 @@ const SystemTab = ({ camera, cameraId }) => {
 
       {/* Time */}
       <div>
-        <p className="text-sm font-semibold text-zinc-200  border-b border-white/10  pb-2 mb-3 flex items-center gap-2">
+        <p className="text-sm font-semibold text-zinc-200  border-b border-border  pb-2 mb-3 flex items-center gap-2">
           <Clock className="h-4 w-4" />
           Camera Time
         </p>
         <div className="flex items-center gap-4 flex-wrap">
-          <div className="bg-zinc-950/40 dark:bg-zinc-900/60 rounded-lg px-4 py-2 min-w-[200px]">
+          <div className="bg-card/40 dark:bg-primary/60 rounded-lg px-4 py-2 min-w-[200px]">
             {timeLoading ? (
-              <span className="text-sm text-zinc-500">Loading…</span>
+              <span className="text-sm text-muted-foreground">Loading…</span>
             ) : timeData?.camera_time ? (
               <>
-                <p className="text-xs text-zinc-500">Camera time</p>
+                <p className="text-xs text-muted-foreground">Camera time</p>
                 <p className="text-sm font-medium font-mono text-white ">
                   {new Date(timeData.camera_time).toLocaleString()}
                 </p>
@@ -747,7 +747,7 @@ const SystemTab = ({ camera, cameraId }) => {
                 )}
               </>
             ) : (
-              <span className="text-sm text-zinc-500">Time unavailable</span>
+              <span className="text-sm text-muted-foreground">Time unavailable</span>
             )}
           </div>
           <Button
@@ -831,7 +831,7 @@ const SystemTab = ({ camera, cameraId }) => {
             <AlertDialogAction
               onClick={() => factoryMutation.mutate()}
               disabled={factoryMutation.isPending}
-              className="bg-red-600 hover:bg-red-700"
+              className="bg-destructive hover:bg-destructive/90"
             >
               {factoryMutation.isPending ? "Resetting…" : "Factory Reset"}
             </AlertDialogAction>
@@ -855,7 +855,7 @@ export const ONVIFSettingsPanel = ({ cameraId }) => {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <RefreshCw className="h-6 w-6 animate-spin text-zinc-500" />
+        <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
       </div>
     );
   }
@@ -866,13 +866,13 @@ export const ONVIFSettingsPanel = ({ cameraId }) => {
         <h3 className="text-base font-semibold text-white ">
           ONVIF Settings
         </h3>
-        <p className="text-sm text-zinc-500">
+        <p className="text-sm text-muted-foreground">
           Camera-level ONVIF configuration — events, imaging, digital I/O and system operations
         </p>
       </div>
 
       <Tabs defaultValue="events">
-        <TabsList className="h-auto bg-white/[0.04] dark:bg-zinc-900/60 p-1">
+        <TabsList className="h-auto bg-card/60 dark:bg-primary/60 p-1">
           <TabsTrigger value="events" className="gap-1.5 text-xs sm:text-sm">
             <Radio className="h-3.5 w-3.5" />
             Events

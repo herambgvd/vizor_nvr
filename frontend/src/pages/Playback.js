@@ -45,6 +45,7 @@ import {
   RecordingCalendar,
   ClipBuilder,
 } from "../components/nvr";
+import AIEventTimeline from "../components/camera/AIEventTimeline";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Badge } from "../components/ui/badge";
@@ -222,14 +223,14 @@ const Playback = () => {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className="flex-shrink-0 px-4 md:px-8 pt-4 md:pt-6 pb-3 md:pb-4 border-b border-white/10 ">
+      <div className="flex-shrink-0 px-4 md:px-8 pt-4 md:pt-6 pb-3 md:pb-4 border-b border-border ">
         <h1
           className="text-2xl md:text-3xl font-bold text-white  tracking-tight"
           style={{ fontFamily: "Manrope, sans-serif" }}
         >
           Playback
         </h1>
-        <p className="text-zinc-500 dark:text-zinc-500 mt-1 text-sm md:text-base">
+        <p className="text-muted-foreground dark:text-muted-foreground mt-1 text-sm md:text-base">
           Review and export recorded footage
         </p>
       </div>
@@ -238,7 +239,7 @@ const Playback = () => {
         defaultValue="timeline"
         className="flex-1 flex flex-col overflow-hidden"
       >
-        <div className="flex-shrink-0 px-4 md:px-8 border-b border-white/10 ">
+        <div className="flex-shrink-0 px-4 md:px-8 border-b border-border ">
           <TabsList className="h-auto bg-transparent gap-0 p-0">
             <TabsTrigger
               value="timeline"
@@ -265,7 +266,7 @@ const Playback = () => {
           <div className="flex-shrink-0 px-4 md:px-8 py-3 md:py-4 border-b border-slate-100  flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-3 md:gap-4">
             {/* Camera select */}
             <div className="flex items-center gap-2 w-full sm:w-auto">
-              <Camera className="h-5 w-5 text-zinc-500 hidden sm:block" />
+              <Camera className="h-5 w-5 text-muted-foreground hidden sm:block" />
               <Select
                 value={selectedCameraId}
                 onValueChange={setSelectedCameraId}
@@ -371,6 +372,12 @@ const Playback = () => {
                     onBookmark={handleBookmark}
                     isLoading={timelineLoading}
                   />
+                  <AIEventTimeline
+                    cameraId={selectedCameraId}
+                    windowStart={startOfDay(selectedDate)}
+                    windowEnd={new Date(startOfDay(selectedDate).getTime() + 86400000)}
+                    onSeek={(ts) => handleSeek(ts)}
+                  />
                 </div>
                 <div className="lg:w-64 flex-shrink-0 space-y-4">
                   <RecordingCalendar
@@ -385,12 +392,12 @@ const Playback = () => {
                 </div>
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center py-16 px-4 bg-zinc-950/40 rounded-lg border border-dashed border-white/15">
-                <Play className="h-12 w-12 text-zinc-500 mb-4" />
+              <div className="flex flex-col items-center justify-center py-16 px-4 bg-card/40 rounded-lg border border-dashed border-border">
+                <Play className="h-12 w-12 text-muted-foreground mb-4" />
                 <h3 className="text-lg font-medium text-white mb-2">
                   Select a Camera
                 </h3>
-                <p className="text-zinc-500 text-center max-w-md">
+                <p className="text-muted-foreground text-center max-w-md">
                   Choose a camera from the dropdown above to view recorded
                   footage.
                 </p>
@@ -485,7 +492,7 @@ const BookmarksPanel = ({ cameras }) => {
       {/* Filters */}
       <div className="flex flex-wrap items-end gap-3">
         <div className="relative w-64">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Search bookmarks…"
             value={searchQuery}
@@ -519,14 +526,14 @@ const BookmarksPanel = ({ cameras }) => {
 
       {/* Bookmark cards */}
       {isLoading ? (
-        <div className="text-center py-12 text-zinc-500">
+        <div className="text-center py-12 text-muted-foreground">
           Loading bookmarks…
         </div>
       ) : bookmarkList.length === 0 ? (
         <div className="text-center py-12">
           <Bookmark className="h-10 w-10 text-slate-300 mx-auto mb-3" />
-          <p className="text-zinc-500">No bookmarks found</p>
-          <p className="text-zinc-500 text-sm mt-1">
+          <p className="text-muted-foreground">No bookmarks found</p>
+          <p className="text-muted-foreground text-sm mt-1">
             Create bookmarks during playback to save important moments
           </p>
         </div>
@@ -537,7 +544,7 @@ const BookmarksPanel = ({ cameras }) => {
             return (
               <div
                 key={bm.id}
-                className="bg-zinc-950 dark:bg-zinc-900/60 border border-white/10  rounded-lg p-4 flex items-start gap-4 hover:border-white/15 transition-colors"
+                className="bg-card dark:bg-primary/60 border border-border  rounded-lg p-4 flex items-start gap-4 hover:border-border transition-colors"
               >
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
@@ -545,7 +552,7 @@ const BookmarksPanel = ({ cameras }) => {
                       <Camera className="h-3 w-3 mr-1" />
                       {cam?.name || "Unknown"}
                     </Badge>
-                    <span className="text-xs text-zinc-500 flex items-center gap-1">
+                    <span className="text-xs text-muted-foreground flex items-center gap-1">
                       <Clock className="h-3 w-3" />
                       {bm.created_at
                         ? format(new Date(bm.created_at), "MMM d, yyyy HH:mm")
@@ -556,7 +563,7 @@ const BookmarksPanel = ({ cameras }) => {
                     {bm.note || bm.label || "No description"}
                   </p>
                   {bm.timestamp != null && (
-                    <p className="text-xs text-zinc-500 mt-1">
+                    <p className="text-xs text-muted-foreground mt-1">
                       Timestamp:{" "}
                       {typeof bm.timestamp === "number"
                         ? `${Math.floor(bm.timestamp)}s`
@@ -613,7 +620,7 @@ const BookmarksPanel = ({ cameras }) => {
           >
             <ChevronLeft className="h-4 w-4 mr-1" /> Previous
           </Button>
-          <span className="text-sm text-zinc-500">Page {page}</span>
+          <span className="text-sm text-muted-foreground">Page {page}</span>
           <Button
             variant="outline"
             size="sm"

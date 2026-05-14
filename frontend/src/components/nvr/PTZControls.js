@@ -179,7 +179,7 @@ export const PTZControls = ({ cameraId, className, speed = 0.5 }) => {
                 className="flex items-center gap-1 group/preset"
               >
                 <button
-                  className="flex-1 text-left text-xs text-white/90 hover:bg-zinc-950/20 px-3 py-1.5 rounded"
+                  className="flex-1 text-left text-xs text-white/90 hover:bg-card/20 px-3 py-1.5 rounded"
                   onClick={() => handleGotoPreset(p)}
                 >
                   {p.name || `Preset ${i + 1}`}
@@ -261,7 +261,7 @@ export const PTZControls = ({ cameraId, className, speed = 0.5 }) => {
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
-                  className="h-9 w-9 flex items-center justify-center rounded-full bg-red-500/80 hover:bg-red-600 text-white backdrop-blur-sm transition-colors"
+                  className="h-9 w-9 flex items-center justify-center rounded-full bg-red-500/80 hover:bg-destructive text-white backdrop-blur-sm transition-colors"
                   onClick={stopMove}
                 >
                   <StopCircle className="h-4 w-4" />

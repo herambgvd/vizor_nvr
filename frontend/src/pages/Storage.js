@@ -127,14 +127,14 @@ const Storage = () => {
           >
             Storage
           </h1>
-          <p className="text-zinc-500 mt-1">
+          <p className="text-muted-foreground mt-1">
             Manage local pools, system disks & cloud storage
           </p>
         </div>
       </div>
 
       {/* tabs */}
-      <div className="flex gap-1 mb-6 border-b border-white/10">
+      <div className="flex gap-1 mb-6 border-b border-border">
         {TABS.map((tab) => {
           const Icon = tab.icon;
           return (
@@ -145,7 +145,7 @@ const Storage = () => {
                 "flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors",
                 activeTab === tab.id
                   ? "border-slate-900 text-white"
-                  : "border-transparent text-zinc-500 hover:text-zinc-200",
+                  : "border-transparent text-muted-foreground hover:text-zinc-200",
               )}
             >
               <Icon className="h-4 w-4" />
@@ -350,27 +350,27 @@ const DiskExplorerTab = ({ disks }) => (
           return (
             <div
               key={i}
-              className="bg-zinc-950 border border-white/10 rounded-lg p-5"
+              className="bg-card border border-border rounded-lg p-5"
             >
               <div className="flex items-center gap-2 mb-2">
-                <Disc className="h-5 w-5 text-zinc-500" />
+                <Disc className="h-5 w-5 text-muted-foreground" />
                 <h3 className="font-semibold text-white text-sm">
                   {disk.mountpoint}
                 </h3>
-                <span className="text-xs text-zinc-500 font-mono ml-auto">
+                <span className="text-xs text-muted-foreground font-mono ml-auto">
                   {disk.device}
                 </span>
               </div>
-              <p className="text-xs text-zinc-500 mb-3">
+              <p className="text-xs text-muted-foreground mb-3">
                 Filesystem: {disk.fstype || "unknown"}
               </p>
-              <div className="h-2.5 bg-white/[0.04] rounded-full overflow-hidden mb-2">
+              <div className="h-2.5 bg-card/60 rounded-full overflow-hidden mb-2">
                 <div
                   className={`h-full ${barColor} rounded-full transition-all`}
                   style={{ width: `${percent}%` }}
                 />
               </div>
-              <div className="flex justify-between text-xs text-zinc-500">
+              <div className="flex justify-between text-xs text-muted-foreground">
                 <span>{fmtBytes(used)} used</span>
                 <span>{fmtBytes(free)} free</span>
                 <span>{fmtBytes(total)} total</span>
@@ -428,7 +428,7 @@ const CloudTab = ({
           <h2 className="text-lg font-semibold text-white">
             Cloud Storage Configs
           </h2>
-          <p className="text-sm text-zinc-500 mt-1">
+          <p className="text-sm text-muted-foreground mt-1">
             Configure S3-compatible storage (AWS S3, MinIO, Backblaze B2) for
             uploading recordings
           </p>
@@ -442,10 +442,10 @@ const CloudTab = ({
       </div>
 
       {configs.length === 0 ? (
-        <div className="bg-zinc-950 border border-white/10 rounded-lg p-10 text-center">
+        <div className="bg-card border border-border rounded-lg p-10 text-center">
           <Cloud className="h-12 w-12 text-slate-300 mx-auto mb-4" />
-          <p className="text-zinc-500 mb-2">No cloud storage configured</p>
-          <p className="text-sm text-zinc-500">
+          <p className="text-muted-foreground mb-2">No cloud storage configured</p>
+          <p className="text-sm text-muted-foreground">
             Add an S3-compatible cloud storage config to back up recordings to
             the cloud
           </p>
@@ -461,7 +461,7 @@ const CloudTab = ({
           {configs.map((cfg) => (
             <div
               key={cfg.id}
-              className="bg-zinc-950 border border-white/10 rounded-lg p-5"
+              className="bg-card border border-border rounded-lg p-5"
             >
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
@@ -490,31 +490,31 @@ const CloudTab = ({
 
               <div className="space-y-1 text-sm mb-4">
                 <div className="flex justify-between">
-                  <span className="text-zinc-500">Provider</span>
+                  <span className="text-muted-foreground">Provider</span>
                   <span className="text-zinc-200 font-medium">
                     {cfg.provider.toUpperCase()}
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-zinc-500">Bucket</span>
+                  <span className="text-muted-foreground">Bucket</span>
                   <span className="text-zinc-200 font-mono text-xs">
                     {cfg.bucket}
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-zinc-500">Region</span>
+                  <span className="text-muted-foreground">Region</span>
                   <span className="text-zinc-200">{cfg.region}</span>
                 </div>
                 {cfg.endpoint && (
                   <div className="flex justify-between">
-                    <span className="text-zinc-500">Endpoint</span>
+                    <span className="text-muted-foreground">Endpoint</span>
                     <span className="text-zinc-200 font-mono text-xs truncate max-w-[200px]">
                       {cfg.endpoint}
                     </span>
                   </div>
                 )}
                 <div className="flex justify-between">
-                  <span className="text-zinc-500">Prefix</span>
+                  <span className="text-muted-foreground">Prefix</span>
                   <span className="text-zinc-200 font-mono text-xs">
                     {cfg.prefix}
                   </span>
@@ -578,9 +578,9 @@ const RulesTab = ({ rules, pools, canManage, onAddRule, onDeleteRule }) => (
     {rules.length === 0 ? (
       <EmptyState text="No tier rules configured. Rules move recordings between pools based on age." />
     ) : (
-      <div className="bg-zinc-950 border border-white/10 rounded-lg overflow-hidden">
+      <div className="bg-card border border-border rounded-lg overflow-hidden">
         <table className="w-full text-sm">
-          <thead className="bg-zinc-950/40 border-b border-white/10">
+          <thead className="bg-card/40 border-b border-border">
             <tr>
               <th className="text-left px-4 py-3 text-zinc-400 font-medium">
                 Name
@@ -638,7 +638,7 @@ const RulesTab = ({ rules, pools, canManage, onAddRule, onDeleteRule }) => (
                         <Check className="h-3 w-3" /> Active
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 text-xs text-zinc-500 bg-white/[0.04] px-2 py-0.5 rounded">
+                      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground bg-card/60 px-2 py-0.5 rounded">
                         <X className="h-3 w-3" /> Inactive
                       </span>
                     )}
@@ -668,12 +668,12 @@ const RulesTab = ({ rules, pools, canManage, onAddRule, onDeleteRule }) => (
 // ── sub-components ─────────────────────────────────────────────────────────────
 
 const SummaryCard = ({ icon: Icon, label, value }) => (
-  <div className="bg-zinc-950 border border-white/10 rounded-lg p-5 flex items-center gap-4">
+  <div className="bg-card border border-border rounded-lg p-5 flex items-center gap-4">
     <div className="h-10 w-10 rounded-lg bg-blue-50 flex items-center justify-center">
       <Icon className="h-5 w-5 text-blue-600" />
     </div>
     <div>
-      <p className="text-sm text-zinc-500">{label}</p>
+      <p className="text-sm text-muted-foreground">{label}</p>
       <p className="text-lg font-semibold text-white">{value}</p>
     </div>
   </div>
@@ -692,10 +692,10 @@ const PoolCard = ({ pool, canManage, onEdit, onDelete }) => {
         : "bg-blue-500";
 
   return (
-    <div className="bg-zinc-950 border border-white/10 rounded-lg p-5">
+    <div className="bg-card border border-border rounded-lg p-5">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <HardDrive className="h-5 w-5 text-zinc-500" />
+          <HardDrive className="h-5 w-5 text-muted-foreground" />
           <h3 className="font-semibold text-white">{pool.name}</h3>
           {pool.is_default && (
             <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-medium">
@@ -724,28 +724,28 @@ const PoolCard = ({ pool, canManage, onEdit, onDelete }) => {
           </div>
         )}
       </div>
-      <p className="text-xs text-zinc-500 font-mono truncate mb-1">
+      <p className="text-xs text-muted-foreground font-mono truncate mb-1">
         {pool.path}
       </p>
-      <p className="text-xs text-zinc-500 mb-3">
+      <p className="text-xs text-muted-foreground mb-3">
         Type: {pool.pool_type} | Priority: {pool.priority}
         {pool.recording_count > 0 && ` | ${pool.recording_count} recordings`}
       </p>
       {capacity > 0 ? (
         <>
-          <div className="h-2 bg-white/[0.04] rounded-full overflow-hidden mb-2">
+          <div className="h-2 bg-card/60 rounded-full overflow-hidden mb-2">
             <div
               className={`h-full ${barColor} rounded-full`}
               style={{ width: `${usedPct}%` }}
             />
           </div>
-          <div className="flex justify-between text-xs text-zinc-500">
+          <div className="flex justify-between text-xs text-muted-foreground">
             <span>{fmtBytes(used)} used</span>
             <span>{fmtBytes(capacity)} total</span>
           </div>
         </>
       ) : (
-        <div className="text-xs text-zinc-500">
+        <div className="text-xs text-muted-foreground">
           {fmtBytes(used)} used (unlimited capacity)
         </div>
       )}
@@ -760,7 +760,7 @@ const PoolCard = ({ pool, canManage, onEdit, onDelete }) => {
 };
 
 const EmptyState = ({ text }) => (
-  <div className="bg-zinc-950 border border-white/10 rounded-lg p-10 text-center text-zinc-500">
+  <div className="bg-card border border-border rounded-lg p-10 text-center text-muted-foreground">
     {text}
   </div>
 );
@@ -889,7 +889,7 @@ const PoolFormDialog = ({ open, onOpenChange, pool, queryClient }) => {
               onChange={(e) => set("max_size_bytes", e.target.value)}
               placeholder="Leave empty for unlimited"
             />
-            <p className="text-xs text-zinc-500 mt-1">
+            <p className="text-xs text-muted-foreground mt-1">
               e.g., 1099511627776 = 1 TB. Leave empty for unlimited.
             </p>
           </div>
@@ -899,7 +899,7 @@ const PoolFormDialog = ({ open, onOpenChange, pool, queryClient }) => {
               id="is_default"
               checked={form.is_default}
               onChange={(e) => set("is_default", e.target.checked)}
-              className="rounded border-white/15"
+              className="rounded border-border"
             />
             <Label htmlFor="is_default" className="text-sm cursor-pointer">
               Set as default pool
@@ -1022,7 +1022,7 @@ const RuleFormDialog = ({ open, onOpenChange, pools, queryClient }) => {
               required
               min="1"
             />
-            <p className="text-xs text-zinc-500 mt-1">
+            <p className="text-xs text-muted-foreground mt-1">
               Recordings older than this will be moved from source → target pool
             </p>
           </div>
@@ -1169,7 +1169,7 @@ const CloudFormDialog = ({ open, onOpenChange, config, queryClient }) => {
               onChange={(e) => set("endpoint", e.target.value)}
               placeholder="https://minio.example.com:9000"
             />
-            <p className="text-xs text-zinc-500 mt-1">
+            <p className="text-xs text-muted-foreground mt-1">
               Leave empty for standard AWS S3
             </p>
           </div>
@@ -1206,7 +1206,7 @@ const CloudFormDialog = ({ open, onOpenChange, config, queryClient }) => {
               id="sync_enabled"
               checked={form.sync_enabled}
               onChange={(e) => set("sync_enabled", e.target.checked)}
-              className="rounded border-white/15"
+              className="rounded border-border"
             />
             <Label htmlFor="sync_enabled" className="text-sm cursor-pointer">
               Auto-sync new recordings to this cloud storage

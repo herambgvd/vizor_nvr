@@ -35,6 +35,7 @@ import {
   Maximize2,
   Radio,
   ImageIcon,
+  Sparkles,
 } from "lucide-react";
 import {
   getCamera,
@@ -65,6 +66,7 @@ import {
   LinkageRuleBuilder,
   ONVIFSettingsPanel,
 } from "../components/nvr";
+import CameraAITab from "../components/camera/CameraAITab";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import {
@@ -132,7 +134,7 @@ const CameraDetail = () => {
   if (isLoading) {
     return (
       <div className="h-full flex items-center justify-center">
-        <RefreshCw className="h-8 w-8 text-zinc-500 animate-spin" />
+        <RefreshCw className="h-8 w-8 text-muted-foreground animate-spin" />
       </div>
     );
   }
@@ -142,7 +144,7 @@ const CameraDetail = () => {
       <div className="h-full flex items-center justify-center">
         <div className="text-center">
           <Camera className="h-12 w-12 text-slate-300 mx-auto mb-4" />
-          <p className="text-zinc-500 text-lg mb-4">Camera not found</p>
+          <p className="text-muted-foreground text-lg mb-4">Camera not found</p>
           <Button variant="outline" onClick={() => navigate("/cameras")}>
             Back to Cameras
           </Button>
@@ -154,7 +156,7 @@ const CameraDetail = () => {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className="flex-shrink-0 px-4 md:px-8 pt-4 md:pt-6 pb-3 md:pb-4 border-b border-white/10 ">
+      <div className="flex-shrink-0 px-4 md:px-8 pt-4 md:pt-6 pb-3 md:pb-4 border-b border-border ">
         <div className="flex items-center gap-3 mb-1">
           <Button
             variant="ghost"
@@ -181,7 +183,7 @@ const CameraDetail = () => {
                   </div>
                 )}
               </div>
-              <p className="text-zinc-500 dark:text-zinc-500 text-sm truncate">
+              <p className="text-muted-foreground dark:text-muted-foreground text-sm truncate">
                 {camera.location || camera.main_stream_url}
               </p>
             </div>
@@ -194,7 +196,7 @@ const CameraDetail = () => {
         defaultValue={initialTab}
         className="flex-1 flex flex-col overflow-hidden"
       >
-        <div className="flex-shrink-0 px-4 md:px-8 border-b border-white/10 ">
+        <div className="flex-shrink-0 px-4 md:px-8 border-b border-border ">
           <TabsList className="h-auto bg-transparent gap-0 p-0">
             <TabsTrigger
               value="live"
@@ -231,6 +233,13 @@ const CameraDetail = () => {
               <ImageIcon className="h-4 w-4" />
               Snapshots
             </TabsTrigger>
+            <TabsTrigger
+              value="ai"
+              className="gap-2 rounded-none border-b-2 border-transparent data-[state=active]:border-slate-900 data-[state=active]:bg-transparent data-[state=active]:shadow-none px-4 py-3"
+            >
+              <Sparkles className="h-4 w-4" />
+              AI Scenarios
+            </TabsTrigger>
           </TabsList>
         </div>
 
@@ -251,6 +260,9 @@ const CameraDetail = () => {
           </TabsContent>
           <TabsContent value="snapshots" className="m-0">
             <SnapshotsTab cameraId={cameraId} />
+          </TabsContent>
+          <TabsContent value="ai" className="m-0">
+            <CameraAITab cameraId={cameraId} />
           </TabsContent>
         </div>
       </Tabs>
@@ -402,8 +414,8 @@ const LiveViewTab = ({ camera, cameraId }) => {
 };
 
 const InfoCard = ({ label, value }) => (
-  <div className="bg-zinc-950/40 dark:bg-zinc-900/60 rounded-lg p-3">
-    <p className="text-xs text-zinc-500 dark:text-zinc-500">{label}</p>
+  <div className="bg-card/40 dark:bg-primary/60 rounded-lg p-3">
+    <p className="text-xs text-muted-foreground dark:text-muted-foreground">{label}</p>
     <p className="text-sm font-medium text-white  capitalize">
       {value}
     </p>
@@ -707,7 +719,7 @@ const RecordingsTab = ({ cameraId, camera }) => {
           {/* Filters */}
           <div className="flex flex-wrap items-end gap-3">
             <div className="relative w-64">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="Search recordings…"
                 value={search}
@@ -719,7 +731,7 @@ const RecordingsTab = ({ cameraId, camera }) => {
               />
             </div>
             <div>
-              <label className="text-xs text-zinc-500 block mb-1">From</label>
+              <label className="text-xs text-muted-foreground block mb-1">From</label>
               <Input
                 type="date"
                 value={startDateFilter}
@@ -731,7 +743,7 @@ const RecordingsTab = ({ cameraId, camera }) => {
               />
             </div>
             <div>
-              <label className="text-xs text-zinc-500 block mb-1">To</label>
+              <label className="text-xs text-muted-foreground block mb-1">To</label>
               <Input
                 type="date"
                 value={endDateFilter}
@@ -746,7 +758,7 @@ const RecordingsTab = ({ cameraId, camera }) => {
 
           {/* Bulk actions */}
           {selected.size > 0 && (
-            <div className="flex items-center gap-3 bg-zinc-950/40 dark:bg-zinc-900/60 rounded-lg p-3">
+            <div className="flex items-center gap-3 bg-card/40 dark:bg-primary/60 rounded-lg p-3">
               <span className="text-sm text-zinc-400 ">
                 {selected.size} selected
               </span>
@@ -762,14 +774,14 @@ const RecordingsTab = ({ cameraId, camera }) => {
           )}
 
           {/* Table */}
-          <div className="bg-zinc-950 dark:bg-zinc-900 border border-white/10  rounded-lg overflow-hidden">
+          <div className="bg-card dark:bg-primary border border-border  rounded-lg overflow-hidden">
             <table className="w-full text-sm">
-              <thead className="bg-zinc-950/40 dark:bg-zinc-900/60 border-b border-white/10 ">
+              <thead className="bg-card/40 dark:bg-primary/60 border-b border-border ">
                 <tr>
                   <th className="w-10 px-3 py-3">
                     <button
                       onClick={toggleSelectAll}
-                      className="text-zinc-500 hover:text-zinc-400"
+                      className="text-muted-foreground hover:text-zinc-400"
                     >
                       {selected.size === recordings.length &&
                       recordings.length > 0 ? (
@@ -798,7 +810,7 @@ const RecordingsTab = ({ cameraId, camera }) => {
                   <tr>
                     <td
                       colSpan={5}
-                      className="text-center py-12 text-zinc-500"
+                      className="text-center py-12 text-muted-foreground"
                     >
                       Loading…
                     </td>
@@ -807,19 +819,19 @@ const RecordingsTab = ({ cameraId, camera }) => {
                   <tr>
                     <td colSpan={5} className="text-center py-12">
                       <HardDrive className="h-10 w-10 text-slate-300 mx-auto mb-3" />
-                      <p className="text-zinc-500">No recordings found</p>
+                      <p className="text-muted-foreground">No recordings found</p>
                     </td>
                   </tr>
                 ) : (
                   recordings.map((rec) => (
                     <tr
                       key={rec.id}
-                      className="border-b border-slate-100  last:border-0 hover:bg-zinc-950/40/50 dark:hover:bg-zinc-900/60/50"
+                      className="border-b border-slate-100  last:border-0 hover:bg-card/40/50 dark:hover:bg-primary/60/50"
                     >
                       <td className="px-3 py-3">
                         <button
                           onClick={() => toggleSelect(rec.id)}
-                          className="text-zinc-500 hover:text-zinc-400"
+                          className="text-muted-foreground hover:text-zinc-400"
                         >
                           {selected.has(rec.id) ? (
                             <CheckSquare className="h-4 w-4 text-white" />
@@ -872,7 +884,7 @@ const RecordingsTab = ({ cameraId, camera }) => {
           {/* Pagination */}
           {totalPages > 1 && (
             <div className="flex items-center justify-between">
-              <p className="text-sm text-zinc-500">
+              <p className="text-sm text-muted-foreground">
                 Page {page} of {totalPages}
               </p>
               <div className="flex items-center gap-2">
@@ -913,7 +925,7 @@ const RecordingsTab = ({ cameraId, camera }) => {
                 <AlertDialogCancel>Cancel</AlertDialogCancel>
                 <AlertDialogAction
                   onClick={() => deleteMut.mutate(deleteTarget?.id)}
-                  className="bg-red-600 hover:bg-red-700"
+                  className="bg-destructive hover:bg-destructive/90"
                 >
                   Delete
                 </AlertDialogAction>
@@ -937,7 +949,7 @@ const RecordingsTab = ({ cameraId, camera }) => {
                 <AlertDialogCancel>Cancel</AlertDialogCancel>
                 <AlertDialogAction
                   onClick={() => bulkDeleteMut.mutate({ ids: [...selected] })}
-                  className="bg-red-600 hover:bg-red-700"
+                  className="bg-destructive hover:bg-destructive/90"
                 >
                   Delete All
                 </AlertDialogAction>
@@ -964,14 +976,14 @@ const ConfigTab = ({ cameraId }) => {
       {canManage ? (
         <>
           <CameraSettingsPanel cameraId={cameraId} snapshotUrl={snapshotUrl} />
-          <div className="border-t border-white/10  pt-6">
+          <div className="border-t border-border  pt-6">
             <LinkageRuleBuilder />
           </div>
         </>
       ) : (
         <div className="text-center py-12">
           <SlidersHorizontal className="h-10 w-10 text-slate-300 mx-auto mb-3" />
-          <p className="text-zinc-500">
+          <p className="text-muted-foreground">
             You don't have permission to configure cameras.
           </p>
         </div>
@@ -1017,15 +1029,15 @@ const SnapshotsTab = ({ cameraId }) => {
     <div className="p-4 md:p-6 space-y-4">
       {/* Controls */}
       <div className="flex items-center gap-3 flex-wrap">
-        <div className="flex items-center gap-1 bg-white/[0.04] dark:bg-zinc-900/60 rounded-lg p-1">
+        <div className="flex items-center gap-1 bg-card/60 dark:bg-primary/60 rounded-lg p-1">
           {["all", "periodic", "event"].map((t) => (
             <button
               key={t}
               onClick={() => { setTrigger(t); setPage(1); }}
               className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors capitalize ${
                 trigger === t
-                  ? "bg-zinc-950  text-white  shadow-sm"
-                  : "text-zinc-500 hover:text-zinc-200"
+                  ? "bg-card  text-white  shadow-sm"
+                  : "text-muted-foreground hover:text-zinc-200"
               }`}
             >
               {t}
@@ -1033,7 +1045,7 @@ const SnapshotsTab = ({ cameraId }) => {
           ))}
         </div>
         {total > 0 && (
-          <span className="text-sm text-zinc-500">{total} snapshots</span>
+          <span className="text-sm text-muted-foreground">{total} snapshots</span>
         )}
       </div>
 
@@ -1045,7 +1057,7 @@ const SnapshotsTab = ({ cameraId }) => {
       ) : snapshots.length === 0 ? (
         <div className="text-center py-16">
           <ImageIcon className="h-12 w-12 text-slate-200 mx-auto mb-3" />
-          <p className="text-zinc-500 text-sm">No snapshots found</p>
+          <p className="text-muted-foreground text-sm">No snapshots found</p>
           <p className="text-slate-300 text-xs mt-1">
             Snapshots are captured automatically every 5 minutes when recording
           </p>
@@ -1057,7 +1069,7 @@ const SnapshotsTab = ({ cameraId }) => {
             return (
               <div
                 key={snap.id}
-                className="group relative bg-white/[0.04] dark:bg-zinc-900/60 rounded-lg overflow-hidden aspect-video cursor-pointer hover:ring-2 hover:ring-slate-400 transition-all"
+                className="group relative bg-card/60 dark:bg-primary/60 rounded-lg overflow-hidden aspect-video cursor-pointer hover:ring-2 hover:ring-slate-400 transition-all"
                 onClick={() => imgUrl && window.open(imgUrl, "_blank")}
               >
                 {imgUrl ? (
@@ -1101,7 +1113,7 @@ const SnapshotsTab = ({ cameraId }) => {
       {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-between pt-2">
-          <span className="text-sm text-zinc-500">
+          <span className="text-sm text-muted-foreground">
             Page {page} of {totalPages}
           </span>
           <div className="flex items-center gap-2">

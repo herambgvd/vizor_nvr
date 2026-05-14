@@ -197,7 +197,7 @@ export const CameraFormDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-4xl max-h-[92vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle style={{ fontFamily: "Manrope, sans-serif" }}>
             {isEdit ? "Edit Camera" : "Add New Camera"}
@@ -205,51 +205,41 @@ export const CameraFormDialog = ({
           <DialogDescription>
             {isEdit
               ? "Update the camera configuration"
-              : "Add a new RTSP camera to your network"}
+              : "Add a new IP camera to your network"}
           </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit}>
           <div className="space-y-4 py-4">
-            {/* Name */}
-            <div className="space-y-2">
-              <Label htmlFor="camera-name">Camera Name *</Label>
-              <Input
-                id="camera-name"
-                data-testid="camera-name-input"
-                placeholder="Front Door Camera"
-                value={form.name}
-                onChange={(e) => updateField("name", e.target.value)}
-                required
-              />
-            </div>
+            {/* Name + Stream URL share a row on wide modal */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="camera-name">Camera Name *</Label>
+                <Input
+                  id="camera-name"
+                  data-testid="camera-name-input"
+                  placeholder="Front Door Camera"
+                  value={form.name}
+                  onChange={(e) => updateField("name", e.target.value)}
+                  required
+                />
+              </div>
 
-            {/* RTSP URL */}
-            <div className="space-y-2">
-              <Label htmlFor="main-stream-url">RTSP URL *</Label>
-              <Input
-                id="main-stream-url"
-                data-testid="main-stream-url-input"
-                placeholder="rtsp://192.168.1.100:554/stream1"
-                value={form.main_stream_url}
-                onChange={(e) => updateField("main_stream_url", e.target.value)}
-                required
-              />
-              <p className="text-xs text-zinc-500">
-                Example: rtsp://username:password@ip:port/path
-              </p>
-            </div>
-
-            {/* Location */}
-            <div className="space-y-2">
-              <Label htmlFor="location">Location</Label>
-              <Input
-                id="location"
-                data-testid="camera-location-input"
-                placeholder="Building A, Floor 1"
-                value={form.location}
-                onChange={(e) => updateField("location", e.target.value)}
-              />
+              {/* Stream URL — shares row with name on md+ */}
+              <div className="space-y-2">
+                <Label htmlFor="main-stream-url">Stream URL *</Label>
+                <Input
+                  id="main-stream-url"
+                  data-testid="main-stream-url-input"
+                  placeholder="rtsp://192.168.1.100:554/stream1"
+                  value={form.main_stream_url}
+                  onChange={(e) => updateField("main_stream_url", e.target.value)}
+                  required
+                />
+                <p className="text-xs text-muted-foreground">
+                  Example: rtsp://username:password@ip:port/path
+                </p>
+              </div>
             </div>
 
             {/* Description */}
@@ -269,7 +259,7 @@ export const CameraFormDialog = ({
             <div className="flex items-center justify-between">
               <div>
                 <Label htmlFor="is-enabled">Enable Camera</Label>
-                <p className="text-xs text-zinc-500">
+                <p className="text-xs text-muted-foreground">
                   Camera will be monitored when enabled
                 </p>
               </div>
@@ -283,64 +273,68 @@ export const CameraFormDialog = ({
               />
             </div>
 
-            {/* Recording Mode */}
-            <div className="space-y-2">
-              <Label htmlFor="recording-mode">Recording Mode</Label>
-              <Select
-                value={form.recording_mode || "continuous"}
-                onValueChange={(val) => updateField("recording_mode", val)}
-              >
-                <SelectTrigger id="recording-mode">
-                  <SelectValue placeholder="Continuous" />
-                </SelectTrigger>
-                <SelectContent>
-                  {RECORDING_MODE_OPTIONS.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Recording FPS */}
-            <div className="space-y-2">
-              <Label htmlFor="recording-fps">Recording FPS</Label>
-              <Select
-                value={form.recording_fps?.toString() || "original"}
-                onValueChange={(val) =>
-                  updateField("recording_fps", val === "original" ? null : val)
-                }
-              >
-                <SelectTrigger
-                  id="recording-fps"
-                  data-testid="recording-fps-select"
+            {/* Recording Mode + FPS on one row on md+ */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="recording-mode">Recording Mode</Label>
+                <Select
+                  value={form.recording_mode || "continuous"}
+                  onValueChange={(val) => updateField("recording_mode", val)}
                 >
-                  <SelectValue placeholder="Original (no change)" />
-                </SelectTrigger>
-                <SelectContent>
-                  {FPS_OPTIONS.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-zinc-500">
-                Lower FPS reduces storage usage. Original keeps the camera's
-                native frame rate.
-              </p>
+                  <SelectTrigger id="recording-mode">
+                    <SelectValue placeholder="Continuous" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {RECORDING_MODE_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="recording-fps">Recording FPS</Label>
+                <Select
+                  value={form.recording_fps?.toString() || "original"}
+                  onValueChange={(val) =>
+                    updateField(
+                      "recording_fps",
+                      val === "original" ? null : val,
+                    )
+                  }
+                >
+                  <SelectTrigger
+                    id="recording-fps"
+                    data-testid="recording-fps-select"
+                  >
+                    <SelectValue placeholder="Original (no change)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {FPS_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Lower FPS reduces storage usage. Original keeps the
+                  camera's native frame rate.
+                </p>
+              </div>
             </div>
 
             {/* Recording Schedule */}
-            <div className="space-y-3 border-t border-white/10 pt-4">
+            <div className="space-y-3 border-t border-border pt-4">
               <div className="flex items-center justify-between">
                 <div>
                   <Label className="flex items-center gap-2">
                     <Clock className="h-4 w-4" />
                     Recording Schedule
                   </Label>
-                  <p className="text-xs text-zinc-500 mt-0.5">
+                  <p className="text-xs text-muted-foreground mt-0.5">
                     Automatically start/stop recording on a schedule
                   </p>
                 </div>
@@ -356,7 +350,7 @@ export const CameraFormDialog = ({
                   {periods.map((period, idx) => (
                     <div
                       key={idx}
-                      className="border border-white/10 rounded-lg p-3 space-y-3"
+                      className="border border-border rounded-lg p-3 space-y-3"
                     >
                       <div className="flex items-center justify-between">
                         <span className="text-sm font-medium text-zinc-200">
@@ -367,7 +361,7 @@ export const CameraFormDialog = ({
                             type="button"
                             variant="ghost"
                             size="icon"
-                            className="h-6 w-6 text-zinc-500 hover:text-red-500"
+                            className="h-6 w-6 text-muted-foreground hover:text-red-500"
                             onClick={() => removePeriod(idx)}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -382,8 +376,8 @@ export const CameraFormDialog = ({
                             key={dayIdx}
                             className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium cursor-pointer transition-colors ${
                               period.days.includes(dayIdx)
-                                ? "bg-zinc-900 text-white"
-                                : "bg-white/[0.04] text-zinc-500 hover:bg-white/[0.06]"
+                                ? "bg-primary text-white"
+                                : "bg-card/60 text-muted-foreground hover:bg-card/70"
                             }`}
                           >
                             <Checkbox
@@ -401,7 +395,7 @@ export const CameraFormDialog = ({
                       {/* Time Range */}
                       <div className="flex items-center gap-2">
                         <div className="flex-1">
-                          <Label className="text-xs text-zinc-500">
+                          <Label className="text-xs text-muted-foreground">
                             Start
                           </Label>
                           <Input
@@ -413,9 +407,9 @@ export const CameraFormDialog = ({
                             className="h-8 text-sm"
                           />
                         </div>
-                        <span className="text-zinc-500 mt-4">—</span>
+                        <span className="text-muted-foreground mt-4">—</span>
                         <div className="flex-1">
-                          <Label className="text-xs text-zinc-500">End</Label>
+                          <Label className="text-xs text-muted-foreground">End</Label>
                           <Input
                             type="time"
                             value={period.end}
@@ -445,12 +439,12 @@ export const CameraFormDialog = ({
           </div>
 
             {/* ONVIF Configuration */}
-            <div className="space-y-3 border-t border-white/10 pt-4">
+            <div className="space-y-3 border-t border-border pt-4">
               <div>
                 <Label className="text-sm font-medium text-zinc-200">
                   ONVIF Configuration
                 </Label>
-                <p className="text-xs text-zinc-500 mt-0.5">
+                <p className="text-xs text-muted-foreground mt-0.5">
                   Required for PTZ, events, imaging, and device management
                 </p>
               </div>
@@ -496,7 +490,7 @@ export const CameraFormDialog = ({
                   <Label htmlFor="onvif-pass" className="text-xs">
                     Password{" "}
                     {isEdit && (
-                      <span className="text-zinc-500 font-normal">(leave blank to keep)</span>
+                      <span className="text-muted-foreground font-normal">(leave blank to keep)</span>
                     )}
                   </Label>
                   <Input
@@ -531,7 +525,7 @@ export const CameraFormDialog = ({
             <Button
               data-testid="save-camera-btn"
               type="submit"
-              className="bg-zinc-900 hover:bg-zinc-900/60"
+              className="bg-primary hover:bg-primary/60"
               disabled={isPending}
             >
               {isPending ? "Saving..." : isEdit ? "Update" : "Add Camera"}

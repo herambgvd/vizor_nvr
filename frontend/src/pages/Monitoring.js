@@ -75,7 +75,7 @@ const Monitoring = () => {
           >
             Monitoring
           </h1>
-          <p className="text-zinc-500 mt-1">
+          <p className="text-muted-foreground mt-1">
             Real-time system resource overview
           </p>
         </div>
@@ -153,7 +153,7 @@ const Monitoring = () => {
       </div>
 
       {/* Bandwidth summary */}
-      <div className="bg-zinc-950 border border-white/10 rounded-lg p-6">
+      <div className="bg-card border border-border rounded-lg p-6">
         <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
           <Activity className="h-5 w-5 text-zinc-400" />
           Bandwidth per Camera
@@ -168,14 +168,14 @@ const Monitoring = () => {
                 <span className="text-zinc-200 font-medium font-mono text-xs">
                   {entry.camera_name || entry.camera_id}
                 </span>
-                <span className="text-zinc-500">
+                <span className="text-muted-foreground">
                   {fmt(entry.kbps ?? 0)} kbps
                 </span>
               </div>
             ))}
           </div>
         ) : (
-          <p className="text-sm text-zinc-500">No bandwidth data available</p>
+          <p className="text-sm text-muted-foreground">No bandwidth data available</p>
         )}
       </div>
     </div>
@@ -212,7 +212,7 @@ const GaugeCard = ({ label, value, max, unit, icon: Icon, color, sub }) => {
   const offset = circum - (pct / 100) * circum;
 
   return (
-    <div className="bg-zinc-950 border border-white/10 rounded-lg p-6 flex flex-col items-center">
+    <div className="bg-card border border-border rounded-lg p-6 flex flex-col items-center">
       <div className="relative mb-3">
         <svg className="h-24 w-24 -rotate-90" viewBox="0 0 100 100">
           <circle
@@ -249,7 +249,7 @@ const GaugeCard = ({ label, value, max, unit, icon: Icon, color, sub }) => {
         </div>
         <span className="text-sm font-medium text-zinc-200">{label}</span>
       </div>
-      {sub && <p className="text-xs text-zinc-500 mt-1">{sub}</p>}
+      {sub && <p className="text-xs text-muted-foreground mt-1">{sub}</p>}
     </div>
   );
 };
@@ -264,9 +264,9 @@ const HistoryCard = ({ title, history, accessor, color }) => {
 
   if (points.length === 0) {
     return (
-      <div className="bg-zinc-950 border border-white/10 rounded-lg p-6">
+      <div className="bg-card border border-border rounded-lg p-6">
         <h3 className="text-sm font-semibold text-zinc-200 mb-3">{title}</h3>
-        <p className="text-sm text-zinc-500">No history data</p>
+        <p className="text-sm text-muted-foreground">No history data</p>
       </div>
     );
   }
@@ -283,7 +283,7 @@ const HistoryCard = ({ title, history, accessor, color }) => {
     .join(" ");
 
   return (
-    <div className="bg-zinc-950 border border-white/10 rounded-lg p-6">
+    <div className="bg-card border border-border rounded-lg p-6">
       <h3 className="text-sm font-semibold text-zinc-200 mb-3">{title}</h3>
       <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-24">
         <path d={pathD} fill="none" stroke={color} strokeWidth="2" />

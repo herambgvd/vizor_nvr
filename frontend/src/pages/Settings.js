@@ -51,7 +51,7 @@ const Settings = () => {
         >
           Settings
         </h1>
-        <p className="text-zinc-500 dark:text-zinc-500 mt-1 text-sm md:text-base">
+        <p className="text-muted-foreground dark:text-muted-foreground mt-1 text-sm md:text-base">
           System configuration and preferences
         </p>
       </div>
@@ -112,7 +112,7 @@ const Settings = () => {
         {isAdmin && (
           <TabsContent value="users">
             <React.Suspense
-              fallback={<p className="text-sm text-zinc-500 p-4">Loading…</p>}
+              fallback={<p className="text-sm text-muted-foreground p-4">Loading…</p>}
             >
               <UsersPanel />
             </React.Suspense>
@@ -167,7 +167,7 @@ const RetentionTab = ({ queryClient }) => {
       description="Configure how long recordings are kept before auto-deletion"
     >
       {isLoading ? (
-        <p className="text-sm text-zinc-500">Loading...</p>
+        <p className="text-sm text-muted-foreground">Loading...</p>
       ) : (
         <div className="space-y-5">
           <div className="flex items-center gap-3">
@@ -190,7 +190,7 @@ const RetentionTab = ({ queryClient }) => {
                 }
                 className="mt-1"
               />
-              <p className="text-xs text-zinc-500 mt-1">
+              <p className="text-xs text-muted-foreground mt-1">
                 Recordings older than this will be deleted
               </p>
             </div>
@@ -205,7 +205,7 @@ const RetentionTab = ({ queryClient }) => {
                 }
                 className="mt-1"
               />
-              <p className="text-xs text-zinc-500 mt-1">
+              <p className="text-xs text-muted-foreground mt-1">
                 0 = unlimited storage
               </p>
             </div>
@@ -221,7 +221,7 @@ const RetentionTab = ({ queryClient }) => {
                 }
                 className="mt-1"
               />
-              <p className="text-xs text-zinc-500 mt-1">
+              <p className="text-xs text-muted-foreground mt-1">
                 How often to run cleanup
               </p>
             </div>
@@ -284,7 +284,7 @@ const RecordingTab = ({ queryClient }) => {
       description="Default recording parameters for all cameras"
     >
       {isLoading ? (
-        <p className="text-sm text-zinc-500">Loading...</p>
+        <p className="text-sm text-muted-foreground">Loading...</p>
       ) : (
         <div className="space-y-5">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -300,7 +300,7 @@ const RecordingTab = ({ queryClient }) => {
                 }
                 className="mt-1"
               />
-              <p className="text-xs text-zinc-500 mt-1">
+              <p className="text-xs text-muted-foreground mt-1">
                 Split recordings into segments (60–7200s)
               </p>
             </div>
@@ -316,19 +316,19 @@ const RecordingTab = ({ queryClient }) => {
                 }
                 className="mt-1"
               />
-              <p className="text-xs text-zinc-500 mt-1">0 = use source FPS</p>
+              <p className="text-xs text-muted-foreground mt-1">0 = use source FPS</p>
             </div>
             <div>
               <Label>Recording Format</Label>
               <select
                 value={form.format}
                 onChange={(e) => set("format", e.target.value)}
-                className="mt-1 w-full rounded-md border border-white/10 bg-zinc-950 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+                className="mt-1 w-full rounded-md border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
               >
                 <option value="mp4">MP4</option>
                 <option value="mkv">MKV</option>
               </select>
-              <p className="text-xs text-zinc-500 mt-1">
+              <p className="text-xs text-muted-foreground mt-1">
                 Container format for recordings
               </p>
             </div>
@@ -336,14 +336,14 @@ const RecordingTab = ({ queryClient }) => {
 
           <div className="border-t border-slate-100 pt-4 space-y-3">
             <h3 className="text-sm font-medium text-zinc-200">
-              FFmpeg Settings
+              Recording Settings
             </h3>
             <div className="flex items-center gap-3">
               <Switch
                 checked={form.ffmpeg_recovery}
                 onCheckedChange={(v) => set("ffmpeg_recovery", v)}
               />
-              <Label>Auto-restart FFmpeg on crash</Label>
+              <Label>Auto-recover camera streams after failure</Label>
             </div>
             <div className="w-48">
               <Label>Health Check Interval (seconds)</Label>
@@ -460,19 +460,19 @@ const SystemTab = () => {
       description="Health check and version info"
     >
       {isLoading ? (
-        <p className="text-sm text-zinc-500">Loading…</p>
+        <p className="text-sm text-muted-foreground">Loading…</p>
       ) : health ? (
         <div className="space-y-3 text-sm">
           <Row label="Status" value={health.status || "unknown"} />
           <Row label="Version" value={health.version || "-"} />
-          <Row label="go2rtc" value={health.go2rtc || "-"} />
+          <Row label="Streaming Service" value={health.go2rtc && health.go2rtc !== "disconnected" ? "Connected" : "Disconnected"} />
           <Row
             label="Active Recordings"
             value={health.active_recordings ?? "-"}
           />
         </div>
       ) : (
-        <p className="text-sm text-zinc-500">Unable to fetch health info</p>
+        <p className="text-sm text-muted-foreground">Unable to fetch health info</p>
       )}
     </Card>
   );
@@ -481,10 +481,10 @@ const SystemTab = () => {
 // ---------- shared UI ----------
 
 const Card = ({ title, description, children }) => (
-  <div className="bg-zinc-950 border border-white/10 rounded-lg p-6">
+  <div className="bg-card border border-border rounded-lg p-6">
     <h2 className="text-lg font-semibold text-white">{title}</h2>
     {description && (
-      <p className="text-sm text-zinc-500 mt-1 mb-6">{description}</p>
+      <p className="text-sm text-muted-foreground mt-1 mb-6">{description}</p>
     )}
     {children}
   </div>
@@ -492,7 +492,7 @@ const Card = ({ title, description, children }) => (
 
 const Row = ({ label, value }) => (
   <div className="flex justify-between">
-    <span className="text-zinc-500">{label}</span>
+    <span className="text-muted-foreground">{label}</span>
     <span className="text-white font-medium">{value}</span>
   </div>
 );

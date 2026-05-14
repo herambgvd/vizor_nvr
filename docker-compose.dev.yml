@@ -1,0 +1,75 @@
+# =============================================================================
+# Development overlay — hot reload for backend + frontend
+# =============================================================================
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# What this does:
+#   • Backend: bind-mounts ./backend, runs uvicorn with --reload so Python
+#     edits hot-reload in <1 s. Adds dev deps (pytest, ruff, etc.).
+#   • Frontend: replaces the nginx static build with `npm start` so React
+#     fast-refresh works in the browser tab.
+#   • Nginx stays running to serve HTTPS + proxy /api → backend. Frontend
+#     dev server lives on port 3000 (host) and proxies upstream changes.
+# =============================================================================
+
+services:
+  backend:
+    # uvicorn --reload watches the bind-mounted source and restarts on edit
+    command: >
+      python -m uvicorn app.main:app
+      --host 0.0.0.0 --port 8000
+      --reload
+      --reload-dir /app/app
+      --reload-dir /app/migrations
+    volumes:
+      # Bind-mount the source tree so saves on the host trigger reload
+      # inside the container. /app/data + caches stay on named volumes.
+      - ./backend:/app
+      - recordings:/data/recordings
+      - thumbnails:/data/thumbnails
+      - exports:/data/exports
+      - certs:/data/certs
+    environment:
+      ENV: development
+      PYTHONUNBUFFERED: "1"
+      WATCHFILES_FORCE_POLLING: "true"   # required on some macOS / WSL hosts
+      # Force all data paths to /data (managed volume) — the bind-mount
+      # replaces /app with the host source tree which doesn't have a
+      # writable data/ folder owned by uid 1001.
+      STORAGE_PATH: /data/recordings
+      THUMBNAIL_PATH: /data/thumbnails
+      EXPORT_PATH: /data/exports
+      DATA_PATH: /data
+      CERT_PATH: /data/certs
+      HLS_PATH: /data/hls
+
+  frontend:
+    # Override the production nginx image with the same node image used
+    # in the Dockerfile's builder stage. Mount the source so CRA's
+    # webpack-dev-server fast-refreshes the browser on save.
+    image: node:20-alpine
+    working_dir: /app
+    command: sh -c "npm install --legacy-peer-deps && npm start"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules    # keep installed deps inside the container
+    environment:
+      CHOKIDAR_USEPOLLING: "true"        # required on Linux bind mounts
+      WATCHPACK_POLLING: "true"
+      FAST_REFRESH: "true"
+      REACT_APP_BACKEND_URL: http://localhost:8000
+      REACT_APP_API_URL: http://localhost:8000
+      REACT_APP_GO2RTC_URL: http://localhost:1984
+      WDS_SOCKET_PORT: "0"               # CRA hot-update over the page's own port
+      BROWSER: "none"
+    ports:
+      - "3000:3000"
+    # No healthcheck — CRA dev server doesn't expose /health
+    healthcheck:
+      disable: true
+
+  # Nginx in dev: keep proxying /api → backend, but stop trying to
+  # serve the (stale) production bundle. The operator hits the React
+  # dev server directly on http://localhost:3000 instead. nginx stays
+  # up because go2rtc + WebSocket routing still need it.

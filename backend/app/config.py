@@ -69,7 +69,7 @@ class Settings:
     THUMBNAIL_PATH: str = os.getenv(
         "THUMBNAIL_PATH", str(ROOT_DIR / "data" / "thumbnails")
     )
-    HLS_PATH: str = str(ROOT_DIR / "data" / "hls")
+    HLS_PATH: str = os.getenv("HLS_PATH", str(ROOT_DIR / "data" / "hls"))
     EXPORT_PATH: str = os.getenv(
         "EXPORT_PATH", str(ROOT_DIR / "data" / "exports")
     )

@@ -1,0 +1,50 @@
+# ArcFace Embedding SGIE — runs via Triton's nvinferserver plugin.
+# Triton model repository must have an `arcface` model loaded with
+# config.pbtxt matching the input/output names below.
+
+infer_config {
+  unique_id: 3
+  gpu_ids: [0]
+  max_batch_size: 8
+  backend {
+    triton {
+      model_name: "arcface"
+      version: -1   # latest
+      grpc {
+        url: "vizor-triton:8001"
+      }
+    }
+  }
+  preprocess {
+    network_format: IMAGE_FORMAT_RGB
+    tensor_order: TENSOR_ORDER_LINEAR
+    maintain_aspect_ratio: 0
+    frame_scaling_hw: FRAME_SCALING_HW_DEFAULT
+    frame_scaling_filter: 1
+    normalize {
+      scale_factor: 0.00784313725  # 1/127.5
+      channel_offsets: [127.5, 127.5, 127.5]
+    }
+  }
+  postprocess {
+    other {
+      # Embedding output is raw — bridge does cosine similarity in
+      # Qdrant. No on-device matching here.
+    }
+  }
+  extra {
+    copy_input_to_host_buffers: false
+    output_buffer_pool_size: 4
+  }
+}
+
+input_control {
+  process_mode: PROCESS_MODE_CLIP_OBJECTS  # Crop on face bboxes
+  operate_on_gie_id: 1                      # PGIE FaceDetectIR
+  operate_on_class_ids: [0]                 # face class
+  interval: 0
+}
+
+output_control {
+  output_tensor_meta: true                  # Bridge reads tensors
+}

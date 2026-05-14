@@ -1,11 +1,16 @@
 // =============================================================================
-// Multi-Camera Synchronous Playback
+// Playback — unified single + multi-camera synchronous review
+// =============================================================================
+// Replaces the old single-cam Playback page. One screen handles both:
+//   • Single camera: opens with the camera pre-selected via ?camera=<id>
+//   • Multiple cameras: operator picks from sidebar, picks grid layout
 // =============================================================================
 
 import React, {
   useRef, useState, useCallback, useEffect, useImperativeHandle,
 } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import {
   LayoutGrid, Play, Pause, FastForward, Rewind,
   SkipBack, SkipForward, Video, Calendar, Maximize2, Minimize2, X,
@@ -20,6 +25,18 @@ import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popove
 import { cn } from "../lib/utils";
 import { format, subDays } from "date-fns";
 import api, { BACKEND_URL } from "../api/client";
+
+// Backend writes recording timestamps as naive UTC (datetime.utcnow()).
+// Without a tz suffix the browser parses them as local time, which is
+// wrong. Force a `Z` so Date treats the string as UTC, then everything
+// downstream stays in local clock-time naturally.
+function parseUtc(s) {
+  if (!s) return new Date(NaN);
+  // Already has tz info — trust it.
+  if (/[Z+-]\d{2}:?\d{2}$|Z$/i.test(s)) return new Date(s);
+  return new Date(`${s}Z`);
+}
+
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -80,7 +97,10 @@ const CameraCell = React.forwardRef(function CameraCell(
   // Seconds since midnight of `date`
   const getDayOffset = useCallback(
     (isoTime) => {
-      const d = new Date(isoTime);
+      // Server timestamps are naive UTC; treat them as such, then
+      // subtract local midnight to get the offset on the wall clock
+      // the operator sees.
+      const d = parseUtc(isoTime);
       const midnight = new Date(`${date}T00:00:00`);
       return (d.getTime() - midnight.getTime()) / 1000;
     },
@@ -91,7 +111,7 @@ const CameraCell = React.forwardRef(function CameraCell(
   useEffect(() => {
     if (!recordings) return;
     const sorted = [...recordings].sort(
-      (a, b) => new Date(a.start_time) - new Date(b.start_time)
+      (a, b) => parseUtc(a.start_time) - parseUtc(b.start_time)
     );
     segmentsRef.current = sorted;
     setTotalSegments(sorted.length);
@@ -101,7 +121,10 @@ const CameraCell = React.forwardRef(function CameraCell(
     setLoaded(false);
   }, [recordings]);
 
-  // Load video src whenever the active segment changes
+  // Load video src whenever the active segment OR the recording list
+  // changes. Without `totalSegments` in the dep array, the initial
+  // segment never loaded because `currentSegIdx` stays at 0 across
+  // re-runs (no value transition).
   useEffect(() => {
     const seg = segmentsRef.current[currentSegIdx];
     if (!seg || !videoRef.current) return;
@@ -119,7 +142,7 @@ const CameraCell = React.forwardRef(function CameraCell(
       };
       videoRef.current.addEventListener("loadedmetadata", applySeek, { once: true });
     }
-  }, [currentSegIdx]);
+  }, [currentSegIdx, totalSegments]);
 
   // Auto-advance to next segment
   const handleEnded = useCallback(() => {
@@ -180,7 +203,10 @@ const CameraCell = React.forwardRef(function CameraCell(
   return (
     <div
       className={cn(
-        "relative bg-black rounded-md overflow-hidden aspect-video",
+        // Drop fixed aspect-video — parent grid cell controls height.
+        // Without this the tile expands beyond the viewport in 1×1
+        // layouts and pushes the control bar off screen.
+        "relative bg-black rounded-md overflow-hidden w-full h-full min-h-0",
         className
       )}
     >
@@ -237,30 +263,141 @@ const CameraCell = React.forwardRef(function CameraCell(
 
 // ─── Timeline scrubber ────────────────────────────────────────────────────────
 
-const TimelineScrubber = ({ currentTime, duration, onChange }) => {
-  const fmt = (s) => {
-    const h = Math.floor(s / 3600);
-    const m = Math.floor((s % 3600) / 60);
-    const sec = Math.floor(s % 60);
-    if (h > 0)
-      return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
-    return `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+// Format seconds-since-midnight as wall-clock HH:MM:SS.
+function fmtClock(s) {
+  const total = Math.max(0, Math.floor(s));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = total % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+}
+
+
+// Segment-aware scrub bar: dark track with teal bars where recordings
+// exist. Click-to-seek anywhere; drag the playhead to scrub. Mimics
+// the Hikvision/Dahua NVR timeline UX.
+//
+// Props:
+//   currentTime   – seconds since midnight
+//   duration      – seconds shown on the bar (default 86400 = full day)
+//   segments      – array of { start_time, duration } from /api/recordings
+//   onChange      – called with seconds when user clicks/drags
+const TimelineScrubber = ({
+  currentTime,
+  duration = 86400,
+  segments = [],
+  date,
+  onChange,
+}) => {
+  const trackRef = React.useRef(null);
+
+  // Translate one segment into [leftPct, widthPct] on the bar.
+  const segRanges = React.useMemo(() => {
+    if (!segments || segments.length === 0 || !date) return [];
+    const midnight = new Date(`${date}T00:00:00`).getTime();
+    return segments
+      .map((s) => {
+        const start = (parseUtc(s.start_time).getTime() - midnight) / 1000;
+        const dur = s.duration || 0;
+        const end = Math.min(duration, start + dur);
+        const safeStart = Math.max(0, start);
+        if (end <= safeStart) return null;
+        return {
+          left: (safeStart / duration) * 100,
+          width: ((end - safeStart) / duration) * 100,
+        };
+      })
+      .filter(Boolean);
+  }, [segments, date, duration]);
+
+  // Hour ticks across the bar — every 2h on full-day, 1h on shorter spans.
+  const hourTicks = React.useMemo(() => {
+    const step = duration <= 6 * 3600 ? 3600 : 2 * 3600;
+    const out = [];
+    for (let t = 0; t <= duration; t += step) {
+      out.push(t);
+    }
+    return out;
+  }, [duration]);
+
+  const seekFromPointer = React.useCallback(
+    (e) => {
+      if (!trackRef.current) return;
+      const rect = trackRef.current.getBoundingClientRect();
+      const x = Math.min(Math.max(0, e.clientX - rect.left), rect.width);
+      const pct = x / rect.width;
+      onChange?.(Math.floor(pct * duration));
+    },
+    [duration, onChange],
+  );
+
+  const onTrackPointerDown = (e) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    seekFromPointer(e);
   };
+  const onTrackPointerMove = (e) => {
+    if (e.buttons !== 1) return;
+    seekFromPointer(e);
+  };
+
+  const playheadPct = Math.min(100, Math.max(0, (currentTime / duration) * 100));
+
   return (
-    <div className="flex items-center gap-3 w-full">
-      <span className="text-xs text-zinc-500 w-12 text-right tabular-nums">
-        {fmt(currentTime)}
-      </span>
-      <Slider
-        value={[currentTime]}
-        max={duration || 86400}
-        step={1}
-        onValueChange={([v]) => onChange(v)}
-        className="flex-1"
-      />
-      <span className="text-xs text-zinc-500 w-12 tabular-nums">
-        {fmt(duration || 86400)}
-      </span>
+    <div className="w-full space-y-1.5">
+      {/* Clock readouts */}
+      <div className="flex items-center justify-between text-[11px] text-muted-foreground tabular-nums px-0.5">
+        <span>{fmtClock(currentTime)}</span>
+        <span className="text-xs font-medium text-zinc-300">
+          {segments?.length || 0} recording{segments?.length !== 1 ? "s" : ""}
+        </span>
+        <span>{fmtClock(duration)}</span>
+      </div>
+
+      {/* Track */}
+      <div
+        ref={trackRef}
+        onPointerDown={onTrackPointerDown}
+        onPointerMove={onTrackPointerMove}
+        className="relative h-7 rounded-md bg-card/60 border border-border cursor-pointer select-none overflow-hidden"
+        role="slider"
+        aria-valuemin={0}
+        aria-valuemax={duration}
+        aria-valuenow={currentTime}
+        tabIndex={0}
+      >
+        {/* Hour grid lines */}
+        {hourTicks.map((t) => (
+          <span
+            key={t}
+            className="absolute top-0 bottom-0 w-px bg-white/[0.06]"
+            style={{ left: `${(t / duration) * 100}%` }}
+          />
+        ))}
+
+        {/* Recording segments — teal blocks */}
+        {segRanges.map((r, i) => (
+          <span
+            key={i}
+            className="absolute top-1 bottom-1 rounded-sm bg-primary/70 hover:bg-primary"
+            style={{ left: `${r.left}%`, width: `${Math.max(0.25, r.width)}%` }}
+          />
+        ))}
+
+        {/* Playhead */}
+        <span
+          className="absolute top-0 bottom-0 w-0.5 bg-amber-400 shadow-[0_0_4px_rgba(245,158,11,0.7)] pointer-events-none"
+          style={{ left: `${playheadPct}%` }}
+        />
+      </div>
+
+      {/* Hour labels */}
+      <div className="flex justify-between text-[10px] text-muted-foreground/70 tabular-nums px-0.5">
+        {hourTicks.map((t) => (
+          <span key={t}>
+            {String(Math.floor(t / 3600)).padStart(2, "0")}:00
+          </span>
+        ))}
+      </div>
     </div>
   );
 };
@@ -288,7 +425,7 @@ const CameraSelector = ({ cameras, selected, onToggle }) => (
               <div
                 key={cam.id}
                 className={cn(
-                  "flex items-center gap-2 p-1.5 rounded hover:bg-zinc-950/40 dark:hover:bg-zinc-900/60",
+                  "flex items-center gap-2 p-1.5 rounded hover:bg-card/40 dark:hover:bg-primary/60",
                   disabled && "opacity-50 cursor-not-allowed"
                 )}
               >
@@ -326,7 +463,13 @@ const CameraSelector = ({ cameras, selected, onToggle }) => (
 
 export default function MultiPlayback() {
   const cellRefs = useRef({});
-  const [selectedCameraIds, setSelectedCameraIds] = useState([]);
+  const [searchParams] = useSearchParams();
+  // Seed initial selection from ?camera=<id> so the Cameras page row-click
+  // → Playback flow stays a single click.
+  const initialCamId = searchParams.get("camera");
+  const [selectedCameraIds, setSelectedCameraIds] = useState(
+    initialCamId ? [initialCamId] : [],
+  );
   const [date, setDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [playing, setPlaying] = useState(false);
   const [speedIdx, setSpeedIdx] = useState(2);
@@ -345,6 +488,34 @@ export default function MultiPlayback() {
     selectedCameraIds.includes(c.id)
   );
 
+  // Aggregate recording segments across every selected camera so the
+  // scrub bar shows which parts of the day actually have footage. Hit
+  // /recordings once per (cam, date) and merge.
+  const { data: aggregateSegments = [] } = useQuery({
+    queryKey: ["aggregate-segments", date, selectedCameraIds.sort().join(",")],
+    queryFn: async () => {
+      if (selectedCameraIds.length === 0) return [];
+      const lists = await Promise.all(
+        selectedCameraIds.map((id) =>
+          api
+            .get("/recordings", {
+              params: {
+                camera_id: id,
+                start_after: `${date}T00:00:00`,
+                end_before: `${date}T23:59:59`,
+                limit: 500,
+              },
+            })
+            .then((r) => r.data)
+            .catch(() => []),
+        ),
+      );
+      return lists.flat();
+    },
+    enabled: selectedCameraIds.length > 0,
+    staleTime: 30_000,
+  });
+
   const toggleCamera = useCallback((id) => {
     setSelectedCameraIds((prev) =>
       prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]
@@ -362,10 +533,8 @@ export default function MultiPlayback() {
   const pause = useCallback(() => {
     allCells().forEach((ctrl) => ctrl.pause());
     setPlaying(false);
-    if (syncIntervalRef.current) {
-      clearInterval(syncIntervalRef.current);
-      syncIntervalRef.current = null;
-    }
+    // Heartbeat interval is owned by the always-on effect below, no
+    // need to tear it down on pause.
   }, []); // eslint-disable-line
 
   const play = useCallback(() => {
@@ -374,13 +543,26 @@ export default function MultiPlayback() {
       ctrl.play();
     });
     setPlaying(true);
+  }, [speed]); // eslint-disable-line
+
+  // Always poll the active cell for its current day offset — keeps the
+  // timestamp + playhead in sync even when paused, after a seek, or
+  // after the user clicks the scrub bar.
+  useEffect(() => {
+    if (selectedCameras.length === 0) return undefined;
     syncIntervalRef.current = setInterval(() => {
       const cells = allCells();
       if (cells[0]) {
         setCurrentTime(Math.floor(cells[0].getCurrentDayOffset()));
       }
     }, 500);
-  }, [speed]); // eslint-disable-line
+    return () => {
+      if (syncIntervalRef.current) {
+        clearInterval(syncIntervalRef.current);
+        syncIntervalRef.current = null;
+      }
+    };
+  }, [selectedCameras.length]);
 
   const togglePlay = useCallback(() => {
     playing ? pause() : play();
@@ -436,11 +618,14 @@ export default function MultiPlayback() {
       <div className="flex items-center justify-between flex-shrink-0">
         <div>
           <h1 className="text-2xl font-bold text-white ">
-            Multi-Camera Playback
+            Playback
           </h1>
-          <p className="text-sm text-zinc-500 mt-0.5">
-            Synchronized review across {selectedCameras.length || "selected"}{" "}
-            cameras
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {selectedCameras.length === 0
+              ? "Pick one or more cameras to start"
+              : selectedCameras.length === 1
+              ? `Single-camera review · ${selectedCameras[0].name}`
+              : `Synchronized review across ${selectedCameras.length} cameras`}
           </p>
         </div>
 
@@ -464,7 +649,7 @@ export default function MultiPlayback() {
                     onClick={() => setDate(p.value)}
                   >
                     {p.label}
-                    <span className="ml-auto text-xs text-zinc-500">
+                    <span className="ml-auto text-xs text-muted-foreground">
                       {p.value}
                     </span>
                   </Button>
@@ -492,7 +677,7 @@ export default function MultiPlayback() {
 
       {/* Camera grid */}
       {selectedCameras.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center text-zinc-500 gap-4">
+        <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-4">
           <LayoutGrid className="h-16 w-16 opacity-30" />
           <div className="text-center">
             <p className="text-lg font-medium">No cameras selected</p>
@@ -516,7 +701,10 @@ export default function MultiPlayback() {
               ? selectedCameras.filter((c) => c.id === fullscreenId)
               : selectedCameras
             ).map((cam) => (
-              <div key={cam.id} className="relative group">
+              <div
+                key={cam.id}
+                className="relative group min-h-0 min-w-0 h-full"
+              >
                 <CameraCell
                   ref={(el) => { cellRefs.current[cam.id] = el; }}
                   camera={cam}
@@ -546,6 +734,8 @@ export default function MultiPlayback() {
               <TimelineScrubber
                 currentTime={currentTime}
                 duration={86400}
+                segments={aggregateSegments}
+                date={date}
                 onChange={seekAll}
               />
 
@@ -614,7 +804,7 @@ export default function MultiPlayback() {
                 </div>
 
                 {/* Info */}
-                <div className="flex items-center gap-2 text-sm text-zinc-500">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Badge variant="outline">
                     {selectedCameras.length} camera
                     {selectedCameras.length !== 1 ? "s" : ""}
@@ -623,7 +813,7 @@ export default function MultiPlayback() {
                 </div>
               </div>
 
-              <p className="text-xs text-zinc-500 text-center">
+              <p className="text-xs text-muted-foreground text-center">
                 Space: play/pause · ← / → : ±10s · [ / ] : speed
               </p>
             </CardContent>

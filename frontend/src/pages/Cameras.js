@@ -4,6 +4,7 @@
 
 import React, { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Camera,
   Plus,
@@ -55,6 +56,7 @@ import {
 } from "../components/ui/alert-dialog";
 
 const Cameras = () => {
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { canOperate, canManage } = usePermissions();
   const { data: cameras = [], isLoading } = useCamerasQuery();
@@ -73,7 +75,6 @@ const Cameras = () => {
     return cameras.filter(
       (c) =>
         c.name.toLowerCase().includes(q) ||
-        c.location?.toLowerCase().includes(q) ||
         c.main_stream_url?.toLowerCase().includes(q),
     );
   }, [cameras, search]);
@@ -111,7 +112,7 @@ const Cameras = () => {
           >
             Cameras
           </h1>
-          <p className="text-zinc-500 mt-1 text-sm md:text-base">
+          <p className="text-muted-foreground mt-1 text-sm md:text-base">
             Manage your camera network ({cameras.length} cameras)
           </p>
         </div>
@@ -128,7 +129,7 @@ const Cameras = () => {
             </Button>
             <Button
               onClick={openAdd}
-              className="bg-zinc-900 hover:bg-zinc-900/60 flex-1 sm:flex-none"
+              className="bg-primary hover:bg-primary/60 flex-1 sm:flex-none"
               size="sm"
             >
               <Plus className="h-4 w-4 sm:mr-2" />
@@ -140,7 +141,7 @@ const Cameras = () => {
 
       {/* Search */}
       <div className="mb-4 md:mb-6 relative max-w-md">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
           placeholder="Search cameras…"
           value={search}
@@ -150,12 +151,11 @@ const Cameras = () => {
       </div>
 
       {/* Table */}
-      <div className="bg-zinc-950 border border-white/10 rounded-lg overflow-hidden overflow-x-auto">
+      <div className="bg-card border border-border rounded-lg overflow-hidden overflow-x-auto">
         <Table className="min-w-[800px]">
           <TableHeader>
-            <TableRow className="bg-zinc-950/40">
+            <TableRow className="bg-card/40">
               <TableHead className="w-[250px]">Camera</TableHead>
-              <TableHead className="hidden md:table-cell">Location</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Recording</TableHead>
               <TableHead className="hidden lg:table-cell">Resolution</TableHead>
@@ -170,7 +170,7 @@ const Cameras = () => {
               <TableRow>
                 <TableCell colSpan={7} className="text-center py-12">
                   <Camera className="h-12 w-12 text-slate-300 mx-auto mb-4" />
-                  <p className="text-zinc-500">
+                  <p className="text-muted-foreground">
                     {search
                       ? "No cameras match your search"
                       : "No cameras added yet"}
@@ -193,10 +193,10 @@ const Cameras = () => {
                   <TableCell>
                     <div className="flex items-center gap-3">
                       <div
-                        className={`p-2 rounded-lg ${camera.is_enabled ? "bg-white/[0.04]" : "bg-zinc-950/40"}`}
+                        className={`p-2 rounded-lg ${camera.is_enabled ? "bg-card/60" : "bg-card/40"}`}
                       >
                         <Video
-                          className={`h-5 w-5 ${camera.is_enabled ? "text-zinc-400" : "text-zinc-500"}`}
+                          className={`h-5 w-5 ${camera.is_enabled ? "text-zinc-400" : "text-muted-foreground"}`}
                         />
                       </div>
                       <div>
@@ -206,14 +206,11 @@ const Cameras = () => {
                         >
                           {camera.name}
                         </p>
-                        <p className="text-xs text-zinc-500 truncate max-w-[180px]">
+                        <p className="text-xs text-muted-foreground truncate max-w-[180px]">
                           {camera.main_stream_url}
                         </p>
                       </div>
                     </div>
-                  </TableCell>
-                  <TableCell className="text-zinc-400 hidden md:table-cell">
-                    {camera.location || "-"}
                   </TableCell>
                   <TableCell>
                     <StatusBadge status={camera.status} />
@@ -222,7 +219,7 @@ const Cameras = () => {
                     {camera.is_recording ? (
                       <RecordingIndicator isRecording />
                     ) : (
-                      <span className="text-sm text-zinc-500">
+                      <span className="text-sm text-muted-foreground">
                         Not recording
                       </span>
                     )}
@@ -230,7 +227,7 @@ const Cameras = () => {
                   <TableCell className="font-mono text-sm text-zinc-400 hidden lg:table-cell">
                     {camera.resolution || "-"}
                   </TableCell>
-                  <TableCell className="text-sm text-zinc-500 hidden md:table-cell">
+                  <TableCell className="text-sm text-muted-foreground hidden md:table-cell">
                     {camera.last_online_at
                       ? new Date(camera.last_online_at).toLocaleString()
                       : "Never"}
@@ -340,7 +337,7 @@ const Cameras = () => {
                   onSuccess: () => setDeleteTarget(null),
                 })
               }
-              className="bg-red-600 hover:bg-red-700"
+              className="bg-destructive hover:bg-destructive/90"
             >
               Delete
             </AlertDialogAction>
@@ -348,13 +345,12 @@ const Cameras = () => {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* ONVIF Discovery */}
+      {/* ONVIF Discovery — multi-select bulk-add. Refresh list after. */}
       <ONVIFDiscovery
         open={showOnvif}
         onOpenChange={setShowOnvif}
-        onSelect={(cameraData) => {
-          setSelected(cameraData);
-          setShowForm(true);
+        onAdded={() => {
+          queryClient.invalidateQueries({ queryKey: ["cameras"] });
         }}
       />
     </div>

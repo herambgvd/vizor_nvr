@@ -37,7 +37,7 @@ def upgrade() -> None:
     # ── recordings ────────────────────────────────────────────────────
     op.add_column(
         'recordings',
-        sa.Column('has_motion', sa.Boolean(), nullable=True, server_default='0')
+        sa.Column('has_motion', sa.Boolean(), nullable=True, server_default=sa.text('false'))
     )
     op.add_column(
         'recordings',

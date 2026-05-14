@@ -41,17 +41,16 @@ COPY . .
 # Create data directories
 RUN mkdir -p data/recordings data/thumbnails data/exports data/hls
 
-# Create a non-root user
+# Create a non-root user (entrypoint fixes /data perms before dropping
+# privileges, so we stay root for ENTRYPOINT but uvicorn runs as nvr).
 RUN useradd --uid 1001 --create-home nvr && chown -R nvr:nvr /app
-USER nvr
+
+RUN chmod +x /app/entrypoint.sh
 
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:8000/api/health || exit 1
 
-CMD ["python", "-m", "uvicorn", "app.main:app", \
-     "--host", "0.0.0.0", \
-     "--port", "8000", \
-     "--workers", "1", \
-     "--loop", "asyncio"]
+ENTRYPOINT ["/app/entrypoint.sh"]
+CMD ["python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1 --loop asyncio"]

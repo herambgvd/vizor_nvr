@@ -57,7 +57,7 @@ import { format } from "date-fns";
 const ROLE_META = {
   admin: { icon: ShieldCheck, color: "text-red-600 bg-red-50" },
   operator: { icon: Shield, color: "text-blue-600 bg-blue-50" },
-  viewer: { icon: Eye, color: "text-zinc-400 bg-white/[0.04]" },
+  viewer: { icon: Eye, color: "text-zinc-400 bg-card/60" },
 };
 
 const Users = () => {
@@ -124,7 +124,7 @@ const Users = () => {
           >
             Users
           </h1>
-          <p className="text-zinc-500 mt-1">Manage user accounts and roles</p>
+          <p className="text-muted-foreground mt-1">Manage user accounts and roles</p>
         </div>
         <Button
           onClick={() => {
@@ -151,14 +151,14 @@ const Users = () => {
       </div>
 
       {/* table */}
-      <div className="bg-zinc-950 border border-white/10 rounded-lg overflow-hidden">
+      <div className="bg-card border border-border rounded-lg overflow-hidden">
         {isLoading ? (
-          <div className="p-10 text-center text-zinc-500">Loading…</div>
+          <div className="p-10 text-center text-muted-foreground">Loading…</div>
         ) : users.length === 0 ? (
-          <div className="p-10 text-center text-zinc-500">No users found</div>
+          <div className="p-10 text-center text-muted-foreground">No users found</div>
         ) : (
           <table className="w-full text-sm">
-            <thead className="bg-zinc-950/40 border-b border-white/10">
+            <thead className="bg-card/40 border-b border-border">
               <tr>
                 <th className="text-left px-4 py-3 text-zinc-400 font-medium">
                   Username
@@ -188,12 +188,12 @@ const Users = () => {
                 return (
                   <tr
                     key={u.id}
-                    className="border-b border-slate-100 last:border-0 hover:bg-zinc-950/40/50"
+                    className="border-b border-slate-100 last:border-0 hover:bg-card/40/50"
                   >
                     <td className="px-4 py-3 font-medium text-white">
                       {u.username}
                       {isSelf && (
-                        <span className="ml-2 text-xs text-zinc-500">
+                        <span className="ml-2 text-xs text-muted-foreground">
                           (you)
                         </span>
                       )}
@@ -222,7 +222,7 @@ const Users = () => {
                         />
                       )}
                     </td>
-                    <td className="px-4 py-3 text-zinc-500 text-xs">
+                    <td className="px-4 py-3 text-muted-foreground text-xs">
                       {u.created_at
                         ? format(new Date(u.created_at), "MMM d, yyyy")
                         : "-"}
@@ -299,7 +299,7 @@ const Users = () => {
             <AlertDialogAction
               onClick={() => deleteMut.mutate(deleteTarget?.id)}
               disabled={deleteMut.isPending}
-              className="bg-red-600 hover:bg-red-700"
+              className="bg-destructive hover:bg-destructive/90"
             >
               Delete
             </AlertDialogAction>
@@ -336,8 +336,8 @@ const Users = () => {
 // ── stat card ──────────────────────────────────────────────────────────────────
 
 const StatCard = ({ label, value }) => (
-  <div className="bg-zinc-950 border border-white/10 rounded-lg p-4">
-    <p className="text-sm text-zinc-500">{label}</p>
+  <div className="bg-card border border-border rounded-lg p-4">
+    <p className="text-sm text-muted-foreground">{label}</p>
     <p className="text-2xl font-bold text-white">{value}</p>
   </div>
 );

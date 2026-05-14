@@ -85,8 +85,10 @@ export const webrtcSignal = async (cameraId, offer) => {
 // ---------- ONVIF discovery ----------
 
 export const onvifDiscover = async (params = {}) => {
-  const response = await apiClient.post("/cameras/onvif/discover", params, {
-    timeout: 30000,
+  // Backend reads `subnet` and `timeout` from query string. Empty body POST.
+  const response = await apiClient.post("/cameras/onvif/discover", null, {
+    params,
+    timeout: 60000,
   });
   return response.data;
 };
@@ -96,6 +98,41 @@ export const onvifProbe = async (data) => {
     timeout: 15000,
   });
   return response.data;
+};
+
+// Returns a blob URL to a JPEG snapshot from the camera. Caller is
+// responsible for revokeObjectURL when the URL is no longer needed.
+//
+// Implementation note:
+//   Uses native `fetch` instead of axios because some browser extensions
+//   (e.g. screen-recorder / monitoring helpers) wrap XMLHttpRequest and
+//   try to read `responseText` on every error. When responseType is
+//   "blob" that throws InvalidStateError on 404. `fetch` uses a
+//   different transport that those extensions don't monkey-patch.
+import { BACKEND_URL, getAccessToken } from "./client";  // noqa
+export const onvifSnapshotBlobUrl = async (data) => {
+  const token = getAccessToken();
+  let response;
+  try {
+    response = await fetch(`${BACKEND_URL}/api/cameras/onvif/snapshot`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(data),
+      // 15 s — same as axios default we had
+      signal: AbortSignal.timeout
+        ? AbortSignal.timeout(15000)
+        : undefined,
+    });
+  } catch (_e) {
+    return null;
+  }
+  if (!response.ok) return null;
+  const blob = await response.blob();
+  if (!blob || blob.size === 0) return null;
+  return URL.createObjectURL(blob);
 };
 
 // ---------- PTZ control ----------

@@ -47,6 +47,11 @@ async def lifespan(application: FastAPI):
         from app.settings.service import SettingsService
         await AuthService.seed_roles(db)
         await SettingsService.seed_defaults(db)
+        try:
+            from app.ai.seed import seed_ai_scenarios
+            await seed_ai_scenarios(db)
+        except Exception as _e:
+            logger.warning(f"AI scenario seeding failed: {_e}")
 
     # One-shot backfill: re-encrypt any legacy plaintext ONVIF credentials.
     # Idempotent — already-encrypted rows skipped.
@@ -142,12 +147,25 @@ async def lifespan(application: FastAPI):
     from app.onvif_device.discovery import onvif_discovery_publisher
     await onvif_discovery_publisher.start()
 
+    # Start Metropolis bridge (Redis Stream consumer -> /api/events/ingest)
+    # No-op unless METROPOLIS_BRIDGE_ENABLED=true env var is set.
+    try:
+        from app.services.metropolis_bridge import start_metropolis_bridge
+        await start_metropolis_bridge()
+    except Exception as _e:
+        logger.warning(f"Metropolis bridge startup skipped: {_e}")
+
     logger.info("All services started — NVR is ready")
 
     yield
 
     # ── Shutdown ─────────────────────────────────────────────────────
     logger.info("Shutting down...")
+
+    # Refuse new requests, wait for in-flight to drain
+    from app.core.graceful_shutdown import start_drain, wait_for_drain
+    start_drain()
+    await wait_for_drain(timeout=30.0)
 
     from app.services.ffmpeg_manager import ffmpeg_manager
     from app.services.go2rtc_manager import go2rtc_manager
@@ -157,6 +175,13 @@ async def lifespan(application: FastAPI):
     await _oes.stop_all()
     from app.onvif_device.discovery import onvif_discovery_publisher
     await onvif_discovery_publisher.stop()
+
+    # Stop Metropolis bridge cleanly so in-flight batches drain
+    try:
+        from app.services.metropolis_bridge import stop_metropolis_bridge
+        await stop_metropolis_bridge()
+    except Exception:
+        pass
     await camera_monitor.stop()
     await prebuffer_service.stop()
     await retention_service.stop()
@@ -222,6 +247,31 @@ app.add_middleware(
 from app.core.ip_allowlist import IPAllowlistMiddleware
 app.add_middleware(IPAllowlistMiddleware)
 
+# Graceful shutdown: tracks in-flight requests, refuses new ones once
+# `start_drain()` is called from the lifespan shutdown hook.
+from app.core.graceful_shutdown import InFlightRequestsMiddleware
+app.add_middleware(InFlightRequestsMiddleware)
+
+
+# ── Prometheus metrics (Phase 8) ─────────────────────────────────────
+# Exposes /metrics for scraping. Default instrumentator captures HTTP
+# request count, latency histogram, in-flight count. Custom NVR-specific
+# metrics (ffmpeg processes, active cameras, event ingest rate) are
+# defined alongside the producing service.
+try:
+    from prometheus_fastapi_instrumentator import Instrumentator
+
+    Instrumentator(
+        should_group_status_codes=True,
+        should_ignore_untemplated=True,
+        excluded_handlers=["/api/health", "/metrics"],
+    ).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
+    logger.info("Prometheus /metrics endpoint enabled")
+except ImportError:
+    logger.warning(
+        "prometheus_fastapi_instrumentator not installed; /metrics disabled"
+    )
+
 
 # ── Global exception handler ────────────────────────────────────────
 @app.exception_handler(Exception)
@@ -252,6 +302,11 @@ from app.notifications.router import router as notifications_router
 from app.core.websocket_router import router as websocket_router
 from app.system.router import router as system_router
 from app.onvif_device.router import router as onvif_device_router
+from app.auth.api_keys_router import router as api_keys_router
+from app.events.ingest_router import router as events_ingest_router
+from app.ai.scenarios_router import router as ai_scenarios_router
+from app.ai.frs_router import router as ai_frs_router
+from app.ai.frs_photos_router import router as ai_frs_photos_router
 
 app.include_router(auth_router, prefix="/api")
 app.include_router(cameras_router, prefix="/api")
@@ -267,6 +322,11 @@ app.include_router(audit_router, prefix="/api")
 app.include_router(notifications_router, prefix="/api")
 app.include_router(websocket_router, prefix="/api")
 app.include_router(system_router, prefix="/api")
+app.include_router(api_keys_router)
+app.include_router(events_ingest_router)
+app.include_router(ai_scenarios_router)
+app.include_router(ai_frs_router)
+app.include_router(ai_frs_photos_router)
 
 # ONVIF device endpoints are NOT under /api (VMS expects root-level paths)
 app.include_router(onvif_device_router)

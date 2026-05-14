@@ -17,7 +17,7 @@ const Login = lazy(() => import("./pages/Login"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Cameras = lazy(() => import("./pages/Cameras"));
 const CameraDetail = lazy(() => import("./pages/CameraDetail"));
-const Playback = lazy(() => import("./pages/Playback"));
+// Playback page replaced by unified MultiPlayback. Kept removed.
 const LiveStream = lazy(() => import("./pages/LiveStream"));
 const SystemMonitoring = lazy(() => import("./pages/SystemMonitoring"));
 const Settings = lazy(() => import("./pages/Settings"));
@@ -25,6 +25,8 @@ const Events = lazy(() => import("./pages/Events"));
 const AuditLog = lazy(() => import("./pages/AuditLog"));
 const Notifications = lazy(() => import("./pages/Notifications"));
 const MultiPlayback = lazy(() => import("./pages/MultiPlayback"));
+const AIScenarios = lazy(() => import("./pages/AIScenarios"));
+const FRSPersons = lazy(() => import("./pages/FRSPersons"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 // React Query client
@@ -105,8 +107,12 @@ const AppRoutes = () => (
         <Route index element={<Dashboard />} />
         <Route path="cameras" element={<Cameras />} />
         <Route path="cameras/:cameraId" element={<CameraDetail />} />
-        <Route path="playback" element={<Playback />} />
+        {/* Playback is now a single unified page (MultiPlayback). Old
+            single-cam Playback retired. /playback/multi kept as alias. */}
+        <Route path="playback" element={<MultiPlayback />} />
         <Route path="events" element={<Events />} />
+        <Route path="ai/scenarios" element={<AIScenarios />} />
+        <Route path="ai/persons" element={<FRSPersons />} />
         <Route path="monitoring" element={<SystemMonitoring />} />
         <Route path="settings" element={<Settings />} />
         <Route path="playback/multi" element={<MultiPlayback />} />
@@ -137,7 +143,7 @@ function App() {
             <BrowserRouter>
               <AppRoutes />
             </BrowserRouter>
-            <Toaster position="top-right" richColors />
+            <Toaster position="bottom-right" richColors closeButton />
           </AuthProvider>
         </ThemeProvider>
       </QueryClientProvider>

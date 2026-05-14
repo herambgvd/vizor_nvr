@@ -1,0 +1,43 @@
+# Schema converter for People Counting / Behavior Analytics events.
+#
+# Output JSON shape (sent to Redis Stream metropolis:events):
+# {
+#   "sensorId":        <camera_id>,
+#   "timestamp":       <ms epoch>,
+#   "type":            "PersonCount" | "LineCrossing" | "ZoneEntry" | "Overcrowding" | "Loitering",
+#   "analyticsModule": "people_counting",
+#   "object": {
+#     "id":            <track id>,
+#     "bbox":          [x, y, w, h],
+#     "confidence":    <float>,
+#     "class":         "person"
+#   },
+#   "analytics": {
+#     "line_id":       <int, if line-crossing>,
+#     "direction":     "in" | "out" | null,
+#     "zone_id":       <int, if zone-entry/overcrowding>,
+#     "occupancy":     <int, if overcrowding>,
+#     "dwell_seconds": <float, if loitering>
+#   }
+# }
+#
+# Bridge translator picks `analyticsModule` → maps to NVR
+# source_service="metropolis-people_counting".
+
+[sensor0]
+enable=1
+type=Camera
+id=0
+
+[place0]
+enable=1
+id=0
+type=site
+location=site_0;0.0;0.0
+
+[analytics0]
+enable=1
+id=people_counting
+description=People Counting and Occupancy Analytics
+source=NVIDIA-PeopleNet + nvdsanalytics
+version=1.0

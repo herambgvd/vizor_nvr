@@ -7,8 +7,10 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Install dependencies
+# --legacy-peer-deps tolerates React 19 peer mismatches in
+# @rjsf and a few other shadcn-adjacent packages until upstreams catch up.
 COPY package.json package-lock.json* yarn.lock* ./
-RUN npm ci --quiet
+RUN npm ci --quiet --legacy-peer-deps
 
 # Build
 COPY . .

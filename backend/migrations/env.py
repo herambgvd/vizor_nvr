@@ -30,12 +30,16 @@ from app.config import settings
 
 # Import all model modules so they register with Base
 from app.auth import models as auth_models
+from app.auth import api_keys as auth_api_keys  # Phase 8 — m2m API keys
 from app.cameras import models as camera_models
 from app.recordings import models as recording_models
 from app.storage import models as storage_models
 from app.settings import models as settings_models
 from app.audit import models as audit_models
 from app.notifications import models as notification_models
+from app.events import models as event_models  # Phase 8 — AI columns
+from app.events import aggregates as event_aggregates  # Phase 9 — continuous aggregates
+from app.ai import models as ai_models  # Phase 10 — AI domain tables
 
 # ---------------------------------------------------------------------------
 # Alembic Config

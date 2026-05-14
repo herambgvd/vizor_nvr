@@ -3,6 +3,7 @@
 # =============================================================================
 
 import logging
+from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, BackgroundTasks, status
@@ -57,11 +58,31 @@ async def list_cameras(
 
 @router.post("/onvif/discover", response_model=List[ONVIFDiscoveryResult])
 async def onvif_discover(
+    subnet: str | None = None,
+    timeout: int = 5,
+    username: str | None = None,
+    password: str | None = None,
     user: dict = Depends(require_permission("manage_camera")),
 ):
-    """Scan LAN for ONVIF cameras."""
+    """Scan LAN for ONVIF cameras.
+
+    Tries WS-Discovery multicast first. Falls back to a TCP port-probe
+    of common ONVIF service ports across every host in `subnet`. If
+    `subnet` is omitted, auto-detects from the backend's default route
+    (which inside Docker bridge mode is the bridge network — pass an
+    explicit `subnet=192.168.1.0/24` to scan the host LAN instead).
+
+    `username` + `password` are used to fetch device metadata after a
+    host is detected. Without them many ONVIF devices return 401 and
+    the result row stays unlabeled.
+    """
     try:
-        devices = await onvif_service.discover(timeout=5)
+        devices = await onvif_service.discover(
+            timeout=timeout,
+            subnet=subnet,
+            username=username,
+            password=password,
+        )
     except RuntimeError as e:
         raise HTTPException(500, str(e))
     return devices
@@ -99,6 +120,32 @@ async def onvif_probe(
         "ip": host,
         "port": port,
     }
+
+
+@router.post("/onvif/snapshot")
+async def onvif_snapshot(
+    body: dict,
+    user: dict = Depends(require_permission("manage_camera")),
+):
+    """Return a JPEG snapshot from a not-yet-onboarded ONVIF camera.
+
+    Body: {"host", "port", "username", "password"}
+    Used by the discovery dialog to render per-row thumbnails so the
+    operator can visually confirm which device they're adding.
+    """
+    from fastapi.responses import Response
+
+    host = body.get("host")
+    port = int(body.get("port") or 80)
+    username = body.get("username") or "admin"
+    password = body.get("password") or "admin"
+    if not host:
+        raise HTTPException(400, "host required")
+
+    jpeg = await onvif_service.fetch_snapshot(host, port, username, password)
+    if not jpeg:
+        raise HTTPException(404, "snapshot not available")
+    return Response(content=jpeg, media_type="image/jpeg")
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -358,6 +405,7 @@ async def start_recording(
 
     camera.is_recording = True
     camera.status = "online"
+    camera.last_online_at = datetime.utcnow()
     await db.commit()
 
     await write_audit(
@@ -441,6 +489,7 @@ async def test_connection(
 
     if success:
         camera.status = "online"
+        camera.last_online_at = datetime.utcnow()
         if info:
             camera.resolution = info.get("resolution")
             camera.fps = info.get("fps")
@@ -747,6 +796,7 @@ async def _bg_test_connection(camera_id: str):
         success, info = await ffmpeg_manager.test_rtsp_connection(camera.main_stream_url)
         if success:
             camera.status = "online"
+            camera.last_online_at = datetime.utcnow()
             if info:
                 camera.resolution = info.get("resolution")
                 camera.fps = info.get("fps")

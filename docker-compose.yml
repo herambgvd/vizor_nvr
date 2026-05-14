@@ -17,9 +17,13 @@ version: "3.9"
 
 services:
 
-  # ── PostgreSQL ─────────────────────────────────────────────────────────────
+  # ── PostgreSQL + TimescaleDB ──────────────────────────────────────────────
+  # TimescaleDB image is Postgres 16 with the timescaledb extension
+  # pre-installed. Migration phase9_timescale activates it. Hypertables
+  # power our events history at scale (compression + retention + continuous
+  # aggregates). Plain postgres:16-alpine works too but loses scale features.
   db:
-    image: postgres:16-alpine
+    image: timescale/timescaledb:2.17.2-pg16
     container_name: gvd_db
     restart: unless-stopped
     environment:
@@ -77,6 +81,11 @@ services:
       ONVIF_XADDR_HOST: ${ONVIF_XADDR_HOST:-}
       ONVIF_DEVICE_USERNAME: ${ONVIF_DEVICE_USERNAME:-admin}
       ONVIF_DEVICE_PASSWORD: ${ONVIF_DEVICE_PASSWORD:-admin}
+      # CIDR scanned by ONVIF discovery when WS-Discovery returns 0
+      # results. Required: backend runs in Docker bridge so it can't
+      # reach LAN multicast, and its auto-detected subnet is the bridge
+      # subnet (172.x). Operator must set this to the real LAN CIDR.
+      LAN_SUBNET: ${LAN_SUBNET:-192.168.1.0/24}
       STORAGE_PATH: /data/recordings
       THUMBNAIL_PATH: /data/thumbnails
       EXPORT_PATH: /data/exports
@@ -101,6 +110,11 @@ services:
       # WS-Discovery multicast listener (UDP 3702). May require host network mode
       # for reliable multicast across the LAN.
       - "3702:3702/udp"
+      # Backend HTTP exposed on host port 8000 so the dev frontend can
+      # call it directly (REACT_APP_BACKEND_URL=http://localhost:8000).
+      # Production deployments should drop this and proxy via nginx /api
+      # instead.
+      - "8000:8000"
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8000/api/health || exit 1"]
       interval: 30s

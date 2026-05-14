@@ -249,7 +249,7 @@ const Bookmarks = () => {
                   className="p-4 flex items-start gap-4 hover:bg-muted/50 transition-colors"
                 >
                   {/* Camera icon */}
-                  <div className="p-2 bg-white/[0.04] rounded-lg shrink-0">
+                  <div className="p-2 bg-card/60 rounded-lg shrink-0">
                     <Camera className="h-5 w-5 text-zinc-400" />
                   </div>
 

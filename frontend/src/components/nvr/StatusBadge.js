@@ -18,47 +18,48 @@ export const StatusBadge = ({
   showIcon = true,
   className 
 }) => {
-  // Define status configurations
+  // Define status configurations — dark-theme aware. Uses semantic
+  // token shades (success/warning/destructive) at 15% bg + 30% border.
   const statusConfig = {
     online: {
       label: 'Online',
       icon: Wifi,
-      className: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+      className: 'bg-success/15 text-success border-success/30',
     },
     offline: {
       label: 'Offline',
       icon: WifiOff,
-      className: 'bg-white/[0.04] text-zinc-400 border-white/10',
+      className: 'bg-card/60 text-muted-foreground border-border',
     },
     connecting: {
       label: 'Connecting',
       icon: Circle,
-      className: 'bg-amber-50 text-amber-700 border-amber-200 animate-pulse',
+      className: 'bg-warning/15 text-warning border-warning/30 animate-pulse',
     },
     error: {
       label: 'Error',
       icon: AlertCircle,
-      className: 'bg-rose-50 text-rose-700 border-rose-200',
+      className: 'bg-destructive/15 text-destructive border-destructive/30',
     },
     recording: {
       label: 'Recording',
       icon: Video,
-      className: 'bg-red-50 text-red-700 border-red-200',
+      className: 'bg-destructive/15 text-destructive border-destructive/30',
     },
     'not-recording': {
       label: 'Not Recording',
       icon: VideoOff,
-      className: 'bg-white/[0.04] text-zinc-400 border-white/10',
+      className: 'bg-card/60 text-muted-foreground border-border',
     },
     active: {
       label: 'Active',
       icon: Circle,
-      className: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+      className: 'bg-success/15 text-success border-success/30',
     },
     inactive: {
       label: 'Inactive',
       icon: Circle,
-      className: 'bg-white/[0.04] text-zinc-400 border-white/10',
+      className: 'bg-card/60 text-muted-foreground border-border',
     },
   };
 
@@ -91,13 +92,13 @@ export const RecordingIndicator = ({ isRecording, className }) => {
     <span
       data-testid="recording-indicator"
       className={cn(
-        'inline-flex items-center gap-1.5 text-xs font-medium text-red-600',
+        'inline-flex items-center gap-1.5 text-xs font-medium text-destructive',
         className
       )}
     >
       <span className="relative flex h-2 w-2">
-        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-        <span className="relative inline-flex rounded-full h-2 w-2 bg-red-600"></span>
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-destructive opacity-75"></span>
+        <span className="relative inline-flex rounded-full h-2 w-2 bg-destructive"></span>
       </span>
       REC
     </span>

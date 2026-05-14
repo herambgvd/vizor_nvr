@@ -28,48 +28,57 @@ code, pre, .font-mono {
 @layer base {
   :root,
   .dark {
-    /* Near-black canvas */
-    --background: 0 0% 4%;
-    --foreground: 0 0% 98%;
+    /* Vizor NVR design tokens — Deep Navy canvas, Graphite cards,
+       Cyan/Teal primary accent. All values HSL space-separated so
+       Tailwind v3 `hsl(var(--token) / <alpha>)` works. */
 
-    --card: 0 0% 6%;
-    --card-foreground: 0 0% 98%;
+    /* Surfaces */
+    --background: 218 50% 8%;        /* #0B1220 Deep Navy */
+    --foreground: 220 14% 96%;       /* #F3F4F6 Soft White */
 
-    --popover: 0 0% 7%;
-    --popover-foreground: 0 0% 98%;
+    --sidebar: 222 47% 11%;          /* #111827 Dark Slate */
+    --sidebar-foreground: 220 14% 96%;
 
-    /* Blue primary — Vercel-style #3b82f6 family */
-    --primary: 217 91% 60%;
+    --card: 217 33% 17%;             /* #1F2937 Graphite */
+    --card-foreground: 220 14% 96%;
+
+    --popover: 217 33% 17%;
+    --popover-foreground: 220 14% 96%;
+
+    /* Brand: Cyan/Teal primary, Electric Blue secondary */
+    --primary: 173 80% 40%;          /* #14B8A6 Teal */
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 0 0% 10%;
-    --secondary-foreground: 0 0% 98%;
+    --secondary: 217 91% 60%;        /* #3B82F6 Electric Blue */
+    --secondary-foreground: 0 0% 100%;
 
-    --muted: 0 0% 10%;
-    --muted-foreground: 0 0% 63%;
-
-    --accent: 217 91% 60%;
+    --accent: 173 80% 40%;
     --accent-foreground: 0 0% 100%;
 
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 0 0% 98%;
+    --muted: 217 33% 17%;
+    --muted-foreground: 220 9% 65%;  /* #9CA3AF Gray */
 
-    --border: 0 0% 15%;
-    --input: 0 0% 12%;
-    --ring: 217 91% 60%;
-
-    --chart-1: 217 91% 60%;
-    --chart-2: 192 95% 56%;
-    --chart-3: 263 70% 65%;
-    --chart-4: 38 92% 55%;
-    --chart-5: 142 71% 50%;
-
-    --success: 142 71% 50%;
+    /* Semantic */
+    --destructive: 0 84% 60%;        /* #EF4444 Red */
+    --destructive-foreground: 0 0% 100%;
+    --success: 142 71% 45%;          /* #22C55E Green */
     --success-foreground: 0 0% 100%;
-    --warning: 38 92% 55%;
+    --warning: 38 92% 50%;           /* #F59E0B Amber */
     --warning-foreground: 0 0% 0%;
 
-    --radius: 0.625rem;
+    /* Form + structural */
+    --border: 217 33% 24%;           /* lighter graphite for separators */
+    --input: 217 33% 14%;            /* slightly darker than card */
+    --ring: 173 80% 40%;
+
+    /* Charts — teal, blue, amber, red, green */
+    --chart-1: 173 80% 40%;
+    --chart-2: 217 91% 60%;
+    --chart-3: 38 92% 50%;
+    --chart-4: 0 84% 60%;
+    --chart-5: 142 71% 45%;
+
+    --radius: 0.5rem;
   }
 }
 
@@ -78,20 +87,20 @@ code, pre, .font-mono {
   body { @apply bg-background text-foreground; }
 
   ::selection {
-    background: hsl(217 91% 60% / 0.35);
+    background: hsl(173 80% 40% / 0.35);
     color: hsl(0 0% 100%);
   }
 }
 
-/* Scrollbar */
+/* Scrollbar — navy track, graphite thumb */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: hsl(0 0% 18%);
+  background: hsl(var(--border));
   border-radius: 8px;
   border: 2px solid hsl(var(--background));
 }
-::-webkit-scrollbar-thumb:hover { background: hsl(0 0% 28%); }
+::-webkit-scrollbar-thumb:hover { background: hsl(217 33% 32%); }
 
 /* =============================================================================
  * Aurora — top-right blue gradient glow
@@ -116,10 +125,10 @@ code, pre, .font-mono {
     max-height: 1100px;
     background: radial-gradient(
       circle at center,
-      hsl(217 91% 60% / 0.35) 0%,
-      hsl(217 91% 60% / 0.15) 25%,
-      hsl(263 70% 60% / 0.10) 45%,
-      transparent 65%
+      hsl(173 80% 40% / 0.28) 0%,
+      hsl(217 91% 60% / 0.16) 28%,
+      hsl(217 91% 60% / 0.08) 50%,
+      transparent 70%
     );
     filter: blur(60px);
     border-radius: 50%;
@@ -136,8 +145,8 @@ code, pre, .font-mono {
     max-height: 600px;
     background: radial-gradient(
       circle at center,
-      hsl(192 95% 65% / 0.30) 0%,
-      hsl(217 91% 60% / 0.10) 40%,
+      hsl(173 80% 50% / 0.25) 0%,
+      hsl(173 80% 40% / 0.08) 40%,
       transparent 70%
     );
     filter: blur(40px);
@@ -145,10 +154,10 @@ code, pre, .font-mono {
   }
 
   .glass {
-    background: hsl(0 0% 6% / 0.6);
+    background: hsl(var(--sidebar) / 0.7);
     backdrop-filter: blur(16px) saturate(140%);
     -webkit-backdrop-filter: blur(16px) saturate(140%);
-    border: 1px solid hsl(0 0% 100% / 0.06);
+    border: 1px solid hsl(var(--border) / 0.6);
   }
 
   .text-balance { text-wrap: balance; }
@@ -157,8 +166,8 @@ code, pre, .font-mono {
     background: linear-gradient(
       135deg,
       hsl(0 0% 100%) 0%,
-      hsl(217 91% 75%) 50%,
-      hsl(192 95% 65%) 100%
+      hsl(173 80% 60%) 50%,
+      hsl(217 91% 70%) 100%
     );
     -webkit-background-clip: text;
     background-clip: text;
@@ -166,8 +175,8 @@ code, pre, .font-mono {
   }
 
   .vercel-card {
-    background: hsl(0 0% 6%);
-    border: 1px solid hsl(0 0% 15%);
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
     border-radius: var(--radius);
     transition: border-color 0.2s ease, transform 0.2s ease;
   }

@@ -23,25 +23,48 @@ const DialogOverlay = React.forwardRef(({ className, ...props }, ref) => (
 ))
 DialogOverlay.displayName = DialogPrimitive.Overlay.displayName
 
-const DialogContent = React.forwardRef(({ className, children, ...props }, ref) => (
-  <DialogPortal>
-    <DialogOverlay />
-    <DialogPrimitive.Content
-      ref={ref}
-      className={cn(
-        "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 rounded-xl border border-white/10 bg-zinc-950/95 backdrop-blur-xl p-6 shadow-[0_0_60px_rgba(59,130,246,0.15),0_20px_80px_rgba(0,0,0,0.8)] duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]",
-        className
-      )}
-      {...props}>
-      {children}
-      <DialogPrimitive.Close
-        className="absolute right-4 top-4 inline-flex h-7 w-7 items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40 disabled:pointer-events-none">
-        <X className="h-4 w-4" />
-        <span className="sr-only">Close</span>
-      </DialogPrimitive.Close>
-    </DialogPrimitive.Content>
-  </DialogPortal>
-))
+// Default dismiss policy: dialogs close ONLY via the explicit X button
+// (or programmatic onOpenChange). Outside-clicks + Escape are blocked
+// so the operator doesn't accidentally lose form state. Callers can
+// opt back in by passing their own handlers — `e.preventDefault()`
+// blocks, omitting it (or doing nothing) restores Radix defaults.
+const DialogContent = React.forwardRef(
+  (
+    {
+      className,
+      children,
+      onPointerDownOutside,
+      onInteractOutside,
+      onEscapeKeyDown,
+      ...props
+    },
+    ref,
+  ) => {
+    const block = (e) => e.preventDefault();
+    return (
+      <DialogPortal>
+        <DialogOverlay />
+        <DialogPrimitive.Content
+          ref={ref}
+          onPointerDownOutside={onPointerDownOutside ?? block}
+          onInteractOutside={onInteractOutside ?? block}
+          onEscapeKeyDown={onEscapeKeyDown ?? block}
+          className={cn(
+            "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 rounded-xl border border-border bg-card/95 backdrop-blur-xl p-6 shadow-[0_0_60px_rgba(59,130,246,0.15),0_20px_80px_rgba(0,0,0,0.8)] duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]",
+            className,
+          )}
+          {...props}
+        >
+          {children}
+          <DialogPrimitive.Close className="absolute right-4 top-4 inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-card/70 hover:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40 disabled:pointer-events-none">
+            <X className="h-4 w-4" />
+            <span className="sr-only">Close</span>
+          </DialogPrimitive.Close>
+        </DialogPrimitive.Content>
+      </DialogPortal>
+    );
+  },
+);
 DialogContent.displayName = DialogPrimitive.Content.displayName
 
 const DialogHeader = ({

@@ -172,7 +172,7 @@ const Recordings = () => {
           >
             Recordings
           </h1>
-          <p className="text-zinc-500 mt-1 text-sm md:text-base">
+          <p className="text-muted-foreground mt-1 text-sm md:text-base">
             Browse, download, and manage recorded footage
           </p>
         </div>
@@ -189,7 +189,7 @@ const Recordings = () => {
       </div>
 
       {/* Filters */}
-      <div className="bg-zinc-950 border border-white/10 rounded-lg p-3 md:p-4 mb-4 md:mb-6">
+      <div className="bg-card border border-border rounded-lg p-3 md:p-4 mb-4 md:mb-6">
         <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-5 gap-3 md:gap-4">
           <div>
             <Label className="text-xs">Camera</Label>
@@ -216,7 +216,7 @@ const Recordings = () => {
           <div>
             <Label className="text-xs">Search</Label>
             <div className="relative">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-zinc-500" />
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
                 value={search}
                 onChange={(e) => {
@@ -269,24 +269,24 @@ const Recordings = () => {
       </div>
 
       {/* Table */}
-      <div className="bg-zinc-950 border border-white/10 rounded-lg overflow-hidden">
+      <div className="bg-card border border-border rounded-lg overflow-hidden">
         {isLoading ? (
-          <div className="p-10 text-center text-zinc-500">Loading…</div>
+          <div className="p-10 text-center text-muted-foreground">Loading…</div>
         ) : recordings.length === 0 ? (
-          <div className="p-10 text-center text-zinc-500">
+          <div className="p-10 text-center text-muted-foreground">
             <Film className="h-10 w-10 mx-auto mb-3 opacity-50" />
             <p>No recordings found</p>
           </div>
         ) : (
           <table className="w-full text-sm">
-            <thead className="bg-zinc-950/40 border-b border-white/10">
+            <thead className="bg-card/40 border-b border-border">
               <tr>
                 <th className="w-10 px-4 py-3">
                   <button onClick={toggleSelectAll}>
                     {selected.size === recordings.length ? (
                       <CheckSquare className="h-4 w-4 text-white" />
                     ) : (
-                      <Square className="h-4 w-4 text-zinc-500" />
+                      <Square className="h-4 w-4 text-muted-foreground" />
                     )}
                   </button>
                 </th>
@@ -311,20 +311,20 @@ const Recordings = () => {
               {recordings.map((rec) => (
                 <tr
                   key={rec.id}
-                  className="border-b border-slate-100 last:border-0 hover:bg-zinc-950/40/50"
+                  className="border-b border-slate-100 last:border-0 hover:bg-card/40/50"
                 >
                   <td className="px-4 py-3">
                     <button onClick={() => toggleSelect(rec.id)}>
                       {selected.has(rec.id) ? (
                         <CheckSquare className="h-4 w-4 text-white" />
                       ) : (
-                        <Square className="h-4 w-4 text-zinc-500" />
+                        <Square className="h-4 w-4 text-muted-foreground" />
                       )}
                     </button>
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
-                      <Camera className="h-4 w-4 text-zinc-500" />
+                      <Camera className="h-4 w-4 text-muted-foreground" />
                       <span className="font-medium text-white">
                         {cameraMap[rec.camera_id] ||
                           rec.camera_id?.substring(0, 8)}
@@ -349,7 +349,7 @@ const Recordings = () => {
                   </td>
                   <td className="px-4 py-3 text-zinc-400">
                     <div className="flex items-center gap-1">
-                      <HardDrive className="h-3 w-3 text-zinc-500" />
+                      <HardDrive className="h-3 w-3 text-muted-foreground" />
                       {formatBytes(rec.file_size)}
                     </div>
                   </td>
@@ -385,7 +385,7 @@ const Recordings = () => {
       {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-between mt-4">
-          <p className="text-sm text-zinc-500">
+          <p className="text-sm text-muted-foreground">
             Page {page} of {totalPages} ({total} total)
           </p>
           <div className="flex gap-2">
@@ -425,7 +425,7 @@ const Recordings = () => {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-red-600 hover:bg-red-700"
+              className="bg-destructive hover:bg-destructive/90"
               onClick={() => deleteMut.mutate(deleteTarget.id)}
             >
               Delete
@@ -449,7 +449,7 @@ const Recordings = () => {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-red-600 hover:bg-red-700"
+              className="bg-destructive hover:bg-destructive/90"
               onClick={() => bulkDeleteMut.mutate([...selected])}
             >
               Delete All

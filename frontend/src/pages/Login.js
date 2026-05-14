@@ -136,7 +136,7 @@ const Login = () => {
             </div>
             <div>
               <h1 className="text-2xl font-semibold tracking-tight">GVD Pro</h1>
-              <p className="text-zinc-500 text-sm">Network Video Recorder</p>
+              <p className="text-muted-foreground text-sm">Network Video Recorder</p>
             </div>
           </div>
 
@@ -179,7 +179,7 @@ const Login = () => {
         <div className="w-full max-w-md">
           {/* Mobile Logo */}
           <div className="lg:hidden flex items-center justify-center gap-3 mb-8">
-            <div className="p-2 bg-zinc-900 rounded-lg">
+            <div className="p-2 bg-primary rounded-lg">
               <Video className="h-6 w-6 text-white" />
             </div>
             <span
@@ -193,7 +193,7 @@ const Login = () => {
           {/* Loading state */}
           {setupRequired === null && (
             <div className="flex items-center justify-center py-16">
-              <div className="text-zinc-500 text-sm">
+              <div className="text-muted-foreground text-sm">
                 Checking system status…
               </div>
             </div>
@@ -201,7 +201,7 @@ const Login = () => {
 
           {/* Normal login — no register tab */}
           {setupRequired === false && (
-            <Card className="border-white/10 bg-zinc-950/60 backdrop-blur-xl shadow-[0_0_60px_rgba(59,130,246,0.10)]">
+            <Card className="border-border bg-card/60 backdrop-blur-xl shadow-[0_0_60px_rgba(59,130,246,0.10)]">
               <CardHeader className="space-y-1">
                 <CardTitle
                   className="text-2xl"
@@ -249,7 +249,7 @@ const Login = () => {
                       />
                       <button
                         type="button"
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-400"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-zinc-400"
                         onClick={() => setShowPassword(!showPassword)}
                       >
                         {showPassword ? (
@@ -299,7 +299,7 @@ const Login = () => {
 
               {/* Login Tab */}
               <TabsContent value="login">
-                <Card className="border-white/10 bg-zinc-950/60 backdrop-blur-xl shadow-[0_0_60px_rgba(59,130,246,0.10)]">
+                <Card className="border-border bg-card/60 backdrop-blur-xl shadow-[0_0_60px_rgba(59,130,246,0.10)]">
                   <CardHeader className="space-y-1">
                     <CardTitle
                       className="text-2xl"
@@ -350,7 +350,7 @@ const Login = () => {
                           />
                           <button
                             type="button"
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-400"
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-zinc-400"
                             onClick={() => setShowPassword(!showPassword)}
                           >
                             {showPassword ? (
@@ -378,7 +378,7 @@ const Login = () => {
 
               {/* Register Tab */}
               <TabsContent value="register">
-                <Card className="border-white/10 bg-zinc-950/60 backdrop-blur-xl shadow-[0_0_60px_rgba(59,130,246,0.10)]">
+                <Card className="border-border bg-card/60 backdrop-blur-xl shadow-[0_0_60px_rgba(59,130,246,0.10)]">
                   <CardHeader className="space-y-1">
                     <CardTitle
                       className="text-2xl"

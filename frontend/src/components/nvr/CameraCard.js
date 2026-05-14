@@ -49,6 +49,10 @@ export const CameraCard = ({
   isLoading = false,
   showLiveByDefault = false,
   className,
+  // When true the card fills its parent height instead of forcing a
+  // 16:9 aspect ratio. Used by CameraGrid which gives each tile a
+  // fixed slice of the viewport so all cells stay equal size.
+  fitParent = false,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [showLive, setShowLive] = useState(showLiveByDefault);
@@ -115,9 +119,12 @@ export const CameraCard = ({
     <div
       data-testid={`camera-card-${camera.id}`}
       className={cn(
-        "relative overflow-hidden rounded-lg border border-white/10 bg-black group",
+        "relative overflow-hidden rounded-lg border border-border bg-black group",
         "hover:ring-2 hover:ring-slate-900 transition-all duration-200",
         !isEnabled && "opacity-60",
+        // When fitParent the card stretches to its grid cell; otherwise
+        // it keeps a 16:9 aspect so tile flows naturally in column layouts.
+        fitParent && "h-full w-full flex flex-col",
         className,
       )}
       onMouseEnter={() => setIsHovered(true)}
@@ -125,7 +132,12 @@ export const CameraCard = ({
       onClick={() => onClick?.(camera)}
     >
       {/* Video Feed / Placeholder */}
-      <div className="aspect-video relative">
+      <div
+        className={cn(
+          "relative",
+          fitParent ? "flex-1 min-h-0" : "aspect-video",
+        )}
+      >
         {isOnline &&
         showLive &&
         streamRegistered &&
@@ -154,7 +166,7 @@ export const CameraCard = ({
           />
         ) : null}
         <div
-          className="w-full h-full flex items-center justify-center bg-zinc-900"
+          className="w-full h-full flex items-center justify-center bg-primary"
           style={{
             display:
               isOnline &&
@@ -164,7 +176,7 @@ export const CameraCard = ({
                 : "flex",
           }}
         >
-          <div className="text-center text-zinc-500">
+          <div className="text-center text-muted-foreground">
             {isRegisteringStream ? (
               <>
                 <RefreshCw className="h-12 w-12 mx-auto mb-2 opacity-50 animate-spin" />
@@ -231,7 +243,7 @@ export const CameraCard = ({
                       data-testid={`camera-${camera.id}-view-toggle`}
                       size="icon"
                       variant="ghost"
-                      className="h-10 w-10 bg-zinc-950/20 hover:bg-zinc-950/30 text-white"
+                      className="h-10 w-10 bg-card/20 hover:bg-card/30 text-white"
                       onClick={handleToggleLive}
                       disabled={isLoading}
                     >
@@ -255,7 +267,7 @@ export const CameraCard = ({
                     data-testid={`camera-${camera.id}-recording-toggle`}
                     size="icon"
                     variant="ghost"
-                    className="h-10 w-10 bg-zinc-950/20 hover:bg-zinc-950/30 text-white"
+                    className="h-10 w-10 bg-card/20 hover:bg-card/30 text-white"
                     onClick={(e) => {
                       e.stopPropagation();
                       isRecording
@@ -283,7 +295,7 @@ export const CameraCard = ({
                     data-testid={`camera-${camera.id}-test-connection`}
                     size="icon"
                     variant="ghost"
-                    className="h-10 w-10 bg-zinc-950/20 hover:bg-zinc-950/30 text-white"
+                    className="h-10 w-10 bg-card/20 hover:bg-card/30 text-white"
                     onClick={(e) => {
                       e.stopPropagation();
                       onTestConnection?.(camera);
@@ -306,7 +318,7 @@ export const CameraCard = ({
                       data-testid={`camera-${camera.id}-instant-playback`}
                       size="icon"
                       variant="ghost"
-                      className="h-10 w-10 bg-zinc-950/20 hover:bg-zinc-950/30 text-white"
+                      className="h-10 w-10 bg-card/20 hover:bg-card/30 text-white"
                       onClick={(e) => {
                         e.stopPropagation();
                         onInstantPlayback?.(camera);
@@ -326,7 +338,7 @@ export const CameraCard = ({
                     data-testid={`camera-${camera.id}-fullscreen`}
                     size="icon"
                     variant="ghost"
-                    className="h-10 w-10 bg-zinc-950/20 hover:bg-zinc-950/30 text-white"
+                    className="h-10 w-10 bg-card/20 hover:bg-card/30 text-white"
                     onClick={(e) => {
                       e.stopPropagation();
                       onFullscreen?.(camera);
@@ -346,7 +358,7 @@ export const CameraCard = ({
                     data-testid={`camera-${camera.id}-settings`}
                     size="icon"
                     variant="ghost"
-                    className="h-10 w-10 bg-zinc-950/20 hover:bg-zinc-950/30 text-white"
+                    className="h-10 w-10 bg-card/20 hover:bg-card/30 text-white"
                     onClick={(e) => {
                       e.stopPropagation();
                       onSettings?.(camera);

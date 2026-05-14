@@ -1,0 +1,33 @@
+# =============================================================================
+# SOPS Configuration — file-based secrets encryption with age
+# =============================================================================
+#
+# This file tells SOPS which keys can decrypt which files. The age public
+# key(s) listed here are NOT secret — they encrypt. The corresponding
+# private keys live outside the repo (see scripts/sops-bootstrap.sh).
+#
+# Adding a new operator:
+#   1. They run: age-keygen -o ~/.config/sops/age/keys.txt
+#   2. Send their public key (starts with "age1...") to a maintainer
+#   3. Maintainer adds the public key to creation_rules below
+#   4. Maintainer re-encrypts all secrets so the new key can decrypt:
+#        sops updatekeys backend/.env.sops
+#        sops updatekeys deploy/secrets/*.sops.yaml
+#
+# Rotating a compromised key:
+#   1. Generate fresh age key
+#   2. Replace public key in creation_rules
+#   3. sops updatekeys on every encrypted file
+#   4. Destroy old private key everywhere it was stored
+#
+# Reference: https://github.com/getsops/sops
+# =============================================================================
+
+creation_rules:
+  # Encrypted env files: anything matching *.sops.* or *.sops.yaml
+  - path_regex: '\.sops\.(env|yaml|yml|json)$'
+    age: >-
+      # Placeholder — replace with your team's age public keys (one per line,
+      # comma-separated). Generate yours with `age-keygen -o keys.txt` and
+      # paste the public key (the line starting with `age1...`) here.
+      age1placeholderplaceholderplaceholderplaceholderplaceholderplaceho

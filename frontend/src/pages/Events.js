@@ -241,7 +241,7 @@ const Events = () => {
           {Object.entries(SEVERITY_MAP).map(([key, { color, label }]) => (
             <div
               key={key}
-              className="rounded-lg border border-white/10 bg-white/[0.03] p-3 flex items-center justify-between"
+              className="rounded-lg border border-border bg-card/50 p-3 flex items-center justify-between"
             >
               <span className="text-sm text-muted-foreground">{label}</span>
               <Badge className={color}>{stats.by_severity?.[key] || 0}</Badge>
@@ -251,7 +251,7 @@ const Events = () => {
       )}
 
       {/* Filters */}
-      <div className="flex flex-wrap items-end gap-3 rounded-lg border border-white/10 bg-white/[0.02] p-3">
+      <div className="flex flex-wrap items-end gap-3 rounded-lg border border-border bg-card/40 p-3">
         <Filter className="h-4 w-4 text-muted-foreground mt-5" />
 
         <div className="w-40">
@@ -361,10 +361,10 @@ const Events = () => {
       </div>
 
       {/* Events table */}
-      <div className="rounded-lg border border-white/10 bg-zinc-950/40 overflow-hidden">
+      <div className="rounded-lg border border-border bg-card/40 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-white/[0.03] text-zinc-400 uppercase text-[11px] tracking-wider">
+            <thead className="bg-card/50 text-zinc-400 uppercase text-[11px] tracking-wider">
               <tr>
                 <th className="text-left p-3 font-medium">Time</th>
                 <th className="text-left p-3 font-medium">Type</th>
@@ -402,7 +402,7 @@ const Events = () => {
                   return (
                     <tr
                       key={event.id}
-                      className={`border-t border-white/5 hover:bg-white/[0.03] cursor-pointer transition-colors ${
+                      className={`border-t border-white/5 hover:bg-card/50 cursor-pointer transition-colors ${
                         !event.acknowledged ? "bg-rose-500/[0.04]" : ""
                       }`}
                       onClick={() => setSelectedEvent(event)}

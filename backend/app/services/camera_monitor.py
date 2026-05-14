@@ -121,6 +121,15 @@ class CameraMonitor:
                     is_live = ffmpeg_manager.is_recording(camera.id)
                     prev_status = camera.status
 
+                    # Independent online heartbeat — set last_online_at any
+                    # time the camera was already marked online by another
+                    # subsystem (recording start, manual probe, go2rtc).
+                    # Without this, last_online_at stays NULL for cameras
+                    # that came online via the start-recording flow but
+                    # aren't currently in ffmpeg_manager.is_recording.
+                    if camera.status == "online":
+                        camera.last_online_at = datetime.utcnow()
+
                     # Update bandwidth tracking
                     if is_live:
                         from app.storage.service import StorageService

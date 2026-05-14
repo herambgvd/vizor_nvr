@@ -109,7 +109,7 @@ export const ClipBuilder = ({ cameraId, currentTime, className }) => {
   return (
     <div
       className={cn(
-        "bg-zinc-950 border border-white/10 rounded-lg p-4 space-y-4",
+        "bg-card border border-border rounded-lg p-4 space-y-4",
         className,
       )}
     >
@@ -125,7 +125,7 @@ export const ClipBuilder = ({ cameraId, currentTime, className }) => {
       </div>
 
       {segments.length === 0 ? (
-        <p className="text-xs text-zinc-500 text-center py-4">
+        <p className="text-xs text-muted-foreground text-center py-4">
           No clips added. Click "Add Clip" to mark an IN/OUT range.
         </p>
       ) : (
@@ -133,7 +133,7 @@ export const ClipBuilder = ({ cameraId, currentTime, className }) => {
           {segments.map((seg, idx) => (
             <div
               key={seg.id}
-              className="border border-white/10 rounded-lg p-3 space-y-2"
+              className="border border-border rounded-lg p-3 space-y-2"
             >
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-zinc-400">
@@ -142,7 +142,7 @@ export const ClipBuilder = ({ cameraId, currentTime, className }) => {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-6 w-6 text-zinc-500 hover:text-red-500"
+                  className="h-6 w-6 text-muted-foreground hover:text-red-500"
                   onClick={() => removeSegment(seg.id)}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
@@ -150,7 +150,7 @@ export const ClipBuilder = ({ cameraId, currentTime, className }) => {
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <Label className="text-[10px] text-zinc-500">IN</Label>
+                  <Label className="text-[10px] text-muted-foreground">IN</Label>
                   <Input
                     type="datetime-local"
                     step="1"
@@ -162,7 +162,7 @@ export const ClipBuilder = ({ cameraId, currentTime, className }) => {
                   />
                 </div>
                 <div>
-                  <Label className="text-[10px] text-zinc-500">OUT</Label>
+                  <Label className="text-[10px] text-muted-foreground">OUT</Label>
                   <Input
                     type="datetime-local"
                     step="1"
@@ -195,7 +195,7 @@ export const ClipBuilder = ({ cameraId, currentTime, className }) => {
 
       {/* Export button */}
       <Button
-        className="w-full bg-zinc-900 hover:bg-zinc-900/60"
+        className="w-full bg-primary hover:bg-primary/60"
         size="sm"
         onClick={handleExport}
         disabled={segments.length === 0 || mutation.isPending}

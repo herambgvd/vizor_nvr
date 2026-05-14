@@ -81,14 +81,14 @@ const SystemMonitoring = () => {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className="flex-shrink-0 px-4 md:px-8 pt-4 md:pt-6 pb-3 md:pb-4 border-b border-white/10 ">
+      <div className="flex-shrink-0 px-4 md:px-8 pt-4 md:pt-6 pb-3 md:pb-4 border-b border-border ">
         <h1
           className="text-2xl md:text-3xl font-bold text-white  tracking-tight"
           style={{ fontFamily: "Manrope, sans-serif" }}
         >
           Monitoring
         </h1>
-        <p className="text-zinc-500 dark:text-zinc-500 mt-1 text-sm md:text-base">
+        <p className="text-muted-foreground dark:text-muted-foreground mt-1 text-sm md:text-base">
           System resources and storage management
         </p>
       </div>
@@ -97,7 +97,7 @@ const SystemMonitoring = () => {
         defaultValue="resources"
         className="flex-1 flex flex-col overflow-hidden"
       >
-        <div className="flex-shrink-0 px-4 md:px-8 border-b border-white/10 ">
+        <div className="flex-shrink-0 px-4 md:px-8 border-b border-border ">
           <TabsList className="h-auto bg-transparent gap-0 p-0">
             <TabsTrigger
               value="resources"
@@ -252,9 +252,9 @@ const ResourcesPanel = () => {
       </div>
 
       {/* Bandwidth summary */}
-      <div className="bg-zinc-950 dark:bg-zinc-900/60 border border-white/10  rounded-lg p-6">
+      <div className="bg-card dark:bg-primary/60 border border-border  rounded-lg p-6">
         <h2 className="text-lg font-semibold text-white  mb-4 flex items-center gap-2">
-          <Activity className="h-5 w-5 text-zinc-400 dark:text-zinc-500" />
+          <Activity className="h-5 w-5 text-zinc-400 dark:text-muted-foreground" />
           Bandwidth per Camera
         </h2>
         {bandwidth.length > 0 ? (
@@ -267,14 +267,14 @@ const ResourcesPanel = () => {
                 <span className="text-zinc-200  font-medium font-mono text-xs">
                   {entry.camera_name || entry.camera_id}
                 </span>
-                <span className="text-zinc-500 dark:text-zinc-500">
+                <span className="text-muted-foreground dark:text-muted-foreground">
                   {fmt(entry.kbps ?? 0)} kbps
                 </span>
               </div>
             ))}
           </div>
         ) : (
-          <p className="text-sm text-zinc-500">No bandwidth data available</p>
+          <p className="text-sm text-muted-foreground">No bandwidth data available</p>
         )}
       </div>
     </div>
@@ -319,7 +319,7 @@ const GaugeCard = ({ label, value, max, unit, icon: Icon, color, sub }) => {
   const offset = circum - (pct / 100) * circum;
 
   return (
-    <div className="bg-zinc-950 dark:bg-zinc-900/60 border border-white/10  rounded-lg p-6 flex flex-col items-center">
+    <div className="bg-card dark:bg-primary/60 border border-border  rounded-lg p-6 flex flex-col items-center">
       <div className="relative mb-3">
         <svg className="h-24 w-24 -rotate-90" viewBox="0 0 100 100">
           <circle
@@ -358,7 +358,7 @@ const GaugeCard = ({ label, value, max, unit, icon: Icon, color, sub }) => {
           {label}
         </span>
       </div>
-      {sub && <p className="text-xs text-zinc-500 mt-1">{sub}</p>}
+      {sub && <p className="text-xs text-muted-foreground mt-1">{sub}</p>}
     </div>
   );
 };
@@ -371,11 +371,11 @@ const HistoryCard = ({ title, history, accessor, color }) => {
 
   if (points.length === 0) {
     return (
-      <div className="bg-zinc-950 dark:bg-zinc-900/60 border border-white/10  rounded-lg p-6">
+      <div className="bg-card dark:bg-primary/60 border border-border  rounded-lg p-6">
         <h3 className="text-sm font-semibold text-zinc-200  mb-3">
           {title}
         </h3>
-        <p className="text-sm text-zinc-500">No history data</p>
+        <p className="text-sm text-muted-foreground">No history data</p>
       </div>
     );
   }
@@ -392,7 +392,7 @@ const HistoryCard = ({ title, history, accessor, color }) => {
     .join(" ");
 
   return (
-    <div className="bg-zinc-950 dark:bg-zinc-900/60 border border-white/10  rounded-lg p-6">
+    <div className="bg-card dark:bg-primary/60 border border-border  rounded-lg p-6">
       <h3 className="text-sm font-semibold text-zinc-200  mb-3">
         {title}
       </h3>

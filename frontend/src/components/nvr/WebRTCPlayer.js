@@ -195,9 +195,11 @@ export const WebRTCPlayer = ({
 
       console.log("[WebRTC] Connection established for stream:", streamId);
     } catch (err) {
-      console.error("[WebRTC] Connection error:", err);
+      // Internal log uses transport name for debugging; user-facing
+      // error string below stays generic.
+      console.error("[live-view] Connection error:", err);
       if (mountedRef.current) {
-        setError(err.message || "WebRTC connection failed");
+        setError("Couldn't load live view. Click to retry.");
         setIsLoading(false);
         scheduleReconnectRef.current?.();
       }
@@ -297,7 +299,7 @@ export const WebRTCPlayer = ({
         <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-10">
           <div className="flex flex-col items-center space-y-2">
             <Loader2 className="h-8 w-8 animate-spin text-white" />
-            <span className="text-sm text-white">Connecting via WebRTC...</span>
+            <span className="text-sm text-white">Loading live view…</span>
           </div>
         </div>
       )}
@@ -322,7 +324,7 @@ export const WebRTCPlayer = ({
           onClick={handleClickToPlay}
         >
           <div className="flex flex-col items-center space-y-3">
-            <div className="bg-zinc-950/20 backdrop-blur-sm rounded-full p-6 hover:bg-zinc-950/30 transition-colors">
+            <div className="bg-card/20 backdrop-blur-sm rounded-full p-6 hover:bg-card/30 transition-colors">
               <Play className="h-12 w-12 text-white fill-white" />
             </div>
             <span className="text-sm text-white font-medium">

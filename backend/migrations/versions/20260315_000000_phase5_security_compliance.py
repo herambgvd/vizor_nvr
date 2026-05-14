@@ -25,11 +25,11 @@ def upgrade() -> None:
     with op.batch_alter_table("users") as batch:
         batch.add_column(sa.Column("totp_secret", sa.String(length=255), nullable=True))
         batch.add_column(sa.Column("totp_enabled", sa.Boolean(),
-                                   nullable=False, server_default=sa.text("0")))
+                                   nullable=False, server_default=sa.text("false")))
         batch.add_column(sa.Column("totp_recovery_codes", sa.JSON(), nullable=True))
         batch.add_column(sa.Column("password_changed_at", sa.DateTime(), nullable=True))
         batch.add_column(sa.Column("force_password_reset", sa.Boolean(),
-                                   nullable=False, server_default=sa.text("0")))
+                                   nullable=False, server_default=sa.text("false")))
         batch.add_column(sa.Column("access_schedule", sa.JSON(), nullable=True))
 
     with op.batch_alter_table("refresh_tokens") as batch:

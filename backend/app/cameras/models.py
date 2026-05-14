@@ -169,7 +169,9 @@ class CameraCreate(BaseModel):
     sub_stream_url: Optional[str] = None
     detect_stream_url: Optional[str] = None
     onvif_host: Optional[str] = None
-    onvif_port: int = 80
+    # Optional. Frontend may send null when no ONVIF host configured.
+    # SQLAlchemy column default kicks in at INSERT time.
+    onvif_port: Optional[int] = 80
     onvif_username: Optional[str] = None
     onvif_password: Optional[str] = None
     location: Optional[str] = None
@@ -313,9 +315,20 @@ class ONVIFDiscoveryResult(BaseModel):
     name: Optional[str] = None
     manufacturer: Optional[str] = None
     model: Optional[str] = None
+    firmware: Optional[str] = None
+    serial_number: Optional[str] = None
+    hardware_id: Optional[str] = None
+    mac: Optional[str] = None
+    has_ptz: Optional[bool] = None
+    has_imaging: Optional[bool] = None
+    has_analytics: Optional[bool] = None
+    has_events: Optional[bool] = None
     main_stream_url: Optional[str] = None
     sub_stream_url: Optional[str] = None
     ptz_capable: bool = False
+    # True when the host responded to ONVIF SOAP but rejected the default
+    # credentials. UI shows "Unverified — enter password" prompt.
+    auth_required: bool = False
 
 
 # =============================================================================

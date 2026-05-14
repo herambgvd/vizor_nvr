@@ -207,7 +207,7 @@ const WebhookFormDialog = ({ open, onClose, webhook, eventTypes }) => {
                 ))}
               </div>
             </ScrollArea>
-            <p className="text-xs text-zinc-500">Empty = receive all events.</p>
+            <p className="text-xs text-muted-foreground">Empty = receive all events.</p>
           </div>
 
           <div className="flex items-center gap-2">
@@ -437,9 +437,9 @@ const LogsPanel = () => {
       </div>
 
       {isLoading ? (
-        <p className="text-sm text-zinc-500">Loading…</p>
+        <p className="text-sm text-muted-foreground">Loading…</p>
       ) : logs.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 text-zinc-500">
+        <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
           <Bell className="h-10 w-10 mb-3 opacity-30" />
           <p>No notification logs yet.</p>
         </div>
@@ -466,9 +466,9 @@ const LogsPanel = () => {
                       {log.status}
                     </span>
                   </TableCell>
-                  <TableCell className="text-xs text-zinc-500">{log.response_code || "—"}</TableCell>
-                  <TableCell className="text-xs text-zinc-500">{log.attempts}</TableCell>
-                  <TableCell className="text-xs text-zinc-500">
+                  <TableCell className="text-xs text-muted-foreground">{log.response_code || "—"}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{log.attempts}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
                     {log.created_at ? new Date(log.created_at).toLocaleString() : "—"}
                   </TableCell>
                 </TableRow>
@@ -531,7 +531,7 @@ export default function Notifications() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white ">Notifications</h1>
-          <p className="text-sm text-zinc-500 mt-1">Configure webhooks and email alerts</p>
+          <p className="text-sm text-muted-foreground mt-1">Configure webhooks and email alerts</p>
         </div>
       </div>
 
@@ -566,9 +566,9 @@ export default function Notifications() {
             </CardHeader>
             <CardContent>
               {wLoading ? (
-                <p className="text-sm text-zinc-500 py-8 text-center">Loading…</p>
+                <p className="text-sm text-muted-foreground py-8 text-center">Loading…</p>
               ) : webhooks.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 text-zinc-500">
+                <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
                   <Webhook className="h-12 w-12 mb-3 opacity-30" />
                   <p className="font-medium">No webhooks configured</p>
                   <p className="text-sm mt-1">Add one to start receiving event notifications.</p>
@@ -598,19 +598,19 @@ export default function Notifications() {
                       {webhooks.map((wh) => (
                         <TableRow key={wh.id}>
                           <TableCell className="font-medium">{wh.name}</TableCell>
-                          <TableCell className="font-mono text-xs text-zinc-500 max-w-[200px] truncate">
+                          <TableCell className="font-mono text-xs text-muted-foreground max-w-[200px] truncate">
                             {wh.url}
                           </TableCell>
                           <TableCell>
                             {wh.events?.length ? (
-                              <span className="text-xs text-zinc-500">
+                              <span className="text-xs text-muted-foreground">
                                 {wh.events.length} event{wh.events.length !== 1 ? "s" : ""}
                               </span>
                             ) : (
                               <Badge variant="secondary" className="text-xs">All</Badge>
                             )}
                           </TableCell>
-                          <TableCell className="text-xs text-zinc-500">
+                          <TableCell className="text-xs text-muted-foreground">
                             <span className="text-green-600">{wh.success_count ?? 0} ok</span>
                             {" / "}
                             <span className="text-red-500">{wh.failure_count ?? 0} fail</span>

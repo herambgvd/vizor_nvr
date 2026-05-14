@@ -9,11 +9,197 @@
 # =============================================================================
 
 import asyncio
+import ipaddress
 import logging
+import socket
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 
 logger = logging.getLogger(__name__)
+
+
+# ── Subnet scan fallback (multicast-free ONVIF discovery) ────────────────
+# Common ONVIF service ports across vendors. Order matters — try 80
+# first since 99% of cameras serve there.
+ONVIF_PROBE_PORTS = (80, 8080, 8000, 8899, 2020, 8081, 8443, 443)
+
+
+def _autodetect_subnet() -> Optional[str]:
+    """Return the CIDR string to probe for ONVIF cameras.
+
+    Priority:
+      1. `LAN_SUBNET` env var (operator sets in .env, e.g. "192.168.1.0/24")
+      2. Default-route interface IP /24, IF the detected subnet looks like
+         a typical home/office LAN (192.168.0.0/16 or 10.0.0.0/8) and NOT
+         a Docker bridge range (172.16-172.31).
+      3. None — caller falls back to multicast WS-Discovery only.
+    """
+    import os
+
+    env_subnet = os.environ.get("LAN_SUBNET", "").strip()
+    if env_subnet:
+        try:
+            ipaddress.ip_network(env_subnet, strict=False)
+            return env_subnet
+        except ValueError:
+            logger.warning("LAN_SUBNET env var invalid: %s", env_subnet)
+
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            host_ip = s.getsockname()[0]
+        net = ipaddress.ip_network(f"{host_ip}/24", strict=False)
+        ip_addr = ipaddress.ip_address(host_ip)
+
+        # Refuse Docker bridge networks — won't find LAN cameras
+        docker_ranges = [
+            ipaddress.ip_network("172.16.0.0/12"),
+            ipaddress.ip_network("10.0.0.0/8"),  # often Docker overlay
+        ]
+        # 192.168 / 10.x outside Docker = real LAN. 172.16-31 = Docker bridge.
+        is_docker_bridge = ipaddress.ip_network("172.16.0.0/12").supernet_of(net)
+        if is_docker_bridge:
+            logger.info(
+                "Auto-detected subnet %s is Docker bridge; refusing. "
+                "Set LAN_SUBNET env var (e.g. 192.168.1.0/24) or pass "
+                "?subnet= explicitly.",
+                net,
+            )
+            return None
+
+        return str(net)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Subnet autodetect failed: %s", e)
+        return None
+
+
+async def _probe_host(ip: str, timeout: float) -> Optional[Dict[str, Any]]:
+    """TCP-probe ONVIF_PROBE_PORTS; on first hit return a candidate."""
+    for port in ONVIF_PROBE_PORTS:
+        try:
+            fut = asyncio.open_connection(ip, port)
+            reader, writer = await asyncio.wait_for(fut, timeout=timeout)
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+            return {
+                "ip": ip,
+                "port": port,
+                "xaddr": f"http://{ip}:{port}/onvif/device_service",
+                "name": None,
+                "manufacturer": None,
+                "model": None,
+            }
+        except (asyncio.TimeoutError, OSError):
+            continue
+    return None
+
+
+async def _rtsp_grab_jpeg(rtsp_url: str, timeout: float = 5.0) -> Optional[bytes]:
+    """Pull a single JPEG frame from an RTSP stream via ffmpeg.
+
+    Fallback for cameras that don't expose ONVIF GetSnapshotUri (or that
+    return broken / vendor-specific URIs). Adds ~1-3s overhead per host.
+    """
+    proc = await asyncio.create_subprocess_exec(
+        "ffmpeg",
+        "-rtsp_transport", "tcp",
+        "-stimeout", str(int(timeout * 1_000_000)),
+        "-y",
+        "-i", rtsp_url,
+        "-frames:v", "1",
+        "-f", "image2pipe",
+        "-vcodec", "mjpeg",
+        "-q:v", "5",
+        "pipe:1",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, _stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout + 2)
+    except asyncio.TimeoutError:
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+        return None
+    if proc.returncode != 0 or not stdout:
+        return None
+    if not stdout.startswith(b"\xff\xd8"):
+        return None
+    return stdout
+
+
+async def _is_onvif_endpoint(ip: str, port: int, timeout: float = 2.0) -> bool:
+    """Verify a host actually speaks ONVIF SOAP.
+
+    Sends an unauthenticated GetSystemDateAndTime request. ONVIF cameras
+    answer with a SOAP envelope (200 or 400 with SOAP fault); routers /
+    switches / printers return HTML, JSON, or refuse. Used to drop
+    non-camera hits from the discovery list.
+    """
+    import httpx
+
+    body = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope">'
+        '<s:Body><GetSystemDateAndTime '
+        'xmlns="http://www.onvif.org/ver10/device/wsdl"/>'
+        '</s:Body></s:Envelope>'
+    )
+    headers = {
+        "Content-Type": "application/soap+xml; charset=utf-8",
+        "SOAPAction": '"http://www.onvif.org/ver10/device/wsdl/GetSystemDateAndTime"',
+    }
+    urls = [
+        f"http://{ip}:{port}/onvif/device_service",
+        f"http://{ip}:{port}/onvif/services",
+    ]
+    for url in urls:
+        try:
+            async with httpx.AsyncClient(timeout=timeout, verify=False) as client:
+                r = await client.post(url, content=body, headers=headers)
+            text = r.text.lower()
+            if "envelope" in text and "onvif" in text:
+                return True
+            if "envelope" in text and "getsystemdateandtimeresponse" in text:
+                return True
+        except Exception:  # noqa: BLE001
+            continue
+    return False
+
+
+async def _tcp_subnet_scan(subnet: str, timeout: float = 0.8) -> List[Dict[str, Any]]:
+    """Parallel TCP probe across every host in `subnet`.
+
+    Concurrency 256 so /24 finishes in 5-8s. Short timeout 0.8s — most
+    devices respond in <100ms; anything slower is router/printer/IoT
+    noise we'd discard anyway.
+    """
+    try:
+        net = ipaddress.ip_network(subnet, strict=False)
+    except ValueError as e:
+        logger.warning("Invalid subnet %s: %s", subnet, e)
+        return []
+
+    if net.num_addresses > 1024:
+        logger.warning(
+            "Subnet %s too large (%d hosts); aborting scan",
+            subnet, net.num_addresses,
+        )
+        return []
+
+    sem = asyncio.Semaphore(256)
+
+    async def _bounded(ip: str):
+        async with sem:
+            return await _probe_host(ip, timeout)
+
+    tasks = [_bounded(str(ip)) for ip in net.hosts()]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    return [r for r in results if isinstance(r, dict)]
 
 # Optional imports — gracefully degrade if not installed
 try:
@@ -38,22 +224,76 @@ class ONVIFService:
     # Discovery
     # ------------------------------------------------------------------
 
-    async def discover(self, timeout: int = 5) -> List[Dict[str, Any]]:
-        """
-        Scan the local network for ONVIF-compliant cameras.
-        Returns list of dicts with ip, port, name, manufacturer, model.
-        """
-        if not _HAS_WSDISCOVERY:
-            raise RuntimeError("WSDiscovery not installed. pip install WSDiscovery")
+    async def discover(
+        self,
+        timeout: int = 5,
+        subnet: Optional[str] = None,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Discover ONVIF cameras on the LAN.
 
-        def _scan():
-            results = []
-            wsd = WSDiscovery()
-            wsd.start()
+        Tries WS-Discovery (multicast 239.255.255.250:3702) first. When
+        running inside a Docker bridge network, multicast typically can't
+        reach the host LAN, so we fall back to a unicast subnet scan
+        that probes common ONVIF ports (80, 8080, 2020, 8000, 8899) on
+        every host in the subnet.
+
+        `subnet` overrides auto-detection. Example: "192.168.1.0/24".
+        """
+        devices: List[Dict[str, Any]] = []
+
+        # ── Try WS-Discovery first (works when host network is reachable)
+        if _HAS_WSDISCOVERY:
+            try:
+                devices = await asyncio.to_thread(self._wsd_scan, timeout)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("WS-Discovery scan failed: %s", e)
+                devices = []
+
+        # ── Fallback: TCP probe across subnet ───────────────────────────
+        if not devices:
+            target_subnet = subnet or _autodetect_subnet()
+            if target_subnet:
+                logger.info("WS-Discovery returned 0 results; trying TCP subnet scan on %s", target_subnet)
+                devices = await _tcp_subnet_scan(target_subnet, timeout=2.0)
+            else:
+                logger.warning("Could not auto-detect subnet for fallback scan")
+
+        # ── Enrich with device info (manufacturer / model / firmware) ──
+        # Pass operator creds if supplied; many cameras 401 on default
+        # admin/admin and the row stays unlabeled otherwise.
+        u = username or "admin"
+        p = password or "admin"
+        enriched = []
+        for dev in devices:
+            info = await self.get_device_info(dev["ip"], dev["port"], u, p)
+            if info:
+                dev.update(info)
+                enriched.append(dev)
+                continue
+
+            # No info from default creds. Probe ONVIF endpoint anonymously
+            # to confirm it speaks ONVIF at all — eliminates routers /
+            # switches / NAS boxes that just happen to have port 80 open.
+            if await _is_onvif_endpoint(dev["ip"], dev["port"]):
+                # Mark auth-required so the UI shows it as "unverified"
+                # and the operator can supply real credentials.
+                dev["auth_required"] = True
+                enriched.append(dev)
+            # else: silently drop — not an ONVIF device.
+
+        return enriched
+
+    def _wsd_scan(self, timeout: int) -> List[Dict[str, Any]]:
+        """Synchronous WS-Discovery scan — runs in thread."""
+        results: List[Dict[str, Any]] = []
+        wsd = WSDiscovery()
+        wsd.start()
+        try:
             services = wsd.searchServices(timeout=timeout)
             for svc in services:
                 types = svc.getTypes()
-                # Filter for NetworkVideoTransmitter (ONVIF cameras)
                 is_nvt = any("NetworkVideoTransmitter" in str(t) for t in types)
                 if not is_nvt:
                     continue
@@ -71,19 +311,9 @@ class ONVIFService:
                         })
                     except Exception:
                         pass
+        finally:
             wsd.stop()
-            return results
-
-        devices = await asyncio.to_thread(_scan)
-
-        # Optionally enrich with device info
-        enriched = []
-        for dev in devices:
-            info = await self.get_device_info(dev["ip"], dev["port"])
-            dev.update(info or {})
-            enriched.append(dev)
-
-        return enriched
+        return results
 
     # ------------------------------------------------------------------
     # Device info & stream URIs
@@ -93,7 +323,8 @@ class ONVIFService:
         self, host: str, port: int = 80,
         username: str = "admin", password: str = "admin",
     ) -> Optional[Dict[str, Any]]:
-        """Query device info (manufacturer, model, firmware)."""
+        """Query device info (manufacturer, model, firmware, serial,
+        hardware id, capabilities, network interfaces)."""
         if not _HAS_ONVIF:
             return None
 
@@ -101,17 +332,115 @@ class ONVIFService:
             try:
                 cam = ONVIFCamera(host, port, username, password)
                 info = cam.devicemgmt.GetDeviceInformation()
-                return {
-                    "manufacturer": info.Manufacturer,
-                    "model": info.Model,
-                    "name": info.Model,
-                    "firmware": info.FirmwareVersion,
+                out = {
+                    "manufacturer": getattr(info, "Manufacturer", None),
+                    "model": getattr(info, "Model", None),
+                    "name": getattr(info, "Model", None),
+                    "firmware": getattr(info, "FirmwareVersion", None),
+                    "serial_number": getattr(info, "SerialNumber", None),
+                    "hardware_id": getattr(info, "HardwareId", None),
                 }
+                # Best-effort: capabilities + network interfaces.
+                try:
+                    caps = cam.devicemgmt.GetCapabilities({"Category": "All"})
+                    out["has_ptz"] = bool(getattr(caps, "PTZ", None))
+                    out["has_imaging"] = bool(getattr(caps, "Imaging", None))
+                    out["has_analytics"] = bool(getattr(caps, "Analytics", None))
+                    out["has_events"] = bool(getattr(caps, "Events", None))
+                except Exception:  # noqa: BLE001
+                    pass
+                try:
+                    ifaces = cam.devicemgmt.GetNetworkInterfaces()
+                    mac = None
+                    for iface in ifaces or []:
+                        info_obj = getattr(iface, "Info", None)
+                        if info_obj and getattr(info_obj, "HwAddress", None):
+                            mac = info_obj.HwAddress
+                            break
+                    if mac:
+                        out["mac"] = mac
+                except Exception:  # noqa: BLE001
+                    pass
+                return out
             except Exception as e:
                 logger.warning(f"ONVIF info query failed for {host}: {e}")
                 return None
 
         return await asyncio.to_thread(_query)
+
+    async def get_snapshot_uri(
+        self, host: str, port: int = 80,
+        username: str = "admin", password: str = "admin",
+    ) -> Optional[str]:
+        """Return the camera's ONVIF GetSnapshotUri for its first profile."""
+        if not _HAS_ONVIF:
+            return None
+
+        def _query():
+            try:
+                cam = ONVIFCamera(host, port, username, password)
+                media = cam.create_media_service()
+                profiles = media.GetProfiles()
+                if not profiles:
+                    return None
+                resp = media.GetSnapshotUri({"ProfileToken": profiles[0].token})
+                return getattr(resp, "Uri", None)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"ONVIF snapshot URI query failed for {host}: {e}")
+                return None
+
+        return await asyncio.to_thread(_query)
+
+    async def fetch_snapshot(
+        self, host: str, port: int = 80,
+        username: str = "admin", password: str = "admin",
+        timeout: float = 4.0,
+    ) -> Optional[bytes]:
+        """Fetch a JPEG of the latest frame from the camera.
+
+        Order:
+          1. ONVIF GetSnapshotUri + (anon | basic | digest) HTTP fetch
+          2. ONVIF GetStreamUri RTSP + ffmpeg single-frame grab
+
+        Returns None only if both paths fail.
+        """
+        import httpx
+
+        # ── Path 1: ONVIF snapshot URI ─────────────────────────────────
+        uri = await self.get_snapshot_uri(host, port, username, password)
+        if uri:
+            try:
+                async with httpx.AsyncClient(timeout=timeout, verify=False) as client:
+                    for auth in (
+                        None,
+                        (username, password),
+                        httpx.DigestAuth(username, password),
+                    ):
+                        try:
+                            r = await client.get(uri, auth=auth)
+                        except Exception:  # noqa: BLE001
+                            continue
+                        if (
+                            r.status_code == 200
+                            and r.content
+                            and r.content.startswith(b"\xff\xd8")
+                        ):
+                            return r.content
+            except Exception as e:  # noqa: BLE001
+                logger.debug("HTTP snapshot fetch failed for %s: %s", host, e)
+
+        # ── Path 2: RTSP single-frame via ffmpeg ───────────────────────
+        try:
+            uris = await self.get_stream_uris(host, port, username, password)
+            rtsp = uris.get("main_stream_url")
+            if rtsp:
+                jpeg = await _rtsp_grab_jpeg(rtsp, timeout=timeout)
+                if jpeg:
+                    return jpeg
+        except Exception as e:  # noqa: BLE001
+            logger.debug("RTSP snapshot fallback failed for %s: %s", host, e)
+
+        return None
 
     async def get_stream_uris(
         self, host: str, port: int = 80,

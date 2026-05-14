@@ -11,10 +11,10 @@ const badgeVariants = cva(
         default:
           "border-blue-500/30 bg-blue-500/15 text-blue-300 shadow-[0_0_12px_rgba(59,130,246,0.2)]",
         secondary:
-          "border-white/10 bg-white/[0.06] text-zinc-200",
+          "border-border bg-card/70 text-zinc-200",
         destructive:
           "border-rose-500/40 bg-rose-500/15 text-rose-300 shadow-[0_0_12px_rgba(244,63,94,0.18)]",
-        outline: "border-white/15 text-zinc-300",
+        outline: "border-border text-zinc-300",
       },
     },
     defaultVariants: {

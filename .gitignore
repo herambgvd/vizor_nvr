@@ -85,3 +85,18 @@ backend/data/
 !frontend/.env
 !frontend/.env.example
 !backend/.env.example
+
+# SOPS / age — encrypted secrets ARE committed (they're encrypted).
+# Plaintext .env files must NEVER be committed (already covered above by *.env).
+# Re-allow SOPS-encrypted files so the *.env rule doesn't catch them:
+!*.sops.env
+!*.sops.yaml
+!*.sops.yml
+!*.sops.json
+!.sops.yaml
+
+# Age private keys MUST NEVER be committed
+keys.txt
+age-key.txt
+*.age
+age/keys*

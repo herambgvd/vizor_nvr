@@ -314,7 +314,7 @@ export const Go2RTCPlayer = ({
           onClick={handleClickToPlay}
         >
           <div className="flex flex-col items-center space-y-3">
-            <div className="bg-zinc-950/20 backdrop-blur-sm rounded-full p-6 hover:bg-zinc-950/30 transition-colors">
+            <div className="bg-card/20 backdrop-blur-sm rounded-full p-6 hover:bg-card/30 transition-colors">
               <Play className="h-12 w-12 text-white fill-white" />
             </div>
             <span className="text-sm text-white font-medium">

@@ -213,7 +213,7 @@ export const MultiCameraPlayback = ({ className }) => {
   return (
     <div className={cn("flex flex-col h-full", className)}>
       {/* Header Controls */}
-      <div className="flex-shrink-0 px-4 py-3 border-b border-white/10  flex flex-wrap items-center gap-3">
+      <div className="flex-shrink-0 px-4 py-3 border-b border-border  flex flex-wrap items-center gap-3">
         {/* Date picker */}
         <Popover>
           <PopoverTrigger asChild>
@@ -245,7 +245,7 @@ export const MultiCameraPlayback = ({ className }) => {
               </SelectItem>
             ))}
             {availableCameras.length === 0 && (
-              <div className="px-2 py-1 text-sm text-zinc-500">
+              <div className="px-2 py-1 text-sm text-muted-foreground">
                 All cameras selected
               </div>
             )}
@@ -253,7 +253,7 @@ export const MultiCameraPlayback = ({ className }) => {
         </Select>
 
         {/* Grid layout */}
-        <div className="flex items-center gap-1 border border-white/10  rounded-md p-1">
+        <div className="flex items-center gap-1 border border-border  rounded-md p-1">
           {[1, 2, 3, 4].map((n) => (
             <Button
               key={n}
@@ -275,7 +275,7 @@ export const MultiCameraPlayback = ({ className }) => {
       {/* Video Grid */}
       <div className="flex-1 p-4 overflow-auto">
         {selectedCameras.length === 0 ? (
-          <div className="h-full flex items-center justify-center text-zinc-500">
+          <div className="h-full flex items-center justify-center text-muted-foreground">
             <div className="text-center">
               <Grid className="h-12 w-12 mx-auto mb-3 opacity-50" />
               <p className="font-medium">No cameras selected</p>
@@ -295,7 +295,7 @@ export const MultiCameraPlayback = ({ className }) => {
                 <div
                   key={cameraId}
                   className={cn(
-                    "relative bg-zinc-900 rounded-lg aspect-video overflow-hidden",
+                    "relative bg-primary rounded-lg aspect-video overflow-hidden",
                     fullscreenCamera === cameraId && "fixed inset-4 z-50 aspect-auto"
                   )}
                 >
@@ -308,7 +308,7 @@ export const MultiCameraPlayback = ({ className }) => {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-6 w-6 text-white hover:bg-zinc-950/20"
+                        className="h-6 w-6 text-white hover:bg-card/20"
                         onClick={() => setFullscreenCamera(
                           fullscreenCamera === cameraId ? null : cameraId
                         )}
@@ -322,7 +322,7 @@ export const MultiCameraPlayback = ({ className }) => {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-6 w-6 text-white hover:bg-zinc-950/20"
+                        className="h-6 w-6 text-white hover:bg-card/20"
                         onClick={() => removeCamera(cameraId)}
                       >
                         <X className="h-3 w-3" />
@@ -343,7 +343,7 @@ export const MultiCameraPlayback = ({ className }) => {
                         {/* Video source would be dynamically set based on currentTime */}
                       </video>
                     ) : (
-                      <div className="text-zinc-500 text-sm text-center">
+                      <div className="text-muted-foreground text-sm text-center">
                         <p>No recording available</p>
                         <p className="text-xs mt-1">for {format(selectedDate, "PP")}</p>
                       </div>
@@ -358,7 +358,7 @@ export const MultiCameraPlayback = ({ className }) => {
 
       {/* Timeline Controls */}
       {selectedCameras.length > 0 && (
-        <div className="flex-shrink-0 px-4 py-3 border-t border-white/10  bg-zinc-950/40 dark:bg-zinc-900/60">
+        <div className="flex-shrink-0 px-4 py-3 border-t border-border  bg-card/40 dark:bg-primary/60">
           {/* Timeline slider */}
           <div className="mb-3">
             <Slider
@@ -368,7 +368,7 @@ export const MultiCameraPlayback = ({ className }) => {
               step={1}
               className="w-full"
             />
-            <div className="flex justify-between text-xs text-zinc-500 mt-1">
+            <div className="flex justify-between text-xs text-muted-foreground mt-1">
               <span>00:00:00</span>
               <span className="font-mono">{formatTime(currentTime)}</span>
               <span>24:00:00</span>

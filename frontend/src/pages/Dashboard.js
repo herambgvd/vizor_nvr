@@ -75,27 +75,53 @@ const Dashboard = () => {
   const offlineCount = cameras.filter((c) => c.status === "offline").length;
 
   return (
-    <div className="p-4 md:p-8 h-full overflow-y-auto">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6 md:mb-8">
-        <div>
+    <div className="p-4 md:p-6 h-full flex flex-col min-h-0">
+      {/* Header: title + stat-pills + actions on one row */}
+      <div className="flex flex-wrap items-center gap-3 mb-4 flex-shrink-0">
+        <div className="flex-shrink-0">
           <h1
-            className="text-2xl md:text-3xl font-bold text-white  tracking-tight"
+            className="text-xl md:text-2xl font-bold text-white tracking-tight leading-none"
             style={{ fontFamily: "Manrope, sans-serif" }}
           >
             Dashboard
           </h1>
-          <p className="text-zinc-500 mt-1 text-sm md:text-base">
-            Monitor and manage your camera network
-          </p>
         </div>
-        <div className="flex items-center gap-2 sm:gap-3">
+
+        {/* Stat badges — compact, color-coded */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <StatBadge
+            icon={Video}
+            label="Total"
+            value={cameras.length}
+            tone="slate"
+          />
+          <StatBadge
+            icon={Wifi}
+            label="Online"
+            value={onlineCount}
+            tone="emerald"
+          />
+          <StatBadge
+            icon={Video}
+            label="Recording"
+            value={recordingCount}
+            tone="red"
+            pulse={recordingCount > 0}
+          />
+          <StatBadge
+            icon={WifiOff}
+            label="Offline"
+            value={offlineCount}
+            tone="zinc"
+          />
+        </div>
+
+        <div className="flex items-center gap-2 ml-auto">
           <Button
             variant="outline"
             onClick={() => refetch()}
             disabled={isLoading}
             size="sm"
-            className="flex-1 sm:flex-none"
           >
             <RefreshCw
               className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`}
@@ -105,7 +131,7 @@ const Dashboard = () => {
           {canManage && (
             <Button
               onClick={openAdd}
-              className="bg-zinc-900 hover:bg-zinc-900/60 flex-1 sm:flex-none"
+              className="bg-primary hover:bg-primary/60"
               size="sm"
             >
               <Plus className="h-4 w-4 sm:mr-2" />
@@ -115,53 +141,29 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-6 md:mb-8">
-        <StatCard
-          label="Total Cameras"
-          value={cameras.length}
-          icon={Video}
-          color="slate"
-          sub={`${cameras.length} registered`}
-        />
-        <StatCard
-          label="Online"
-          value={onlineCount}
-          icon={Wifi}
-          color="emerald"
-          sub="Connected cameras"
-        />
-        <StatCard
-          label="Recording"
-          value={recordingCount}
-          icon={Video}
-          color="red"
-          sub="Active recordings"
-          pulse={recordingCount > 0}
-        />
-        <StatCard
-          label="Offline"
-          value={offlineCount}
-          icon={WifiOff}
-          color="slate"
-          sub="Disconnected cameras"
+      {/* Grid: fills remaining viewport, NO scroll — tiles auto-shrink
+          to fit the N×M layout. Matches Hikvision/Dahua NVR behavior. */}
+      <div className="flex-1 min-h-0">
+        <CameraGrid
+          cameras={cameras}
+          isLoading={isLoading}
+          loadingCameras={[]}
+          maxCameras={128}
+          onCameraClick={(cam) => navigate(`/playback?camera=${cam.id}`)}
+          onStartRecording={(cam) =>
+            canOperate && mutations.start.mutate(cam.id)
+          }
+          onStopRecording={(cam) =>
+            canOperate && mutations.stop.mutate(cam.id)
+          }
+          onTestConnection={(cam) =>
+            canOperate && mutations.test.mutate(cam.id)
+          }
+          onCameraSettings={canManage ? openEdit : undefined}
+          onCameraFullscreen={(cam) => navigate(`/live/${cam.id}`)}
+          onAddCamera={canManage ? openAdd : undefined}
         />
       </div>
-
-      {/* Grid */}
-      <CameraGrid
-        cameras={cameras}
-        isLoading={isLoading}
-        loadingCameras={[]}
-        maxCameras={128}
-        onCameraClick={(cam) => navigate(`/playback?camera=${cam.id}`)}
-        onStartRecording={(cam) => canOperate && mutations.start.mutate(cam.id)}
-        onStopRecording={(cam) => canOperate && mutations.stop.mutate(cam.id)}
-        onTestConnection={(cam) => canOperate && mutations.test.mutate(cam.id)}
-        onCameraSettings={canManage ? openEdit : undefined}
-        onCameraFullscreen={(cam) => navigate(`/live/${cam.id}`)}
-        onAddCamera={canManage ? openAdd : undefined}
-      />
 
       {/* Form dialog */}
       <CameraFormDialog
@@ -190,7 +192,7 @@ const Dashboard = () => {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
-              className="bg-red-600 hover:bg-red-700"
+              className="bg-destructive hover:bg-destructive/90"
             >
               Delete
             </AlertDialogAction>
@@ -204,7 +206,7 @@ const Dashboard = () => {
 // ---------- stat card ----------
 
 const colorMap = {
-  slate: { bg: "bg-white/[0.04]", text: "text-zinc-400" },
+  slate: { bg: "bg-card/60", text: "text-zinc-400" },
   emerald: { bg: "bg-emerald-50", text: "text-emerald-600" },
   red: { bg: "bg-red-50", text: "text-red-600" },
 };
@@ -212,20 +214,48 @@ const colorMap = {
 const StatCard = ({ label, value, icon: Icon, color, sub, pulse }) => {
   const c = colorMap[color] || colorMap.slate;
   return (
-    <div className="bg-zinc-950 border border-white/10 rounded-lg p-4">
+    <div className="bg-card border border-border rounded-lg p-4">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-sm text-zinc-500">{label}</p>
+          <p className="text-sm text-muted-foreground">{label}</p>
           <p className={`text-2xl font-bold ${c.text}`}>{value}</p>
         </div>
         <div className={`p-3 ${c.bg} rounded-lg relative`}>
           <Icon className={`h-6 w-6 ${c.text}`} />
           {pulse && (
-            <span className="absolute -top-1 -right-1 h-2 w-2 bg-red-600 rounded-full animate-pulse" />
+            <span className="absolute -top-1 -right-1 h-2 w-2 bg-destructive rounded-full animate-pulse" />
           )}
         </div>
       </div>
-      <p className="text-xs text-zinc-500 mt-2">{sub}</p>
+      <p className="text-xs text-muted-foreground mt-2">{sub}</p>
+    </div>
+  );
+};
+
+
+// Compact stat badge — inline pill replaces the old 4-card stat grid so
+// the camera grid gets the whole viewport.
+const BADGE_TONES = {
+  slate: "bg-card/60 text-zinc-300 border-border",
+  emerald: "bg-emerald-500/10 text-emerald-300 border-emerald-500/20",
+  red: "bg-rose-500/10 text-rose-300 border-rose-500/20",
+  zinc: "bg-zinc-500/10 text-zinc-400 border-zinc-500/20",
+};
+
+const StatBadge = ({ icon: Icon, label, value, tone = "slate", pulse }) => {
+  const klass = BADGE_TONES[tone] || BADGE_TONES.slate;
+  return (
+    <div
+      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-medium ${klass}`}
+    >
+      <span className="relative inline-flex">
+        <Icon className="h-3.5 w-3.5" />
+        {pulse && (
+          <span className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 bg-rose-500 rounded-full animate-pulse" />
+        )}
+      </span>
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-bold tabular-nums">{value}</span>
     </div>
   );
 };

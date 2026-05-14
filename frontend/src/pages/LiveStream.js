@@ -175,7 +175,7 @@ const LiveStream = () => {
               variant="ghost"
               size="icon"
               onClick={() => navigate(-1)}
-              className="text-white hover:bg-zinc-950/20"
+              className="text-white hover:bg-card/20"
             >
               <ArrowLeft className="h-5 w-5" />
             </Button>
@@ -219,7 +219,7 @@ const LiveStream = () => {
               size="icon"
               onClick={handleRecordingToggle}
               disabled={!isOnline}
-              className="text-white hover:bg-zinc-950/20"
+              className="text-white hover:bg-card/20"
               title={camera.is_recording ? "Stop Recording" : "Start Recording"}
             >
               {camera.is_recording ? (
@@ -232,7 +232,7 @@ const LiveStream = () => {
               variant="ghost"
               size="icon"
               onClick={() => setIsMuted(!isMuted)}
-              className="text-white hover:bg-zinc-950/20"
+              className="text-white hover:bg-card/20"
             >
               {isMuted ? (
                 <VolumeX className="h-5 w-5" />
@@ -244,7 +244,7 @@ const LiveStream = () => {
               variant="ghost"
               size="icon"
               onClick={toggleFullscreen}
-              className="text-white hover:bg-zinc-950/20"
+              className="text-white hover:bg-card/20"
             >
               {isFullscreen ? (
                 <Minimize2 className="h-5 w-5" />

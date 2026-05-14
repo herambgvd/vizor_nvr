@@ -1,0 +1,54 @@
+# NvDCF (Discriminative Correlation Filter) tracker config.
+# Shared across scenarios that need persistent object identity across
+# frames (FRS, PPE, LPR, MTMC). Tuned for indoor + outdoor security
+# cameras at 5-15 FPS.
+#
+# Reference: NVIDIA DeepStream 7.1 docs, "Gst-nvtracker" plugin.
+
+%YAML:1.0
+
+BaseConfig:
+  minDetectorConfidence: 0.30      # Below this, detections are ignored
+  enableBatchProcessing: 1          # Required for multi-stream batching
+  enableSchedulingOptimization: 1
+
+TargetManagement:
+  preserveStreamUpdateOrder: 1
+  maxTargetsPerStream: 150          # Cap tracked targets per camera
+  enableShadowTracking: 1           # Keep recently-lost targets warm
+
+  # Visibility / activation thresholds
+  earlyTerminationThreshold: 0.10
+  probationAge: 3                   # Frames before a tentative track activates
+  maxShadowTrackingAge: 30          # Frames a shadow track survives
+
+TrajectoryManagement:
+  enableTrajectoryProjection: 1
+  maxTrajectoryBufferLength: 30
+
+DataAssociator:
+  dataAssociatorType: 0             # Hungarian
+  associationMatcherType: 1         # Mahalanobis + IoU hybrid
+  matchingScoreWeight4Visual: 0.55
+  matchingScoreWeight4SizeSimilarity: 0.15
+  matchingScoreWeight4Iou: 0.30
+  minMatchingScore4Overall: 0.45
+
+StateEstimator:
+  stateEstimatorType: 1             # Kalman
+  noiseWeightVelocity: 0.05
+  measurementNoiseVar4Detector: 4.0
+  measurementNoiseVar4Tracker: 16.0
+
+VisualTracker:
+  visualTrackerType: 1              # NvDCF
+  useColorNames: 1
+  useHog: 1                          # Histogram of Oriented Gradients
+  featureImgSizeLevel: 3
+  featureFocusOffsetFactor_y: -0.20
+
+  filterLr: 0.075
+  filterChannelWeightsLr: 0.10
+  gaussianSigma: 0.75
+
+  searchRegionPaddingScale: 1.5     # Search radius around predicted pos

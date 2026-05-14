@@ -589,14 +589,14 @@ export const TimelinePlayer = forwardRef(
         tabIndex={0}
         data-testid="timeline-player"
         className={cn(
-          "bg-zinc-950 border border-white/10 rounded-lg overflow-hidden outline-none focus:ring-2 focus:ring-slate-400",
+          "bg-card border border-border rounded-lg overflow-hidden outline-none focus:ring-2 focus:ring-slate-400",
           className,
         )}
       >
         {/* Video Display Area */}
         <div
           ref={videoContainerRef}
-          className="w-full bg-zinc-900 relative overflow-hidden cursor-crosshair"
+          className="w-full bg-primary relative overflow-hidden cursor-crosshair"
           style={{ height: "60vh", maxHeight: "720px" }}
           onWheel={handleWheelZoom}
           onMouseDown={handlePanStart}
@@ -606,7 +606,7 @@ export const TimelinePlayer = forwardRef(
         >
           {/* Loading Overlay */}
           {isLoading && recordings.length === 0 && (
-            <div className="absolute inset-0 flex items-center justify-center bg-zinc-900/80 z-20">
+            <div className="absolute inset-0 flex items-center justify-center bg-primary/80 z-20">
               <div className="text-center">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
                 <p className="text-white text-lg">Loading recordings...</p>
@@ -656,16 +656,16 @@ export const TimelinePlayer = forwardRef(
             <div className="absolute inset-0 flex items-center justify-center text-white text-center">
               <div>
                 <p className="text-lg">No recording at current time</p>
-                <p className="text-sm text-zinc-500 mt-2">
+                <p className="text-sm text-muted-foreground mt-2">
                   Seek to a time with available recordings
                 </p>
-                <p className="text-xs text-zinc-500 mt-2">
+                <p className="text-xs text-muted-foreground mt-2">
                   {format(currentTime, "PPpp")}
                 </p>
               </div>
             </div>
           ) : (
-            <div className="absolute inset-0 flex items-center justify-center text-zinc-500 text-center">
+            <div className="absolute inset-0 flex items-center justify-center text-muted-foreground text-center">
               <div>
                 <p>No recordings available</p>
                 <p className="text-sm mt-2">Select a date with recordings</p>
@@ -675,7 +675,7 @@ export const TimelinePlayer = forwardRef(
         </div>
 
         {/* Playback Controls */}
-        <div className="px-4 py-3 border-t border-white/10 flex items-center justify-between gap-4">
+        <div className="px-4 py-3 border-t border-border flex items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <TooltipProvider>
               {/* Skip Back */}
@@ -701,7 +701,7 @@ export const TimelinePlayer = forwardRef(
                     variant="default"
                     size="icon"
                     onClick={handlePlayPause}
-                    className="bg-zinc-900 hover:bg-zinc-900/60"
+                    className="bg-primary hover:bg-primary/60"
                   >
                     {isPlaying ? (
                       <Pause className="h-4 w-4" />
@@ -729,7 +729,7 @@ export const TimelinePlayer = forwardRef(
               </Tooltip>
 
               {/* Separator */}
-              <div className="w-px h-5 bg-white/[0.06] mx-1" />
+              <div className="w-px h-5 bg-card/70 mx-1" />
 
               {/* Frame Back */}
               <Tooltip>
@@ -850,7 +850,7 @@ export const TimelinePlayer = forwardRef(
               >
                 <ZoomIn className="h-4 w-4" />
               </Button>
-              <span className="text-xs text-zinc-500">{zoomLevel}</span>
+              <span className="text-xs text-muted-foreground">{zoomLevel}</span>
               <Button
                 variant="ghost"
                 size="sm"
@@ -866,7 +866,7 @@ export const TimelinePlayer = forwardRef(
               </Button>
             </div>
 
-            <span className="text-xs text-zinc-500">
+            <span className="text-xs text-muted-foreground">
               {format(selectedDate || new Date(), "EEEE, MMMM d, yyyy")}
             </span>
           </div>
@@ -875,7 +875,7 @@ export const TimelinePlayer = forwardRef(
           <div
             ref={timelineRef}
             data-testid="timeline-bar"
-            className="relative h-16 bg-white/[0.04] rounded-lg cursor-pointer overflow-hidden select-none"
+            className="relative h-16 bg-card/60 rounded-lg cursor-pointer overflow-hidden select-none"
             onClick={handleTimelineClick}
             onMouseDown={handleMouseDown}
             onMouseMove={handleTimelineHover}
@@ -907,9 +907,9 @@ export const TimelinePlayer = forwardRef(
               {hourMarkers.map((hour, index) => (
                 <div
                   key={index}
-                  className="flex-1 border-l border-white/15 first:border-l-0"
+                  className="flex-1 border-l border-border first:border-l-0"
                 >
-                  <span className="text-[10px] text-zinc-500 pl-1">
+                  <span className="text-[10px] text-muted-foreground pl-1">
                     {format(hour, "HH:mm")}
                   </span>
                 </div>

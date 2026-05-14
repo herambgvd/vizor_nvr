@@ -74,7 +74,7 @@ export const RecordingCalendar = ({
   return (
     <div
       className={cn(
-        "bg-zinc-950 border border-white/10 rounded-lg p-4",
+        "bg-card border border-border rounded-lg p-4",
         className,
       )}
     >
@@ -101,7 +101,7 @@ export const RecordingCalendar = ({
         {WEEKDAYS.map((d) => (
           <div
             key={d}
-            className="text-center text-[10px] font-medium text-zinc-500 uppercase"
+            className="text-center text-[10px] font-medium text-muted-foreground uppercase"
           >
             {d}
           </div>
@@ -126,11 +126,11 @@ export const RecordingCalendar = ({
               className={cn(
                 "relative h-9 w-full rounded-md text-xs font-medium transition-colors",
                 !inMonth && "text-slate-300 cursor-default",
-                inMonth && !isFuture && "hover:bg-white/[0.04] cursor-pointer",
+                inMonth && !isFuture && "hover:bg-card/60 cursor-pointer",
                 isFuture && "text-slate-300 cursor-not-allowed",
                 isToday && "ring-1 ring-slate-400",
                 isSelected &&
-                  "bg-zinc-900 text-white hover:bg-zinc-900/60",
+                  "bg-primary text-white hover:bg-primary/60",
                 hasRecording &&
                   !isSelected &&
                   inMonth &&
@@ -143,7 +143,7 @@ export const RecordingCalendar = ({
                 <span
                   className={cn(
                     "absolute bottom-0.5 left-1/2 -translate-x-1/2 h-1 w-1 rounded-full",
-                    isSelected ? "bg-zinc-950" : "bg-emerald-500",
+                    isSelected ? "bg-card" : "bg-emerald-500",
                   )}
                 />
               )}
@@ -153,7 +153,7 @@ export const RecordingCalendar = ({
       </div>
 
       {/* Legend */}
-      <div className="flex items-center gap-4 mt-3 pt-3 border-t border-slate-100 text-[10px] text-zinc-500">
+      <div className="flex items-center gap-4 mt-3 pt-3 border-t border-slate-100 text-[10px] text-muted-foreground">
         <span className="flex items-center gap-1">
           <span className="h-2 w-2 rounded-full bg-emerald-500" />
           Has recordings
@@ -165,7 +165,7 @@ export const RecordingCalendar = ({
       </div>
 
       {!cameraId && (
-        <div className="mt-3 text-center text-xs text-zinc-500">
+        <div className="mt-3 text-center text-xs text-muted-foreground">
           <Calendar className="h-5 w-5 mx-auto mb-1 opacity-50" />
           Select a camera to view recording dates
         </div>

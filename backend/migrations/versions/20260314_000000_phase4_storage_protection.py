@@ -32,9 +32,9 @@ def upgrade() -> None:
     # ── cameras: redundancy + cloud backup toggles ──────────────────────
     with op.batch_alter_table("cameras") as batch:
         batch.add_column(sa.Column("redundancy_enabled", sa.Boolean(),
-                                   nullable=True, server_default=sa.text("0")))
+                                   nullable=True, server_default=sa.text("false")))
         batch.add_column(sa.Column("cloud_backup_enabled", sa.Boolean(),
-                                   nullable=True, server_default=sa.text("0")))
+                                   nullable=True, server_default=sa.text("false")))
 
     # ── disk_health_snapshots ──────────────────────────────────────────
     op.create_table(
