@@ -24,6 +24,7 @@ from typing import List
 
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     File,
     HTTPException,
@@ -99,6 +100,7 @@ async def list_person_photos(
 )
 async def upload_person_photo(
     person_id: str,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(..., description="JPEG or PNG photo of the face"),
     _user=Depends(require_permission("manage_camera")),
     db: AsyncSession = Depends(get_db),
@@ -149,9 +151,14 @@ async def upload_person_photo(
     await db.refresh(photo)
 
     logger.info(
-        "Photo uploaded for person %s -> %s (qdrant pending)",
+        "Photo uploaded for person %s -> %s (enrollment queued)",
         person_id, rel_key,
     )
+
+    # Fire-and-forget enrollment pipeline (face detect → ArcFace embed
+    # → Qdrant upsert). Updates the photo row in-place when finished.
+    from app.ai.frs.enrollment import enroll_photo_and_persist
+    background_tasks.add_task(enroll_photo_and_persist, photo_id)
 
     return FRSPhotoOut.model_validate(photo)
 

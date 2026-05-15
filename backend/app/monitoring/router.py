@@ -16,6 +16,13 @@ async def system_resources(user: dict = Depends(get_current_user)):
     return monitoring_service.current()
 
 
+@router.get("/system-info")
+async def system_info(user: dict = Depends(get_current_user)):
+    """One-time host info: CPU model, GPU model + memory, OS. Cached
+    on the client since this rarely changes."""
+    return monitoring_service.system_info()
+
+
 @router.get("/disks")
 async def disk_health(user: dict = Depends(get_admin_user)):
     """Return latest S.M.A.R.T snapshot per device. Falls back to a fresh

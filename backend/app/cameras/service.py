@@ -33,7 +33,11 @@ class CameraService:
         Get all cameras, optionally filtered to specific IDs (for RBAC).
         camera_ids=None means return all (admin).
         """
-        q = select(Camera).options(selectinload(Camera.groups)).order_by(Camera.created_at)
+        q = (
+            select(Camera)
+            .options(selectinload(Camera.groups))
+            .order_by(Camera.display_order, Camera.created_at)
+        )
         if camera_ids is not None:
             q = q.where(Camera.id.in_(camera_ids))
         result = await db.execute(q)

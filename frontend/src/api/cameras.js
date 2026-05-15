@@ -33,6 +33,65 @@ export const deleteCamera = async (cameraId) => {
   return response.data;
 };
 
+export const bulkDeleteCameras = async (cameraIds) => {
+  const response = await apiClient.post(
+    `/cameras/bulk-delete`,
+    { camera_ids: cameraIds },
+    { timeout: 60000 },
+  );
+  return response.data;
+};
+
+export const bulkStartRecording = async (cameraIds) => {
+  const response = await apiClient.post(
+    `/cameras/bulk/start`,
+    { camera_ids: cameraIds },
+    { timeout: 60000 },
+  );
+  return response.data;
+};
+
+export const bulkStopRecording = async (cameraIds) => {
+  const response = await apiClient.post(
+    `/cameras/bulk/stop`,
+    { camera_ids: cameraIds },
+    { timeout: 60000 },
+  );
+  return response.data;
+};
+
+export const bulkTestConnection = async (cameraIds) => {
+  const response = await apiClient.post(
+    `/cameras/bulk/test`,
+    { camera_ids: cameraIds },
+    { timeout: 60000 },
+  );
+  return response.data;
+};
+
+export const bulkSetEnabled = async (cameraIds, enabled) => {
+  const response = await apiClient.post(
+    `/cameras/bulk/enable`,
+    { camera_ids: cameraIds, enabled },
+    { timeout: 60000 },
+  );
+  return response.data;
+};
+
+export const reorderCameras = async (cameraIds) => {
+  const response = await apiClient.post(
+    `/cameras/reorder`,
+    { camera_ids: cameraIds },
+    { timeout: 30000 },
+  );
+  return response.data;
+};
+
+export const getLatestHealth = async () => {
+  const response = await apiClient.get(`/cameras/health/latest`);
+  return response.data;
+};
+
 // ---------- recording control ----------
 
 export const startRecording = async (cameraId) => {

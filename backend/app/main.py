@@ -24,7 +24,12 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 # Silence noisy third-party loggers
-for _noisy in ("watchfiles", "httpcore", "httpx", "hpack", "urllib3", "multipart"):
+for _noisy in (
+    "watchfiles", "httpcore", "httpx", "hpack", "urllib3", "multipart",
+    # zeep emits the entire WSDL/SOAP envelope on every ONVIF call at
+    # DEBUG/INFO — drown the backend log otherwise.
+    "zeep", "zeep.wsdl", "zeep.xsd", "zeep.transports", "onvif",
+):
     logging.getLogger(_noisy).setLevel(logging.WARNING)
 logger = logging.getLogger("app")
 
@@ -63,6 +68,14 @@ async def lifespan(application: FastAPI):
 
     # Ensure storage directories (incl. data/ and data/certs/)
     settings.ensure_directories()
+
+    # License — load installed .lic before any router handles requests so
+    # gate methods can return correct answers from the first call.
+    try:
+        from app.license.service import get_license_service
+        await get_license_service().load_persisted()
+    except Exception as _e:
+        logger.warning(f"License load failed: {_e}")
 
     # TLS: emit a self-signed cert on first boot so HTTPS is usable out of
     # the box. Operator can replace it via POST /api/settings/tls/upload.
@@ -155,6 +168,13 @@ async def lifespan(application: FastAPI):
     except Exception as _e:
         logger.warning(f"Metropolis bridge startup skipped: {_e}")
 
+    # People counting counts writer — 30s flush buffer
+    try:
+        from app.ai.people.counts_writer import start as start_counts_writer
+        await start_counts_writer(interval=30.0)
+    except Exception as _e:
+        logger.warning(f"counts_writer startup skipped: {_e}")
+
     logger.info("All services started — NVR is ready")
 
     yield
@@ -180,6 +200,13 @@ async def lifespan(application: FastAPI):
     try:
         from app.services.metropolis_bridge import stop_metropolis_bridge
         await stop_metropolis_bridge()
+    except Exception:
+        pass
+
+    # Final flush of buffered counts
+    try:
+        from app.ai.people.counts_writer import stop as stop_counts_writer
+        await stop_counts_writer()
     except Exception:
         pass
     await camera_monitor.stop()
@@ -304,9 +331,13 @@ from app.system.router import router as system_router
 from app.onvif_device.router import router as onvif_device_router
 from app.auth.api_keys_router import router as api_keys_router
 from app.events.ingest_router import router as events_ingest_router
+from app.events.sse_router import router as events_sse_router
 from app.ai.scenarios_router import router as ai_scenarios_router
 from app.ai.frs_router import router as ai_frs_router
 from app.ai.frs_photos_router import router as ai_frs_photos_router
+from app.ai.people.router import router as ai_people_router, control_router as ai_control_router
+from app.ai.frs.router import router as ai_frs_actions_router
+from app.license.router import router as license_router
 
 app.include_router(auth_router, prefix="/api")
 app.include_router(cameras_router, prefix="/api")
@@ -324,9 +355,14 @@ app.include_router(websocket_router, prefix="/api")
 app.include_router(system_router, prefix="/api")
 app.include_router(api_keys_router)
 app.include_router(events_ingest_router)
+app.include_router(events_sse_router)
 app.include_router(ai_scenarios_router)
 app.include_router(ai_frs_router)
 app.include_router(ai_frs_photos_router)
+app.include_router(ai_people_router)
+app.include_router(ai_control_router)
+app.include_router(ai_frs_actions_router)
+app.include_router(license_router)
 
 # ONVIF device endpoints are NOT under /api (VMS expects root-level paths)
 app.include_router(onvif_device_router)

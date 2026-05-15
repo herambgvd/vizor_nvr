@@ -5,7 +5,8 @@
 // borders, white/[0.03] surface, max 1600px container.
 // =============================================================================
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   useMutation,
   useQuery,
@@ -211,8 +212,23 @@ function GroupDialog({ open, onOpenChange, onSubmit, submitting }) {
 
 export default function FRSPersons() {
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState("");
-  const [groupFilter, setGroupFilter] = useState("all");
+  const [groupFilter, setGroupFilter] = useState(
+    searchParams.get("group") || "all",
+  );
+
+  useEffect(() => {
+    const q = searchParams.get("group");
+    if (q && q !== groupFilter) setGroupFilter(q);
+  }, [searchParams, groupFilter]);
+
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams);
+    if (groupFilter && groupFilter !== "all") next.set("group", groupFilter);
+    else next.delete("group");
+    if (next.toString() !== searchParams.toString()) setSearchParams(next, { replace: true });
+  }, [groupFilter, searchParams, setSearchParams]);
   const [personDialogOpen, setPersonDialogOpen] = useState(false);
   const [groupDialogOpen, setGroupDialogOpen] = useState(false);
   const [editingPerson, setEditingPerson] = useState(null);

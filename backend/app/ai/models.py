@@ -65,6 +65,15 @@ class AIScenario(Base):
     metropolis_service = Column(String(50), nullable=True)   # perception, behavior_analytics, mtmc, visual_search, etc.
     use_cases = Column(JSON, nullable=True)                  # list of vertical-tagged use case strings
 
+    # UI rendering metadata
+    # JSON Schema describing per-camera config form fields. Frontend
+    # renders the AI tab from this — toggle, ROI canvas, thresholds.
+    camera_config_schema = Column(JSON, nullable=True)
+    # Sub-tabs to render in AI Modules workspace:
+    #   ["live", "events", "analytics"]   — generic
+    #   ["persons", "live", "attendance", "investigate", "groups"]  — FRS
+    module_tabs = Column(JSON, nullable=True)
+
 
 class CameraAIConfig(Base):
     """Per-camera scenario enablement + override config.
@@ -125,7 +134,13 @@ class FRSPhoto(Base):
     id = Column(String, primary_key=True, default=_uuid)
     person_id = Column(String, ForeignKey("frs_persons.id", ondelete="CASCADE"), nullable=False, index=True)
     storage_key = Column(String(500), nullable=False)
-    qdrant_point_id = Column(String, nullable=False, unique=True, index=True)
+    # qdrant_point_id may be a pending placeholder ("pending:<photo_id>")
+    # while enrollment runs in the background. Unique constraint dropped
+    # so concurrent uploads don't collide; lookup still cheap via index.
+    qdrant_point_id = Column(String, nullable=False, index=True)
+    status = Column(String(20), nullable=False, default="pending")  # pending|enrolled|failed
+    error_code = Column(String(50), nullable=True)
+    error = Column(Text, nullable=True)
     quality_score = Column(Float, nullable=True)
     uploaded_at = Column(DateTime, server_default=func.now())
 
@@ -159,6 +174,9 @@ class FRSAttendance(Base):
     sighting_type = Column(String(20), nullable=False, default="seen")  # seen|entry|exit|absent
     confidence = Column(Float, nullable=True)
     event_id = Column(String, nullable=True)            # back-pointer to events.id
+    # Pairs of in/out punches for the day. Aggregated by service before
+    # writing to row keyed on (person_id, day_key from ts).
+    punches = Column(JSON, nullable=True)
 
     __table_args__ = (
         Index("ix_frs_attendance_person_ts", "person_id", "ts"),
@@ -305,6 +323,56 @@ class WebhookDelivery(Base):
 # ---------------------------------------------------------------------------
 # Metropolis service registry
 # ---------------------------------------------------------------------------
+
+class PeopleCountZone(Base):
+    """Per-camera counting zone — line for in/out, polygon for crowd.
+
+    Geometry coords are normalized 0-1 against the camera frame so zones
+    survive resolution changes. DeepStream pipeline reads these on boot
+    and on SIGHUP / Redis reload signal.
+    """
+    __tablename__ = "people_count_zones"
+
+    id = Column(String, primary_key=True, default=_uuid)
+    camera_id = Column(
+        String,
+        ForeignKey("cameras.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    scenario = Column(String(20), nullable=False)  # in_out | crowd
+    name = Column(String(100), nullable=False)
+    geometry = Column(JSON, nullable=False)  # {kind: line|polygon, points: [[x,y],...]}
+    threshold = Column(Integer, nullable=True)  # crowd only
+    direction_a_label = Column(String(20), nullable=False, default="in")
+    direction_b_label = Column(String(20), nullable=False, default="out")
+    severity = Column(String(20), nullable=False, default="info")  # info | warning | critical
+    enabled = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class PeopleCount(Base):
+    """Minute-bucketed counts per zone. Hypertable on bucket_ts."""
+    __tablename__ = "people_counts"
+
+    bucket_ts = Column(DateTime, primary_key=True, nullable=False)
+    zone_id = Column(
+        String,
+        ForeignKey("people_count_zones.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+    camera_id = Column(
+        String,
+        ForeignKey("cameras.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    in_count = Column(Integer, nullable=False, default=0)
+    out_count = Column(Integer, nullable=False, default=0)
+    occupancy = Column(Integer, nullable=False, default=0)
+    crowd_alerts = Column(Integer, nullable=False, default=0)
+
 
 class MetropolisService(Base):
     """Health + version registry for Metropolis Microservice instances.

@@ -136,11 +136,28 @@ def metropolis_to_ingest_event(payload: dict[str, Any]) -> dict[str, Any]:
     if isinstance(bbox, dict):  # accept {x,y,w,h} dict form too
         bbox = [bbox.get("x", 0), bbox.get("y", 0), bbox.get("w", 0), bbox.get("h", 0)]
 
+    # Roll up scenario-specific extras into attributes so the UI can
+    # render them without an extra round-trip (PPE missing_items, FRS
+    # match score, etc.)
+    attrs = payload.get("attributes") or obj.get("attributes") or {}
+    if isinstance(attrs, dict):
+        attrs = dict(attrs)
+        for k in ("missing_items", "required_items", "person_count", "zone_id", "direction"):
+            if k in payload and k not in attrs:
+                attrs[k] = payload[k]
+
+    # Severity escalation for PPE — violations are warnings, repeated
+    # violations on same track become alarms (Phase 8 dedup window).
+    severity = payload.get("severity") or "info"
+    etype = detection_type.lower() if isinstance(detection_type, str) else "detection"
+    if etype == "ppe_violation" and severity == "info":
+        severity = "warning"
+
     return {
         "dedup_key": _dedup_key(payload),
         "camera_id": payload.get("sensorId") or payload.get("camera_id"),
-        "event_type": detection_type.lower() if isinstance(detection_type, str) else "detection",
-        "severity": payload.get("severity") or "info",
+        "event_type": etype,
+        "severity": severity,
         "title": payload.get("title") or f"{detection_type} detected",
         "description": payload.get("description"),
         "source_service": _scenario_to_service(scenario),
@@ -149,7 +166,7 @@ def metropolis_to_ingest_event(payload: dict[str, Any]) -> dict[str, Any]:
         "bbox": bbox,
         "track_id": str(obj.get("id") or payload.get("trackingId") or "") or None,
         "person_id": payload.get("personId") or payload.get("person_id"),
-        "attributes": payload.get("attributes") or obj.get("attributes"),
+        "attributes": attrs,
         "triggered_at": _parse_ts(payload.get("timestamp")).isoformat(),
     }
 
@@ -229,6 +246,7 @@ class MetropolisBridge:
         )
 
         buffer: list[tuple[str, dict[str, Any]]] = []  # (entry_id, ingest_event)
+        raw_batch: list[dict[str, Any]] = []
         last_flush = asyncio.get_event_loop().time()
 
         while not self._stop.is_set():
@@ -253,10 +271,17 @@ class MetropolisBridge:
                         payload = self._decode_entry(data)
                         ingest_event = metropolis_to_ingest_event(payload)
                         buffer.append((entry_id, ingest_event))
+                        raw_batch.append(payload)
                     except Exception:  # noqa: BLE001
                         logger.exception("Bad payload %s; sending to DLQ", entry_id)
                         await self._dlq(entry_id, data, "decode_error")
                         await self._redis.xack(self.stream, self.group, entry_id)  # type: ignore
+
+            # Fan to counts_writer + SSE immediately so live UI doesn't
+            # wait for the ingest batch window.
+            if raw_batch:
+                await self._side_effects(raw_batch)
+                raw_batch = []
 
             time_window_elapsed = now - last_flush >= self.batch_window_secs
             if len(buffer) >= self.batch_size or (buffer and time_window_elapsed):
@@ -277,6 +302,71 @@ class MetropolisBridge:
             return json.loads(data["payload"])
         # Convert flat dict → nested if needed
         return data
+
+    async def _side_effects(self, raw_payloads: list[dict[str, Any]]) -> None:
+        """Fan-out to counts_writer + attendance + SSE pub-sub.
+        Independent of /ingest POST so live UX doesn't wait for batching."""
+        from app.ai.people import counts_writer as cw
+        from app.events.sse_router import publish_event
+        from app.database import async_session_maker
+        from app.ai.frs.attendance import record_recognition
+
+        for raw in raw_payloads:
+            etype = (raw.get("type") or raw.get("event_type") or "").lower()
+            cam = raw.get("sensorId") or raw.get("camera_id")
+            zid = raw.get("zoneId") or raw.get("zone_id")
+            person_id = raw.get("personId") or raw.get("person_id")
+            scenario = raw.get("analyticsModule") or raw.get("scenario")
+
+            # People Counting side-effects
+            try:
+                if etype == "line_crossing" and cam and zid:
+                    direction = raw.get("direction") or "in"
+                    await cw.record_line_crossing(cam, zid, direction)
+                elif etype == "occupancy_update" and cam and zid:
+                    cnt = int(raw.get("count") or 0)
+                    await cw.record_occupancy(cam, zid, cnt)
+                elif etype == "crowd_alert" and cam and zid:
+                    await cw.record_crowd_alert(cam, zid)
+            except Exception:
+                logger.exception("counts_writer side-effect failed for %s", etype)
+
+            # FRS side-effects: attendance log
+            try:
+                if etype in ("face_recognized", "face_alert") and person_id and cam:
+                    ts = _parse_ts(raw.get("timestamp"))
+                    async with async_session_maker() as db:
+                        await record_recognition(
+                            db,
+                            person_id=person_id,
+                            camera_id=cam,
+                            ts=ts,
+                            confidence=raw.get("confidence"),
+                            event_id=None,
+                        )
+            except Exception:
+                logger.exception("attendance side-effect failed")
+
+            # Forward to SSE subscribers regardless of ingest outcome
+            try:
+                publish_event({
+                    "event_type": etype,
+                    "scenario": scenario,
+                    "camera_id": cam,
+                    "zone_id": zid,
+                    "person_id": person_id,
+                    "direction": raw.get("direction"),
+                    "count": raw.get("count"),
+                    "threshold": raw.get("threshold"),
+                    "track_id": raw.get("trackingId") or raw.get("track_id"),
+                    "confidence": raw.get("confidence"),
+                    "ts": raw.get("timestamp"),
+                    "bbox": raw.get("bbox") or (raw.get("object") or {}).get("bbox"),
+                    "missing_items": raw.get("missing_items"),
+                    "severity": raw.get("severity"),
+                })
+            except Exception:
+                logger.exception("SSE publish_event failed")
 
     async def _flush(self, buffer: list[tuple[str, dict[str, Any]]]) -> None:
         if not buffer:

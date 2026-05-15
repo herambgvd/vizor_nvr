@@ -100,3 +100,8 @@ keys.txt
 age-key.txt
 *.age
 age/keys*
+
+# Vendor signing keys + customer licenses
+vendor-keys/
+*.lic
+data/.machine_id

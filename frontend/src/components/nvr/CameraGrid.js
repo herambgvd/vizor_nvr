@@ -85,6 +85,8 @@ export const CameraGrid = ({
   layout: layoutProp,
   onLayoutChange,
   className,
+  headerLeftSlot,
+  headerRightSlot,
 }) => {
   // Internal state when parent doesn't control layout
   const [internalLayout, setInternalLayout] = useState("2x2");
@@ -220,8 +222,9 @@ export const CameraGrid = ({
   return (
     <div className="flex flex-col gap-3 h-full min-h-0">
       {/* Layout toolbar */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-3 flex-wrap">
+          {headerLeftSlot}
           <LayoutPicker
             current={activeLayoutId}
             onChange={handleLayoutChange}
@@ -268,15 +271,18 @@ export const CameraGrid = ({
           </div>
         </div>
 
-        <span className="text-xs text-muted-foreground">
-          {tourActive
-            ? `Tour: ${tourIndex + 1}/${tourCameras.length} — ${tourCameras[tourIndex]?.name || ""}`
-            : `${cameras.length} camera${cameras.length !== 1 ? "s" : ""}${
-                activeLayout.maxVisible < cameras.length
-                  ? ` (showing first ${activeLayout.maxVisible})`
-                  : ""
-              }`}
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-muted-foreground">
+            {tourActive
+              ? `Tour: ${tourIndex + 1}/${tourCameras.length} — ${tourCameras[tourIndex]?.name || ""}`
+              : `${cameras.length} camera${cameras.length !== 1 ? "s" : ""}${
+                  activeLayout.maxVisible < cameras.length
+                    ? ` (showing first ${activeLayout.maxVisible})`
+                    : ""
+                }`}
+          </span>
+          {headerRightSlot}
+        </div>
       </div>
 
       {/* Grid — fills remaining viewport, no scroll. Tiles auto-shrink

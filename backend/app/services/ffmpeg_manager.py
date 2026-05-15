@@ -776,7 +776,10 @@ class FFmpegManager:
             proc = await asyncio.create_subprocess_exec(
                 "ffprobe", "-v", "error",
                 "-rtsp_transport", "tcp",
-                "-show_entries", "stream=width,height,r_frame_rate,codec_name,bit_rate",
+                # Also probe format-level fields (bit_rate is often only
+                # set on the container, not the per-stream entry).
+                "-show_entries",
+                "stream=width,height,r_frame_rate,codec_name,bit_rate:format=bit_rate",
                 "-of", "json",
                 rtsp_url,
                 stdout=asyncio.subprocess.PIPE,
@@ -801,11 +804,15 @@ class FFmpegManager:
                 if len(parts) == 2 and int(parts[1]) > 0:
                     fps = round(int(parts[0]) / int(parts[1]))
 
+            # Many ONVIF cameras leave per-stream bit_rate=N/A and only
+            # populate format.bit_rate. Fall back when needed.
+            bitrate = video.get("bit_rate") or (data.get("format") or {}).get("bit_rate")
+
             info = {
                 "resolution": f"{video.get('width', '?')}x{video.get('height', '?')}",
                 "fps": fps,
                 "codec": video.get("codec_name"),
-                "bitrate": video.get("bit_rate"),
+                "bitrate": bitrate,
             }
             return True, info
 

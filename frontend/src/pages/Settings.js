@@ -25,100 +25,49 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Switch } from "../components/ui/switch";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "../components/ui/tabs";
+import PageTabs from "../components/ui/page-tabs";
 import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
+
+const UsersPanel = React.lazy(() => import("./Users"));
 
 const Settings = () => {
   const qc = useQueryClient();
   const { isAdmin } = useAuth();
+  const [tab, setTab] = useState("retention");
 
-  // Lazy-load Users component only when needed
-  const UsersPanel = React.lazy(() => import("./Users"));
+  const tabs = [
+    { id: "retention", label: "Retention", icon: Clock },
+    { id: "recording", label: "Recording", icon: Video },
+    { id: "general", label: "General", icon: SettingsIcon },
+    { id: "system", label: "System", icon: Database },
+    ...(isAdmin ? [{ id: "users", label: "Users", icon: Users }] : []),
+  ];
 
   return (
-    <div className="p-4 md:p-8 h-full overflow-y-auto">
-      {/* Header */}
-      <div className="mb-6 md:mb-8">
-        <h1
-          className="text-2xl md:text-3xl font-bold text-white  tracking-tight"
-          style={{ fontFamily: "Manrope, sans-serif" }}
-        >
-          Settings
-        </h1>
-        <p className="text-muted-foreground dark:text-muted-foreground mt-1 text-sm md:text-base">
+    <div className="p-4 md:p-6 h-full overflow-y-auto">
+      <div className="mb-4">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+          Configuration
+        </h2>
+        <p className="text-xs text-muted-foreground mt-0.5">
           System configuration and preferences
         </p>
       </div>
 
-      <Tabs defaultValue="retention" className="space-y-4 md:space-y-6">
-        <TabsList className="flex-wrap h-auto gap-1">
-          <TabsTrigger
-            value="retention"
-            className="gap-1 md:gap-2 text-xs md:text-sm"
-          >
-            <Clock className="h-3 w-3 md:h-4 md:w-4" />
-            <span className="hidden sm:inline">Retention</span>
-          </TabsTrigger>
-          <TabsTrigger
-            value="recording"
-            className="gap-1 md:gap-2 text-xs md:text-sm"
-          >
-            <Video className="h-3 w-3 md:h-4 md:w-4" />
-            <span className="hidden sm:inline">Recording</span>
-          </TabsTrigger>
-          <TabsTrigger
-            value="general"
-            className="gap-1 md:gap-2 text-xs md:text-sm"
-          >
-            <SettingsIcon className="h-3 w-3 md:h-4 md:w-4" />
-            <span className="hidden sm:inline">General</span>
-          </TabsTrigger>
-          <TabsTrigger
-            value="system"
-            className="gap-1 md:gap-2 text-xs md:text-sm"
-          >
-            <Database className="h-3 w-3 md:h-4 md:w-4" />
-            <span className="hidden sm:inline">System</span>
-          </TabsTrigger>
-          {isAdmin && (
-            <TabsTrigger
-              value="users"
-              className="gap-1 md:gap-2 text-xs md:text-sm"
-            >
-              <Users className="h-3 w-3 md:h-4 md:w-4" />
-              <span className="hidden sm:inline">Users</span>
-            </TabsTrigger>
-          )}
-        </TabsList>
+      <PageTabs tabs={tabs} value={tab} onValueChange={setTab} className="mb-6" />
 
-        <TabsContent value="retention">
-          <RetentionTab queryClient={qc} />
-        </TabsContent>
-        <TabsContent value="recording">
-          <RecordingTab queryClient={qc} />
-        </TabsContent>
-        <TabsContent value="general">
-          <GeneralTab queryClient={qc} />
-        </TabsContent>
-        <TabsContent value="system">
-          <SystemTab />
-        </TabsContent>
-        {isAdmin && (
-          <TabsContent value="users">
-            <React.Suspense
-              fallback={<p className="text-sm text-muted-foreground p-4">Loading…</p>}
-            >
-              <UsersPanel />
-            </React.Suspense>
-          </TabsContent>
-        )}
-      </Tabs>
+      {tab === "retention" && <RetentionTab queryClient={qc} />}
+      {tab === "recording" && <RecordingTab queryClient={qc} />}
+      {tab === "general" && <GeneralTab queryClient={qc} />}
+      {tab === "system" && <SystemTab />}
+      {tab === "users" && isAdmin && (
+        <React.Suspense
+          fallback={<p className="text-sm text-muted-foreground p-4">Loading…</p>}
+        >
+          <UsersPanel />
+        </React.Suspense>
+      )}
     </div>
   );
 };

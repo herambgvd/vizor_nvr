@@ -37,6 +37,7 @@ import {
   testCloudConfig,
 } from "../api/storage";
 import { Button } from "../components/ui/button";
+import PageTabs from "../components/ui/page-tabs";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import {
@@ -117,43 +118,22 @@ const Storage = () => {
   const disks = disksData?.disks ?? [];
 
   return (
-    <div className="p-8 h-full overflow-y-auto">
-      {/* header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1
-            className="text-3xl font-bold text-white tracking-tight"
-            style={{ fontFamily: "Manrope, sans-serif" }}
-          >
-            Storage
-          </h1>
-          <p className="text-muted-foreground mt-1">
-            Manage local pools, system disks & cloud storage
-          </p>
-        </div>
+    <div className="p-4 md:p-6 h-full overflow-y-auto">
+      <div className="mb-4">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+          Storage
+        </h2>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Local pools, system disks & cloud storage
+        </p>
       </div>
 
-      {/* tabs */}
-      <div className="flex gap-1 mb-6 border-b border-border">
-        {TABS.map((tab) => {
-          const Icon = tab.icon;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={cn(
-                "flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors",
-                activeTab === tab.id
-                  ? "border-slate-900 text-white"
-                  : "border-transparent text-muted-foreground hover:text-zinc-200",
-              )}
-            >
-              <Icon className="h-4 w-4" />
-              {tab.label}
-            </button>
-          );
-        })}
-      </div>
+      <PageTabs
+        tabs={TABS.map((t) => ({ id: t.id, label: t.label, icon: t.icon }))}
+        value={activeTab}
+        onValueChange={setActiveTab}
+        className="mb-6"
+      />
 
       {/* tab content */}
       {activeTab === "overview" && (

@@ -111,8 +111,21 @@ class Settings:
     # auto = detect best | nvenc | vaapi | videotoolbox | software
     HARDWARE_TRANSCODING: str = os.getenv("HARDWARE_TRANSCODING", "auto")
 
-    # ── Redis (optional — rate limiter, future cache) ────────────────────
+    # ── Redis (event bus + cache) ──────────────────────────────────────
     REDIS_URL: str = os.getenv("REDIS_URL", "")
+
+    # ── AI / Inference ─────────────────────────────────────────────────
+    QDRANT_URL: str = os.getenv("QDRANT_URL", "")
+    TRITON_URL: str = os.getenv("TRITON_URL", "")
+    # Bridge between DeepStream / Metropolis event streams and the
+    # /api/events/ingest endpoint. Single-process consumer per backend
+    # replica.
+    METROPOLIS_BRIDGE_ENABLED: bool = (
+        os.getenv("METROPOLIS_BRIDGE_ENABLED", "false").lower() == "true"
+    )
+    # Redis stream key the bridge listens on (DeepStream publishes here)
+    AI_EVENT_STREAM: str = os.getenv("AI_EVENT_STREAM", "ai:events")
+    AI_EVENT_GROUP: str = os.getenv("AI_EVENT_GROUP", "nvr-bridge")
 
     # ── Server ──────────────────────────────────────────────────────────
     HOST: str = os.getenv("HOST", "0.0.0.0")

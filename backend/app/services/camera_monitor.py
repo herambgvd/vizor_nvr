@@ -5,9 +5,16 @@
 import asyncio
 import logging
 from datetime import datetime, timezone
+from typing import Optional
+from urllib.parse import urlparse
 
 from app.config import settings
 from app.database import async_session_maker
+
+# Consecutive failed probes before flipping status to offline
+OFFLINE_FAIL_THRESHOLD = 2
+# Per-probe TCP connect timeout
+PROBE_TIMEOUT_SEC = 2.5
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +38,8 @@ class CameraMonitor:
         self._last_segment_time: dict = {}
         # camera_id → whether a gap alert was already sent (avoid spam)
         self._gap_alerted: dict = {}
+        # camera_id → consecutive reachability probe failures
+        self._probe_fails: dict = {}
 
     async def start(self):
         if self._running:
@@ -55,36 +64,50 @@ class CameraMonitor:
         await prebuffer_service.stop()
         logger.info("Camera monitor stopped")
 
-    async def _capture_periodic_snapshot(self, camera):
-        """Capture a periodic snapshot and persist to DB."""
-        try:
-            from app.services.ffmpeg_manager import ffmpeg_manager
-            from app.cameras.models import CameraSnapshot
-            import os, uuid as _uuid
-            from app.config import settings as _settings
+    @staticmethod
+    def _extract_host_port(camera) -> tuple:
+        """Return (host, port) for a TCP reachability probe.
 
-            path = await ffmpeg_manager.capture_snapshot(camera.main_stream_url, camera.id)
-            if not path:
-                return
-
-            file_size = None
+        Prefer ONVIF host (the device IP) over the RTSP URL because the
+        RTSP URL may contain credentials and an unusual port. Falls back
+        to parsing main_stream_url.
+        """
+        if camera.onvif_host:
             try:
-                file_size = os.path.getsize(path)
+                port = int(camera.onvif_port) if camera.onvif_port else 80
+            except (TypeError, ValueError):
+                port = 80
+            return camera.onvif_host, port
+
+        try:
+            parsed = urlparse(camera.main_stream_url)
+            host = parsed.hostname
+            port = parsed.port or (554 if parsed.scheme == "rtsp" else 80)
+            if host:
+                return host, port
+        except Exception:
+            pass
+        return None, None
+
+    async def _probe_reachable(self, camera) -> bool:
+        """Lightweight TCP connect probe — true if port is open."""
+        host, port = self._extract_host_port(camera)
+        if not host:
+            return False
+        try:
+            fut = asyncio.open_connection(host, port)
+            reader, writer = await asyncio.wait_for(fut, timeout=PROBE_TIMEOUT_SEC)
+            writer.close()
+            try:
+                await writer.wait_closed()
             except Exception:
                 pass
-
-            snap = CameraSnapshot(
-                id=str(_uuid.uuid4()),
-                camera_id=camera.id,
-                file_path=path,
-                file_size=file_size,
-                trigger="periodic",
-            )
-            async with async_session_maker() as db:
-                db.add(snap)
-                await db.commit()
+            return True
+        except (asyncio.TimeoutError, OSError):
+            return False
         except Exception as e:
-            logger.debug(f"[{camera.id}] Periodic snapshot failed: {e}")
+            logger.debug(f"[{camera.id}] Probe error: {e}")
+            return False
 
     async def _loop(self):
         # Wait a bit before first check to let everything initialize
@@ -121,14 +144,70 @@ class CameraMonitor:
                     is_live = ffmpeg_manager.is_recording(camera.id)
                     prev_status = camera.status
 
-                    # Independent online heartbeat — set last_online_at any
-                    # time the camera was already marked online by another
-                    # subsystem (recording start, manual probe, go2rtc).
-                    # Without this, last_online_at stays NULL for cameras
-                    # that came online via the start-recording flow but
-                    # aren't currently in ffmpeg_manager.is_recording.
-                    if camera.status == "online":
+                    # Active reachability probe — short TCP connect to the
+                    # camera. Authoritative source of truth for status.
+                    # `is_live` (= ffmpeg running) is not enough: ffmpeg can
+                    # be stuck on a buffered stream while the device is
+                    # actually unreachable, and ONVIF event pull / manual
+                    # snapshot also need a real device, not a stale flag.
+                    reachable = await self._probe_reachable(camera)
+
+                    if reachable:
+                        self._probe_fails[camera.id] = 0
                         camera.last_online_at = datetime.utcnow()
+                        # Recover from offline → online
+                        if prev_status in ("offline", "error"):
+                            camera.status = "online"
+                            camera.retry_count = 0
+                            await notification_service.notify(
+                                NotificationEvent.CAMERA_ONLINE,
+                                {"camera_id": camera.id, "camera_name": camera.name},
+                                camera_id=camera.id,
+                            )
+                            await connection_manager.broadcast_camera_status(
+                                camera.id, "online", camera.is_recording
+                            )
+                            from app.events.linkage_service import linkage_engine
+                            await linkage_engine.fire_event(
+                                camera_id=camera.id,
+                                event_type="camera_online",
+                                severity="info",
+                                title=f"Camera online — {camera.name}",
+                                description=f"Recovered from {prev_status}",
+                            )
+                        elif camera.status != "online":
+                            camera.status = "online"
+                    else:
+                        fails = self._probe_fails.get(camera.id, 0) + 1
+                        self._probe_fails[camera.id] = fails
+                        if fails >= OFFLINE_FAIL_THRESHOLD and prev_status != "offline":
+                            camera.status = "offline"
+                            # Reset retry_count so recovery path retries
+                            # recording immediately once camera reappears.
+                            camera.retry_count = 0
+                            logger.warning(
+                                f"[{camera.id}] {camera.name} unreachable "
+                                f"({fails} consecutive probe failures) — marking offline"
+                            )
+                            await notification_service.notify(
+                                NotificationEvent.CAMERA_OFFLINE,
+                                {"camera_id": camera.id, "camera_name": camera.name,
+                                 "message": "Camera unreachable"},
+                                camera_id=camera.id,
+                            )
+                            await connection_manager.broadcast_camera_status(
+                                camera.id, "offline", camera.is_recording,
+                                error_message="Camera unreachable",
+                            )
+                            from app.events.linkage_service import linkage_engine
+                            await linkage_engine.fire_event(
+                                camera_id=camera.id,
+                                event_type="camera_offline",
+                                severity="warning",
+                                title=f"Camera offline — {camera.name}",
+                                description="No TCP response from device",
+                                metadata={"consecutive_failures": fails},
+                            )
 
                     # Update bandwidth tracking
                     if is_live:
@@ -215,44 +294,19 @@ class CameraMonitor:
                                     metadata={"retries": camera.retry_count},
                                 )
 
-                    # Camera is live → update status
-                    elif is_live:
-                        if camera.status != "online":
-                            # Notify camera came online
-                            if prev_status in ("offline", "error"):
-                                await notification_service.notify(
-                                    NotificationEvent.CAMERA_ONLINE,
-                                    {"camera_id": camera.id, "camera_name": camera.name},
-                                    camera_id=camera.id
-                                )
-                                # Broadcast status change via WebSocket
-                                await connection_manager.broadcast_camera_status(
-                                    camera.id, "online", camera.is_recording
-                                )
-                                # Fire camera_online event through linkage engine
-                                from app.events.linkage_service import linkage_engine
-                                await linkage_engine.fire_event(
+                    # ── Side-effects when recording is live and camera reachable ──
+                    if is_live and reachable:
+                        # Start ONVIF event pull if enabled
+                        if camera.onvif_events_enabled and camera.onvif_host:
+                            if not onvif_event_service.is_active(camera.id):
+                                await onvif_event_service.start_camera(
                                     camera_id=camera.id,
-                                    event_type="camera_online",
-                                    severity="info",
-                                    title=f"Camera online — {camera.name}",
-                                    description=f"Recovered from {prev_status}",
+                                    host=camera.onvif_host,
+                                    port=camera.onvif_port,
+                                    username=decrypt_value(camera.onvif_username) or "admin",
+                                    password=decrypt_value(camera.onvif_password) if camera.onvif_password else "admin",
+                                    topics=camera.onvif_event_topics or [],
                                 )
-                            camera.status = "online"
-                            camera.retry_count = 0
-
-                            # Start ONVIF event pull if enabled
-                            if camera.onvif_events_enabled and camera.onvif_host:
-                                if not onvif_event_service.is_active(camera.id):
-                                    await onvif_event_service.start_camera(
-                                        camera_id=camera.id,
-                                        host=camera.onvif_host,
-                                        port=camera.onvif_port,
-                                        username=decrypt_value(camera.onvif_username) or "admin",
-                                        password=decrypt_value(camera.onvif_password) if camera.onvif_password else "admin",
-                                        topics=camera.onvif_event_topics or [],
-                                    )
-                        camera.last_online_at = datetime.utcnow()
 
                         # ── Prebuffer management for motion-triggered cameras ──
                         from app.services.prebuffer_service import prebuffer_service
@@ -274,18 +328,15 @@ class CameraMonitor:
                         if prebuffer_service.is_running(camera.id):
                             asyncio.create_task(prebuffer_service.stop_prebuffer(camera.id))
 
-                    # Periodic snapshot (every ~5 minutes, on the 10th check = 10 × 30s = 300s)
                     import time as _t
-                    snap_key = f"_snap_{camera.id}"
-                    last_snap = getattr(self, snap_key, 0)
-                    if is_live and (_t.time() - last_snap) >= 300:
-                        setattr(self, snap_key, _t.time())
-                        asyncio.create_task(self._capture_periodic_snapshot(camera))
 
                     # ── Health probe (bitrate, packet loss) every 60s ──────
+                    # Run whenever the camera is reachable, not only while
+                    # recording. Operators need health metrics in the
+                    # Cameras table before they hit Start.
                     health_key = f"_health_{camera.id}"
                     last_health = getattr(self, health_key, 0)
-                    if is_live and (_t.time() - last_health) >= 60:
+                    if reachable and (_t.time() - last_health) >= 60:
                         setattr(self, health_key, _t.time())
                         asyncio.create_task(self._probe_camera_health(camera))
 
@@ -362,8 +413,60 @@ class CameraMonitor:
                     return True
         return False
 
+    @staticmethod
+    async def _measure_bitrate_kbps(rtsp_url: str) -> Optional[int]:
+        """Run ffmpeg copy for ~3s; derive bitrate from the byte total
+        ffmpeg prints at end (`video:NKiB audio:MKiB`). Many cameras
+        report bitrate=N/A in ffmpeg's running stats, so calculate
+        from actual bytes received."""
+        import re
+        try:
+            duration_sec = 3
+            proc = await asyncio.create_subprocess_exec(
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel", "info",
+                "-stats",
+                "-rtsp_transport", "tcp",
+                "-i", rtsp_url,
+                "-t", str(duration_sec),
+                "-c", "copy",
+                "-f", "null",
+                "-",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            try:
+                _, stderr = await asyncio.wait_for(proc.communicate(), timeout=10)
+            except asyncio.TimeoutError:
+                proc.kill()
+                return None
+            text = (stderr or b"").decode("utf-8", errors="ignore")
+
+            # Preferred — ffmpeg reports a usable bitrate=NNkbits/s
+            for m in reversed(re.findall(r"bitrate=\s*([\d.]+)\s*kbits/s", text)):
+                return int(float(m))
+
+            # Fallback — sum video+audio KiB totals printed at the end
+            kib_total = 0.0
+            for label in ("video", "audio"):
+                m = re.search(rf"{label}:\s*([\d.]+)KiB", text)
+                if m:
+                    kib_total += float(m.group(1))
+            if kib_total > 0:
+                bits = kib_total * 1024 * 8
+                return int(bits / 1000 / duration_sec)
+            return None
+        except Exception:
+            return None
+
     async def _probe_camera_health(self, camera):
-        """Probe camera stream health (bitrate, packet loss, fps) via ffprobe."""
+        """Probe camera stream health (bitrate, packet loss, fps).
+
+        Many cameras don't expose a `bit_rate` value via ffprobe. As a
+        fallback, run a short ffmpeg copy and parse the `bitrate=N kbits/s`
+        line from stderr — that's a real measurement of the live stream.
+        """
         try:
             from app.services.ffmpeg_manager import ffmpeg_manager
             from app.database import async_session_maker
@@ -375,11 +478,18 @@ class CameraMonitor:
                 return
 
             stream_info = info[1] or {}
+            bitrate_raw = stream_info.get("bitrate")
+            kbps = int(bitrate_raw) // 1000 if bitrate_raw else None
+
+            # Fallback — measure live bitrate via short ffmpeg copy
+            if kbps is None:
+                kbps = await self._measure_bitrate_kbps(camera.main_stream_url)
+
             async with async_session_maker() as db:
                 snap = CameraHealthSnapshot(
                     id=str(_uuid.uuid4()),
                     camera_id=camera.id,
-                    bitrate_kbps=int(stream_info.get("bitrate", 0)) // 1000 if stream_info.get("bitrate") else None,
+                    bitrate_kbps=kbps,
                     fps_actual=stream_info.get("fps"),
                     status="online",
                 )

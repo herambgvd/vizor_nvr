@@ -70,6 +70,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       ENV: production
       DATABASE_URL: postgresql+asyncpg://${DB_USER:-nvr}:${DB_PASSWORD}@db:5432/gvd_nvr
@@ -97,6 +99,16 @@ services:
       CLOUD_S3_BUCKET: ${CLOUD_S3_BUCKET:-}
       CLOUD_S3_ACCESS_KEY: ${CLOUD_S3_ACCESS_KEY:-}
       CLOUD_S3_SECRET_KEY: ${CLOUD_S3_SECRET_KEY:-}
+      REDIS_URL: redis://redis:6379/0
+      QDRANT_URL: http://qdrant:6333
+      TRITON_URL: triton:8001
+      METROPOLIS_BRIDGE_ENABLED: ${METROPOLIS_BRIDGE_ENABLED:-true}
+      # Bridge needs the same key DeepStream containers use to POST events
+      NVR_INGEST_API_KEY: ${NVR_INGEST_API_KEY:-}
+      METROPOLIS_REDIS_URL: redis://redis:6379/0
+      METROPOLIS_STREAM: ${AI_EVENT_STREAM:-ai:events}
+      METROPOLIS_GROUP: nvr-bridge
+      NVR_INGEST_URL: http://localhost:8000
     volumes:
       - recordings:/data/recordings
       - thumbnails:/data/thumbnails
@@ -128,6 +140,15 @@ services:
       resources:
         limits:
           memory: 2g
+        reservations:
+          # Optional NVIDIA GPU passthrough — used by monitoring telemetry
+          # (CPU/GPU page) and any future DeepStream / Perception code that
+          # needs CUDA inside the backend container. Falls through cleanly
+          # on hosts without an NVIDIA runtime — the device list is ignored.
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, utility, compute]
 
   # ── Migration runner (runs once, exits) ────────────────────────────────────
   migrate:
@@ -183,6 +204,144 @@ services:
     networks:
       - internal
 
+  # ── Redis (event bus + cache) ─────────────────────────────────────────────
+  # Used by DeepStream → backend bridge (Streams) and the future Vizor
+  # Query result cache. Persistence disabled — events are not authoritative.
+  redis:
+    image: redis:7-alpine
+    container_name: gvd_redis
+    restart: unless-stopped
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru", "--save", ""]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - internal
+
+  # ── Qdrant (vector DB — FRS embeddings) ───────────────────────────────────
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    container_name: gvd_qdrant
+    restart: unless-stopped
+    volumes:
+      - qdrant_data:/qdrant/storage
+    # qdrant image is distroless — no wget/curl. Skip healthcheck and let
+    # callers probe /healthz over the network.
+    profiles: ["ai"]
+    networks:
+      - internal
+
+  # ── DeepStream People Counting worker ─────────────────────────────────────
+  # SIMULATE=1 makes this emit synthetic events on a timer so the rest of
+  # the AI stack (bridge, counts_writer, SSE, UI) is testable without a
+  # working CUDA build. Flip to SIMULATE=0 + bake the GStreamer pipeline
+  # in Phase 4.
+  ds_people:
+    build:
+      context: ./deepstream/people_counting
+      dockerfile: Dockerfile
+    image: gvd_ds_people:latest
+    container_name: gvd_ds_people
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      AI_EVENT_STREAM: ai:events
+      BACKEND_URL: http://backend:8000
+      BACKEND_API_KEY: ${NVR_INGEST_API_KEY:-}
+      SIMULATE: ${DS_SIMULATE:-1}
+      SIM_INTERVAL: ${DS_SIM_INTERVAL:-7}
+      LOG_LEVEL: INFO
+    profiles: ["ai"]
+    networks:
+      - internal
+
+  # ── DeepStream PPE worker ─────────────────────────────────────────────────
+  ds_ppe:
+    build:
+      context: ./deepstream/ppe
+      dockerfile: Dockerfile
+    image: gvd_ds_ppe:latest
+    container_name: gvd_ds_ppe
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      AI_EVENT_STREAM: ai:events
+      BACKEND_URL: http://backend:8000
+      BACKEND_API_KEY: ${NVR_INGEST_API_KEY:-}
+      TRITON_URL: triton:8001
+      SIMULATE: ${DS_PPE_SIMULATE:-1}
+      SIM_INTERVAL: ${DS_PPE_SIM_INTERVAL:-12}
+      LOG_LEVEL: INFO
+    profiles: ["ai"]
+    networks:
+      - internal
+
+  # ── DeepStream FRS worker ─────────────────────────────────────────────────
+  ds_frs:
+    build:
+      context: ./deepstream/frs
+      dockerfile: Dockerfile
+    image: gvd_ds_frs:latest
+    container_name: gvd_ds_frs
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      AI_EVENT_STREAM: ai:events
+      BACKEND_URL: http://backend:8000
+      BACKEND_API_KEY: ${NVR_INGEST_API_KEY:-}
+      QDRANT_URL: http://qdrant:6333
+      TRITON_URL: triton:8001
+      SIMULATE: ${DS_FRS_SIMULATE:-1}
+      SIM_INTERVAL: ${DS_FRS_SIM_INTERVAL:-15}
+      LOG_LEVEL: INFO
+    profiles: ["ai"]
+    networks:
+      - internal
+
+  # ── Triton Inference Server ───────────────────────────────────────────────
+  # Models live in ./deepstream/model_repository (NGC-pinned + custom).
+  # GPU passthrough via the standard nvidia runtime — installs cleanly
+  # on hosts without an NVIDIA runtime: docker compose ignores the
+  # `deploy.resources.reservations.devices` block on those hosts.
+  triton:
+    image: vizor/triton:slim
+    container_name: gvd_triton
+    restart: unless-stopped
+    command: >
+      tritonserver
+      --model-repository=/models
+      --strict-model-config=false
+      --log-verbose=0
+    volumes:
+      - ./deepstream/model_repository:/models:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/v2/health/ready || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, utility, compute]
+    profiles: ["ai"]
+    networks:
+      - internal
+
 # ── Networks ──────────────────────────────────────────────────────────────────
 networks:
   internal:
@@ -196,3 +355,4 @@ volumes:
   thumbnails:
   exports:
   certs:
+  qdrant_data:

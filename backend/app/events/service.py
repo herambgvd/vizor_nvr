@@ -179,6 +179,53 @@ class EventService:
         return result.rowcount
 
     @staticmethod
+    async def delete_event(db: AsyncSession, event_id: str) -> bool:
+        """Hard-delete a single event. Returns True if a row was removed."""
+        from sqlalchemy import delete
+        result = await db.execute(delete(Event).where(Event.id == event_id))
+        await db.commit()
+        return result.rowcount > 0
+
+    @staticmethod
+    async def delete_events_bulk(
+        db: AsyncSession,
+        event_ids: Optional[List[str]] = None,
+        camera_id: Optional[str] = None,
+        event_type: Optional[str] = None,
+        severity: Optional[str] = None,
+        acknowledged: Optional[bool] = None,
+        before: Optional[datetime] = None,
+    ) -> int:
+        """Hard-delete events. If event_ids is empty/None, deletes by filter.
+        Returns number of rows removed. Refuses unfiltered deletes."""
+        from sqlalchemy import delete
+        stmt = delete(Event)
+
+        if event_ids:
+            stmt = stmt.where(Event.id.in_(event_ids))
+        else:
+            # No explicit ids → require at least one filter to avoid wipe
+            has_filter = any(
+                v is not None for v in (camera_id, event_type, severity, acknowledged, before)
+            )
+            if not has_filter:
+                return 0
+            if camera_id:
+                stmt = stmt.where(Event.camera_id == camera_id)
+            if event_type:
+                stmt = stmt.where(Event.event_type == event_type)
+            if severity:
+                stmt = stmt.where(Event.severity == severity)
+            if acknowledged is not None:
+                stmt = stmt.where(Event.acknowledged == acknowledged)
+            if before:
+                stmt = stmt.where(Event.triggered_at < before)
+
+        result = await db.execute(stmt)
+        await db.commit()
+        return result.rowcount
+
+    @staticmethod
     async def get_unacknowledged_count(
         db: AsyncSession,
         camera_id: Optional[str] = None,

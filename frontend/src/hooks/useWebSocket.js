@@ -33,6 +33,7 @@ export function useWebSocket({
   channels = ["all"],
   onCameraUpdate,
   onSystemEvent,
+  onNewEvent,
   onConnected,
   onDisconnected,
   autoReconnect = true,
@@ -86,6 +87,11 @@ export function useWebSocket({
             onSystemEvent?.(data.data);
             break;
 
+          case "new_event":
+          case "linkage_event":
+            onNewEvent?.(data.data);
+            break;
+
           case "pong":
             // Heartbeat response - connection is alive
             break;
@@ -102,16 +108,25 @@ export function useWebSocket({
         console.error("Failed to parse WebSocket message:", err);
       }
     },
-    [onCameraUpdate, onSystemEvent, onConnected]
+    [onCameraUpdate, onSystemEvent, onNewEvent, onConnected]
   );
 
   /**
    * Connect to WebSocket server
    */
   const connect = useCallback(() => {
-    // Clear any existing connection
+    // Avoid stacking sockets when React StrictMode double-invokes effects
+    // or when channel deps change mid-handshake.
     if (wsRef.current) {
-      wsRef.current.close();
+      const rs = wsRef.current.readyState;
+      if (rs === WebSocket.OPEN || rs === WebSocket.CONNECTING) {
+        return;
+      }
+      try {
+        wsRef.current.close();
+      } catch {
+        /* ignore */
+      }
     }
 
     const url = buildWsUrl();
@@ -128,7 +143,6 @@ export function useWebSocket({
       wsRef.current = ws;
 
       ws.onopen = () => {
-        console.log("WebSocket connected");
         // Start ping interval to keep connection alive
         pingIntervalRef.current = setInterval(() => {
           if (ws.readyState === WebSocket.OPEN) {
@@ -139,13 +153,14 @@ export function useWebSocket({
 
       ws.onmessage = handleMessage;
 
-      ws.onerror = (error) => {
-        console.error("WebSocket error:", error);
+      ws.onerror = () => {
+        // Don't log — the matching `close` event already tells the story
+        // and React StrictMode dev double-invocation produces noisy
+        // first-attempt errors that aren't real failures.
         setConnectionState(WS_STATE.ERROR);
       };
 
       ws.onclose = (event) => {
-        console.log("WebSocket closed:", event.code, event.reason);
         setConnectionState(WS_STATE.DISCONNECTED);
         onDisconnected?.();
 
@@ -158,15 +173,10 @@ export function useWebSocket({
         // Auto-reconnect if enabled and not intentionally closed
         if (autoReconnect && event.code !== 1000 && event.code !== 1008) {
           if (reconnectCount < maxReconnectAttempts) {
-            console.log(
-              `Reconnecting in ${reconnectInterval}ms... (attempt ${reconnectCount + 1}/${maxReconnectAttempts})`
-            );
             reconnectTimerRef.current = setTimeout(() => {
               setReconnectCount((c) => c + 1);
               connect();
             }, reconnectInterval);
-          } else {
-            console.warn("Max reconnect attempts reached");
           }
         }
       };

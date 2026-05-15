@@ -4,6 +4,7 @@
 
 import logging
 from datetime import datetime
+from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, BackgroundTasks, status
@@ -275,20 +276,33 @@ async def create_camera(
     user: dict = Depends(require_permission("manage_camera")),
     db: AsyncSession = Depends(get_db),
 ):
-    # License-file tier enforcement (Phase 7.2). Fall back to the legacy
-    # settings.max_cameras cap if no license file is present.
-    from app.core.licensing import enforce_camera_count
+    # Ed25519 license enforcement (.lic file). Falls back to the operator
+    # settings cap when no license is installed (dev/free tier).
+    from app.license.service import get_license_service
     from app.settings.service import SettingsService
+
     current = await svc.count(db)
-    try:
-        enforce_camera_count(current)
-    except ValueError as e:
-        raise HTTPException(403, str(e))
-    settings_cap = await SettingsService.get_max_cameras(db)
-    if current >= settings_cap:
-        raise HTTPException(403, f"Operator cap: max {settings_cap} cameras")
+    lic = get_license_service()
+    if lic.is_active():
+        if lic.camera_limit() and current >= lic.camera_limit():
+            raise HTTPException(
+                402,
+                f"License cap reached: {current}/{lic.camera_limit()} cameras",
+            )
+    else:
+        settings_cap = await SettingsService.get_max_cameras(db)
+        if current >= settings_cap:
+            raise HTTPException(403, f"Operator cap: max {settings_cap} cameras")
 
     camera = await svc.create(db, data)
+
+    # Auto-enable ONVIF event subscription when the camera reports an
+    # ONVIF host. Operators can disable per-camera from settings if a
+    # device floods the event log. Default-on is required so device-side
+    # alarms (motion, tamper, line crossing) reach the Events page
+    # without manual config.
+    if camera.onvif_host and not camera.onvif_events_enabled:
+        camera.onvif_events_enabled = True
 
     await write_audit(
         db, action="camera_create", user_id=user["id"], username=user["username"],
@@ -299,6 +313,22 @@ async def create_camera(
 
     # Test connection in background
     bg.add_task(_bg_test_connection, camera.id)
+
+    # Kick off ONVIF event pull asynchronously (no-op if no host)
+    if camera.onvif_host and camera.onvif_events_enabled:
+        from app.cameras.onvif_event_service import onvif_event_service
+        from app.core.crypto import decrypt_value
+        try:
+            await onvif_event_service.start_camera(
+                camera_id=camera.id,
+                host=camera.onvif_host,
+                port=camera.onvif_port or 80,
+                username=decrypt_value(camera.onvif_username) or "admin",
+                password=decrypt_value(camera.onvif_password) if camera.onvif_password else "admin",
+                topics=camera.onvif_event_topics or [],
+            )
+        except Exception as _e:
+            logger.warning(f"ONVIF event pull start failed for {camera.id}: {_e}")
 
     return CameraResponse(**svc.to_response(camera))
 
@@ -333,6 +363,267 @@ async def update_camera(
     return CameraResponse(**svc.to_response(camera))
 
 
+@router.get("/health/latest")
+async def get_latest_health(
+    user: dict = Depends(require_permission("view_live")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return latest health snapshot per camera as a map {id: {...}}.
+    Used by the Cameras table Health column."""
+    from app.cameras.models import CameraHealthSnapshot
+    from sqlalchemy import select as sa_select, func as sa_func
+
+    # Latest captured_at per camera via window expression — but a simpler
+    # approach: subquery for max captured_at per camera, then join.
+    subq = (
+        sa_select(
+            CameraHealthSnapshot.camera_id,
+            sa_func.max(CameraHealthSnapshot.captured_at).label("max_ts"),
+        )
+        .group_by(CameraHealthSnapshot.camera_id)
+        .subquery()
+    )
+    stmt = sa_select(CameraHealthSnapshot).join(
+        subq,
+        (CameraHealthSnapshot.camera_id == subq.c.camera_id)
+        & (CameraHealthSnapshot.captured_at == subq.c.max_ts),
+    )
+    result = await db.execute(stmt)
+    snaps = result.scalars().all()
+    return {
+        s.camera_id: {
+            "bitrate_kbps": s.bitrate_kbps,
+            "fps_actual": s.fps_actual,
+            "packet_loss_percent": s.packet_loss_percent,
+            "status": s.status,
+            "captured_at": s.captured_at.isoformat() if s.captured_at else None,
+        }
+        for s in snaps
+    }
+
+
+@router.post("/bulk/start", status_code=200)
+async def bulk_start_recording(
+    request: Request,
+    user: dict = Depends(require_permission("control_recording")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Bulk-start recording. Body: {"camera_ids": [...]}."""
+    body = await request.json()
+    ids = body.get("camera_ids") or []
+    if not isinstance(ids, list) or not ids:
+        raise HTTPException(400, "camera_ids must be a non-empty list")
+
+    from sqlalchemy import select as sa_select
+    from app.cameras.models import Camera
+    started = []
+    failed = []
+    for cid in ids:
+        try:
+            cam = (await db.execute(sa_select(Camera).where(Camera.id == cid))).scalar_one_or_none()
+            if not cam:
+                failed.append(cid)
+                continue
+            cam.is_recording = True
+            cam.retry_count = 0
+            await _start_camera_recording_helper(db, cam)
+            started.append(cid)
+        except Exception as e:
+            logger.warning(f"bulk_start {cid} failed: {e}")
+            failed.append(cid)
+    await db.commit()
+    return {"started": started, "failed": failed}
+
+
+@router.post("/bulk/stop", status_code=200)
+async def bulk_stop_recording(
+    request: Request,
+    user: dict = Depends(require_permission("control_recording")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Bulk-stop recording. Body: {"camera_ids": [...]}."""
+    from app.services.ffmpeg_manager import ffmpeg_manager
+    from sqlalchemy import select as sa_select
+    from app.cameras.models import Camera
+    body = await request.json()
+    ids = body.get("camera_ids") or []
+    if not isinstance(ids, list) or not ids:
+        raise HTTPException(400, "camera_ids must be a non-empty list")
+
+    stopped = []
+    for cid in ids:
+        try:
+            await ffmpeg_manager.stop_recording(cid)
+            cam = (await db.execute(sa_select(Camera).where(Camera.id == cid))).scalar_one_or_none()
+            if cam:
+                cam.is_recording = False
+                stopped.append(cid)
+        except Exception as e:
+            logger.warning(f"bulk_stop {cid} failed: {e}")
+    await db.commit()
+    return {"stopped": stopped}
+
+
+@router.post("/bulk/test", status_code=200)
+async def bulk_test_connection(
+    request: Request,
+    user: dict = Depends(require_permission("view_live")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Bulk RTSP reachability test. Body: {"camera_ids": [...]}."""
+    from app.services.ffmpeg_manager import ffmpeg_manager
+    from sqlalchemy import select as sa_select
+    from app.cameras.models import Camera
+    import asyncio
+    body = await request.json()
+    ids = body.get("camera_ids") or []
+    if not isinstance(ids, list) or not ids:
+        raise HTTPException(400, "camera_ids must be a non-empty list")
+
+    results = {}
+
+    async def probe(cid: str):
+        cam = (await db.execute(sa_select(Camera).where(Camera.id == cid))).scalar_one_or_none()
+        if not cam:
+            results[cid] = {"ok": False, "error": "not_found"}
+            return
+        ok, info = await ffmpeg_manager.test_rtsp_connection(cam.main_stream_url)
+        results[cid] = {"ok": ok, "info": info}
+        if ok:
+            cam.status = "online"
+            cam.last_online_at = datetime.utcnow()
+        else:
+            cam.status = "offline"
+
+    await asyncio.gather(*[probe(cid) for cid in ids])
+    await db.commit()
+    return {"results": results}
+
+
+@router.post("/bulk/enable", status_code=200)
+async def bulk_set_enabled(
+    request: Request,
+    user: dict = Depends(require_permission("manage_camera")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Bulk enable/disable cameras. Body: {"camera_ids": [...], "enabled": bool}."""
+    from sqlalchemy import select as sa_select
+    from app.cameras.models import Camera
+    body = await request.json()
+    ids = body.get("camera_ids") or []
+    enabled = bool(body.get("enabled", True))
+    if not isinstance(ids, list) or not ids:
+        raise HTTPException(400, "camera_ids must be a non-empty list")
+
+    updated = []
+    for cid in ids:
+        cam = (await db.execute(sa_select(Camera).where(Camera.id == cid))).scalar_one_or_none()
+        if cam:
+            cam.is_enabled = enabled
+            updated.append(cid)
+    await db.commit()
+    return {"updated": updated, "enabled": enabled}
+
+
+@router.post("/reorder", status_code=200)
+async def reorder_cameras(
+    request: Request,
+    user: dict = Depends(require_permission("manage_camera")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Persist a new display order. Body: {"camera_ids": [ordered ids]}."""
+    from sqlalchemy import select as sa_select
+    from app.cameras.models import Camera
+    body = await request.json()
+    ids = body.get("camera_ids") or []
+    if not isinstance(ids, list) or not ids:
+        raise HTTPException(400, "camera_ids must be a non-empty list")
+
+    for idx, cid in enumerate(ids):
+        cam = (await db.execute(sa_select(Camera).where(Camera.id == cid))).scalar_one_or_none()
+        if cam:
+            cam.display_order = idx
+    await db.commit()
+    return {"reordered": len(ids)}
+
+
+async def _start_camera_recording_helper(db, camera):
+    """Shared start-recording helper for single + bulk routes."""
+    from app.services.ffmpeg_manager import ffmpeg_manager
+    from app.services.go2rtc_manager import go2rtc_manager
+    from app.storage.service import StorageService
+
+    await go2rtc_manager.add_stream(camera.id, camera.main_stream_url)
+    if camera.sub_stream_url:
+        await go2rtc_manager.add_stream(f"{camera.id}_sub", camera.sub_stream_url)
+    await go2rtc_manager.wait_for_stream_ready(camera.id)
+
+    rtsp_url = go2rtc_manager.get_rtsp_output_url(camera.id)
+    sub_rtsp_url = (
+        go2rtc_manager.get_rtsp_output_url(f"{camera.id}_sub")
+        if camera.sub_stream_url
+        else None
+    )
+    storage_path = await StorageService.resolve_recording_path(db, camera)
+
+    success, _ = await ffmpeg_manager.start_recording(
+        camera.id, rtsp_url, storage_path, camera.recording_fps,
+        sub_stream_url=sub_rtsp_url,
+        privacy_masks=camera.privacy_masks,
+    )
+    if success:
+        camera.status = "online"
+        camera.last_online_at = datetime.utcnow()
+    else:
+        camera.status = "error"
+
+
+@router.post("/bulk-delete", status_code=200)
+async def bulk_delete_cameras(
+    request: Request,
+    user: dict = Depends(require_permission("manage_camera")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Bulk-delete cameras by id list. Body: {"camera_ids": [...]}.
+    Stops recording + go2rtc streams + ONVIF event pull for each."""
+    from app.services.ffmpeg_manager import ffmpeg_manager
+    from app.services.go2rtc_manager import go2rtc_manager
+    from app.cameras.onvif_event_service import onvif_event_service
+
+    body = await request.json()
+    ids = body.get("camera_ids") or []
+    if not isinstance(ids, list) or not ids:
+        raise HTTPException(400, "camera_ids must be a non-empty list")
+
+    deleted = []
+    not_found = []
+    for cid in ids:
+        try:
+            await ffmpeg_manager.stop_recording(cid)
+            await go2rtc_manager.remove_stream(cid)
+            await go2rtc_manager.remove_stream(f"{cid}_sub")
+            await onvif_event_service.stop_camera(cid)
+        except Exception:
+            pass
+
+        if await svc.delete(db, cid):
+            deleted.append(cid)
+            _purge_camera_files(cid)
+        else:
+            not_found.append(cid)
+
+    if deleted:
+        await write_audit(
+            db, action="camera_bulk_delete", user_id=user["id"],
+            username=user["username"], ip_address=client_ip(request),
+            resource_type="camera", resource_id=",".join(deleted),
+            severity="warning",
+            details={"deleted_count": len(deleted), "not_found": not_found},
+        )
+    await db.commit()
+    return {"deleted": len(deleted), "not_found": not_found}
+
+
 @router.delete("/{camera_id}", status_code=204)
 async def delete_camera(
     camera_id: str,
@@ -343,12 +634,18 @@ async def delete_camera(
     # Stop recording first
     from app.services.ffmpeg_manager import ffmpeg_manager
     from app.services.go2rtc_manager import go2rtc_manager
+    from app.cameras.onvif_event_service import onvif_event_service
     await ffmpeg_manager.stop_recording(camera_id)
     await go2rtc_manager.remove_stream(camera_id)
     await go2rtc_manager.remove_stream(f"{camera_id}_sub")
+    await onvif_event_service.stop_camera(camera_id)
 
     if not await svc.delete(db, camera_id):
         raise HTTPException(404, "Camera not found")
+
+    # Wipe on-disk recording + thumbnail files for this camera. DB
+    # cascade already removed recording rows via FK ondelete=CASCADE.
+    _purge_camera_files(camera_id)
 
     await write_audit(
         db, action="camera_delete", user_id=user["id"], username=user["username"],
@@ -356,6 +653,25 @@ async def delete_camera(
         severity="warning",
     )
     await db.commit()
+
+
+def _purge_camera_files(camera_id: str) -> None:
+    """Remove recording + thumbnail directories for a deleted camera.
+    Best-effort: logs and swallows errors so DB delete still succeeds."""
+    import shutil
+    from app.config import settings as _s
+    for base in (
+        _s.STORAGE_PATH,
+        _s.THUMBNAIL_PATH,
+        _s.HLS_PATH,
+    ):
+        target = Path(base) / camera_id
+        if target.exists() and target.is_dir():
+            try:
+                shutil.rmtree(target)
+                logger.info(f"Purged {target}")
+            except Exception as e:
+                logger.warning(f"Purge failed for {target}: {e}")
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -1318,6 +1634,98 @@ async def list_snapshots(
             for s in snaps
         ],
     }
+
+
+@router.get("/{camera_id}/thumbnail")
+async def get_camera_thumbnail(
+    camera_id: str,
+    user: dict = Depends(require_permission("view_live")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Serve latest snapshot JPEG. Falls back to a fresh ffmpeg snapshot
+    if no prior snapshot is on disk. Persists the fresh capture so the
+    Cameras table doesn't hit ffmpeg on every page render."""
+    from app.cameras.models import Camera, CameraSnapshot
+    from fastapi.responses import FileResponse
+    from sqlalchemy import select as sa_select, desc
+    import os as _os
+    import uuid as _uuid
+
+    # 1. Try the latest stored snapshot
+    result = await db.execute(
+        sa_select(CameraSnapshot)
+        .where(CameraSnapshot.camera_id == camera_id)
+        .order_by(desc(CameraSnapshot.captured_at))
+        .limit(1)
+    )
+    snap = result.scalar_one_or_none()
+    if snap and snap.file_path and _os.path.exists(snap.file_path):
+        return FileResponse(snap.file_path, media_type="image/jpeg")
+
+    # 2. Fallback — capture on-demand via ffmpeg. Used when periodic
+    #    snapshots haven't kicked in (camera not yet recording).
+    camera = await svc.get_by_id(db, camera_id)
+    if not camera:
+        raise HTTPException(404, "Camera not found")
+    if camera.status != "online":
+        raise HTTPException(404, "Camera offline")
+
+    from app.services.ffmpeg_manager import ffmpeg_manager
+    path = await ffmpeg_manager.capture_snapshot(camera.main_stream_url, camera_id)
+    if not path or not _os.path.exists(path):
+        raise HTTPException(404, "Snapshot capture failed")
+
+    # Persist so subsequent calls + Events page hero reuse the file.
+    # Snapshot tab is gone — keep at most one row per camera so disk
+    # doesn't grow unbounded from the table thumbnail refresh.
+    file_size = None
+    try:
+        file_size = _os.path.getsize(path)
+    except Exception:
+        pass
+
+    # Drop prior snapshots for this camera (rows + files)
+    prior = await db.execute(
+        sa_select(CameraSnapshot).where(CameraSnapshot.camera_id == camera_id)
+    )
+    for old in prior.scalars().all():
+        if old.file_path and _os.path.exists(old.file_path) and old.file_path != path:
+            try:
+                _os.remove(old.file_path)
+            except Exception:
+                pass
+        await db.delete(old)
+
+    new_snap = CameraSnapshot(
+        id=str(_uuid.uuid4()),
+        camera_id=camera_id,
+        file_path=path,
+        file_size=file_size,
+        trigger="thumbnail_ondemand",
+    )
+    db.add(new_snap)
+    await db.commit()
+
+    return FileResponse(path, media_type="image/jpeg")
+
+
+@router.get("/snapshot-file/{snapshot_id}")
+async def get_snapshot_image(
+    snapshot_id: str,
+    user: dict = Depends(require_permission("view_live")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Serve a snapshot JPEG by id. Used by the Events page hero tile."""
+    from app.cameras.models import CameraSnapshot
+    from fastapi.responses import FileResponse
+    import os as _os
+    result = await db.execute(
+        __import__("sqlalchemy").select(CameraSnapshot).where(CameraSnapshot.id == snapshot_id)
+    )
+    snap = result.scalar_one_or_none()
+    if not snap or not snap.file_path or not _os.path.exists(snap.file_path):
+        raise HTTPException(404, "Snapshot not found")
+    return FileResponse(snap.file_path, media_type="image/jpeg")
 
 
 @router.get("/{camera_id}/snapshots/latest")

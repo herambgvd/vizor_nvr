@@ -1,0 +1,51 @@
+# SCRFD-10G face detector — InsightFace buffalo_l/det_10g.onnx.
+#
+# Output: 9 tensors at 3 strides (8, 16, 32):
+#   score_{stride}   — (N, 1)   sigmoid confidence
+#   bbox_{stride}    — (N, 4)   ltrb distances to bbox edges
+#   kps_{stride}     — (N, 10)  5 keypoints (l-eye, r-eye, nose, l-mouth, r-mouth)
+#
+# Anchor-free detector. Caller decodes distances into pixel bboxes using
+# stride grid + ratio_scale=1.0 (single-scale anchors).
+
+name: "scrfd"
+platform: "onnxruntime_onnx"
+max_batch_size: 8
+
+input [
+  {
+    name: "input.1"
+    data_type: TYPE_FP32
+    dims: [ 3, 640, 640 ]
+  }
+]
+
+output [
+  { name: "score_8",  data_type: TYPE_FP32, dims: [ -1, 1 ] },
+  { name: "score_16", data_type: TYPE_FP32, dims: [ -1, 1 ] },
+  { name: "score_32", data_type: TYPE_FP32, dims: [ -1, 1 ] },
+  { name: "bbox_8",   data_type: TYPE_FP32, dims: [ -1, 4 ] },
+  { name: "bbox_16",  data_type: TYPE_FP32, dims: [ -1, 4 ] },
+  { name: "bbox_32",  data_type: TYPE_FP32, dims: [ -1, 4 ] },
+  { name: "kps_8",    data_type: TYPE_FP32, dims: [ -1, 10 ] },
+  { name: "kps_16",   data_type: TYPE_FP32, dims: [ -1, 10 ] },
+  { name: "kps_32",   data_type: TYPE_FP32, dims: [ -1, 10 ] }
+]
+
+instance_group [
+  {
+    count: 1
+    kind: KIND_GPU
+  }
+]
+
+dynamic_batching {
+  preferred_batch_size: [ 1, 4 ]
+  max_queue_delay_microseconds: 5000
+}
+
+optimization {
+  execution_accelerators {
+    gpu_execution_accelerator: [ { name: "tensorrt" } ]
+  }
+}

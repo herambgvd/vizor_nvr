@@ -19,6 +19,7 @@ from app.events.models import (
     EventResponse,
     EventAcknowledge,
     EventMarkFalseAlarm,
+    EventBulkDelete,
     LinkageRuleCreate,
     LinkageRuleUpdate,
     LinkageRuleResponse,
@@ -167,6 +168,40 @@ async def acknowledge_all_events(
     """Acknowledge all matching unacknowledged events."""
     count = await EventService.acknowledge_all(db, user["id"], camera_id, event_type)
     return {"acknowledged": count}
+
+
+@router.delete("/bulk", status_code=200)
+async def bulk_delete_events(
+    body: EventBulkDelete,
+    user: dict = Depends(require_permission("manage_settings")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Bulk-delete events. Pass `event_ids` for explicit selection, OR any
+    of camera_id / event_type / severity / acknowledged / before for
+    filter-based deletion. Refuses unfiltered wipes."""
+    count = await EventService.delete_events_bulk(
+        db,
+        event_ids=body.event_ids,
+        camera_id=body.camera_id,
+        event_type=body.event_type,
+        severity=body.severity,
+        acknowledged=body.acknowledged,
+        before=body.before,
+    )
+    return {"deleted": count}
+
+
+@router.delete("/{event_id}", status_code=204)
+async def delete_event(
+    event_id: str,
+    user: dict = Depends(require_permission("manage_settings")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a single event by id."""
+    ok = await EventService.delete_event(db, event_id)
+    if not ok:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Event not found")
+    return None
 
 
 @router.post("/{event_id}/false-alarm", response_model=EventResponse)

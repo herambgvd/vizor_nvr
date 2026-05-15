@@ -140,7 +140,10 @@ async def ingest_events(
                     attributes=ev.attributes,
                     dedup_key=ev.dedup_key,
                 )
-                .on_conflict_do_nothing(index_elements=["dedup_key"])
+                # Hypertable unique is composite (dedup_key, triggered_at)
+                .on_conflict_do_nothing(
+                    index_elements=["dedup_key", "triggered_at"],
+                )
                 .returning(Event.id)
             )
             result = await db.execute(stmt)

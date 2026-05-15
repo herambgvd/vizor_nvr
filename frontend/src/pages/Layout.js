@@ -1,24 +1,26 @@
 // =============================================================================
-// Layout — Vercel-style dark shell with aurora glow + glass sidebar
+// Layout — Horizontal top-bar shell
+// =============================================================================
+// 5 primary nav items: Dashboard, Cameras, Events, AI Modules, Settings.
+// Settings hosts a sub-menu (Notifications / Monitoring / Audit Log /
+// Configuration). Playback nested under Cameras. FRS Gallery lives
+// under AI Modules.
 // =============================================================================
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   Video,
   LayoutDashboard,
   Camera,
   Play,
-  LayoutGrid,
   Activity,
   Settings,
-  Shield,
   Bell,
   BellRing,
   Sparkles,
   UserSquare2,
-  ChevronLeft,
-  ChevronRight,
+  ChevronDown,
   LogOut,
   User,
   Menu,
@@ -35,35 +37,61 @@ import {
   DropdownMenuTrigger,
 } from "../components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "../components/ui/avatar";
+import {
+  LiveEventProvider,
+  LiveEventDrawer,
+} from "../components/nvr/LiveEventDrawer";
 
 const Layout = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, isAdmin, logout } = useAuth();
-  const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => setMobileOpen(false), [location.pathname]);
-  useEffect(() => {
-    const onResize = () => window.innerWidth >= 768 && setMobileOpen(false);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
 
-  const navItems = [
-    { path: "/", label: "Dashboard", icon: LayoutDashboard, desc: "Overview" },
-    { path: "/cameras", label: "Cameras", icon: Camera, desc: "Manage cameras" },
-    { path: "/playback", label: "Playback", icon: Play, desc: "Recordings + sync grid" },
-    { path: "/events", label: "Events", icon: Bell, desc: "Alarms & events" },
-    { path: "/ai/scenarios", label: "AI Scenarios", icon: Sparkles, desc: "AI capability catalog" },
-    { path: "/ai/persons", label: "FRS Gallery", icon: UserSquare2, desc: "Enrolled faces" },
-    { path: "/notifications", label: "Notifications", icon: BellRing, desc: "Webhooks" },
-    { path: "/monitoring", label: "Monitoring", icon: Activity, desc: "System health" },
-    { path: "/settings", label: "Settings", icon: Settings, desc: "Configuration" },
-    ...(isAdmin
-      ? [{ path: "/audit", label: "Audit Log", icon: Shield, desc: "Activity" }]
-      : []),
+  // Primary nav — 5 items. Each may have `children` for hover/click sub-menu.
+  const primaryNav = [
+    {
+      path: "/",
+      label: "Live",
+      icon: LayoutDashboard,
+      exact: true,
+    },
+    {
+      path: "/cameras",
+      label: "Cameras",
+      icon: Camera,
+    },
+    {
+      path: "/playback",
+      label: "Playback",
+      icon: Play,
+    },
+    {
+      path: "/events",
+      label: "Events",
+      icon: Bell,
+    },
+    {
+      path: "/ai/modules",
+      label: "AI Modules",
+      icon: Sparkles,
+    },
+    {
+      path: "/settings",
+      label: "Settings",
+      icon: Settings,
+    },
   ];
+
+  const isActive = (item) => {
+    if (item.exact) return location.pathname === item.path;
+    if (item.children) {
+      return item.children.some((c) => location.pathname.startsWith(c.path));
+    }
+    return location.pathname.startsWith(item.path);
+  };
 
   const handleLogout = () => {
     logout();
@@ -80,136 +108,189 @@ const Layout = () => {
           .toUpperCase()
           .slice(0, 2);
 
-  const isItemActive = (path) =>
-    path === "/" ? location.pathname === "/" : location.pathname.startsWith(path);
-
-  const NavItem = ({ item, onClick }) => {
-    const active = isItemActive(item.path);
+  // ── Top-bar item with optional dropdown ─────────────────────────────────
+  const TopNavItem = ({ item }) => {
+    const active = isActive(item);
     const Icon = item.icon;
+    const [hoverOpen, setHoverOpen] = useState(false);
+    const closeTimer = useRef(null);
+
+    const cancelClose = () => {
+      if (closeTimer.current) {
+        clearTimeout(closeTimer.current);
+        closeTimer.current = null;
+      }
+    };
+    const scheduleClose = () => {
+      cancelClose();
+      closeTimer.current = setTimeout(() => setHoverOpen(false), 120);
+    };
+
+    if (!item.children) {
+      return (
+        <Link
+          to={item.path}
+          className={cn(
+            "relative inline-flex items-center gap-2 px-3 h-10 rounded-lg text-sm font-medium transition-colors",
+            active
+              ? "text-white bg-card/70"
+              : "text-zinc-400 hover:text-white hover:bg-card/50",
+          )}
+        >
+          <Icon className="h-[16px] w-[16px]" />
+          {item.label}
+          {active && (
+            <span className="absolute left-1/2 -translate-x-1/2 -bottom-[10px] h-[2px] w-8 rounded-full bg-gradient-to-r from-teal-400 to-blue-400 shadow-[0_0_8px_rgba(20,184,166,0.6)]" />
+          )}
+        </Link>
+      );
+    }
+
     return (
-      <Link
-        to={item.path}
-        onClick={onClick}
-        className={cn(
-          "group relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all",
-          active
-            ? "bg-card/70 text-white"
-            : "text-zinc-400 hover:text-white hover:bg-card/60",
-          collapsed && "justify-center px-2",
-        )}
+      <div
+        className="relative"
+        onMouseEnter={() => {
+          cancelClose();
+          setHoverOpen(true);
+        }}
+        onMouseLeave={scheduleClose}
       >
-        {active && (
-          <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-[3px] rounded-r-full bg-gradient-to-b from-teal-400 to-blue-400 shadow-[0_0_8px_rgba(20,184,166,0.6)]" />
-        )}
-        <Icon className={cn("h-[18px] w-[18px] flex-shrink-0", active ? "text-white" : "text-muted-foreground group-hover:text-zinc-300")} />
-        {!collapsed && (
-          <div className="flex-1 min-w-0">
-            <p className="font-medium truncate">{item.label}</p>
-            {!active && (
-              <p className="text-[11px] text-muted-foreground/70 truncate">{item.desc}</p>
-            )}
+        <Link
+          to={item.path}
+          className={cn(
+            "relative inline-flex items-center gap-2 px-3 h-10 rounded-lg text-sm font-medium transition-colors",
+            active
+              ? "text-white bg-card/70"
+              : "text-zinc-400 hover:text-white hover:bg-card/50",
+          )}
+        >
+          <Icon className="h-[16px] w-[16px]" />
+          {item.label}
+          <ChevronDown className="h-3.5 w-3.5 opacity-70" />
+          {active && (
+            <span className="absolute left-1/2 -translate-x-1/2 -bottom-[10px] h-[2px] w-8 rounded-full bg-gradient-to-r from-teal-400 to-blue-400 shadow-[0_0_8px_rgba(20,184,166,0.6)]" />
+          )}
+        </Link>
+        {hoverOpen && (
+          <div
+            className="absolute left-0 top-full mt-1 min-w-[200px] rounded-lg border border-white/10 bg-card/95 backdrop-blur-xl shadow-xl p-1 z-50"
+            onMouseEnter={cancelClose}
+            onMouseLeave={scheduleClose}
+          >
+            {item.children.map((c) => {
+              const ChildIcon = c.icon;
+              const childActive = location.pathname === c.path
+                || (c.path !== "/" && location.pathname.startsWith(c.path));
+              return (
+                <Link
+                  key={c.path}
+                  to={c.path}
+                  onClick={() => setHoverOpen(false)}
+                  className={cn(
+                    "flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors",
+                    childActive
+                      ? "bg-card text-white"
+                      : "text-zinc-400 hover:text-white hover:bg-white/5",
+                  )}
+                >
+                  <ChildIcon className="h-4 w-4" />
+                  {c.label}
+                </Link>
+              );
+            })}
           </div>
         )}
-      </Link>
+      </div>
+    );
+  };
+
+  // ── Mobile drawer item (flat — children listed inline) ───────────────────
+  const MobileNavItem = ({ item }) => {
+    const Icon = item.icon;
+    return (
+      <>
+        <Link
+          to={item.path}
+          onClick={() => setMobileOpen(false)}
+          className={cn(
+            "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all",
+            isActive(item)
+              ? "bg-card/70 text-white"
+              : "text-zinc-400 hover:text-white hover:bg-card/60",
+          )}
+        >
+          <Icon className="h-[18px] w-[18px]" />
+          <span className="font-medium">{item.label}</span>
+        </Link>
+        {item.children && (
+          <div className="ml-6 mt-1 space-y-0.5 mb-1">
+            {item.children.map((c) => {
+              const ChildIcon = c.icon;
+              return (
+                <Link
+                  key={c.path}
+                  to={c.path}
+                  onClick={() => setMobileOpen(false)}
+                  className={cn(
+                    "flex items-center gap-2 px-3 py-1.5 rounded-md text-[13px] transition-colors",
+                    location.pathname.startsWith(c.path)
+                      ? "text-white bg-card/50"
+                      : "text-muted-foreground hover:text-white",
+                  )}
+                >
+                  <ChildIcon className="h-3.5 w-3.5" />
+                  {c.label}
+                </Link>
+              );
+            })}
+          </div>
+        )}
+      </>
     );
   };
 
   return (
-    <div className="relative min-h-screen h-screen bg-background text-foreground flex overflow-hidden">
-      {/* Top-right aurora glow — sits behind everything */}
+    <LiveEventProvider>
+    <div className="relative min-h-screen h-screen bg-background text-foreground flex flex-col overflow-hidden">
       <div className="aurora" />
 
-      {/* Mobile header */}
-      <header className="md:hidden fixed top-0 left-0 right-0 z-40 h-14 glass flex items-center justify-between px-4">
-        <div className="flex items-center gap-2.5">
+      {/* Top bar */}
+      <header className="relative z-20 flex items-center h-14 px-4 md:px-6 border-b border-border bg-sidebar/80 backdrop-blur-xl">
+        {/* Brand */}
+        <Link to="/" className="flex items-center gap-2.5 mr-6 flex-shrink-0">
           <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-teal-500 to-blue-500 flex items-center justify-center shadow-[0_0_20px_rgba(20,184,166,0.4)]">
             <Video className="h-4 w-4 text-white" />
           </div>
-          <span className="font-semibold tracking-tight">GVD Pro</span>
-        </div>
-        <button
-          onClick={() => setMobileOpen(!mobileOpen)}
-          className="p-2 rounded-md text-zinc-300 hover:bg-card/70 transition-colors"
-        >
-          {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-        </button>
-      </header>
-
-      {/* Mobile overlay */}
-      {mobileOpen && (
-        <div
-          className="md:hidden fixed inset-0 z-30 bg-black/60 backdrop-blur-sm"
-          onClick={() => setMobileOpen(false)}
-        />
-      )}
-
-      {/* Desktop sidebar */}
-      <aside
-        className={cn(
-          "relative z-10 hidden md:flex flex-col",
-          "border-r border-border bg-sidebar/95 backdrop-blur-xl",
-          "transition-[width] duration-300 ease-in-out",
-          collapsed ? "w-[68px]" : "w-64",
-        )}
-      >
-        {/* Logo */}
-        <div className={cn("flex items-center gap-3 px-4 h-16 border-b border-border", collapsed && "justify-center px-2")}>
-          <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-teal-500 to-blue-500 flex items-center justify-center shadow-[0_0_24px_rgba(20,184,166,0.45)] flex-shrink-0">
-            <Video className="h-[18px] w-[18px] text-white" />
+          <div className="hidden sm:block leading-tight">
+            <p className="text-[14px] font-semibold tracking-tight">GVD Pro</p>
+            <p className="text-[10px] text-muted-foreground -mt-0.5">Network Video Recorder</p>
           </div>
-          {!collapsed && (
-            <div className="min-w-0">
-              <p className="text-[15px] font-semibold tracking-tight">GVD Pro</p>
-              <p className="text-[11px] text-muted-foreground">Network Video Recorder</p>
-            </div>
-          )}
-        </div>
+        </Link>
 
-        {/* Nav */}
-        <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
-          {navItems.map((item) => (
-            <NavItem key={item.path} item={item} />
+        {/* Primary nav — desktop */}
+        <nav className="hidden md:flex items-center gap-1 flex-1">
+          {primaryNav.map((item) => (
+            <TopNavItem key={item.path} item={item} />
           ))}
         </nav>
 
-        {/* Collapse */}
-        <div className="p-2 border-t border-border">
-          <button
-            onClick={() => setCollapsed(!collapsed)}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-muted-foreground hover:text-white hover:bg-card/70 transition-colors"
-          >
-            {collapsed ? <ChevronRight className="h-4 w-4" /> : (
-              <>
-                <ChevronLeft className="h-4 w-4" />
-                <span className="text-[13px]">Collapse</span>
-              </>
-            )}
-          </button>
-        </div>
-
-        {/* User */}
-        <div className={cn("p-2 border-t border-border", collapsed && "flex justify-center")}>
+        {/* Right — user */}
+        <div className="ml-auto flex items-center gap-2">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button
-                className={cn(
-                  "flex items-center gap-3 w-full px-2 py-2 rounded-lg hover:bg-card/70 transition-colors",
-                  collapsed && "w-auto",
-                )}
-              >
+              <button className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-card/70 transition-colors">
                 <Avatar className="h-8 w-8 ring-2 ring-white/10">
                   <AvatarFallback className="bg-gradient-to-br from-blue-500 to-cyan-500 text-white text-xs font-medium">
                     {getInitials(user?.username)}
                   </AvatarFallback>
                 </Avatar>
-                {!collapsed && (
-                  <div className="flex-1 min-w-0 text-left">
-                    <p className="text-sm font-medium truncate">{user?.username}</p>
-                    <p className="text-[11px] text-muted-foreground truncate">
-                      {isAdmin ? "Administrator" : user?.role_name || "User"}
-                    </p>
-                  </div>
-                )}
+                <div className="hidden md:block text-left leading-tight">
+                  <p className="text-[13px] font-medium truncate max-w-[120px]">{user?.username}</p>
+                  <p className="text-[10px] text-muted-foreground truncate max-w-[120px]">
+                    {isAdmin ? "Administrator" : user?.role_name || "User"}
+                  </p>
+                </div>
+                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground hidden md:block" />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56 bg-card/95 backdrop-blur-xl border-border">
@@ -235,10 +316,24 @@ const Layout = () => {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-        </div>
-      </aside>
 
-      {/* Mobile sidebar */}
+          {/* Mobile menu trigger */}
+          <button
+            onClick={() => setMobileOpen(!mobileOpen)}
+            className="md:hidden p-2 rounded-md text-zinc-300 hover:bg-card/70 transition-colors"
+          >
+            {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
+        </div>
+      </header>
+
+      {/* Mobile drawer */}
+      {mobileOpen && (
+        <div
+          className="md:hidden fixed inset-0 z-30 bg-black/60 backdrop-blur-sm"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
       <aside
         className={cn(
           "md:hidden fixed left-0 top-14 bottom-0 z-40 w-72 flex flex-col",
@@ -248,8 +343,8 @@ const Layout = () => {
         )}
       >
         <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
-          {navItems.map((item) => (
-            <NavItem key={item.path} item={item} onClick={() => setMobileOpen(false)} />
+          {primaryNav.map((item) => (
+            <MobileNavItem key={item.path} item={item} />
           ))}
         </nav>
         <div className="p-2 border-t border-border">
@@ -263,10 +358,13 @@ const Layout = () => {
       </aside>
 
       {/* Main */}
-      <main className="relative z-10 flex-1 h-full overflow-auto pt-14 md:pt-0">
+      <main className="relative z-10 flex-1 min-h-0 overflow-auto">
         <Outlet />
       </main>
+
+      <LiveEventDrawer />
     </div>
+    </LiveEventProvider>
   );
 };
 

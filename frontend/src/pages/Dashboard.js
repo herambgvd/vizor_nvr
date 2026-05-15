@@ -4,7 +4,8 @@
 
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Video, Plus, RefreshCw, Wifi, WifiOff } from "lucide-react";
+import { Video, Wifi, WifiOff } from "lucide-react";
+import DashboardEventsPanel from "../components/nvr/DashboardEventsPanel";
 import { useCamerasQuery, useCameraMutations } from "../hooks";
 import { usePermissions } from "../hooks/usePermissions";
 import { CameraGrid, CameraFormDialog } from "../components/nvr";
@@ -74,95 +75,50 @@ const Dashboard = () => {
   const recordingCount = cameras.filter((c) => c.is_recording).length;
   const offlineCount = cameras.filter((c) => c.status === "offline").length;
 
+  const statBadges = (
+    <div className="flex items-center gap-2 flex-wrap">
+      <StatBadge icon={Video} label="Total" value={cameras.length} tone="slate" />
+      <StatBadge icon={Wifi} label="Online" value={onlineCount} tone="emerald" />
+      <StatBadge
+        icon={Video}
+        label="Recording"
+        value={recordingCount}
+        tone="red"
+        pulse={recordingCount > 0}
+      />
+      <StatBadge icon={WifiOff} label="Offline" value={offlineCount} tone="zinc" />
+    </div>
+  );
+
   return (
     <div className="p-4 md:p-6 h-full flex flex-col min-h-0">
-      {/* Header: title + stat-pills + actions on one row */}
-      <div className="flex flex-wrap items-center gap-3 mb-4 flex-shrink-0">
-        <div className="flex-shrink-0">
-          <h1
-            className="text-xl md:text-2xl font-bold text-white tracking-tight leading-none"
-            style={{ fontFamily: "Manrope, sans-serif" }}
-          >
-            Dashboard
-          </h1>
-        </div>
-
-        {/* Stat badges — compact, color-coded */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <StatBadge
-            icon={Video}
-            label="Total"
-            value={cameras.length}
-            tone="slate"
-          />
-          <StatBadge
-            icon={Wifi}
-            label="Online"
-            value={onlineCount}
-            tone="emerald"
-          />
-          <StatBadge
-            icon={Video}
-            label="Recording"
-            value={recordingCount}
-            tone="red"
-            pulse={recordingCount > 0}
-          />
-          <StatBadge
-            icon={WifiOff}
-            label="Offline"
-            value={offlineCount}
-            tone="zinc"
+      {/* 80/20 split — grid (with inline badges + grid/tour controls) + events panel */}
+      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[8fr_2fr] gap-3">
+        <div className="min-h-0">
+          <CameraGrid
+            cameras={cameras}
+            isLoading={isLoading}
+            loadingCameras={[]}
+            maxCameras={128}
+            headerLeftSlot={statBadges}
+            onCameraClick={(cam) => navigate(`/playback?camera=${cam.id}`)}
+            onStartRecording={(cam) =>
+              canOperate && mutations.start.mutate(cam.id)
+            }
+            onStopRecording={(cam) =>
+              canOperate && mutations.stop.mutate(cam.id)
+            }
+            onTestConnection={(cam) =>
+              canOperate && mutations.test.mutate(cam.id)
+            }
+            onCameraSettings={canManage ? openEdit : undefined}
+            onCameraFullscreen={(cam) => navigate(`/live/${cam.id}`)}
+            onAddCamera={canManage ? openAdd : undefined}
           />
         </div>
-
-        <div className="flex items-center gap-2 ml-auto">
-          <Button
-            variant="outline"
-            onClick={() => refetch()}
-            disabled={isLoading}
-            size="sm"
-          >
-            <RefreshCw
-              className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`}
-            />
-            <span className="hidden sm:inline">Refresh</span>
-          </Button>
-          {canManage && (
-            <Button
-              onClick={openAdd}
-              className="bg-primary hover:bg-primary/60"
-              size="sm"
-            >
-              <Plus className="h-4 w-4 sm:mr-2" />
-              <span className="hidden sm:inline">Add Camera</span>
-            </Button>
-          )}
+        <div className="min-h-0 hidden lg:block">
+          <DashboardEventsPanel cameras={cameras} />
         </div>
-      </div>
-
-      {/* Grid: fills remaining viewport, NO scroll — tiles auto-shrink
-          to fit the N×M layout. Matches Hikvision/Dahua NVR behavior. */}
-      <div className="flex-1 min-h-0">
-        <CameraGrid
-          cameras={cameras}
-          isLoading={isLoading}
-          loadingCameras={[]}
-          maxCameras={128}
-          onCameraClick={(cam) => navigate(`/playback?camera=${cam.id}`)}
-          onStartRecording={(cam) =>
-            canOperate && mutations.start.mutate(cam.id)
-          }
-          onStopRecording={(cam) =>
-            canOperate && mutations.stop.mutate(cam.id)
-          }
-          onTestConnection={(cam) =>
-            canOperate && mutations.test.mutate(cam.id)
-          }
-          onCameraSettings={canManage ? openEdit : undefined}
-          onCameraFullscreen={(cam) => navigate(`/live/${cam.id}`)}
-          onAddCamera={canManage ? openAdd : undefined}
-        />
       </div>
 
       {/* Form dialog */}

@@ -17,6 +17,18 @@ up: ## Start full stack (production-mode)
 dev: ## Start full stack with hot reload (bind-mounts source)
 	docker compose $(COMPOSE_FILES_DEV) up -d
 
+ai-up: ## Start AI services (redis + triton + qdrant + ds workers)
+	docker compose $(COMPOSE_FILES_PROD) --profile ai up -d
+
+ai-dev: ## Dev mode + AI services
+	docker compose $(COMPOSE_FILES_DEV) --profile ai up -d
+
+ai-down: ## Stop AI services (keeps base stack running)
+	docker compose --profile ai stop ds_people triton qdrant
+
+ai-logs: ## Tail DeepStream worker logs
+	docker compose logs -f ds_people
+
 down: ## Stop all services
 	docker compose $(COMPOSE_FILES_PROD) down
 

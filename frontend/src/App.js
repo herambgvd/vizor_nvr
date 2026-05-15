@@ -16,17 +16,72 @@ import "./App.css";
 const Login = lazy(() => import("./pages/Login"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Cameras = lazy(() => import("./pages/Cameras"));
-const CameraDetail = lazy(() => import("./pages/CameraDetail"));
+const CameraDetailLayout = lazy(() =>
+  import("./pages/camera-detail/CameraDetailLayout"),
+);
+const CameraDetailLive = lazy(() =>
+  import("./pages/camera-detail/LiveViewPage"),
+);
+const CameraDetailRecordings = lazy(() =>
+  import("./pages/camera-detail/RecordingsPage"),
+);
+const CameraDetailOnvif = lazy(() =>
+  import("./pages/camera-detail/OnvifPage"),
+);
+const CameraDetailSettings = lazy(() =>
+  import("./pages/camera-detail/SettingsPage"),
+);
 // Playback page replaced by unified MultiPlayback. Kept removed.
 const LiveStream = lazy(() => import("./pages/LiveStream"));
-const SystemMonitoring = lazy(() => import("./pages/SystemMonitoring"));
-const Settings = lazy(() => import("./pages/Settings"));
+const SettingsLayout = lazy(() =>
+  import("./pages/settings/SettingsLayout"),
+);
+const SettingsConfiguration = lazy(() => import("./pages/Settings"));
+const SettingsLicense = lazy(() => import("./pages/settings/LicensePage"));
+const SettingsResources = lazy(() =>
+  import("./pages/monitoring/ResourcesPage"),
+);
+const SettingsStorage = lazy(() => import("./pages/Storage"));
 const Events = lazy(() => import("./pages/Events"));
 const AuditLog = lazy(() => import("./pages/AuditLog"));
 const Notifications = lazy(() => import("./pages/Notifications"));
 const MultiPlayback = lazy(() => import("./pages/MultiPlayback"));
-const AIScenarios = lazy(() => import("./pages/AIScenarios"));
+const AIModulesIndex = lazy(() => import("./pages/ai/AIModulesIndex"));
+const ScenarioLayout = lazy(() => import("./pages/ai/scenarios/ScenarioLayout"));
+const ScenarioStub = lazy(() => import("./pages/ai/scenarios/ScenarioStub"));
+const PCLive = lazy(() =>
+  import("./pages/ai/scenarios/people-counting/LivePage"),
+);
+const PCEvents = lazy(() =>
+  import("./pages/ai/scenarios/people-counting/EventsPage"),
+);
+const PCAnalytics = lazy(() =>
+  import("./pages/ai/scenarios/people-counting/AnalyticsPage"),
+);
+const FRSLive = lazy(() => import("./pages/ai/scenarios/frs/LivePage"));
+const FRSInvestigate = lazy(() =>
+  import("./pages/ai/scenarios/frs/InvestigatePage"),
+);
+const FRSAttendance = lazy(() =>
+  import("./pages/ai/scenarios/frs/AttendancePage"),
+);
+const FRSEvents = lazy(() => import("./pages/ai/scenarios/frs/EventsPage"));
+const FRSGroups = lazy(() => import("./pages/ai/scenarios/frs/GroupsPage"));
+const FRSAnalytics = lazy(() =>
+  import("./pages/ai/scenarios/frs/AnalyticsPage"),
+);
+const PPELive = lazy(() => import("./pages/ai/scenarios/ppe/LivePage"));
+const PPEEvents = lazy(() => import("./pages/ai/scenarios/ppe/EventsPage"));
+const PPEAnalytics = lazy(() =>
+  import("./pages/ai/scenarios/ppe/AnalyticsPage"),
+);
 const FRSPersons = lazy(() => import("./pages/FRSPersons"));
+const CameraAILayout = lazy(() =>
+  import("./pages/camera-detail/ai/CameraAILayout"),
+);
+const CameraScenarioConfig = lazy(() =>
+  import("./pages/camera-detail/ai/CameraScenarioConfig"),
+);
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 // React Query client
@@ -106,25 +161,82 @@ const AppRoutes = () => (
       >
         <Route index element={<Dashboard />} />
         <Route path="cameras" element={<Cameras />} />
-        <Route path="cameras/:cameraId" element={<CameraDetail />} />
+        <Route path="cameras/:cameraId" element={<CameraDetailLayout />}>
+          <Route index element={<Navigate to="live" replace />} />
+          <Route path="live" element={<CameraDetailLive />} />
+          <Route path="recordings" element={<CameraDetailRecordings />} />
+          <Route path="onvif" element={<CameraDetailOnvif />} />
+          <Route path="ai" element={<CameraAILayout />}>
+            <Route path=":slug" element={<CameraScenarioConfig />} />
+          </Route>
+          <Route path="settings" element={<CameraDetailSettings />} />
+        </Route>
         {/* Playback is now a single unified page (MultiPlayback). Old
             single-cam Playback retired. /playback/multi kept as alias. */}
         <Route path="playback" element={<MultiPlayback />} />
         <Route path="events" element={<Events />} />
-        <Route path="ai/scenarios" element={<AIScenarios />} />
-        <Route path="ai/persons" element={<FRSPersons />} />
-        <Route path="monitoring" element={<SystemMonitoring />} />
-        <Route path="settings" element={<Settings />} />
+        {/* AI Modules — system-wide scenario workspace */}
+        <Route path="ai/modules" element={<AIModulesIndex />} />
+        {/* People Counting workspace */}
+        <Route path="ai/modules/people_counting" element={<ScenarioLayout />}>
+          <Route index element={<Navigate to="live" replace />} />
+          <Route path="live" element={<PCLive />} />
+          <Route path="events" element={<PCEvents />} />
+          <Route path="analytics" element={<PCAnalytics />} />
+        </Route>
+        {/* FRS workspace */}
+        <Route path="ai/modules/frs" element={<ScenarioLayout />}>
+          <Route index element={<Navigate to="persons" replace />} />
+          <Route path="persons" element={<FRSPersons />} />
+          <Route path="live" element={<FRSLive />} />
+          <Route path="events" element={<FRSEvents />} />
+          <Route path="attendance" element={<FRSAttendance />} />
+          <Route path="investigate" element={<FRSInvestigate />} />
+          <Route path="groups" element={<FRSGroups />} />
+          <Route path="analytics" element={<FRSAnalytics />} />
+        </Route>
+        {/* PPE workspace */}
+        <Route path="ai/modules/ppe" element={<ScenarioLayout />}>
+          <Route index element={<Navigate to="live" replace />} />
+          <Route path="live" element={<PPELive />} />
+          <Route path="events" element={<PPEEvents />} />
+          <Route path="analytics" element={<PPEAnalytics />} />
+        </Route>
+        {/* Generic catch-all for other scenarios — stubs until built */}
+        <Route path="ai/modules/:slug" element={<ScenarioLayout />}>
+          <Route index element={<ScenarioStub />} />
+          <Route path="live" element={<ScenarioStub />} />
+          <Route path="events" element={<ScenarioStub />} />
+          <Route path="analytics" element={<ScenarioStub />} />
+          <Route path="reports" element={<ScenarioStub />} />
+        </Route>
+        {/* Legacy aliases — keep so existing top-nav links don't 404 */}
+        <Route path="ai/scenarios" element={<Navigate to="/ai/modules" replace />} />
+        <Route path="ai/persons" element={<Navigate to="/ai/modules/frs/persons" replace />} />
+        <Route path="settings" element={<SettingsLayout />}>
+          <Route index element={<Navigate to="configuration" replace />} />
+          <Route path="configuration" element={<SettingsConfiguration />} />
+          <Route path="notifications" element={<Notifications />} />
+          <Route path="resources" element={<SettingsResources />} />
+          <Route path="storage" element={<SettingsStorage />} />
+          <Route path="license" element={<AdminRoute><SettingsLicense /></AdminRoute>} />
+          <Route
+            path="audit"
+            element={
+              <AdminRoute>
+                <AuditLog />
+              </AdminRoute>
+            }
+          />
+        </Route>
         <Route path="playback/multi" element={<MultiPlayback />} />
-        <Route path="notifications" element={<Notifications />} />
-        <Route
-          path="audit"
-          element={
-            <AdminRoute>
-              <AuditLog />
-            </AdminRoute>
-          }
-        />
+        {/* Legacy aliases */}
+        <Route path="notifications" element={<Navigate to="/settings/notifications" replace />} />
+        <Route path="monitoring" element={<Navigate to="/settings/resources" replace />} />
+        <Route path="monitoring/resources" element={<Navigate to="/settings/resources" replace />} />
+        <Route path="monitoring/storage" element={<Navigate to="/settings/storage" replace />} />
+        <Route path="monitoring/audit" element={<Navigate to="/settings/audit" replace />} />
+        <Route path="audit" element={<Navigate to="/settings/audit" replace />} />
       </Route>
 
       <Route path="*" element={<NotFound />} />

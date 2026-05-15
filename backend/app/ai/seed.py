@@ -69,6 +69,22 @@ SCENARIOS: list[dict[str, Any]] = [
         },
         "requires_models": ["facedetect_ir", "facial_landmarks", "arcface"],
         "use_cases": ["watchlist", "attendance", "vip_detection", "blacklist", "office_access"],
+        "module_tabs": ["persons", "live", "events", "attendance", "investigate", "groups", "analytics"],
+        "camera_config_schema": {
+            "fields": [
+                {"key": "enabled", "label": "Enable on this camera", "type": "toggle"},
+                {"key": "rois", "label": "Detection ROI", "type": "roi_polygon", "multi": True},
+                {"key": "similarity_threshold", "label": "Match threshold", "type": "slider",
+                 "min": 0.30, "max": 0.99, "step": 0.01, "default": 0.55},
+                {"key": "min_face_px", "label": "Min face size (px)", "type": "number", "min": 40, "max": 400, "default": 80},
+                {"key": "max_pose_deg", "label": "Max pose angle (deg)", "type": "number", "min": 10, "max": 60, "default": 30},
+                {"key": "liveness_required", "label": "Require liveness check", "type": "toggle", "default": True},
+                {"key": "alert_group_ids", "label": "Alert groups (watchlist)", "type": "group_multiselect"},
+                {"key": "attendance_enabled", "label": "Track attendance", "type": "toggle", "default": False},
+                {"key": "attendance_role", "label": "Attendance role", "type": "select",
+                 "options": [{"value": "entry", "label": "Entry"}, {"value": "exit", "label": "Exit"}, {"value": "both", "label": "Both"}]},
+            ],
+        },
     },
 
     {
@@ -98,6 +114,19 @@ SCENARIOS: list[dict[str, Any]] = [
             "retail_footfall", "queue_management", "occupancy_compliance",
             "smart_building", "event_crowd", "facility_planning",
         ],
+        "module_tabs": ["live", "events", "analytics"],
+        "camera_config_schema": {
+            "fields": [
+                {"key": "enabled", "label": "Enable on this camera", "type": "toggle"},
+                {"key": "zones", "label": "Counting Zones", "type": "zones_panel"},
+                {"key": "detection_confidence", "label": "Detection confidence", "type": "slider",
+                 "min": 0.05, "max": 0.95, "step": 0.05, "default": 0.35},
+                {"key": "min_track_frames", "label": "Min track frames", "type": "number",
+                 "min": 1, "max": 30, "default": 4},
+                {"key": "line_crossing_enabled", "label": "Enable line crossing", "type": "toggle", "default": True},
+                {"key": "crowd_counting_enabled", "label": "Enable crowd counting", "type": "toggle", "default": True},
+            ],
+        },
     },
 
     # ──────────────────────────────────────────────────────────────────
@@ -115,17 +144,39 @@ SCENARIOS: list[dict[str, Any]] = [
         ),
         "category": "safety",
         "tier": "business",
-        "status": "planned",
+        "status": "ga",
         "metropolis_service": "perception",
         "default_config": {
-            "confidence_threshold": 0.65,
-            "violation_dwell_seconds": 2.0,
+            "enabled": True,
             "required_items": ["helmet", "vest"],
-            "optional_items": ["mask", "gloves", "safety_glasses"],
-            "roi_polygon": None,
+            "detection_confidence": 0.45,
+            "violation_grace_frames": 15,
+            "rois": [],
+            "snapshot_violations": True,
         },
         "requires_models": ["peoplenet", "ppe_classifier"],
         "use_cases": ["manufacturing", "construction", "warehouse", "mining"],
+        "module_tabs": ["live", "events", "analytics"],
+        "camera_config_schema": {
+            "fields": [
+                {"key": "enabled", "label": "Enable on this camera", "type": "toggle"},
+                {"key": "required_items", "label": "Required PPE items", "type": "multi_checkbox",
+                 "options": [
+                    {"value": "helmet", "label": "Helmet"},
+                    {"value": "vest", "label": "Hi-vis vest"},
+                    {"value": "mask", "label": "Mask"},
+                    {"value": "gloves", "label": "Gloves"},
+                    {"value": "goggles", "label": "Safety goggles"},
+                    {"value": "boots", "label": "Safety boots"},
+                 ]},
+                {"key": "detection_confidence", "label": "Confidence", "type": "slider",
+                 "min": 0.05, "max": 0.95, "step": 0.05, "default": 0.45},
+                {"key": "violation_grace_frames", "label": "Grace frames", "type": "number",
+                 "min": 1, "max": 120, "default": 15},
+                {"key": "rois", "label": "ROI polygons", "type": "roi_polygon", "multi": True},
+                {"key": "snapshot_violations", "label": "Snapshot violations", "type": "toggle", "default": True},
+            ],
+        },
     },
 
     {
@@ -581,6 +632,8 @@ async def seed_ai_scenarios(db: AsyncSession) -> int:
                 status=entry.get("status", "ga"),
                 metropolis_service=entry.get("metropolis_service"),
                 use_cases=entry.get("use_cases"),
+                module_tabs=entry.get("module_tabs"),
+                camera_config_schema=entry.get("camera_config_schema"),
             )
             db.add(scenario)
             inserted += 1
@@ -593,6 +646,8 @@ async def seed_ai_scenarios(db: AsyncSession) -> int:
             row.status = entry.get("status", "ga")
             row.metropolis_service = entry.get("metropolis_service")
             row.use_cases = entry.get("use_cases")
+            row.module_tabs = entry.get("module_tabs")
+            row.camera_config_schema = entry.get("camera_config_schema")
             updated += 1
             # Don't overwrite admin-edited default_config
 

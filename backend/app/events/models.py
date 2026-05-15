@@ -172,6 +172,16 @@ class EventMarkFalseAlarm(BaseModel):
     note: Optional[str] = None
 
 
+class EventBulkDelete(BaseModel):
+    """Body for POST /events/bulk-delete. Pass ids, OR filter fields."""
+    event_ids: Optional[List[str]] = None
+    camera_id: Optional[str] = None
+    event_type: Optional[str] = None
+    severity: Optional[str] = None
+    acknowledged: Optional[bool] = None
+    before: Optional[datetime] = None
+
+
 # =============================================================================
 # Pydantic Schemas — Event Linkage Rules
 # =============================================================================

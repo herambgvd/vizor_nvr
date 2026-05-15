@@ -111,6 +111,9 @@ class Camera(Base):
     last_retry_at = Column(DateTime, nullable=True)
     last_online_at = Column(DateTime, nullable=True)
 
+    # ── Operator-controlled display order (drag-to-reorder on UI) ──────
+    display_order = Column(Integer, default=0, nullable=False, server_default="0")
+
     # ── Stream info (auto-detected) ────────────────────────────────────
     resolution = Column(String(20), nullable=True)
     fps = Column(Integer, nullable=True)
@@ -234,6 +237,7 @@ class CameraResponse(BaseModel):
     max_retries: int
     last_retry_at: Optional[datetime]
     last_online_at: Optional[datetime]
+    display_order: int = 0
     resolution: Optional[str]
     fps: Optional[int]
     bitrate: Optional[str]

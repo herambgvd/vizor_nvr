@@ -45,6 +45,9 @@ class ScenarioOut(BaseModel):
     default_config: dict
     use_cases: Optional[List[str]] = None
     enabled: bool
+    module_tabs: Optional[List[str]] = None
+    camera_config_schema: Optional[dict] = None
+    licensed: bool = True   # derived from license file at response time
 
     class Config:
         from_attributes = True
@@ -87,7 +90,19 @@ async def list_scenarios(
     stmt = stmt.order_by(AIScenario.category, AIScenario.name)
     result = await db.execute(stmt)
     rows = list(result.scalars().all())
-    return [ScenarioOut.model_validate(r) for r in rows]
+
+    from app.license.service import get_license_service
+    lic = get_license_service()
+    out: List[ScenarioOut] = []
+    for r in rows:
+        m = ScenarioOut.model_validate(r)
+        # When no license installed, treat every GA scenario as licensed
+        # (dev mode). When licensed, mark only whitelisted entries.
+        m.licensed = (
+            (not lic.is_active()) or lic.is_scenario_licensed(r.slug)
+        )
+        out.append(m)
+    return out
 
 
 @router.get(
@@ -104,7 +119,11 @@ async def get_scenario(
     row = result.scalar_one_or_none()
     if not row:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Scenario '{slug}' not found")
-    return ScenarioOut.model_validate(row)
+    from app.license.service import get_license_service
+    lic = get_license_service()
+    m = ScenarioOut.model_validate(row)
+    m.licensed = (not lic.is_active()) or lic.is_scenario_licensed(row.slug)
+    return m
 
 
 # ---------------------------------------------------------------------------
@@ -160,6 +179,47 @@ async def upsert_camera_scenario(
             f"Scenario '{slug}' is '{scenario.status}', not yet generally available",
         )
 
+    # License gate — scenario must appear in the install's license whitelist
+    # AND the camera must not exceed the AI-enabled camera cap.
+    from app.license.service import get_license_service
+    lic = get_license_service()
+    if lic.is_active():
+        if not lic.is_scenario_licensed(slug):
+            raise HTTPException(
+                402,
+                f"Scenario '{slug}' is not included in your license",
+            )
+        # Count distinct cameras currently enabled for any AI scenario.
+        # The current camera_id counts only if not already AI-enabled.
+        from sqlalchemy import distinct, func as sa_func
+        existing_for_cam = (await db.execute(
+            select(CameraAIConfig).where(
+                CameraAIConfig.camera_id == camera_id,
+                CameraAIConfig.enabled.is_(True),
+            )
+        )).scalars().first()
+        if not existing_for_cam:
+            ai_cam_count = (await db.execute(
+                select(sa_func.count(distinct(CameraAIConfig.camera_id))).where(
+                    CameraAIConfig.enabled.is_(True),
+                )
+            )).scalar() or 0
+            if lic.ai_camera_limit() and ai_cam_count >= lic.ai_camera_limit():
+                raise HTTPException(
+                    402,
+                    f"AI camera cap reached: {ai_cam_count}/{lic.ai_camera_limit()}",
+                )
+
+    # Validate config against per-scenario Pydantic schema
+    from app.ai.scenarios import validate_config
+    try:
+        validated_config = validate_config(scenario.slug, payload.config)
+    except Exception as e:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            f"Invalid config for scenario '{slug}': {e}",
+        )
+
     # Find existing row or create new one
     existing = await db.execute(
         select(CameraAIConfig).where(
@@ -170,18 +230,25 @@ async def upsert_camera_scenario(
     row = existing.scalar_one_or_none()
     if row:
         row.enabled = payload.enabled
-        row.config = payload.config
+        row.config = validated_config
     else:
         row = CameraAIConfig(
             camera_id=camera_id,
             scenario_id=scenario.id,
             enabled=payload.enabled,
-            config=payload.config,
+            config=validated_config,
         )
         db.add(row)
 
     await db.commit()
     await db.refresh(row)
+
+    # Notify DeepStream workers to reload config
+    try:
+        from app.ai.people.router import _publish_reload
+        await _publish_reload()
+    except Exception:
+        pass
 
     return CameraScenarioConfig(
         scenario_slug=scenario.slug,

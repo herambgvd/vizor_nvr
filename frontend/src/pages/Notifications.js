@@ -16,7 +16,7 @@ import { Badge } from "../components/ui/badge";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Switch } from "../components/ui/switch";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "../components/ui/tabs";
+import PageTabs from "../components/ui/page-tabs";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "../components/ui/dialog";
@@ -234,26 +234,55 @@ const WebhookFormDialog = ({ open, onClose, webhook, eventTypes }) => {
 
 const SMTPPanel = ({ settings }) => {
   const qc = useQueryClient();
-  const [form, setForm] = useState({
-    smtp_host: settings?.smtp_host || "",
-    smtp_port: settings?.smtp_port || 587,
-    smtp_username: settings?.smtp_username || "",
+  // Settings stored as strings on backend — normalize types here
+  const asBool = (v) => v === true || v === "true";
+  const buildForm = (s) => ({
+    smtp_host: s?.smtp_host || "",
+    smtp_port: s?.smtp_port ? Number(s.smtp_port) : 587,
+    smtp_username: s?.smtp_username || "",
     smtp_password: "",
-    smtp_use_tls: settings?.smtp_use_tls ?? true,
-    smtp_use_ssl: settings?.smtp_use_ssl ?? false,
-    smtp_from_email: settings?.smtp_from_email || "",
-    smtp_from_name: settings?.smtp_from_name || "GVD NVR",
-    smtp_recipients: settings?.smtp_recipients || "",
-    smtp_enabled: settings?.smtp_enabled ?? false,
+    smtp_use_tls: s?.smtp_use_tls != null ? asBool(s.smtp_use_tls) : true,
+    smtp_use_ssl: asBool(s?.smtp_use_ssl),
+    smtp_from_email: s?.smtp_from_email || "",
+    smtp_from_name: s?.smtp_from_name || "GVD NVR",
+    smtp_recipients: s?.smtp_recipients || "",
   });
+
+  const [form, setForm] = useState(buildForm(settings));
+
+  // Re-init when settings arrive from the API after initial mount.
+  // Re-run if any tracked field changed (server canonical version).
+  React.useEffect(() => {
+    if (!settings) return;
+    setForm((prev) => ({
+      ...buildForm(settings),
+      // Preserve in-flight password edits — backend never echoes the
+      // current password back.
+      smtp_password: prev.smtp_password,
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    settings?.smtp_host,
+    settings?.smtp_port,
+    settings?.smtp_username,
+    settings?.smtp_use_tls,
+    settings?.smtp_use_ssl,
+    settings?.smtp_from_email,
+    settings?.smtp_from_name,
+    settings?.smtp_recipients,
+  ]);
   const [showPassword, setShowPassword] = useState(false);
   const [testing, setTesting] = useState(false);
 
   const saveMutation = useMutation({
     mutationFn: (data) =>
-      api.put("/settings", Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)]))),
+      api.put("/settings", {
+        settings: Object.fromEntries(
+          Object.entries(data).map(([k, v]) => [k, String(v)]),
+        ),
+      }),
     onSuccess: () => {
-      qc.invalidateQueries(["settings"]);
+      qc.invalidateQueries({ queryKey: ["settings"] });
       toast.success("SMTP settings saved");
     },
     onError: () => toast.error("Failed to save SMTP settings"),
@@ -261,7 +290,11 @@ const SMTPPanel = ({ settings }) => {
 
   const handleSave = (e) => {
     e.preventDefault();
-    saveMutation.mutate(form);
+    // Drop empty password so existing one isn't overwritten with blank.
+    // SMTP is implicitly enabled — selection-level granularity comes later.
+    const payload = { ...form, smtp_enabled: true };
+    if (!payload.smtp_password) delete payload.smtp_password;
+    saveMutation.mutate(payload);
   };
 
   const handleTest = async () => {
@@ -296,16 +329,6 @@ const SMTPPanel = ({ settings }) => {
 
   return (
     <form onSubmit={handleSave} className="space-y-5">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Switch
-            checked={form.smtp_enabled === "true" || form.smtp_enabled === true}
-            onCheckedChange={(v) => setForm((f) => ({ ...f, smtp_enabled: v }))}
-          />
-          <Label>Enable email alerts</Label>
-        </div>
-      </div>
-
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-1">
           <Label>SMTP Host</Label>
@@ -487,6 +510,7 @@ export default function Notifications() {
   const qc = useQueryClient();
   const [showForm, setShowForm] = useState(false);
   const [editWebhook, setEditWebhook] = useState(null);
+  const [tab, setTab] = useState("webhooks");
 
   const { data: webhooks = [], isLoading: wLoading } = useQuery({
     queryKey: ["webhooks"],
@@ -526,33 +550,27 @@ export default function Notifications() {
     setEditWebhook(null);
   };
 
+  const tabs = [
+    { id: "webhooks", label: "Webhooks", icon: Webhook },
+    { id: "email", label: "Email (SMTP)", icon: Mail },
+    { id: "logs", label: "Delivery Logs", icon: Bell },
+  ];
+
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-white ">Notifications</h1>
-          <p className="text-sm text-muted-foreground mt-1">Configure webhooks and email alerts</p>
-        </div>
+    <div className="p-4 md:p-6 h-full overflow-y-auto">
+      <div className="mb-4">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+          Notifications
+        </h2>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Configure webhooks and email alerts
+        </p>
       </div>
 
-      <Tabs defaultValue="webhooks">
-        <TabsList>
-          <TabsTrigger value="webhooks">
-            <Webhook className="h-4 w-4 mr-2" />
-            Webhooks
-          </TabsTrigger>
-          <TabsTrigger value="email">
-            <Mail className="h-4 w-4 mr-2" />
-            Email (SMTP)
-          </TabsTrigger>
-          <TabsTrigger value="logs">
-            <Bell className="h-4 w-4 mr-2" />
-            Delivery Logs
-          </TabsTrigger>
-        </TabsList>
+      <PageTabs tabs={tabs} value={tab} onValueChange={setTab} className="mb-6" />
 
+      <div className={tab === "webhooks" ? "" : "hidden"}>
         {/* ── Webhooks ── */}
-        <TabsContent value="webhooks" className="mt-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-3">
               <div>
@@ -654,36 +672,35 @@ export default function Notifications() {
               )}
             </CardContent>
           </Card>
-        </TabsContent>
+      </div>
 
+      <div className={tab === "email" ? "" : "hidden"}>
         {/* ── Email ── */}
-        <TabsContent value="email" className="mt-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Email / SMTP</CardTitle>
-              <CardDescription>
-                Send alert emails for camera events, storage warnings, and system errors
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <SMTPPanel settings={settings} />
-            </CardContent>
-          </Card>
-        </TabsContent>
+        <Card>
+          <CardHeader>
+            <CardTitle>Email / SMTP</CardTitle>
+            <CardDescription>
+              Send alert emails for camera events, storage warnings, and system errors
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <SMTPPanel settings={settings} />
+          </CardContent>
+        </Card>
+      </div>
 
+      <div className={tab === "logs" ? "" : "hidden"}>
         {/* ── Logs ── */}
-        <TabsContent value="logs" className="mt-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Delivery Logs</CardTitle>
-              <CardDescription>History of all notification attempts</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <LogsPanel />
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+        <Card>
+          <CardHeader>
+            <CardTitle>Delivery Logs</CardTitle>
+            <CardDescription>History of all notification attempts</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <LogsPanel />
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Webhook form dialog */}
       {showForm && (

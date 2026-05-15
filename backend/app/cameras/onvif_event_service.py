@@ -216,33 +216,49 @@ class _CameraPullWorker:
             cam = ONVIFCamera(self.host, self.port, self.username, self.password)
             event_service = cam.create_events_service()
 
-            # Build topic filter if specific topics requested
-            filter_doc = None
+            # Build topic filter if specific topics requested.
+            # onvif-zeep accepts a plain dict and zeep coerces it.
+            req_kwargs = {"InitialTerminationTime": "PT60S"}
             if self.topics:
                 topic_exprs = " | ".join(f'"{t}"' for t in self.topics)
-                filter_doc = {
+                req_kwargs["Filter"] = {
                     "TopicExpression": {
                         "_value_1": topic_exprs,
                         "Dialect": "http://www.onvif.org/ver10/tev/topicExpression/ConcreteSet",
                     }
                 }
 
-            req = event_service.create_type("CreatePullPointSubscription")
-            if filter_doc:
-                req.Filter = filter_doc
-            req.RequestedTerminationTime = "PT60S"  # 60 second TTL
+            # onvif-zeep maps CreatePullPointSubscription via the WSDL —
+            # call it as a method, do NOT use create_type (that lookup
+            # resolves against the wrong WSDL namespace on some builds).
+            result = event_service.CreatePullPointSubscription(req_kwargs)
 
-            result = event_service.CreatePullPointSubscription(req)
+            # Capture the SubscriptionReference (subscription manager) and
+            # build a PullPoint client whose endpoint is the subscription
+            # address returned by the device.
+            try:
+                sub_ref = result.SubscriptionReference
+                sub_address = sub_ref.Address._value_1
+            except Exception:
+                # Some firmwares return Address directly as a string
+                sub_address = (
+                    str(result.SubscriptionReference.Address)
+                    if hasattr(result, "SubscriptionReference")
+                    else None
+                )
+                sub_ref = getattr(result, "SubscriptionReference", None)
 
-            # The pullpoint reference is the WS-Endpoint to use for PullMessages
-            pullpoint_ref = result.SubscriptionReference.Address._value_1
-            subscription_mgr_ref = result.SubscriptionReference
-
-            # Create pullpoint service client pointed at the subscription endpoint
+            # Re-point a pullpoint service client at the per-subscription
+            # endpoint. onvif-zeep's helper handles wsse + zeep binding.
             pullpoint = cam.create_pullpoint_service()
-            pullpoint.set_wsse(cam._wsse)
+            if sub_address:
+                try:
+                    pullpoint.zeep_client.transport.session  # touch to ensure init
+                    pullpoint.xaddr = sub_address
+                except Exception:
+                    pass
 
-            return pullpoint, subscription_mgr_ref
+            return pullpoint, sub_ref
 
         except Exception as e:
             logger.error(f"[{self.camera_id}] CreatePullPointSubscription error: {e}")
@@ -251,24 +267,28 @@ class _CameraPullWorker:
     def _pull_messages(self, pullpoint) -> list:
         """Blocking: PullMessages from the pullpoint."""
         try:
-            req = pullpoint.create_type("PullMessages")
-            req.MessageLimit = self.MAX_MESSAGES
-            req.Timeout = self.PULL_TIMEOUT
-            result = pullpoint.PullMessages(req)
+            result = pullpoint.PullMessages({
+                "Timeout": self.PULL_TIMEOUT,
+                "MessageLimit": self.MAX_MESSAGES,
+            })
             return result.NotificationMessage or []
         except Exception as e:
             logger.debug(f"[{self.camera_id}] PullMessages error: {e}")
             return []
 
     def _renew_subscription(self, subscription_mgr_ref):
-        """Blocking: renew subscription via Renew request."""
+        """Blocking: renew subscription via Renew request on the subscription manager."""
         try:
             from onvif import ONVIFCamera
             cam = ONVIFCamera(self.host, self.port, self.username, self.password)
-            sub_mgr = cam.create_subscription_service(subscription_mgr_ref)
-            req = sub_mgr.create_type("Renew")
-            req.TerminationTime = "PT60S"
-            sub_mgr.Renew(req)
+            sub_mgr = cam.create_subscription_service()
+            if subscription_mgr_ref is not None:
+                try:
+                    addr = subscription_mgr_ref.Address._value_1
+                    sub_mgr.xaddr = addr
+                except Exception:
+                    pass
+            sub_mgr.Renew({"TerminationTime": "PT60S"})
         except Exception as e:
             raise RuntimeError(f"Renew failed: {e}")
 
@@ -277,7 +297,13 @@ class _CameraPullWorker:
         try:
             from onvif import ONVIFCamera
             cam = ONVIFCamera(self.host, self.port, self.username, self.password)
-            sub_mgr = cam.create_subscription_service(subscription_mgr_ref)
+            sub_mgr = cam.create_subscription_service()
+            if subscription_mgr_ref is not None:
+                try:
+                    addr = subscription_mgr_ref.Address._value_1
+                    sub_mgr.xaddr = addr
+                except Exception:
+                    pass
             sub_mgr.Unsubscribe()
         except Exception:
             pass

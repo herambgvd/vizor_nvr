@@ -42,6 +42,18 @@ export const markFalseAlarm = async (eventId, note) => {
   return response.data;
 };
 
+export const deleteEvent = async (eventId) => {
+  const response = await apiClient.delete(`/events/${eventId}`);
+  return response.data;
+};
+
+export const bulkDeleteEvents = async (body = {}) => {
+  // body: { event_ids?: string[], camera_id?, event_type?, severity?,
+  //         acknowledged?, before? } — pass ids OR filters
+  const response = await apiClient.delete("/events/bulk", { data: body });
+  return response.data;
+};
+
 export const exportEventsCSV = async (params = {}) => {
   const response = await apiClient.get("/events/export/csv", {
     params,

@@ -7,6 +7,23 @@ module.exports = {
   ],
   theme: {
   	extend: {
+  		fontFamily: {
+  			sans: [
+  				'"Source Sans 3"',
+  				'"Source Sans Pro"',
+  				'-apple-system',
+  				'BlinkMacSystemFont',
+  				'"Segoe UI"',
+  				'system-ui',
+  				'sans-serif'
+  			],
+  			mono: [
+  				'"Source Code Pro"',
+  				'"JetBrains Mono"',
+  				'"Fira Code"',
+  				'monospace'
+  			]
+  		},
   		borderRadius: {
   			lg: 'var(--radius)',
   			md: 'calc(var(--radius) - 2px)',

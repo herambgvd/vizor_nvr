@@ -20,13 +20,20 @@ except ImportError:
 
 
 class ResourceSnapshot:
-    __slots__ = ("ts", "cpu", "memory_percent", "memory_used_mb", "memory_total_mb",
-                 "disk_percent", "disk_used_gb", "disk_total_gb",
-                 "network_recv_mbps", "network_sent_mbps", "gpu_percent")
+    __slots__ = (
+        "ts", "cpu", "cpu_freq_mhz", "cpu_per_core",
+        "memory_percent", "memory_used_mb", "memory_total_mb",
+        "disk_percent", "disk_used_gb", "disk_total_gb",
+        "network_recv_mbps", "network_sent_mbps",
+        "gpu_percent", "gpu_mem_percent", "gpu_mem_used_mb",
+        "gpu_mem_total_mb", "gpu_temp_c",
+    )
 
     def __init__(self):
         self.ts = datetime.now(timezone.utc)
         self.cpu = 0.0
+        self.cpu_freq_mhz = 0.0
+        self.cpu_per_core = []
         self.memory_percent = 0.0
         self.memory_used_mb = 0.0
         self.memory_total_mb = 0.0
@@ -36,11 +43,17 @@ class ResourceSnapshot:
         self.network_recv_mbps = 0.0
         self.network_sent_mbps = 0.0
         self.gpu_percent = 0.0
+        self.gpu_mem_percent = 0.0
+        self.gpu_mem_used_mb = 0.0
+        self.gpu_mem_total_mb = 0.0
+        self.gpu_temp_c = 0.0
 
     def to_dict(self) -> dict:
         return {
             "timestamp": self.ts.isoformat(),
             "cpu_percent": round(self.cpu, 1),
+            "cpu_freq_mhz": round(self.cpu_freq_mhz, 0),
+            "cpu_per_core": [round(p, 1) for p in self.cpu_per_core],
             "memory_percent": round(self.memory_percent, 1),
             "memory_used_mb": round(self.memory_used_mb, 1),
             "memory_total_mb": round(self.memory_total_mb, 1),
@@ -50,6 +63,10 @@ class ResourceSnapshot:
             "network_recv_mbps": round(self.network_recv_mbps, 2),
             "network_sent_mbps": round(self.network_sent_mbps, 2),
             "gpu_percent": round(self.gpu_percent, 1),
+            "gpu_mem_percent": round(self.gpu_mem_percent, 1),
+            "gpu_mem_used_mb": round(self.gpu_mem_used_mb, 1),
+            "gpu_mem_total_mb": round(self.gpu_mem_total_mb, 1),
+            "gpu_temp_c": round(self.gpu_temp_c, 1),
         }
 
 
@@ -108,6 +125,13 @@ class MonitoringService:
             return snap
 
         snap.cpu = psutil.cpu_percent(interval=1)
+        snap.cpu_per_core = psutil.cpu_percent(interval=None, percpu=True)
+        try:
+            freq = psutil.cpu_freq()
+            if freq:
+                snap.cpu_freq_mhz = freq.current
+        except Exception:
+            pass
 
         mem = psutil.virtual_memory()
         snap.memory_percent = mem.percent
@@ -130,17 +154,113 @@ class MonitoringService:
         self._prev_net_io = net
         self._prev_net_time = now
 
-        # GPU (nvidia-smi via pynvml if available)
+        # GPU (NVIDIA via pynvml)
         try:
             import pynvml
             pynvml.nvmlInit()
             handle = pynvml.nvmlDeviceGetHandleByIndex(0)
             util = pynvml.nvmlDeviceGetUtilizationRates(handle)
             snap.gpu_percent = util.gpu
+            mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            snap.gpu_mem_used_mb = mem.used / (1024 * 1024)
+            snap.gpu_mem_total_mb = mem.total / (1024 * 1024)
+            if mem.total > 0:
+                snap.gpu_mem_percent = mem.used / mem.total * 100
+            try:
+                snap.gpu_temp_c = pynvml.nvmlDeviceGetTemperature(
+                    handle, pynvml.NVML_TEMPERATURE_GPU,
+                )
+            except Exception:
+                pass
         except Exception:
             pass
 
         return snap
+
+    # ------------------------------------------------------------------
+    # Static system info — doesn't change between snapshots
+    # ------------------------------------------------------------------
+
+    def system_info(self) -> dict:
+        """One-time host info: CPU model, core counts, GPU model + total mem."""
+        info = {
+            "cpu_model": None,
+            "cpu_cores_physical": None,
+            "cpu_cores_logical": None,
+            "cpu_freq_max_mhz": None,
+            "memory_total_mb": None,
+            "gpus": [],
+            "platform": None,
+        }
+        if not _HAS_PSUTIL:
+            return info
+
+        try:
+            import platform as _platform
+            info["platform"] = f"{_platform.system()} {_platform.release()}"
+        except Exception:
+            pass
+
+        try:
+            info["cpu_cores_physical"] = psutil.cpu_count(logical=False)
+            info["cpu_cores_logical"] = psutil.cpu_count(logical=True)
+            freq = psutil.cpu_freq()
+            if freq and freq.max:
+                info["cpu_freq_max_mhz"] = round(freq.max, 0)
+        except Exception:
+            pass
+
+        # CPU model — read /proc/cpuinfo on Linux
+        try:
+            with open("/proc/cpuinfo") as f:
+                for line in f:
+                    if line.startswith("model name"):
+                        info["cpu_model"] = line.split(":", 1)[1].strip()
+                        break
+        except Exception:
+            pass
+        if not info["cpu_model"]:
+            try:
+                import platform as _platform
+                info["cpu_model"] = _platform.processor() or None
+            except Exception:
+                pass
+
+        try:
+            info["memory_total_mb"] = round(
+                psutil.virtual_memory().total / (1024 * 1024), 1,
+            )
+        except Exception:
+            pass
+
+        # GPU list — NVIDIA via pynvml
+        try:
+            import pynvml
+            pynvml.nvmlInit()
+            count = pynvml.nvmlDeviceGetCount()
+            for idx in range(count):
+                handle = pynvml.nvmlDeviceGetHandleByIndex(idx)
+                name = pynvml.nvmlDeviceGetName(handle)
+                if isinstance(name, bytes):
+                    name = name.decode("utf-8", errors="ignore")
+                mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
+                try:
+                    driver = pynvml.nvmlSystemGetDriverVersion()
+                    if isinstance(driver, bytes):
+                        driver = driver.decode("utf-8", errors="ignore")
+                except Exception:
+                    driver = None
+                info["gpus"].append({
+                    "index": idx,
+                    "name": name,
+                    "memory_total_mb": round(mem.total / (1024 * 1024), 1),
+                    "driver_version": driver,
+                    "vendor": "NVIDIA",
+                })
+        except Exception:
+            pass
+
+        return info
 
     # ------------------------------------------------------------------
     # Query

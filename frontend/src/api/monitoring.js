@@ -11,6 +11,11 @@ export const getResources = async () => {
   return response.data;
 };
 
+export const getSystemInfo = async () => {
+  const response = await apiClient.get("/monitoring/system-info");
+  return response.data;
+};
+
 export const getResourceHistory = async (params = {}) => {
   const response = await apiClient.get("/monitoring/resources/history", {
     params,
