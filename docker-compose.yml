@@ -131,15 +131,6 @@ services:
       resources:
         limits:
           memory: 2g
-        reservations:
-          # Optional NVIDIA GPU passthrough — used by monitoring telemetry
-          # (CPU/GPU page) and any future DeepStream / Perception code that
-          # needs CUDA inside the backend container. Falls through cleanly
-          # on hosts without an NVIDIA runtime — the device list is ignored.
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu, utility, compute]
 
   # ── Migration runner (runs once, exits) ────────────────────────────────────
   migrate:
