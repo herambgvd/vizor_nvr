@@ -11,11 +11,13 @@ import {
   Network,
   Activity,
   RefreshCw,
+  AlertTriangle,
 } from "lucide-react";
 import {
   getResources,
   getResourceHistory,
   getBandwidthSummary,
+  getBandwidthAlerts,
 } from "../api/monitoring";
 import { Button } from "../components/ui/button";
 import { cn } from "../lib/utils";
@@ -41,6 +43,12 @@ const Monitoring = () => {
     queryKey: ["monitoring-bandwidth"],
     queryFn: getBandwidthSummary,
     refetchInterval: 10000,
+  });
+
+  const { data: bwAlerts = [] } = useQuery({
+    queryKey: ["monitoring-bw-alerts"],
+    queryFn: getBandwidthAlerts,
+    refetchInterval: 30000,
   });
 
   // Backend returns dict {camera_id: {kbps, ...}} — normalize to array
@@ -176,6 +184,51 @@ const Monitoring = () => {
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">No bandwidth data available</p>
+        )}
+      </div>
+
+      {/* Bandwidth alerts */}
+      <div className="bg-card border border-border rounded-lg p-6">
+        <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+          <AlertTriangle className="h-5 w-5 text-amber-400" />
+          Bandwidth Budget Alerts
+          <span className="ml-auto text-xs text-zinc-500 font-normal">Last 24 h</span>
+        </h2>
+        {bwAlerts.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No bandwidth alerts in the last 24 hours.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-zinc-500 border-b border-border">
+                  <th className="pb-2 font-medium">Time</th>
+                  <th className="pb-2 font-medium">Camera</th>
+                  <th className="pb-2 font-medium text-right">Current</th>
+                  <th className="pb-2 font-medium text-right">Limit</th>
+                  <th className="pb-2 font-medium text-right">Threshold</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {bwAlerts.map((a) => (
+                  <tr key={a.id} className="text-zinc-300">
+                    <td className="py-2 font-mono text-xs text-zinc-400">
+                      {a.timestamp ? new Date(a.timestamp).toLocaleString() : "—"}
+                    </td>
+                    <td className="py-2">{a.camera_name || a.camera_id}</td>
+                    <td className="py-2 text-right text-amber-400 font-mono">
+                      {a.current_kbps != null ? `${a.current_kbps} kbps` : "—"}
+                    </td>
+                    <td className="py-2 text-right font-mono">
+                      {a.limit_kbps != null ? `${a.limit_kbps} kbps` : "—"}
+                    </td>
+                    <td className="py-2 text-right font-mono">
+                      {a.threshold_pct != null ? `${a.threshold_pct}%` : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>

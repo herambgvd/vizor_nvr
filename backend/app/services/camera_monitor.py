@@ -19,6 +19,10 @@ PROBE_TIMEOUT_SEC = 2.5
 logger = logging.getLogger(__name__)
 
 
+BANDWIDTH_ALERT_CONSECUTIVE = 3    # Must exceed threshold for this many samples
+BANDWIDTH_ALERT_COOLDOWN_SECS = 600  # 10 minutes between repeated alerts
+
+
 class CameraMonitor:
     """
     Periodically checks camera health:
@@ -28,6 +32,7 @@ class CameraMonitor:
     - Updates camera status
     - Triggers bandwidth monitoring per camera
     - Detects recording gaps (no new segment in 2× segment_duration)
+    - Detects bandwidth budget overages and fires bandwidth_alert events
     """
 
     def __init__(self, interval: int = 30):
@@ -40,6 +45,11 @@ class CameraMonitor:
         self._gap_alerted: dict = {}
         # camera_id → consecutive reachability probe failures
         self._probe_fails: dict = {}
+        # Bandwidth alert state
+        # camera_id → number of consecutive samples over threshold
+        self._bw_over_count: dict = {}
+        # camera_id → monotonic time of last alert fired (0 = never)
+        self._bw_alert_fired_at: dict = {}
 
     async def start(self):
         if self._running:
@@ -214,6 +224,50 @@ class CameraMonitor:
                         from app.storage.service import StorageService
                         storage_path = await StorageService.resolve_recording_path(db, camera)
                         monitoring_service.update_camera_bandwidth(camera.id, storage_path)
+
+                        # ── Bandwidth budget alert ───────────────────────────
+                        import time as _time2
+                        limit_kbps = camera.bandwidth_limit_kbps or 0
+                        if limit_kbps > 0:
+                            threshold_pct = camera.bandwidth_alert_threshold_pct or 80
+                            trigger_kbps = limit_kbps * threshold_pct / 100
+                            bw_data = monitoring_service.get_camera_bandwidth(camera.id)
+                            current_kbps = bw_data.get("kbps", 0) if bw_data else 0
+                            if current_kbps > trigger_kbps:
+                                self._bw_over_count[camera.id] = self._bw_over_count.get(camera.id, 0) + 1
+                            else:
+                                self._bw_over_count[camera.id] = 0
+                            consecutive = self._bw_over_count.get(camera.id, 0)
+                            last_fired = self._bw_alert_fired_at.get(camera.id, 0.0)
+                            cooldown_ok = (_time2.monotonic() - last_fired) >= BANDWIDTH_ALERT_COOLDOWN_SECS
+                            if consecutive >= BANDWIDTH_ALERT_CONSECUTIVE and cooldown_ok:
+                                self._bw_alert_fired_at[camera.id] = _time2.monotonic()
+                                try:
+                                    from app.events.service import EventService
+                                    async with async_session_maker() as _adb:
+                                        await EventService.create_event_direct(
+                                            db=_adb,
+                                            camera_id=camera.id,
+                                            event_type="bandwidth_alert",
+                                            severity="warning",
+                                            title=f"Bandwidth budget exceeded — {camera.name}",
+                                            description=(
+                                                f"Camera {camera.name} using {current_kbps} kbps "
+                                                f"(limit {limit_kbps} kbps, threshold {threshold_pct}%)"
+                                            ),
+                                            metadata={
+                                                "current_kbps": current_kbps,
+                                                "limit_kbps": limit_kbps,
+                                                "threshold_pct": threshold_pct,
+                                                "camera_name": camera.name,
+                                            },
+                                        )
+                                    logger.warning(
+                                        "[%s] Bandwidth alert: %s kbps > %s%% of %s kbps",
+                                        camera.id, current_kbps, threshold_pct, limit_kbps,
+                                    )
+                                except Exception as _bwe:
+                                    logger.debug("[%s] Bandwidth alert create failed: %s", camera.id, _bwe)
 
                         # ── Recording gap detection ──────────────────────────
                         # Check if any new segment has been written recently.

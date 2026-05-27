@@ -42,3 +42,27 @@ export const getCameraBandwidthHistory = async (cameraId, params = {}) => {
   );
   return response.data;
 };
+
+// ---------- disk health ----------
+
+export const getDiskHealth = async () => {
+  const response = await apiClient.get("/monitoring/disks");
+  return response.data;
+};
+
+// ---------- bandwidth alerts + policy (D2) ----------
+
+export const getBandwidthAlerts = async () => {
+  const response = await apiClient.get("/monitoring/bandwidth/alerts");
+  return response.data;
+};
+
+export const getBandwidthPolicy = async (cameraId) => {
+  const response = await apiClient.get(`/monitoring/cameras/${cameraId}/bandwidth/policy`);
+  return response.data;
+};
+
+export const updateBandwidthPolicy = async (cameraId, policy) => {
+  const response = await apiClient.put(`/monitoring/cameras/${cameraId}/bandwidth/policy`, policy);
+  return response.data;
+};

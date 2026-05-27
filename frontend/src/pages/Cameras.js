@@ -28,6 +28,9 @@ import {
   Power,
   PowerOff,
   Activity,
+  FolderInput,
+  Timer,
+  CalendarClock,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useCamerasQuery, useCameraMutations } from "../hooks";
@@ -49,7 +52,12 @@ import {
   reorderCameras,
   getLatestHealth,
   getCameraGroups,
+  bulkCameraAction,
 } from "../api/cameras";
+import {
+  listScheduleTemplates,
+  applyScheduleTemplate,
+} from "../api/scheduleTemplates";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import {
@@ -205,6 +213,21 @@ const Cameras = () => {
   const [bulkConfirm, setBulkConfirm] = useState(false);
   const [contextMenu, setContextMenu] = useState(null); // {x,y,camera}
   const [previewCamera, setPreviewCamera] = useState(null); // camera obj
+
+  // Template dialogs
+  const [showApplyTemplate, setShowApplyTemplate] = useState(false);
+  const [showSetRetention, setShowSetRetention] = useState(false);
+  const [retentionInput, setRetentionInput] = useState("");
+  const [showMoveToGroup, setShowMoveToGroup] = useState(false);
+  const [moveGroupId, setMoveGroupId] = useState("");
+
+  // Fetch schedule templates for bulk apply
+  const { data: scheduleTemplates = [] } = useQuery({
+    queryKey: ["schedule-templates"],
+    queryFn: listScheduleTemplates,
+    staleTime: 60_000,
+  });
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
 
   // Selection
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -382,6 +405,41 @@ const Cameras = () => {
     onError: () => toast.error("Bulk enable/disable failed"),
   });
 
+  const bulkMoveGroupMutation = useMutation({
+    mutationFn: ({ ids, groupId }) =>
+      bulkCameraAction("move_to_group", ids, { group_id: groupId }),
+    onSuccess: (res) => {
+      toast.success(`Moved ${res?.succeeded?.length ?? 0} cameras to group`);
+      setShowMoveToGroup(false);
+      setMoveGroupId("");
+      invalidate();
+    },
+    onError: () => toast.error("Move to group failed"),
+  });
+
+  const bulkSetRetentionMutation = useMutation({
+    mutationFn: ({ ids, days }) =>
+      bulkCameraAction("set_retention", ids, { retention_days: days }),
+    onSuccess: (res) => {
+      toast.success(`Updated retention for ${res?.succeeded?.length ?? 0} cameras`);
+      setShowSetRetention(false);
+      setRetentionInput("");
+      invalidate();
+    },
+    onError: () => toast.error("Set retention failed"),
+  });
+
+  const applyTemplateMutation = useMutation({
+    mutationFn: ({ templateId, ids }) => applyScheduleTemplate(templateId, ids),
+    onSuccess: (res) => {
+      toast.success(`Applied template to ${res?.applied ?? 0} cameras`);
+      setShowApplyTemplate(false);
+      setSelectedTemplateId("");
+      invalidate();
+    },
+    onError: () => toast.error("Apply template failed"),
+  });
+
   const reorderMutation = useMutation({
     mutationFn: (ids) => reorderCameras(ids),
     onSuccess: () => {
@@ -557,6 +615,16 @@ const Cameras = () => {
                     <PowerOff className="h-4 w-4 mr-2" /> Disable
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => setShowMoveToGroup(true)}>
+                    <FolderInput className="h-4 w-4 mr-2" /> Move to group…
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setShowApplyTemplate(true)}>
+                    <CalendarClock className="h-4 w-4 mr-2" /> Apply schedule template…
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setShowSetRetention(true)}>
+                    <Timer className="h-4 w-4 mr-2" /> Set retention…
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
                   <DropdownMenuItem
                     onClick={() => setBulkConfirm(true)}
                     className="text-red-600 focus:text-red-600"
@@ -706,12 +774,19 @@ const Cameras = () => {
                     </TableCell>
                     <TableCell>
                       <div className="min-w-0">
-                        <p
-                          className="font-medium text-white hover:text-teal-300 cursor-pointer transition-colors truncate"
-                          onClick={() => navigate(`/cameras/${camera.id}`)}
-                        >
-                          {camera.name}
-                        </p>
+                        <div className="flex items-center gap-2">
+                          <p
+                            className="font-medium text-white hover:text-teal-300 cursor-pointer transition-colors truncate"
+                            onClick={() => navigate(`/cameras/${camera.id}`)}
+                          >
+                            {camera.name}
+                          </p>
+                          {camera.retention_days != null && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono bg-violet-500/15 text-violet-300 border border-violet-500/20 flex-shrink-0">
+                              Ret: {camera.retention_days}d
+                            </span>
+                          )}
+                        </div>
                         <p className="text-xs text-muted-foreground truncate max-w-[220px]">
                           {camera.main_stream_url}
                         </p>
@@ -928,6 +1003,119 @@ const Cameras = () => {
           )}
         </div>
       )}
+
+      {/* Move to group dialog */}
+      <Dialog open={showMoveToGroup} onOpenChange={setShowMoveToGroup}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Move {selectedIds.size} camera{selectedIds.size !== 1 ? "s" : ""} to group</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <Select value={moveGroupId} onValueChange={setMoveGroupId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select a group…" />
+              </SelectTrigger>
+              <SelectContent>
+                {groups.map((g) => (
+                  <SelectItem key={g.id} value={g.id}>
+                    {g.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex justify-end gap-2 mt-2">
+            <Button variant="outline" onClick={() => setShowMoveToGroup(false)}>Cancel</Button>
+            <Button
+              disabled={!moveGroupId || bulkMoveGroupMutation.isPending}
+              onClick={() =>
+                bulkMoveGroupMutation.mutate({
+                  ids: Array.from(selectedIds),
+                  groupId: moveGroupId,
+                })
+              }
+            >
+              Move
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Set retention dialog */}
+      <Dialog open={showSetRetention} onOpenChange={setShowSetRetention}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Set retention for {selectedIds.size} camera{selectedIds.size !== 1 ? "s" : ""}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-sm text-muted-foreground">
+              Enter the number of days to keep recordings for the selected cameras.
+              Leave blank to inherit the global retention setting.
+            </p>
+            <Input
+              type="number"
+              min={1}
+              placeholder="Days (blank = global default)"
+              value={retentionInput}
+              onChange={(e) => setRetentionInput(e.target.value)}
+            />
+          </div>
+          <div className="flex justify-end gap-2 mt-2">
+            <Button variant="outline" onClick={() => setShowSetRetention(false)}>Cancel</Button>
+            <Button
+              disabled={bulkSetRetentionMutation.isPending}
+              onClick={() =>
+                bulkSetRetentionMutation.mutate({
+                  ids: Array.from(selectedIds),
+                  days: retentionInput === "" ? null : parseInt(retentionInput, 10),
+                })
+              }
+            >
+              Apply
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Apply schedule template dialog */}
+      <Dialog open={showApplyTemplate} onOpenChange={setShowApplyTemplate}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Apply schedule template to {selectedIds.size} camera{selectedIds.size !== 1 ? "s" : ""}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <Select value={selectedTemplateId} onValueChange={setSelectedTemplateId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select a template…" />
+              </SelectTrigger>
+              <SelectContent>
+                {scheduleTemplates.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>
+                    <span>{t.name}</span>
+                    {t.description && (
+                      <span className="ml-2 text-xs text-muted-foreground">{t.description}</span>
+                    )}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex justify-end gap-2 mt-2">
+            <Button variant="outline" onClick={() => setShowApplyTemplate(false)}>Cancel</Button>
+            <Button
+              disabled={!selectedTemplateId || applyTemplateMutation.isPending}
+              onClick={() =>
+                applyTemplateMutation.mutate({
+                  templateId: selectedTemplateId,
+                  ids: Array.from(selectedIds),
+                })
+              }
+            >
+              Apply Template
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Form */}
       <CameraFormDialog
