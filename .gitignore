@@ -105,3 +105,6 @@ age/keys*
 vendor-keys/
 *.lic
 data/.machine_id
+deepstream/model_repository/**/*.onnx
+deepstream/model_repository/**/*.engine
+deepstream/model_repository/**/*.plan
