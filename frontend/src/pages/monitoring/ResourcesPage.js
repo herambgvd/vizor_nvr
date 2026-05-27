@@ -17,13 +17,18 @@ import {
   Zap,
   Thermometer,
   MonitorCog,
+  AlertTriangle,
+  CheckCircle,
+  XCircle,
 } from "lucide-react";
 import {
   getResources,
   getResourceHistory,
   getBandwidthSummary,
   getSystemInfo,
+  getDiskHealth,
 } from "../../api/monitoring";
+import { useAuth } from "../../context/AuthContext";
 import { Button } from "../../components/ui/button";
 import { cn } from "../../lib/utils";
 
@@ -158,7 +163,148 @@ const HistoryCard = ({ title, history, accessor, stroke }) => {
   );
 };
 
+// SMART status pill
+const SmartPill = ({ status }) => {
+  if (status === "ok")
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium bg-teal-500/15 text-teal-300">
+        <CheckCircle className="h-3 w-3" /> OK
+      </span>
+    );
+  if (status === "warning")
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium bg-amber-500/15 text-amber-300">
+        <AlertTriangle className="h-3 w-3" /> Warning
+      </span>
+    );
+  if (status === "fail")
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium bg-rose-500/15 text-rose-300">
+        <XCircle className="h-3 w-3" /> Fail
+      </span>
+    );
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium bg-zinc-500/15 text-zinc-400">
+      Unknown
+    </span>
+  );
+};
+
+const fmtBytes = (b) => {
+  if (!b) return "—";
+  if (b >= 1e12) return `${(b / 1e12).toFixed(1)} TB`;
+  if (b >= 1e9) return `${(b / 1e9).toFixed(1)} GB`;
+  return `${(b / 1e6).toFixed(0)} MB`;
+};
+
+const DiskCard = ({ disk }) => {
+  const pct = disk.used_pct || 0;
+  const barColor =
+    pct >= 90 ? "bg-rose-400" : pct >= 75 ? "bg-amber-400" : "bg-teal-400";
+
+  return (
+    <div className="rounded-lg border border-border bg-card/40 p-4 space-y-3">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-xs font-mono text-zinc-200 truncate">
+            {disk.mount_path || disk.device || "—"}
+          </p>
+          <p className="text-[11px] text-muted-foreground font-mono truncate">
+            {disk.device !== disk.mount_path ? disk.device : ""}
+            {disk.filesystem ? ` · ${disk.filesystem}` : ""}
+          </p>
+        </div>
+        <SmartPill status={disk.smart_status} />
+      </div>
+
+      {/* Usage bar */}
+      {disk.total_bytes > 0 && (
+        <div>
+          <div className="flex items-center justify-between text-[11px] text-muted-foreground mb-1">
+            <span>{fmtBytes(disk.used_bytes)} used</span>
+            <span>{fmtBytes(disk.free_bytes)} free / {fmtBytes(disk.total_bytes)}</span>
+          </div>
+          <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
+            <div
+              className={cn("h-full transition-all", barColor)}
+              style={{ width: `${Math.min(pct, 100)}%` }}
+            />
+          </div>
+          <p className="text-[11px] text-right text-muted-foreground mt-0.5">
+            {pct.toFixed(1)}%
+          </p>
+        </div>
+      )}
+
+      {/* SMART details */}
+      <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-[11px]">
+        {disk.model && (
+          <>
+            <span className="text-muted-foreground">Model</span>
+            <span className="font-mono truncate">{disk.model}</span>
+          </>
+        )}
+        {disk.temp_c != null && (
+          <>
+            <span className="text-muted-foreground flex items-center gap-1">
+              <Thermometer className="h-3 w-3" />Temp
+            </span>
+            <span
+              className={cn(
+                "font-mono",
+                disk.temp_c >= 65 ? "text-rose-300" : disk.temp_c >= 50 ? "text-amber-300" : "",
+              )}
+            >
+              {disk.temp_c}°C
+            </span>
+          </>
+        )}
+        {disk.reallocated_sectors != null && (
+          <>
+            <span className="text-muted-foreground">Reallocated</span>
+            <span
+              className={cn(
+                "font-mono",
+                disk.reallocated_sectors >= 50
+                  ? "text-rose-300"
+                  : disk.reallocated_sectors >= 1
+                    ? "text-amber-300"
+                    : "",
+              )}
+            >
+              {disk.reallocated_sectors}
+            </span>
+          </>
+        )}
+        {disk.power_on_hours != null && (
+          <>
+            <span className="text-muted-foreground">Power-on hrs</span>
+            <span className="font-mono">{disk.power_on_hours.toLocaleString()}</span>
+          </>
+        )}
+      </div>
+
+      {/* Alerts */}
+      {disk.alerts && disk.alerts.length > 0 && (
+        <div className="space-y-1">
+          {disk.alerts.map((alert, i) => (
+            <div
+              key={i}
+              className="flex items-start gap-1.5 text-[11px] text-amber-300"
+            >
+              <AlertTriangle className="h-3 w-3 mt-0.5 flex-shrink-0" />
+              {alert}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const ResourcesPage = () => {
+  const { isAdmin } = useAuth();
   const { data: resources, isLoading, refetch } = useQuery({
     queryKey: ["monitoring-resources"],
     queryFn: getResources,
@@ -181,6 +327,13 @@ const ResourcesPage = () => {
     queryKey: ["monitoring-bandwidth"],
     queryFn: getBandwidthSummary,
     refetchInterval: 10_000,
+  });
+
+  const { data: diskData } = useQuery({
+    queryKey: ["monitoring-disks"],
+    queryFn: getDiskHealth,
+    refetchInterval: 60_000,
+    enabled: isAdmin,
   });
 
   const bandwidth = useMemo(() => {
@@ -519,6 +672,33 @@ const ResourcesPage = () => {
           </p>
         )}
       </div>
+
+      {/* Storage Health — admin only */}
+      {isAdmin && (
+        <div className="rounded-lg border border-border bg-card/40">
+          <div className="flex items-center justify-between px-5 py-3 border-b border-white/5">
+            <h2 className="text-sm font-semibold flex items-center gap-2">
+              <HardDrive className="h-4 w-4 text-teal-300" />
+              Storage Health
+            </h2>
+            <span className="text-xs text-muted-foreground">
+              {diskData?.disks?.length ?? 0}{" "}
+              {(diskData?.disks?.length ?? 0) === 1 ? "volume" : "volumes"}
+            </span>
+          </div>
+          {diskData?.disks?.length > 0 ? (
+            <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {diskData.disks.map((disk, i) => (
+                <DiskCard key={`${disk.device}-${i}`} disk={disk} />
+              ))}
+            </div>
+          ) : (
+            <p className="px-5 py-6 text-sm text-muted-foreground">
+              {diskData ? "No volumes found" : "Loading disk health…"}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 };
