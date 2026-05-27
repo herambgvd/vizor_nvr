@@ -50,10 +50,18 @@ class ONVIFDiscoveryPublisher:
 
     def _build_service(self) -> Service:
         host = self._get_advertise_host()
-        xaddr = f"http://{host}/onvif/device_service"
+        port = os.getenv("ONVIF_XADDR_PORT", "")
+        xaddr = f"http://{host}:{port}/onvif/device_service" if port else f"http://{host}/onvif/device_service"
         return Service(
             types=[QName("http://www.onvif.org/ver10/network/wsdl", "NetworkVideoTransmitter")],
-            scopes=[Scope("onvif://www.onvif.org/name/GVD-NVR")],
+            scopes=[
+                Scope("onvif://www.onvif.org/type/video_server"),
+                Scope("onvif://www.onvif.org/type/network_video_transmitter"),
+                Scope("onvif://www.onvif.org/Profile/Streaming"),
+                Scope("onvif://www.onvif.org/Profile/T"),
+                Scope("onvif://www.onvif.org/Profile/G"),
+                Scope("onvif://www.onvif.org/name/GVD-NVR"),
+            ],
             xAddrs=[xaddr],
             epr=self._epr,
             instanceId=1,
