@@ -2,12 +2,12 @@
 SSE event stream — /api/events/stream
 
 Subscribers attach via EventSource and receive newline-delimited JSON
-events as they fire. Replaces WebSocket for one-way event delivery —
-SSE is simpler (HTTP/1.1 chunked), survives proxies better, and the
-browser auto-reconnects.
+NVR events (motion, ONVIF, system) as they fire. Replaces WebSocket
+for one-way event delivery — SSE is simpler (HTTP/1.1 chunked),
+survives proxies better, and the browser auto-reconnects.
 
-Filter by scenario / event_type / camera_id via query params:
-  GET /api/events/stream?scenario=people_counting&camera_id=...
+Filter by event_type / camera_id via query params:
+  GET /api/events/stream?event_type=motion&camera_id=...
 """
 
 from __future__ import annotations
@@ -77,17 +77,16 @@ async def _user_from_token_query(token: str = Query(...)) -> dict:
 @router.get("/stream")
 async def stream_events(
     request: Request,
-    scenario: Optional[str] = Query(None, description="Filter by scenario slug"),
     event_type: Optional[str] = Query(None, description="Filter by event_type"),
     camera_id: Optional[str] = Query(None, description="Filter by camera id"),
     user: dict = Depends(_user_from_token_query),
 ) -> EventSourceResponse:
-    """Server-Sent Events stream of live AI events.
+    """Server-Sent Events stream of live NVR events (motion, ONVIF, system).
 
     Connection lifecycle:
       1. Client opens EventSource → 200 with text/event-stream
       2. Server emits `event: connected` once
-      3. Server emits `event: ai_event` per match
+      3. Server emits `event: event` per match
       4. Periodic `event: ping` every 25s to keep proxies happy
       5. Client disconnects → queue cleaned up
     """
@@ -114,15 +113,13 @@ async def stream_events(
                     continue
 
                 # Apply filters
-                if scenario and payload.get("scenario") != scenario:
-                    continue
                 if event_type and payload.get("event_type") != event_type:
                     continue
                 if camera_id and payload.get("camera_id") != camera_id:
                     continue
 
                 yield {
-                    "event": "ai_event",
+                    "event": "event",
                     "data": json.dumps(payload, default=str),
                 }
         finally:

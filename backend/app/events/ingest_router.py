@@ -1,15 +1,15 @@
 # =============================================================================
-# Event Ingest Router — Machine-to-machine endpoint for AI detection events.
+# Event Ingest Router — Machine-to-machine endpoint for NVR events.
 #
-# Used by vizor-gpu inference workers (FRS, PPE, Vizor Query, People Mgmt,
-# LPR, Anomaly, etc.) to post detection batches into the NVR events table.
+# Used by NVR services (motion detector, ONVIF event service, system monitors,
+# etc.) to post event batches into the NVR events table.
 #
 # Auth: API key with `events:ingest` scope, sent in X-Vizor-API-Key header.
 # Idempotency: each event MUST set `dedup_key`. Duplicates are silently
 # ignored (returned as `skipped` in the response).
 #
 # Schema: batch of up to MAX_BATCH events. Designed for high throughput;
-# workers buffer locally and POST every 1–2 seconds.
+# services buffer locally and POST every 1–2 seconds.
 # =============================================================================
 
 import logging
@@ -46,7 +46,7 @@ MAX_BATCH = 500
 # ---------------------------------------------------------------------------
 
 class IngestEvent(BaseModel):
-    """A single AI detection event to ingest."""
+    """A single NVR event to ingest (motion, ONVIF, system, etc.)."""
 
     # Required for dedup. Workers compose this as:
     #   sha1(f"{camera_id}:{detection_type}:{track_id or hash(bbox)}:{time_bucket}")
@@ -58,13 +58,12 @@ class IngestEvent(BaseModel):
     title: str = Field(..., max_length=200)
     description: Optional[str] = None
 
-    # AI-specific
-    source_service: str = Field(..., max_length=50)        # "vizor-gpu-frs", etc.
+    # Source service
+    source_service: str = Field(..., max_length=50)        # "onvif-event-service", "nvr-motion-detector", etc.
     detection_type: Optional[str] = Field(None, max_length=50)
     confidence: Optional[float] = Field(None, ge=0.0, le=1.0)
     bbox: Optional[List[float]] = None                       # [x, y, w, h] normalized
     track_id: Optional[str] = Field(None, max_length=64)
-    person_id: Optional[str] = None                          # FRS match → frs_persons.id
     attributes: Optional[Dict[str, Any]] = None
 
     # Optional links to NVR-native data
@@ -94,7 +93,7 @@ class IngestResult(BaseModel):
     "/ingest",
     response_model=IngestResult,
     status_code=status.HTTP_200_OK,
-    summary="Batch ingest of AI detection events from inference workers",
+    summary="Batch ingest of NVR events from motion, ONVIF, and system services",
 )
 async def ingest_events(
     payload: IngestBatch,
@@ -136,7 +135,6 @@ async def ingest_events(
                     confidence=ev.confidence,
                     bbox=ev.bbox,
                     track_id=ev.track_id,
-                    person_id=ev.person_id,
                     attributes=ev.attributes,
                     dedup_key=ev.dedup_key,
                 )
