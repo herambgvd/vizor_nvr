@@ -14,7 +14,7 @@ const SettingsPage = () => {
 
   // go2rtc snapshot URL — kept for legacy panel that takes it as a prop
   const GO2RTC_URL =
-    process.env.REACT_APP_GO2RTC_URL || "http://localhost:1984";
+    process.env.REACT_APP_GO2RTC_URL || "/go2rtc";
   const snapshotUrl = `${GO2RTC_URL}/api/frame.jpeg?src=${encodeURIComponent(cameraId)}`;
 
   if (!canManage) {

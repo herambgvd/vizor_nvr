@@ -90,7 +90,7 @@ export const Go2RTCPlayer = ({
     cleanup();
 
     const GO2RTC_URL =
-      process.env.REACT_APP_GO2RTC_URL || "http://localhost:1984";
+      process.env.REACT_APP_GO2RTC_URL || "/go2rtc";
     const wsUrl = GO2RTC_URL.replace(/^http/, "ws") + `/api/ws?src=${streamId}`;
 
     const ws = new WebSocket(wsUrl);

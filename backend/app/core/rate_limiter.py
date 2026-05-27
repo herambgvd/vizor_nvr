@@ -153,12 +153,36 @@ class RateLimiter:
 # =============================================================================
 # Pre-configured limiters for different endpoints
 # =============================================================================
+# Defaults are production-safe. In development (ENV=development) limits
+# are bumped 20x so the dashboard, hot-reload, and test scripts don't
+# trip the limiter. Override at runtime via env vars when needed.
 
-# Strict limiter for login/register (5 requests per minute)
-auth_limiter = RateLimiter(max_requests=5, window_seconds=60)
+import os
 
-# Standard API limiter (60 requests per minute)
-api_limiter = RateLimiter(max_requests=60, window_seconds=60)
+_DEV = os.getenv("ENV", "production").lower() in ("development", "dev", "local")
 
-# Very strict for password reset / sensitive ops (3 requests per minute)
-strict_limiter = RateLimiter(max_requests=3, window_seconds=60)
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
+# Strict limiter for login/register
+auth_limiter = RateLimiter(
+    max_requests=_env_int("AUTH_RATE_LIMIT", 100 if _DEV else 5),
+    window_seconds=_env_int("AUTH_RATE_WINDOW", 60),
+)
+
+# Standard API limiter
+api_limiter = RateLimiter(
+    max_requests=_env_int("API_RATE_LIMIT", 1000 if _DEV else 60),
+    window_seconds=_env_int("API_RATE_WINDOW", 60),
+)
+
+# Sensitive ops (password reset, etc.)
+strict_limiter = RateLimiter(
+    max_requests=_env_int("STRICT_RATE_LIMIT", 30 if _DEV else 3),
+    window_seconds=_env_int("STRICT_RATE_WINDOW", 60),
+)

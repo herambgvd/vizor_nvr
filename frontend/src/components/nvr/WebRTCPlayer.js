@@ -44,7 +44,7 @@ export const WebRTCPlayer = ({
   const [connectionState, setConnectionState] = useState("new");
 
   const GO2RTC_URL =
-    process.env.REACT_APP_GO2RTC_URL || "http://localhost:1984";
+    process.env.REACT_APP_GO2RTC_URL || "/go2rtc";
 
   // Cleanup WebRTC connection
   const cleanup = useCallback(() => {
@@ -172,7 +172,7 @@ export const WebRTCPlayer = ({
       } else {
         // Direct go2rtc (fallback)
         const GO2RTC_URL =
-          process.env.REACT_APP_GO2RTC_URL || "http://localhost:1984";
+          process.env.REACT_APP_GO2RTC_URL || "/go2rtc";
         const response = await fetch(
           `${GO2RTC_URL}/api/webrtc?src=${encodeURIComponent(streamId)}`,
           {

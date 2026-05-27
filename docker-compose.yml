@@ -72,8 +72,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
-      ENV: production
+      ENV: ${ENV:-development}
       DATABASE_URL: postgresql+asyncpg://${DB_USER:-nvr}:${DB_PASSWORD}@db:5432/gvd_nvr
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required}
       JWT_ACCESS_TOKEN_EXPIRE_HOURS: ${JWT_ACCESS_TOKEN_EXPIRE_HOURS:-24}

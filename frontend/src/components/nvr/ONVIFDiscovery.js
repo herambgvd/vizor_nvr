@@ -6,6 +6,10 @@
 // firmware, serial, MAC, capabilities) and an inline editable name.
 // Selection is multi via checkboxes. "Add N cameras" probes + creates
 // in parallel with bounded concurrency.
+//
+// NVR/DVR support: devices that expose multiple ONVIF channels (via the
+// /api/cameras/onvif/channels endpoint) expand into per-channel checkboxes
+// so the operator can onboard all cameras in a single click.
 // =============================================================================
 
 import React, { useMemo, useState, useEffect } from "react";
@@ -13,10 +17,13 @@ import { useMutation } from "@tanstack/react-query";
 import {
   Camera,
   Check,
+  ChevronDown,
+  ChevronRight,
   Eye,
   EyeOff,
   Info,
   KeyRound,
+  Layers,
   Loader2,
   Move3D,
   RefreshCw,
@@ -30,6 +37,8 @@ import {
   onvifDiscover,
   onvifProbe,
   onvifSnapshotBlobUrl,
+  onvifChannels,
+  onvifBulkAdd,
   createCamera,
 } from "../../api/cameras";
 import { Button } from "../ui/button";
@@ -114,9 +123,13 @@ export const ONVIFDiscovery = ({ open, onOpenChange, onAdded }) => {
     setShowRowPw((s) => ({ ...s, [key]: !s[key] }));
 
   // Per-row UI state, keyed by `${ip}:${port}`. Holds inline name
-  // override, status flag, error string, and snapshot blob URL.
+  // override, status flag, error string, snapshot blob URL, and optional
+  // NVR channel list + per-channel selections/names.
   const [rowState, setRowState] = useState({});
   const [adding, setAdding] = useState(false);
+
+  // Track which rows have their channel list expanded.
+  const [channelsExpanded, setChannelsExpanded] = useState({});
 
   const rowKey = (d) => `${d.ip}:${d.port || 80}`;
   const setRow = (key, patch) =>
@@ -172,6 +185,36 @@ export const ONVIFDiscovery = ({ open, onOpenChange, onAdded }) => {
   const fetchSnapshots = (list) =>
     runBounded(list, fetchSnapshot, SNAPSHOT_CONCURRENCY);
 
+  // Fetch NVR channels for a single device in the background.
+  // If the device returns >=2 channels, store them on the row state.
+  const fetchChannelsForDev = async (dev) => {
+    const key = rowKey(dev);
+    const { username, password } = rowCreds(key);
+    if (!password) return; // No creds — skip silently
+    try {
+      const channels = await onvifChannels({
+        host: dev.ip,
+        port: dev.port || 80,
+        username,
+        password,
+      });
+      if (!Array.isArray(channels) || channels.length <= 1) return;
+      // Build default per-channel selections (all selected) and names.
+      const rowName = rowState[key]?.name || dev.name || dev.model || `Camera ${dev.ip}`;
+      const channelSelections = {};
+      const channelNames = {};
+      channels.forEach((ch) => {
+        channelSelections[ch.channel] = true;
+        channelNames[ch.channel] = ch.name || `${rowName}-CH${ch.channel}`;
+      });
+      setRow(key, { channels, channelSelections, channelNames });
+      // Auto-expand when channels load.
+      setChannelsExpanded((s) => ({ ...s, [key]: true }));
+    } catch (_e) {
+      // Background call — swallow errors silently.
+    }
+  };
+
   const discoverMut = useMutation({
     mutationFn: (params) => onvifDiscover(params),
     onSuccess: (data) => {
@@ -191,15 +234,25 @@ export const ONVIFDiscovery = ({ open, onOpenChange, onAdded }) => {
           status: "idle",
           error: null,
           snapshotUrl: null,
+          channels: undefined,
+          channelSelections: {},
+          channelNames: {},
         };
       });
       setRowState(initial);
+      setChannelsExpanded({});
 
       if (list.length === 0) {
         toast.info("No devices found on the network");
       } else {
         // Kick off snapshot fetches in background; UI shows placeholders.
         fetchSnapshots(list);
+        // Auto-fetch channels for devices that already have creds verified
+        // (manufacturer populated) when global password is set.
+        if (credentials.password) {
+          const verified = list.filter((d) => d.manufacturer);
+          runBounded(verified, fetchChannelsForDev, SNAPSHOT_CONCURRENCY);
+        }
       }
     },
     onError: (e) => toast.error(e.response?.data?.detail || "Discovery failed"),
@@ -224,8 +277,7 @@ export const ONVIFDiscovery = ({ open, onOpenChange, onAdded }) => {
   };
 
   // Re-probe a single row using its current per-row credentials. Updates
-  // the device metadata in-place and refetches the snapshot. Used when
-  // the operator typed the camera's real password into the row fields.
+  // the device metadata in-place and refetches the snapshot + channels.
   const handleReconnect = async (dev) => {
     const key = rowKey(dev);
     const { username, password } = rowCreds(key);
@@ -277,6 +329,10 @@ export const ONVIFDiscovery = ({ open, onOpenChange, onAdded }) => {
 
       // Refresh snapshot with the new creds.
       const ok = await fetchSnapshot(dev);
+
+      // Also enumerate channels for this device now that we have working creds.
+      await fetchChannelsForDev(dev);
+
       if (ok) {
         toast.success(`Reconnected ${dev.ip}`);
       } else {
@@ -292,6 +348,24 @@ export const ONVIFDiscovery = ({ open, onOpenChange, onAdded }) => {
   };
 
   // ── Selection ──────────────────────────────────────────────────────
+
+  // Total entries that would be created: sum of selected channels per
+  // NVR row, or 1 per single-camera row.
+  const totalToAdd = useMemo(() => {
+    return devices.reduce((sum, d) => {
+      const key = rowKey(d);
+      const row = rowState[key] || {};
+      if (!row.selected) return sum;
+      const channels = row.channels;
+      if (channels && channels.length > 1) {
+        const sel = row.channelSelections || {};
+        const selCount = channels.filter((ch) => sel[ch.channel]).length;
+        return sum + (selCount > 0 ? selCount : 1);
+      }
+      return sum + 1;
+    }, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rowState, devices]);
 
   const selectedCount = useMemo(
     () => Object.values(rowState).filter((s) => s.selected).length,
@@ -382,11 +456,111 @@ export const ONVIFDiscovery = ({ open, onOpenChange, onAdded }) => {
       return;
     }
     setAdding(true);
-    const results = await runBounded(selected, probeAndCreate, PROBE_CONCURRENCY);
+
+    // Separate NVR rows (have channels) from single-camera rows.
+    const nvrRows = selected.filter((d) => {
+      const row = rowState[rowKey(d)] || {};
+      return row.channels && row.channels.length > 1;
+    });
+    const singleRows = selected.filter((d) => {
+      const row = rowState[rowKey(d)] || {};
+      return !(row.channels && row.channels.length > 1);
+    });
+
+    let bulkOk = 0;
+    let bulkFail = 0;
+
+    // ── NVR bulk-add path ────────────────────────────────────────────
+    if (nvrRows.length > 0) {
+      const camerasPayload = [];
+      nvrRows.forEach((dev) => {
+        const key = rowKey(dev);
+        const row = rowState[key] || {};
+        const { username, password } = rowCreds(key);
+        const channels = row.channels || [];
+        const sel = row.channelSelections || {};
+        const names = row.channelNames || {};
+        channels.forEach((ch) => {
+          if (!sel[ch.channel]) return;
+          camerasPayload.push({
+            name: names[ch.channel] || `${row.name || dev.ip}-CH${ch.channel}`,
+            onvif_host: dev.ip,
+            onvif_port: dev.port || 80,
+            onvif_username: username || null,
+            onvif_password: password || null,
+            onvif_profile_token: ch.main?.profile_token || null,
+            main_stream_url: ch.main?.stream_url || null,
+            sub_stream_url: ch.sub?.stream_url || null,
+            ptz_capable: false,
+          });
+        });
+        setRow(key, { status: "adding", error: null });
+      });
+
+      if (camerasPayload.length > 0) {
+        try {
+          const result = await onvifBulkAdd(camerasPayload);
+          bulkOk = (result?.created || []).length;
+          bulkFail = (result?.failed || []).length;
+
+          // Mark each NVR row as done/error based on result.
+          nvrRows.forEach((dev) => {
+            const key = rowKey(dev);
+            const row = rowState[key] || {};
+            const names = row.channelNames || {};
+            const channels = row.channels || [];
+            const sel = row.channelSelections || {};
+            const rowCameraNames = channels
+              .filter((ch) => sel[ch.channel])
+              .map((ch) => names[ch.channel] || `${row.name || dev.ip}-CH${ch.channel}`);
+            const anyCreated = (result?.created || []).some((c) =>
+              rowCameraNames.includes(c.name),
+            );
+            const rowFailed = (result?.failed || []).filter((f) =>
+              rowCameraNames.includes(f.name),
+            );
+            if (anyCreated) {
+              setRow(key, {
+                status: "done",
+                error: rowFailed.length > 0
+                  ? `${rowFailed.length} channel(s) failed`
+                  : null,
+              });
+            } else if (rowFailed.length > 0) {
+              setRow(key, {
+                status: "error",
+                error: rowFailed.map((f) => f.error).join("; "),
+              });
+            }
+          });
+        } catch (e) {
+          const detail = e.response?.data?.detail || "Bulk add failed";
+          nvrRows.forEach((dev) => {
+            setRow(rowKey(dev), { status: "error", error: detail });
+          });
+          bulkFail += camerasPayload.length;
+        }
+      }
+    }
+
+    // ── Single-camera path (unchanged, bounded concurrency) ──────────
+    let singleOk = 0;
+    let singleFail = 0;
+    if (singleRows.length > 0) {
+      const results = await runBounded(
+        singleRows,
+        probeAndCreate,
+        PROBE_CONCURRENCY,
+      );
+      singleOk = results.filter((r) => r.ok).length;
+      singleFail = results.length - singleOk;
+    }
+
     setAdding(false);
 
-    const okCount = results.filter((r) => r.ok).length;
-    const failCount = results.length - okCount;
+    const okCount = bulkOk + singleOk;
+    const failCount = bulkFail + singleFail;
+
     if (okCount > 0) {
       toast.success(
         `Added ${okCount} ${okCount === 1 ? "camera" : "cameras"}${
@@ -397,12 +571,7 @@ export const ONVIFDiscovery = ({ open, onOpenChange, onAdded }) => {
     } else if (failCount > 0) {
       toast.error(`All ${failCount} camera adds failed — see rows for detail`);
     }
-    // Auto-close whenever at least one camera was added. Previously
-    // we only closed on full success — but with partial failures
-    // (camera-limit / unreachable rows) operators saw the success
-    // toast while the modal stayed open, looking stuck. Failed rows
-    // are already marked with an inline error chip on the row, so the
-    // user doesn't lose that context by closing.
+
     if (okCount > 0) {
       setTimeout(() => onOpenChange(false), 800);
     }
@@ -503,6 +672,9 @@ export const ONVIFDiscovery = ({ open, onOpenChange, onAdded }) => {
                   />
                   <span className="text-xs text-zinc-400">
                     {selectedCount} of {devices.length} selected
+                    {totalToAdd !== selectedCount
+                      ? ` · ${totalToAdd} cameras to add`
+                      : ""}
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground">
@@ -514,6 +686,8 @@ export const ONVIFDiscovery = ({ open, onOpenChange, onAdded }) => {
                 {devices.map((dev) => {
                   const key = rowKey(dev);
                   const row = rowState[key] || {};
+                  const hasChannels = row.channels && row.channels.length > 1;
+                  const expanded = channelsExpanded[key] ?? false;
                   return (
                     <div
                       key={key}
@@ -549,9 +723,10 @@ export const ONVIFDiscovery = ({ open, onOpenChange, onAdded }) => {
                         {/* Editable name + per-row credentials + metadata */}
                         <div className="flex-1 min-w-0 space-y-2">
                           <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                            {/* Camera name — repurposed as prefix when NVR channels are present */}
                             <div className="md:col-span-1">
                               <Label className="text-[10px] text-muted-foreground uppercase">
-                                Camera Name
+                                {hasChannels ? "Name Prefix" : "Camera Name"}
                               </Label>
                               <Input
                                 value={row.name || ""}
@@ -559,7 +734,7 @@ export const ONVIFDiscovery = ({ open, onOpenChange, onAdded }) => {
                                   setRow(key, { name: e.target.value })
                                 }
                                 className="h-8 text-sm"
-                                placeholder="Camera name"
+                                placeholder={hasChannels ? "Name prefix" : "Camera name"}
                               />
                             </div>
                             <div>
@@ -661,6 +836,12 @@ export const ONVIFDiscovery = ({ open, onOpenChange, onAdded }) => {
                                   Unverified
                                 </span>
                               )}
+                              {hasChannels && (
+                                <span className="px-2 py-0.5 rounded bg-violet-500/10 text-violet-300 border border-violet-500/20 text-[10px] flex items-center gap-1">
+                                  <Layers className="h-3 w-3" />
+                                  NVR · {row.channels.length} channels
+                                </span>
+                              )}
                               {dev.has_ptz ? (
                                 <span className="px-2 py-0.5 rounded bg-purple-500/10 text-purple-300 border border-purple-500/20 text-[10px] flex items-center gap-1">
                                   <Move3D className="h-3 w-3" />
@@ -721,6 +902,116 @@ export const ONVIFDiscovery = ({ open, onOpenChange, onAdded }) => {
                               {row.error}
                             </div>
                           )}
+
+                          {/* NVR channel list — collapsible */}
+                          {hasChannels && (
+                            <div
+                              className={cn(
+                                "mt-1 rounded-md border border-violet-500/20 bg-violet-500/[0.04] transition-opacity",
+                                !row.selected && "opacity-50 pointer-events-none",
+                              )}
+                            >
+                              {/* Collapse toggle header */}
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setChannelsExpanded((s) => ({
+                                    ...s,
+                                    [key]: !s[key],
+                                  }))
+                                }
+                                className="w-full flex items-center justify-between px-3 py-1.5 text-[11px] text-violet-300 hover:text-violet-200"
+                              >
+                                <span className="flex items-center gap-1.5">
+                                  <Layers className="h-3 w-3" />
+                                  Channels ({row.channels.length})
+                                </span>
+                                <span className="flex items-center gap-2">
+                                  {/* Select-all toggle */}
+                                  <span
+                                    className="text-[10px] text-zinc-400 hover:text-zinc-200 flex items-center gap-1"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      const allSel = row.channels.every(
+                                        (ch) => row.channelSelections?.[ch.channel],
+                                      );
+                                      const next = {};
+                                      row.channels.forEach((ch) => {
+                                        next[ch.channel] = !allSel;
+                                      });
+                                      setRow(key, { channelSelections: next });
+                                    }}
+                                  >
+                                    {row.channels.every(
+                                      (ch) => row.channelSelections?.[ch.channel],
+                                    )
+                                      ? "Deselect all"
+                                      : "Select all"}
+                                  </span>
+                                  {expanded ? (
+                                    <ChevronDown className="h-3.5 w-3.5" />
+                                  ) : (
+                                    <ChevronRight className="h-3.5 w-3.5" />
+                                  )}
+                                </span>
+                              </button>
+
+                              {/* Channel rows */}
+                              {expanded && (
+                                <div className="px-3 pb-2 space-y-1">
+                                  {row.channels.map((ch) => {
+                                    const chSel =
+                                      row.channelSelections?.[ch.channel] ?? true;
+                                    const chName =
+                                      row.channelNames?.[ch.channel] ||
+                                      `${row.name || dev.ip}-CH${ch.channel}`;
+                                    return (
+                                      <div
+                                        key={ch.channel}
+                                        className="flex items-center gap-2"
+                                      >
+                                        <Checkbox
+                                          checked={chSel}
+                                          onCheckedChange={(v) => {
+                                            setRow(key, {
+                                              channelSelections: {
+                                                ...(row.channelSelections || {}),
+                                                [ch.channel]: !!v,
+                                              },
+                                            });
+                                          }}
+                                          className="flex-shrink-0"
+                                        />
+                                        <Input
+                                          value={chName}
+                                          onChange={(e) =>
+                                            setRow(key, {
+                                              channelNames: {
+                                                ...(row.channelNames || {}),
+                                                [ch.channel]: e.target.value,
+                                              },
+                                            })
+                                          }
+                                          className="h-7 text-xs flex-1"
+                                          placeholder={`Channel ${ch.channel}`}
+                                        />
+                                        {ch.main?.resolution && (
+                                          <span className="text-[10px] text-zinc-400 font-mono flex-shrink-0">
+                                            {ch.main.resolution}
+                                          </span>
+                                        )}
+                                        {ch.sub && (
+                                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-700/60 text-zinc-400 flex-shrink-0">
+                                            +sub
+                                          </span>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -744,16 +1035,16 @@ export const ONVIFDiscovery = ({ open, onOpenChange, onAdded }) => {
           </Button>
           <Button
             onClick={handleBulkAdd}
-            disabled={adding || selectedCount === 0}
+            disabled={adding || totalToAdd === 0}
           >
             {adding ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Adding {selectedCount}…
+                Adding {totalToAdd}…
               </>
             ) : (
-              `Add ${selectedCount || ""} ${
-                selectedCount === 1 ? "Camera" : "Cameras"
+              `Add ${totalToAdd || ""} ${
+                totalToAdd === 1 ? "Camera" : "Cameras"
               }`.trim()
             )}
           </Button>

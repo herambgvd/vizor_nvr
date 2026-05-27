@@ -159,6 +159,22 @@ export const onvifProbe = async (data) => {
   return response.data;
 };
 
+export const onvifChannels = async (data) => {
+  const response = await apiClient.post("/cameras/onvif/channels", data, {
+    timeout: 30000,
+  });
+  return response.data;
+};
+
+export const onvifBulkAdd = async (cameras) => {
+  const response = await apiClient.post(
+    "/cameras/onvif/bulk-add",
+    { cameras },
+    { timeout: 60000 },
+  );
+  return response.data;
+};
+
 // Returns a blob URL to a JPEG snapshot from the camera. Caller is
 // responsible for revokeObjectURL when the URL is no longer needed.
 //

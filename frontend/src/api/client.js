@@ -4,8 +4,11 @@
 
 import axios from "axios";
 
-export const BACKEND_URL =
-  process.env.REACT_APP_BACKEND_URL || "http://localhost:8000";
+// Empty default = same-origin. Nginx proxies /api → backend in prod/dev
+// docker. Set REACT_APP_BACKEND_URL only when the frontend is served
+// from a different origin than the API (e.g. local CRA dev server at
+// :3000 talking to backend at :8000).
+export const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "";
 
 const apiClient = axios.create({
   baseURL: `${BACKEND_URL}/api`,

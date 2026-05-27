@@ -119,7 +119,7 @@ export const CameraSettingsPanel = ({ cameraId, snapshotUrl }) => {
     onError: () => toast.error("Failed to save schedule"),
   });
 
-  const GO2RTC_URL = process.env.REACT_APP_GO2RTC_URL || "http://localhost:1984";
+  const GO2RTC_URL = process.env.REACT_APP_GO2RTC_URL || "/go2rtc";
   const snap = snapshotUrl || `${GO2RTC_URL}/api/frame.jpeg?src=${encodeURIComponent(cameraId)}`;
 
   return (
