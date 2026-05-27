@@ -45,7 +45,6 @@ import {
   RecordingCalendar,
   ClipBuilder,
 } from "../components/nvr";
-import AIEventTimeline from "../components/camera/AIEventTimeline";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Badge } from "../components/ui/badge";
@@ -371,12 +370,6 @@ const Playback = () => {
                     onExport={handleExport}
                     onBookmark={handleBookmark}
                     isLoading={timelineLoading}
-                  />
-                  <AIEventTimeline
-                    cameraId={selectedCameraId}
-                    windowStart={startOfDay(selectedDate)}
-                    windowEnd={new Date(startOfDay(selectedDate).getTime() + 86400000)}
-                    onSeek={(ts) => handleSeek(ts)}
                   />
                 </div>
                 <div className="lg:w-64 flex-shrink-0 space-y-4">
