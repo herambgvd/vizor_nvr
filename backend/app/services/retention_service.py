@@ -78,23 +78,43 @@ class RetentionService:
 
             deleted = 0
 
-            # 1. Age-based retention
+            # 1. Age-based retention — honour per-camera override when set
             if config["days"] > 0:
-                cutoff = datetime.utcnow() - timedelta(days=config["days"])
-                result = await db.execute(
-                    select(Recording).where(
-                        Recording.start_time < cutoff,
-                        Recording.locked.is_(False),
-                    )
+                from app.cameras.models import Camera
+                cameras_result = await db.execute(select(Camera))
+                cameras_map = {c.id: c for c in cameras_result.scalars().all()}
+
+                # Group cameras by their effective retention
+                from collections import defaultdict
+                retention_groups: dict[int, list] = defaultdict(list)
+                no_camera_default = []
+
+                for cam in cameras_map.values():
+                    eff = cam.retention_days if cam.retention_days is not None else config["days"]
+                    if eff > 0:
+                        retention_groups[eff].append(cam.id)
+
+                # Fetch all unlocked recordings and delete based on per-camera cutoff
+                recs_result = await db.execute(
+                    select(Recording).where(Recording.locked.is_(False))
                 )
-                for rec in result.scalars().all():
-                    if rec.file_path and os.path.exists(rec.file_path):
-                        try:
-                            os.unlink(rec.file_path)
-                        except Exception as e:
-                            logger.warning(f"Failed to delete {rec.file_path}: {e}")
-                    await db.delete(rec)
-                    deleted += 1
+                for rec in recs_result.scalars().all():
+                    cam = cameras_map.get(rec.camera_id) if rec.camera_id else None
+                    eff_days = (
+                        cam.retention_days if (cam and cam.retention_days is not None)
+                        else config["days"]
+                    )
+                    if eff_days <= 0:
+                        continue
+                    cutoff = datetime.utcnow() - timedelta(days=eff_days)
+                    if rec.start_time < cutoff:
+                        if rec.file_path and os.path.exists(rec.file_path):
+                            try:
+                                os.unlink(rec.file_path)
+                            except Exception as e:
+                                logger.warning(f"Failed to delete {rec.file_path}: {e}")
+                        await db.delete(rec)
+                        deleted += 1
 
             # 2. Global storage limit
             max_gb = config["max_storage_gb"]

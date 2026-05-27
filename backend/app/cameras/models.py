@@ -137,6 +137,11 @@ class Camera(Base):
     onvif_events_enabled = Column(Boolean, default=False)
     onvif_event_topics = Column(JSON, nullable=True)    # list of subscribed ONVIF topics
 
+    # ── PTZ Tour ───────────────────────────────────────────────────────
+    # { "presets": [{"token": "1", "dwell_seconds": 10}, ...], "loop": true }
+    ptz_tour_config = Column(JSON, nullable=True)
+    ptz_tour_enabled = Column(Boolean, default=False, nullable=False, server_default="0")
+
     # ── ONVIF I/O ──────────────────────────────────────────────────────
     relay_outputs = Column(JSON, nullable=True)         # cached relay output tokens
     digital_inputs = Column(JSON, nullable=True)        # cached digital input tokens
@@ -150,6 +155,14 @@ class Camera(Base):
 
     # ── Bandwidth ──────────────────────────────────────────────────────
     bandwidth_limit_kbps = Column(Integer, default=0)  # 0 = unlimited
+    bandwidth_alert_threshold_pct = Column(Integer, default=80, nullable=False, server_default="80")
+
+    # ── Scheduled snapshots ────────────────────────────────────────────
+    # { "enabled": bool, "interval_seconds": int, "retention_days": int|null }
+    snapshot_config = Column(JSON, nullable=True)
+
+    # ── Retention override ─────────────────────────────────────────────
+    retention_days = Column(Integer, nullable=True)   # NULL = use global
 
     # ── Pre/Post Event Buffer ──────────────────────────────────────────
     pre_buffer_seconds = Column(Integer, default=10, nullable=True)
@@ -193,12 +206,15 @@ class CameraCreate(BaseModel):
     privacy_masks: Optional[List[Dict[str, Any]]] = None
     storage_pool_id: Optional[str] = None
     bandwidth_limit_kbps: int = 0
+    retention_days: Optional[int] = None
     pre_buffer_seconds: int = 10
     post_buffer_seconds: int = 30
     group_ids: List[str] = []
     onvif_events_enabled: bool = False
     onvif_event_topics: Optional[List[str]] = None
     onvif_profile_token: Optional[str] = None
+    ptz_tour_config: Optional[Dict[str, Any]] = None
+    ptz_tour_enabled: bool = False
 
 
 class CameraUpdate(BaseModel):
@@ -220,12 +236,15 @@ class CameraUpdate(BaseModel):
     privacy_masks: Optional[List[Dict[str, Any]]] = None
     storage_pool_id: Optional[str] = None
     bandwidth_limit_kbps: Optional[int] = None
+    retention_days: Optional[int] = None
     pre_buffer_seconds: Optional[int] = None
     post_buffer_seconds: Optional[int] = None
     group_ids: Optional[List[str]] = None
     onvif_events_enabled: Optional[bool] = None
     onvif_event_topics: Optional[List[str]] = None
     onvif_profile_token: Optional[str] = None
+    ptz_tour_config: Optional[Dict[str, Any]] = None
+    ptz_tour_enabled: Optional[bool] = None
 
 
 class CameraResponse(BaseModel):
@@ -258,6 +277,7 @@ class CameraResponse(BaseModel):
     motion_config: Optional[Dict[str, Any]]
     privacy_masks: Optional[List[Dict[str, Any]]]
     storage_pool_id: Optional[str]
+    retention_days: Optional[int] = None
     bandwidth_limit_kbps: int
     pre_buffer_seconds: int
     post_buffer_seconds: int
@@ -270,6 +290,8 @@ class CameraResponse(BaseModel):
     relay_outputs: Optional[List[Dict[str, Any]]] = None
     digital_inputs: Optional[List[Dict[str, Any]]] = None
     onvif_profile_token: Optional[str] = None
+    ptz_tour_config: Optional[Dict[str, Any]] = None
+    ptz_tour_enabled: bool = False
     created_at: datetime
     updated_at: datetime
 

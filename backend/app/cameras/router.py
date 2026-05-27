@@ -630,6 +630,145 @@ async def bulk_set_enabled(
     return {"updated": updated, "enabled": enabled}
 
 
+@router.post("/bulk", status_code=200)
+async def bulk_camera_action(
+    request: Request,
+    user: dict = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Unified bulk action endpoint.
+
+    Body::
+
+        {
+            "action": "delete|enable|disable|move_to_group|set_retention",
+            "camera_ids": ["<id>", ...],   // max 200
+            "params": {
+                // move_to_group: {"group_id": "<id>"}
+                // set_retention: {"retention_days": <int|null>}
+            }
+        }
+
+    Returns::
+
+        {"succeeded": [<id>, ...], "failed": [{"id": ..., "error": ...}, ...]}
+    """
+    from sqlalchemy import select as sa_select
+    from app.cameras.models import Camera, camera_group_members
+
+    body = await request.json()
+    action = body.get("action")
+    camera_ids = body.get("camera_ids") or []
+    params = body.get("params") or {}
+
+    VALID_ACTIONS = {"delete", "enable", "disable", "move_to_group", "set_retention"}
+    if action not in VALID_ACTIONS:
+        raise HTTPException(400, f"action must be one of {sorted(VALID_ACTIONS)}")
+
+    if not isinstance(camera_ids, list):
+        raise HTTPException(400, "camera_ids must be a list")
+
+    if len(camera_ids) > 200:
+        raise HTTPException(400, "camera_ids may not exceed 200 per request")
+
+    # Empty list is a valid no-op
+    if not camera_ids:
+        return {"succeeded": [], "failed": []}
+
+    succeeded = []
+    failed = []
+
+    if action == "delete":
+        from app.services.ffmpeg_manager import ffmpeg_manager
+        from app.services.go2rtc_manager import go2rtc_manager
+        from app.cameras.onvif_event_service import onvif_event_service
+
+        for cid in camera_ids:
+            try:
+                await ffmpeg_manager.stop_recording(cid)
+                await go2rtc_manager.remove_stream(cid)
+                await go2rtc_manager.remove_stream(f"{cid}_sub")
+                await onvif_event_service.stop_camera(cid)
+            except Exception:
+                pass
+
+            if await svc.delete(db, cid):
+                _purge_camera_files(cid)
+                succeeded.append(cid)
+            else:
+                failed.append({"id": cid, "error": "not_found"})
+
+        if succeeded:
+            await write_audit(
+                db, action="camera_bulk_delete", user_id=user["id"],
+                username=user["username"], ip_address=client_ip(request),
+                resource_type="camera", resource_id=",".join(succeeded),
+                severity="warning",
+                details={"deleted_count": len(succeeded), "failed": len(failed)},
+            )
+
+    elif action in ("enable", "disable"):
+        enabled_val = action == "enable"
+        for cid in camera_ids:
+            cam = (
+                await db.execute(sa_select(Camera).where(Camera.id == cid))
+            ).scalar_one_or_none()
+            if cam:
+                cam.is_enabled = enabled_val
+                succeeded.append(cid)
+            else:
+                failed.append({"id": cid, "error": "not_found"})
+
+    elif action == "move_to_group":
+        group_id = params.get("group_id")
+        if not group_id:
+            raise HTTPException(400, "params.group_id required for move_to_group")
+
+        from app.cameras.models import CameraGroup
+        group = (
+            await db.execute(sa_select(CameraGroup).where(CameraGroup.id == group_id))
+        ).scalar_one_or_none()
+        if not group:
+            raise HTTPException(404, f"Group {group_id} not found")
+
+        for cid in camera_ids:
+            cam = (
+                await db.execute(
+                    sa_select(Camera).where(Camera.id == cid)
+                )
+            ).scalar_one_or_none()
+            if not cam:
+                failed.append({"id": cid, "error": "not_found"})
+                continue
+            try:
+                # Load groups relationship, add this group if not present
+                await db.refresh(cam, ["groups"])
+                group_ids_now = [g.id for g in cam.groups]
+                if group_id not in group_ids_now:
+                    cam.groups.append(group)
+                succeeded.append(cid)
+            except Exception as exc:
+                failed.append({"id": cid, "error": str(exc)})
+
+    elif action == "set_retention":
+        retention_days = params.get("retention_days")  # None clears the override
+        if retention_days is not None and not isinstance(retention_days, int):
+            raise HTTPException(400, "params.retention_days must be an integer or null")
+        for cid in camera_ids:
+            cam = (
+                await db.execute(sa_select(Camera).where(Camera.id == cid))
+            ).scalar_one_or_none()
+            if cam:
+                cam.retention_days = retention_days
+                succeeded.append(cid)
+            else:
+                failed.append({"id": cid, "error": "not_found"})
+
+    await db.commit()
+    return {"succeeded": succeeded, "failed": failed}
+
+
 @router.post("/reorder", status_code=200)
 async def reorder_cameras(
     request: Request,
@@ -1930,3 +2069,295 @@ async def get_twoway_audio_status(
 ):
     """Check if two-way audio is active for a camera."""
     return {"camera_id": camera_id, "active": twoway_audio_service.is_active(camera_id)}
+
+
+# ══════════════════════════════════════════════════════════════════════
+# PTZ Tour (B1)
+# ══════════════════════════════════════════════════════════════════════
+
+@router.get("/{camera_id}/ptz/tour")
+async def get_ptz_tour(
+    camera_id: str,
+    user: dict = Depends(require_permission("manage_camera")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return current PTZ tour config and running state."""
+    camera = await svc.get_by_id(db, camera_id)
+    if not camera:
+        raise HTTPException(404, "Camera not found")
+    from app.services.ptz_tour_service import ptz_tour_service
+    running = camera_id in ptz_tour_service._tours and not ptz_tour_service._tours[camera_id].done()
+    return {
+        "camera_id": camera_id,
+        "ptz_tour_enabled": getattr(camera, "ptz_tour_enabled", False) or False,
+        "ptz_tour_config": getattr(camera, "ptz_tour_config", None) or {},
+        "running": running,
+    }
+
+
+@router.put("/{camera_id}/ptz/tour")
+async def upsert_ptz_tour(
+    camera_id: str,
+    body: dict,
+    request: Request,
+    user: dict = Depends(require_permission("manage_camera")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Upsert PTZ tour config. Body: {presets:[{token, dwell_seconds}], loop:bool}"""
+    camera = await svc.get_by_id(db, camera_id)
+    if not camera:
+        raise HTTPException(404, "Camera not found")
+    presets = body.get("presets", [])
+    loop = bool(body.get("loop", True))
+    camera.ptz_tour_config = {"presets": presets, "loop": loop}
+    await write_audit(
+        db, action="ptz_tour_config", user_id=user["id"], username=user["username"],
+        ip_address=client_ip(request), resource_type="camera", resource_id=camera_id,
+    )
+    await db.commit()
+    return {"camera_id": camera_id, "ptz_tour_config": camera.ptz_tour_config}
+
+
+@router.post("/{camera_id}/ptz/tour/start")
+async def start_ptz_tour(
+    camera_id: str,
+    request: Request,
+    user: dict = Depends(require_permission("manage_camera")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Enable PTZ tour for this camera (service polls every 5 s)."""
+    camera = await svc.get_by_id(db, camera_id)
+    if not camera:
+        raise HTTPException(404, "Camera not found")
+    if not camera.ptz_capable or not camera.onvif_host:
+        raise HTTPException(400, "Camera does not support PTZ or ONVIF not configured")
+    config = getattr(camera, "ptz_tour_config", None) or {}
+    if not config.get("presets"):
+        raise HTTPException(400, "No tour presets configured — PUT /ptz/tour first")
+    camera.ptz_tour_enabled = True
+    await write_audit(
+        db, action="ptz_tour_start", user_id=user["id"], username=user["username"],
+        ip_address=client_ip(request), resource_type="camera", resource_id=camera_id,
+    )
+    await db.commit()
+    return {"camera_id": camera_id, "ptz_tour_enabled": True}
+
+
+@router.post("/{camera_id}/ptz/tour/stop")
+async def stop_ptz_tour(
+    camera_id: str,
+    request: Request,
+    user: dict = Depends(require_permission("manage_camera")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Disable PTZ tour for this camera."""
+    camera = await svc.get_by_id(db, camera_id)
+    if not camera:
+        raise HTTPException(404, "Camera not found")
+    camera.ptz_tour_enabled = False
+    await write_audit(
+        db, action="ptz_tour_stop", user_id=user["id"], username=user["username"],
+        ip_address=client_ip(request), resource_type="camera", resource_id=camera_id,
+    )
+    await db.commit()
+    return {"camera_id": camera_id, "ptz_tour_enabled": False}
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Firmware Upload (B2)
+# ══════════════════════════════════════════════════════════════════════
+
+@router.get("/{camera_id}/firmware/info")
+async def get_firmware_info(
+    camera_id: str,
+    user: dict = Depends(require_permission("manage_camera")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return device info including current firmware version."""
+    camera = await svc.get_by_id(db, camera_id)
+    if not camera or not camera.onvif_host:
+        raise HTTPException(404, "Camera not found or ONVIF not configured")
+    info = await onvif_service.get_device_system_info(
+        camera.onvif_host, camera.onvif_port,
+        decrypt_value(camera.onvif_username) or "admin",
+        decrypt_value(camera.onvif_password or ""),
+    )
+    return {"camera_id": camera_id, **info}
+
+
+@router.post("/{camera_id}/firmware/upload", status_code=202)
+async def upload_firmware(
+    camera_id: str,
+    request: Request,
+    user: dict = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Upload firmware to the camera via ONVIF UpgradeSystemFirmware.
+    Accepts multipart/form-data with a 'firmware' file field.
+    Returns 202 — camera will reboot during upgrade.
+    """
+    from fastapi import UploadFile, File
+    import tempfile, os as _os
+
+    camera = await svc.get_by_id(db, camera_id)
+    if not camera or not camera.onvif_host:
+        raise HTTPException(404, "Camera not found or ONVIF not configured")
+
+    form = await request.form()
+    fw_file = form.get("firmware")
+    if fw_file is None:
+        raise HTTPException(400, "No 'firmware' field in form data")
+
+    firmware_bytes = await fw_file.read()
+    if not firmware_bytes:
+        raise HTTPException(400, "Empty firmware file")
+
+    result = await onvif_service.upgrade_firmware(
+        camera.onvif_host, camera.onvif_port,
+        decrypt_value(camera.onvif_username) or "admin",
+        decrypt_value(camera.onvif_password or ""),
+        firmware_bytes=firmware_bytes,
+    )
+
+    await write_audit(
+        db, action="firmware_upload", user_id=user["id"], username=user["username"],
+        ip_address=client_ip(request), resource_type="camera", resource_id=camera_id,
+        severity="warning",
+        details={"bytes": len(firmware_bytes), "result": result},
+    )
+    await db.commit()
+    return {"camera_id": camera_id, "started": result.get("started", False), "message": result.get("message", "")}
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Credential Rotation (B3)
+# ══════════════════════════════════════════════════════════════════════
+
+@router.post("/{camera_id}/credentials/rotate")
+async def rotate_credentials(
+    camera_id: str,
+    body: dict,
+    request: Request,
+    user: dict = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Rotate ONVIF user password. Body: {"new_password": "..."}
+    Updates camera DB row and re-registers go2rtc stream with new credentials.
+    """
+    new_pass = (body.get("new_password") or "").strip()
+    if len(new_pass) < 8:
+        raise HTTPException(400, "new_password must be at least 8 characters")
+
+    camera = await svc.get_by_id(db, camera_id)
+    if not camera or not camera.onvif_host:
+        raise HTTPException(404, "Camera not found or ONVIF not configured")
+
+    current_user = decrypt_value(camera.onvif_username) if camera.onvif_username else "admin"
+    current_pass = decrypt_value(camera.onvif_password) if camera.onvif_password else ""
+
+    ok = await onvif_service.set_user_password(
+        camera.onvif_host, camera.onvif_port,
+        current_user, current_pass, new_pass,
+    )
+    if not ok:
+        raise HTTPException(500, "Failed to rotate camera password via ONVIF")
+
+    # Update DB with encrypted new password
+    from app.core.crypto import encrypt_value
+    camera.onvif_password = encrypt_value(new_pass)
+
+    # Re-register go2rtc stream with new credentials
+    if camera.main_stream_url:
+        from app.services.go2rtc_manager import go2rtc_manager
+        from urllib.parse import urlparse, quote as _q
+
+        def _inject_creds(url: str, username: str, password: str) -> str:
+            if "://" not in url:
+                return url
+            parsed = urlparse(url)
+            netloc = f"{_q(username, safe='')}:{_q(password, safe='')}@{parsed.hostname}"
+            if parsed.port:
+                netloc += f":{parsed.port}"
+            return parsed._replace(netloc=netloc).geturl()
+
+        new_main = _inject_creds(camera.main_stream_url, current_user, new_pass)
+        camera.main_stream_url = new_main
+        await go2rtc_manager.add_stream(camera_id, new_main)
+        if camera.sub_stream_url:
+            new_sub = _inject_creds(camera.sub_stream_url, current_user, new_pass)
+            camera.sub_stream_url = new_sub
+            await go2rtc_manager.add_stream(f"{camera_id}_sub", new_sub)
+
+    await write_audit(
+        db, action="credentials_rotate", user_id=user["id"], username=user["username"],
+        ip_address=client_ip(request), resource_type="camera", resource_id=camera_id,
+        severity="warning",
+    )
+    await db.commit()
+    return {"camera_id": camera_id, "rotated": True, "username": current_user}
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Two-Way Audio Backchannel (B4) — WebRTC-friendly aliases
+# ══════════════════════════════════════════════════════════════════════
+
+@router.post("/{camera_id}/audio/backchannel/start")
+async def start_backchannel(
+    camera_id: str,
+    request: Request,
+    user: dict = Depends(require_permission("view_live")),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Register a two-way audio backchannel session for this camera.
+    go2rtc two-way audio (publish direction) is not yet wired end-to-end;
+    this endpoint starts the FFmpeg-based fallback session and returns the
+    backchannel RTSP URL so the frontend knows whether the camera supports it.
+    Gap: full WebRTC publish path requires go2rtc backchannel source — see
+    docs/ONVIF_COMPLIANCE.md for status.
+    """
+    camera = await svc.get_by_id(db, camera_id)
+    if not camera:
+        raise HTTPException(404, "Camera not found")
+
+    backchannel_url = None
+    if camera.onvif_host:
+        try:
+            backchannel_url = await onvif_service.get_audio_output_uri(
+                camera.onvif_host, camera.onvif_port,
+                decrypt_value(camera.onvif_username) or "admin",
+                decrypt_value(camera.onvif_password or ""),
+            )
+        except Exception:
+            pass
+
+    if not backchannel_url and camera.main_stream_url:
+        from urllib.parse import urlparse
+        parsed = urlparse(camera.main_stream_url)
+        backchannel_url = f"rtsp://{parsed.hostname}:554/backchannel"
+
+    if not backchannel_url:
+        raise HTTPException(503, "Two-way audio not configured on this camera")
+
+    ok = await twoway_audio_service.start_session(camera_id, backchannel_url)
+    if not ok:
+        raise HTTPException(500, "Failed to start two-way audio session")
+
+    return {
+        "camera_id": camera_id,
+        "status": "active",
+        "backchannel_url": backchannel_url,
+        "note": "WebRTC publish path not yet wired; FFmpeg fallback active",
+    }
+
+
+@router.post("/{camera_id}/audio/backchannel/stop")
+async def stop_backchannel(
+    camera_id: str,
+    user: dict = Depends(require_permission("view_live")),
+):
+    """Stop two-way audio backchannel session."""
+    await twoway_audio_service.stop_session(camera_id)
+    return {"camera_id": camera_id, "status": "stopped"}

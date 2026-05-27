@@ -23,6 +23,7 @@ import {
   RefreshCw,
   Camera as CameraIcon,
   Activity,
+  ImageIcon,
 } from "lucide-react";
 import { getCamera, getLatestHealth } from "../../api/cameras";
 import { Button } from "../../components/ui/button";
@@ -34,6 +35,7 @@ const NAV = [
   { path: "recordings", label: "Recordings", icon: Film },
   { path: "onvif", label: "ONVIF", icon: Radio },
   { path: "settings", label: "Settings", icon: SlidersHorizontal },
+  { path: "snapshots", label: "Snapshots", icon: ImageIcon },
 ];
 
 const HealthPill = ({ data }) => {

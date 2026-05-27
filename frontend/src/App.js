@@ -31,6 +31,9 @@ const CameraDetailOnvif = lazy(() =>
 const CameraDetailSettings = lazy(() =>
   import("./pages/camera-detail/SettingsPage"),
 );
+const CameraDetailSnapshots = lazy(() =>
+  import("./pages/camera-detail/SnapshotsPage"),
+);
 // Playback page replaced by unified MultiPlayback. Kept removed.
 const LiveStream = lazy(() => import("./pages/LiveStream"));
 const SettingsLayout = lazy(() =>
@@ -38,6 +41,8 @@ const SettingsLayout = lazy(() =>
 );
 const SettingsConfiguration = lazy(() => import("./pages/Settings"));
 const SettingsLicense = lazy(() => import("./pages/settings/LicensePage"));
+const SettingsTime = lazy(() => import("./pages/settings/TimeSettingsPage"));
+const SettingsNetwork = lazy(() => import("./pages/settings/NetworkSettingsPage"));
 const SettingsResources = lazy(() =>
   import("./pages/monitoring/ResourcesPage"),
 );
@@ -131,6 +136,7 @@ const AppRoutes = () => (
           <Route path="recordings" element={<CameraDetailRecordings />} />
           <Route path="onvif" element={<CameraDetailOnvif />} />
           <Route path="settings" element={<CameraDetailSettings />} />
+          <Route path="snapshots" element={<CameraDetailSnapshots />} />
         </Route>
         {/* Playback is now a single unified page (MultiPlayback). Old
             single-cam Playback retired. /playback/multi kept as alias. */}
@@ -143,6 +149,8 @@ const AppRoutes = () => (
           <Route path="resources" element={<SettingsResources />} />
           <Route path="storage" element={<SettingsStorage />} />
           <Route path="license" element={<AdminRoute><SettingsLicense /></AdminRoute>} />
+          <Route path="time" element={<AdminRoute><SettingsTime /></AdminRoute>} />
+          <Route path="network" element={<AdminRoute><SettingsNetwork /></AdminRoute>} />
           <Route
             path="audit"
             element={

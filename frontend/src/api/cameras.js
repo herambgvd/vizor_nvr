@@ -365,3 +365,91 @@ export const getLatestSnapshot = async (cameraId) => {
   const response = await apiClient.get(`/cameras/${cameraId}/snapshots/latest`);
   return response.data;
 };
+
+// ---------- PTZ Tour (B1) ----------
+
+export const getPtzTour = async (cameraId) => {
+  const response = await apiClient.get(`/cameras/${cameraId}/ptz/tour`);
+  return response.data;
+};
+
+export const putPtzTour = async (cameraId, config) => {
+  const response = await apiClient.put(`/cameras/${cameraId}/ptz/tour`, config);
+  return response.data;
+};
+
+export const startPtzTour = async (cameraId) => {
+  const response = await apiClient.post(`/cameras/${cameraId}/ptz/tour/start`);
+  return response.data;
+};
+
+export const stopPtzTour = async (cameraId) => {
+  const response = await apiClient.post(`/cameras/${cameraId}/ptz/tour/stop`);
+  return response.data;
+};
+
+// ---------- Bulk camera operations (C3) ----------
+
+export const bulkCameraAction = async (action, cameraIds, params = {}) => {
+  const response = await apiClient.post(
+    `/cameras/bulk`,
+    { action, camera_ids: cameraIds, params },
+    { timeout: 60000 },
+  );
+  return response.data;
+};
+
+// ---------- Firmware (B2) ----------
+
+export const getFirmwareInfo = async (cameraId) => {
+  const response = await apiClient.get(`/cameras/${cameraId}/firmware/info`, { timeout: 15000 });
+  return response.data;
+};
+
+export const uploadFirmware = async (cameraId, file) => {
+  const form = new FormData();
+  form.append("firmware", file);
+  const response = await apiClient.post(`/cameras/${cameraId}/firmware/upload`, form, {
+    headers: { "Content-Type": "multipart/form-data" },
+    timeout: 120000,
+  });
+  return response.data;
+};
+
+// ---------- Credentials (B3) ----------
+
+export const rotateCredentials = async (cameraId, newPassword) => {
+  const response = await apiClient.post(`/cameras/${cameraId}/credentials/rotate`, {
+    new_password: newPassword,
+  });
+  return response.data;
+};
+
+// ---------- Two-way Audio Backchannel (B4) ----------
+
+export const startBackchannel = async (cameraId) => {
+  const response = await apiClient.post(`/cameras/${cameraId}/audio/backchannel/start`);
+  return response.data;
+};
+
+export const stopBackchannel = async (cameraId) => {
+  const response = await apiClient.post(`/cameras/${cameraId}/audio/backchannel/stop`);
+  return response.data;
+};
+
+// ---------- Scheduled Snapshots (D1) ----------
+
+export const getScheduledSnapshotConfig = async (cameraId) => {
+  const response = await apiClient.get(`/cameras/${cameraId}/snapshots/scheduled`);
+  return response.data;
+};
+
+export const updateScheduledSnapshotConfig = async (cameraId, config) => {
+  const response = await apiClient.put(`/cameras/${cameraId}/snapshots/scheduled`, config);
+  return response.data;
+};
+
+export const listSnapshots = async (cameraId, params = {}) => {
+  const response = await apiClient.get(`/cameras/${cameraId}/snapshots/gallery`, { params });
+  return response.data;
+};

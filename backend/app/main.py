@@ -327,6 +327,7 @@ from app.cameras.schedule_templates_router import router as schedule_templates_r
 from app.snapshots.router import router as snapshots_router
 
 app.include_router(auth_router, prefix="/api")
+app.include_router(snapshots_router, prefix="/api")
 app.include_router(cameras_router, prefix="/api")
 app.include_router(recordings_router, prefix="/api")
 app.include_router(bookmarks_router, prefix="/api")
@@ -345,7 +346,6 @@ app.include_router(events_ingest_router)
 app.include_router(events_sse_router)
 app.include_router(license_router)
 app.include_router(schedule_templates_router, prefix="/api")
-app.include_router(snapshots_router, prefix="/api")
 
 # ONVIF device endpoints are NOT under /api (VMS expects root-level paths)
 app.include_router(onvif_device_router)
