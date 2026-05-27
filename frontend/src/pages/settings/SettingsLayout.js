@@ -14,6 +14,8 @@ import {
   HardDrive,
   Shield,
   KeyRound,
+  Clock,
+  Network,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { useAuth } from "../../context/AuthContext";
@@ -31,6 +33,8 @@ const SettingsLayout = () => {
   const NAV = isAdmin
     ? [
         ...BASE_NAV,
+        { path: "time", label: "Time & NTP", icon: Clock },
+        { path: "network", label: "Network", icon: Network },
         { path: "license", label: "License", icon: KeyRound },
         { path: "audit", label: "Audit Log", icon: Shield },
       ]

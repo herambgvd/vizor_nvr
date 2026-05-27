@@ -41,6 +41,15 @@ export const setDDNSConfig = (cfg) =>
 export const checkUpdates = () => client.get("/system/updates/check").then(r => r.data);
 export const applyUpdates = () => client.post("/system/updates/apply").then(r => r.data);
 
+// ── Time / Timezone (Feature A1) ───────────────────────────────────────────
+export const getSystemTime = () => client.get("/system/time").then(r => r.data);
+export const setSystemTime = (cfg) => client.put("/system/time", cfg).then(r => r.data);
+export const pushTimeToCameras = () => client.post("/system/time/push").then(r => r.data);
+
+// ── Network (Feature A2) ───────────────────────────────────────────────────
+export const getNetworkConfig = () => client.get("/system/network").then(r => r.data);
+export const setNetworkConfig = (cfg) => client.put("/system/network", cfg).then(r => r.data);
+
 // ── Disk health (Phase 4.2) ────────────────────────────────────────────────
 export const getDiskHealth = () => client.get("/monitoring/disks").then(r => r.data);
 

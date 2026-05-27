@@ -21,6 +21,138 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/system", tags=["System"])
 
 
+# ─── Time / Timezone (Feature A1) ─────────────────────────────────────────────
+
+class TimeConfigBody(BaseModel):
+    timezone: Optional[str] = None
+    ntp_server: Optional[str] = None   # set null to disable NTP and use manual time
+    manual_utc: Optional[str] = None   # ISO-8601, used when ntp_server is null
+
+
+@router.get("/time")
+async def get_time(user: dict = Depends(get_admin_user)):
+    """Return current NVR UTC time, timezone, NTP server and sync status."""
+    from datetime import datetime, timezone as _tz
+    from app.settings.service import SettingsService
+    from app.database import async_session_maker
+    async with async_session_maker() as db:
+        tz_name = await SettingsService.get_value(db, "system_timezone", "UTC")
+        ntp_server = await SettingsService.get_value(db, "ntp_server", None)
+    ntp_synced = None
+    if shutil.which("timedatectl"):
+        try:
+            res = subprocess.run(
+                ["timedatectl", "show", "--property=NTPSynchronized"],
+                capture_output=True, timeout=5, text=True,
+            )
+            for line in res.stdout.splitlines():
+                if "=" in line:
+                    k, v = line.split("=", 1)
+                    if k == "NTPSynchronized":
+                        ntp_synced = v.strip().lower() == "yes"
+        except Exception as e:
+            logger.debug(f"timedatectl probe failed: {e}")
+    return {
+        "now_utc": datetime.now(_tz.utc).isoformat(),
+        "timezone": tz_name,
+        "ntp_server": ntp_server,
+        "ntp_synced": ntp_synced,
+    }
+
+
+@router.put("/time")
+async def set_time(
+    body: TimeConfigBody,
+    request: Request,
+    user: dict = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update timezone and/or NTP server. If ntp_server is null and manual_utc
+    is given, attempts to set the system clock (requires privilege)."""
+    from app.settings.service import SettingsService
+    changes = []
+    if body.timezone:
+        await SettingsService.set_value(db, "system_timezone", body.timezone, category="system")
+        changes.append(f"timezone={body.timezone}")
+        if shutil.which("timedatectl"):
+            try:
+                subprocess.run(["timedatectl", "set-timezone", body.timezone],
+                               timeout=5, check=False)
+            except Exception as e:
+                logger.warning(f"timedatectl set-timezone failed: {e}")
+    if body.ntp_server is not None:
+        await SettingsService.set_value(db, "ntp_server", body.ntp_server, category="system")
+        changes.append(f"ntp_server={body.ntp_server}")
+        if shutil.which("timedatectl"):
+            try:
+                subprocess.run(["timedatectl", "set-ntp", "true"],
+                               timeout=5, check=False)
+            except Exception as e:
+                logger.warning(f"timedatectl set-ntp failed: {e}")
+        elif shutil.which("ntpdate") and body.ntp_server:
+            try:
+                subprocess.run(["ntpdate", "-u", body.ntp_server],
+                               timeout=15, check=False)
+            except Exception as e:
+                logger.warning(f"ntpdate failed: {e}")
+    elif body.manual_utc:
+        # Disable NTP and set manual clock if possible
+        if shutil.which("timedatectl"):
+            try:
+                subprocess.run(["timedatectl", "set-ntp", "false"],
+                               timeout=5, check=False)
+                subprocess.run(["timedatectl", "set-time", body.manual_utc],
+                               timeout=5, check=False)
+            except Exception as e:
+                logger.warning(f"timedatectl set-time failed: {e}")
+        changes.append(f"manual_utc={body.manual_utc}")
+    await write_audit(
+        db, action="time_config_set",
+        user_id=user["id"], username=user["username"],
+        ip_address=client_ip(request), resource_type="system",
+        description=f"Time settings updated: {', '.join(changes)}",
+    )
+    await db.commit()
+    return await get_time(user)
+
+
+@router.post("/time/push")
+async def push_time_to_cameras(
+    request: Request,
+    user: dict = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Push current NVR time to every online camera via ONVIF SetSystemDateAndTime."""
+    from sqlalchemy import text
+    from app.cameras.onvif_service import onvif_service
+    rows = (await db.execute(text(
+        "SELECT id, name, onvif_host, onvif_port, onvif_username, onvif_password "
+        "FROM cameras WHERE onvif_host IS NOT NULL AND onvif_host != ''"
+    ))).fetchall()
+    cameras = [dict(r._mapping) for r in rows]
+    pushed = 0
+    failed = []
+    for cam in cameras:
+        ok = await onvif_service.sync_camera_time(
+            host=cam["onvif_host"],
+            port=cam.get("onvif_port") or 80,
+            username=cam.get("onvif_username") or "admin",
+            password=cam.get("onvif_password") or "admin",
+        )
+        if ok:
+            pushed += 1
+        else:
+            failed.append({"camera_id": cam["id"], "name": cam.get("name"), "host": cam["onvif_host"]})
+    await write_audit(
+        db, action="time_push_cameras",
+        user_id=user["id"], username=user["username"],
+        ip_address=client_ip(request), resource_type="system",
+        description=f"Time pushed to {pushed} cameras, {len(failed)} failed",
+    )
+    await db.commit()
+    return {"pushed": pushed, "failed": failed}
+
+
 # ─── Version + uptime ─────────────────────────────────────────────────────────
 
 import time as _t
@@ -138,6 +270,94 @@ async def ntp_sync(
     )
     await db.commit()
     return await ntp_status(user)
+
+
+# ─── Network config (Feature A2) ──────────────────────────────────────────────
+
+class NetworkConfigBody(BaseModel):
+    lan_subnet: Optional[str] = None
+    cors_origins: Optional[str] = None
+    nvr_public_host: Optional[str] = None
+    go2rtc_candidates: Optional[str] = None
+
+
+@router.get("/network")
+async def get_network(user: dict = Depends(get_admin_user)):
+    """Return current network info (read-only host info + app-level mutable knobs)."""
+    import socket
+    import platform
+    from app.settings.service import SettingsService
+    from app.database import async_session_maker
+
+    interfaces = []
+    try:
+        import psutil  # type: ignore
+        for iface, addrs in psutil.net_if_addrs().items():
+            for addr in addrs:
+                import psutil as _p
+                if addr.family == _p.AF_LINK:
+                    continue
+                import socket as _s
+                if addr.family not in (_s.AF_INET, _s.AF_INET6):
+                    continue
+                interfaces.append({
+                    "name": iface,
+                    "ip": addr.address,
+                    "mask": addr.netmask,
+                    "family": "ipv4" if addr.family == _s.AF_INET else "ipv6",
+                })
+    except Exception as e:
+        logger.debug(f"psutil net_if_addrs failed: {e}")
+
+    async with async_session_maker() as db:
+        lan_subnet = await SettingsService.get_value(db, "lan_subnet", "")
+        cors_origins = await SettingsService.get_value(db, "cors_origins", "*")
+        nvr_public_host = await SettingsService.get_value(db, "nvr_public_host", "")
+        go2rtc_candidates = await SettingsService.get_value(db, "go2rtc_candidates", "")
+
+    return {
+        "hostname": socket.gethostname(),
+        "platform": platform.system(),
+        "interfaces": interfaces,
+        "lan_subnet": lan_subnet,
+        "cors_origins": cors_origins,
+        "nvr_public_host": nvr_public_host,
+        "go2rtc_candidates": go2rtc_candidates,
+    }
+
+
+@router.put("/network")
+async def set_network(
+    body: NetworkConfigBody,
+    request: Request,
+    user: dict = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Persist mutable application-level network knobs."""
+    from app.settings.service import SettingsService
+    changes = []
+    if body.lan_subnet is not None:
+        await SettingsService.set_value(db, "lan_subnet", body.lan_subnet, category="network")
+        changes.append(f"lan_subnet={body.lan_subnet}")
+    if body.cors_origins is not None:
+        await SettingsService.set_value(db, "cors_origins", body.cors_origins, category="network")
+        changes.append(f"cors_origins={body.cors_origins}")
+    if body.nvr_public_host is not None:
+        await SettingsService.set_value(db, "nvr_public_host", body.nvr_public_host, category="network")
+        changes.append(f"nvr_public_host={body.nvr_public_host}")
+    if body.go2rtc_candidates is not None:
+        await SettingsService.set_value(db, "go2rtc_candidates", body.go2rtc_candidates, category="network")
+        changes.append(f"go2rtc_candidates={body.go2rtc_candidates}")
+    if not changes:
+        raise HTTPException(400, "No mutable network fields provided")
+    await write_audit(
+        db, action="network_config_set",
+        user_id=user["id"], username=user["username"],
+        ip_address=client_ip(request), resource_type="system",
+        description=f"Network config updated: {', '.join(changes)}",
+    )
+    await db.commit()
+    return await get_network(user)
 
 
 # ─── DDNS (Phase 7.8) ─────────────────────────────────────────────────────────
