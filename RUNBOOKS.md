@@ -1,6 +1,6 @@
-# Vizor AI NVR — Operations Runbooks
+# GVD NVR — Operations Runbooks
 
-Quick-reference incident response for the Vizor stack. Each section
+Quick-reference incident response for the GVD NVR stack. Each section
 starts with **Symptoms**, then **Diagnose**, then **Fix**, then
 **Verify**. Optimized for on-call paging at 3 AM.
 
@@ -12,12 +12,8 @@ Service map:
 | Backend (FastAPI) | `gvd_backend` | Yes — control plane |
 | Frontend (nginx + React) | `gvd_frontend` | No — UI only |
 | go2rtc (WebRTC live) | `gvd_go2rtc` | Yes — live view |
-| Redis | `vizor-redis` (legacy net) | Yes — bridge + cache |
+| Redis | `vizor-redis` (legacy net) | Yes — cache |
 | RustFS (S3) | `vizor-rustfs` | Yes — recordings + photos |
-| Qdrant | `vizor-qdrant` | Yes — FRS embeddings |
-| Triton | `vizor-triton` | Yes for AI inference |
-| (Future) VST | `gvd_vst` | Yes when shipped |
-| (Future) Perception Microservice | `gvd_perception` | Yes when shipped |
 
 ---
 
@@ -39,7 +35,7 @@ df -h /var/lib/docker/volumes/vizor_nvr_db_data
 **Fix**
 - Stopped container → `docker compose up -d db`
 - Out of disk → free space (`docker system prune`, rotate logs); volume runs on `/var/lib/docker`
-- Corrupt WAL → restore from PITR backup (see §10)
+- Corrupt WAL → restore from PITR backup (see §8)
 - Connection pool exhausted on backend → restart backend, increase `DB_POOL_MAX` env
 
 **Verify**
@@ -49,48 +45,7 @@ df -h /var/lib/docker/volumes/vizor_nvr_db_data
 
 ---
 
-## 2. Metropolis bridge stuck / DLQ growing
-
-**Symptoms**
-- `/metrics` shows `vizor_events_ingested_total` flat
-- DLQ length climbing (Grafana: `redis_stream_length{stream="metropolis:events:dlq"}`)
-- Backend logs: `Failed to ingest event with dedup_key=…`
-
-**Diagnose**
-```bash
-# Bridge status
-docker compose logs --tail=200 backend | grep -i metropolis
-# DLQ size + sample
-docker exec gvd_backend python scripts/dlq_replay.py list --limit 10
-# Specific entry
-docker exec gvd_backend python scripts/dlq_replay.py inspect <entry_id>
-```
-
-**Common reasons**
-| Reason | Cause | Fix |
-|---|---|---|
-| `decode_error` | Upstream payload schema drift | Update `metropolis_to_ingest_event` translator |
-| `ingest_failed` | Backend 5xx | Fix backend, then `dlq_replay.py replay --reason ingest_failed` |
-| `ingest_failed` w/ 401 | API key revoked or expired | Issue new key, redeploy bridge env |
-
-**Replay**
-```bash
-# Replay one
-docker exec gvd_backend python scripts/dlq_replay.py replay <entry_id>
-# Replay all of one kind
-docker exec gvd_backend python scripts/dlq_replay.py replay --reason ingest_failed
-# Clear (only after manual diagnosis)
-docker exec gvd_backend python scripts/dlq_replay.py clear --yes
-```
-
-**Verify**
-- DLQ length drops to 0 over next 30s
-- `vizor_events_ingested_total` resumes climbing
-- New events from cameras appear in NVR Events page
-
----
-
-## 3. Camera offline / no recording
+## 2. Camera offline / no recording
 
 **Symptoms**
 - Camera health icon red in UI
@@ -119,7 +74,7 @@ curl -s http://localhost:1984/api/streams | jq
 
 ---
 
-## 4. go2rtc not serving WebRTC
+## 3. go2rtc not serving WebRTC
 
 **Symptoms**
 - Live view stuck on "Connecting…"
@@ -145,7 +100,7 @@ docker exec gvd_go2rtc curl -m 3 stun.l.google.com:19302
 
 ---
 
-## 5. Storage full
+## 4. Storage full
 
 **Symptoms**
 - Recordings stop, new files fail
@@ -172,32 +127,7 @@ docker compose logs --tail=200 backend | grep retention_service
 
 ---
 
-## 6. GPU OOM / Triton OOM
-
-**Symptoms**
-- Inference workers crash on model load
-- `nvidia-smi` shows 100% memory
-- Logs: `CUDA out of memory`
-
-**Diagnose**
-```bash
-nvidia-smi
-docker exec vizor-triton tritonserver --model-status
-```
-
-**Fix**
-- Restart Triton: `docker compose restart triton`
-- Reduce batch size in model config files (`config.pbtxt`)
-- Offload one model: `curl -X POST localhost:8000/v2/repository/models/<name>/unload`
-- Acquire bigger GPU (L4 / T4) — RTX 4050 6GB caps at ~4-8 cameras for FRS
-
-**Verify**
-- `nvidia-smi` shows usage <90%
-- Inference latency p99 back under SLA
-
----
-
-## 7. Backend slow (high latency)
+## 5. Backend slow (high latency)
 
 **Symptoms**
 - p99 request latency > 2s in Grafana
@@ -225,32 +155,7 @@ curl -s localhost:8000/metrics | grep http_request_duration
 
 ---
 
-## 8. Person enrolled but never matched
-
-**Symptoms**
-- FRS person exists in `frs_persons`
-- No `FaceMatch` events ever fire for them
-
-**Diagnose**
-```sql
-SELECT id, name, last_seen_at FROM frs_persons WHERE name = '...';
-SELECT * FROM frs_photos WHERE person_id = '...';
-```
-- Photos present?
-- Qdrant point IDs valid? (`curl http://vizor-qdrant:6333/collections/frs_faces/points/<qdrant_point_id>`)
-
-**Fix**
-- No photos → re-enroll w/ photo upload
-- Photo present but Qdrant 404 → embedding job failed; re-trigger
-- Photo+Qdrant present but no match → tune `match_threshold` lower on the camera's FRS scenario config
-
-**Verify**
-- Test face appears in camera, event fires within 2s
-- `person_id` field populated on event
-
----
-
-## 9. API key compromised
+## 6. API key compromised
 
 **Symptoms**
 - Suspicious `/api/events/ingest` from unexpected IP
@@ -265,7 +170,7 @@ curl -X POST http://localhost:8000/api/admin/api-keys/<key_id>/revoke \
 curl -X POST http://localhost:8000/api/admin/api-keys \
   -H "Authorization: Bearer <admin_jwt>" \
   -d '{"name": "bridge-replacement", "scopes": ["events:ingest"]}'
-# Update consumer (Metropolis bridge env), redeploy
+# Update consumer, redeploy
 ```
 
 **Verify**
@@ -275,7 +180,24 @@ curl -X POST http://localhost:8000/api/admin/api-keys \
 
 ---
 
-## 10. Disaster recovery — Postgres point-in-time restore
+## 7. Secrets rotation
+
+When rotating JWT_SECRET_KEY:
+1. Generate new: `python -c "import secrets; print(secrets.token_hex(32))"`
+2. Update encrypted env: `bash scripts/sops-bootstrap.sh edit backend/.sops.env`
+3. Restart backend
+4. All existing JWTs invalidate — operators must re-login
+
+When rotating API keys: see §6.
+
+When rotating DB password:
+1. `docker exec gvd_db psql -U postgres -c "ALTER USER nvr PASSWORD 'new_pwd'"`
+2. Update encrypted env + restart backend
+3. Connection pool reconnects with new credentials
+
+---
+
+## 8. Disaster recovery — Postgres point-in-time restore
 
 **Symptoms**
 - Bad migration / accidental delete / hardware failure
@@ -303,23 +225,6 @@ docker compose run --rm backend alembic current
 
 ---
 
-## 11. Secrets rotation
-
-When rotating JWT_SECRET_KEY:
-1. Generate new: `python -c "import secrets; print(secrets.token_hex(32))"`
-2. Update encrypted env: `bash scripts/sops-bootstrap.sh edit backend/.sops.env`
-3. Restart backend
-4. All existing JWTs invalidate — operators must re-login
-
-When rotating API keys: see §9.
-
-When rotating DB password:
-1. `docker exec gvd_db psql -U postgres -c "ALTER USER nvr PASSWORD 'new_pwd'"`
-2. Update encrypted env + restart backend
-3. Connection pool reconnects with new credentials
-
----
-
 ## Common one-liners
 
 ```bash
@@ -333,13 +238,6 @@ docker exec gvd_db psql -U nvr -d gvd_nvr -c \
 # Check TimescaleDB chunk usage
 docker exec gvd_db psql -U nvr -d gvd_nvr -c \
   "SELECT hypertable_name, num_chunks, compressed_total_size FROM timescaledb_information.hypertables_size"
-
-# Re-seed AI scenarios (e.g. after editing seed.py)
-docker compose run --rm backend python -c \
-  "import asyncio; from app.database import async_session_maker; from app.ai.seed import seed_ai_scenarios
-asyncio.run((async def x():
-    async with async_session_maker() as db:
-        await seed_ai_scenarios(db))())"
 
 # Manual ingest test (smoke /api/events/ingest)
 curl -X POST http://localhost:8000/api/events/ingest \
@@ -357,5 +255,5 @@ curl -X POST http://localhost:8000/api/events/ingest \
 - L3: SRE lead (1 hr)
 - L4: founder / CTO
 
-Hardware loss (GPU/host) → page L3 immediately.
+Hardware loss (host) → page L3 immediately.
 Data loss (DB corruption, RustFS) → page L4 immediately, freeze writes.
