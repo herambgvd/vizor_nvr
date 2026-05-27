@@ -1,10 +1,9 @@
 // =============================================================================
 // Layout — Horizontal top-bar shell
 // =============================================================================
-// 5 primary nav items: Dashboard, Cameras, Events, AI Modules, Settings.
+// 4 primary nav items: Dashboard, Cameras, Events, Settings.
 // Settings hosts a sub-menu (Notifications / Monitoring / Audit Log /
-// Configuration). Playback nested under Cameras. FRS Gallery lives
-// under AI Modules.
+// Configuration). Playback nested under Cameras.
 // =============================================================================
 
 import React, { useState, useEffect, useRef } from "react";
@@ -18,7 +17,6 @@ import {
   Settings,
   Bell,
   BellRing,
-  Sparkles,
   UserSquare2,
   ChevronDown,
   LogOut,
@@ -50,7 +48,7 @@ const Layout = () => {
 
   useEffect(() => setMobileOpen(false), [location.pathname]);
 
-  // Primary nav — 5 items. Each may have `children` for hover/click sub-menu.
+  // Primary nav — 4 items. Each may have `children` for hover/click sub-menu.
   const primaryNav = [
     {
       path: "/",
@@ -72,11 +70,6 @@ const Layout = () => {
       path: "/events",
       label: "Events",
       icon: Bell,
-    },
-    {
-      path: "/ai/modules",
-      label: "AI Modules",
-      icon: Sparkles,
     },
     {
       path: "/settings",

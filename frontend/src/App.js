@@ -46,42 +46,6 @@ const Events = lazy(() => import("./pages/Events"));
 const AuditLog = lazy(() => import("./pages/AuditLog"));
 const Notifications = lazy(() => import("./pages/Notifications"));
 const MultiPlayback = lazy(() => import("./pages/MultiPlayback"));
-const AIModulesIndex = lazy(() => import("./pages/ai/AIModulesIndex"));
-const ScenarioLayout = lazy(() => import("./pages/ai/scenarios/ScenarioLayout"));
-const ScenarioStub = lazy(() => import("./pages/ai/scenarios/ScenarioStub"));
-const PCLive = lazy(() =>
-  import("./pages/ai/scenarios/people-counting/LivePage"),
-);
-const PCEvents = lazy(() =>
-  import("./pages/ai/scenarios/people-counting/EventsPage"),
-);
-const PCAnalytics = lazy(() =>
-  import("./pages/ai/scenarios/people-counting/AnalyticsPage"),
-);
-const FRSLive = lazy(() => import("./pages/ai/scenarios/frs/LivePage"));
-const FRSInvestigate = lazy(() =>
-  import("./pages/ai/scenarios/frs/InvestigatePage"),
-);
-const FRSAttendance = lazy(() =>
-  import("./pages/ai/scenarios/frs/AttendancePage"),
-);
-const FRSEvents = lazy(() => import("./pages/ai/scenarios/frs/EventsPage"));
-const FRSGroups = lazy(() => import("./pages/ai/scenarios/frs/GroupsPage"));
-const FRSAnalytics = lazy(() =>
-  import("./pages/ai/scenarios/frs/AnalyticsPage"),
-);
-const PPELive = lazy(() => import("./pages/ai/scenarios/ppe/LivePage"));
-const PPEEvents = lazy(() => import("./pages/ai/scenarios/ppe/EventsPage"));
-const PPEAnalytics = lazy(() =>
-  import("./pages/ai/scenarios/ppe/AnalyticsPage"),
-);
-const FRSPersons = lazy(() => import("./pages/FRSPersons"));
-const CameraAILayout = lazy(() =>
-  import("./pages/camera-detail/ai/CameraAILayout"),
-);
-const CameraScenarioConfig = lazy(() =>
-  import("./pages/camera-detail/ai/CameraScenarioConfig"),
-);
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 // React Query client
@@ -166,53 +130,12 @@ const AppRoutes = () => (
           <Route path="live" element={<CameraDetailLive />} />
           <Route path="recordings" element={<CameraDetailRecordings />} />
           <Route path="onvif" element={<CameraDetailOnvif />} />
-          <Route path="ai" element={<CameraAILayout />}>
-            <Route path=":slug" element={<CameraScenarioConfig />} />
-          </Route>
           <Route path="settings" element={<CameraDetailSettings />} />
         </Route>
         {/* Playback is now a single unified page (MultiPlayback). Old
             single-cam Playback retired. /playback/multi kept as alias. */}
         <Route path="playback" element={<MultiPlayback />} />
         <Route path="events" element={<Events />} />
-        {/* AI Modules — system-wide scenario workspace */}
-        <Route path="ai/modules" element={<AIModulesIndex />} />
-        {/* People Counting workspace */}
-        <Route path="ai/modules/people_counting" element={<ScenarioLayout />}>
-          <Route index element={<Navigate to="live" replace />} />
-          <Route path="live" element={<PCLive />} />
-          <Route path="events" element={<PCEvents />} />
-          <Route path="analytics" element={<PCAnalytics />} />
-        </Route>
-        {/* FRS workspace */}
-        <Route path="ai/modules/frs" element={<ScenarioLayout />}>
-          <Route index element={<Navigate to="persons" replace />} />
-          <Route path="persons" element={<FRSPersons />} />
-          <Route path="live" element={<FRSLive />} />
-          <Route path="events" element={<FRSEvents />} />
-          <Route path="attendance" element={<FRSAttendance />} />
-          <Route path="investigate" element={<FRSInvestigate />} />
-          <Route path="groups" element={<FRSGroups />} />
-          <Route path="analytics" element={<FRSAnalytics />} />
-        </Route>
-        {/* PPE workspace */}
-        <Route path="ai/modules/ppe" element={<ScenarioLayout />}>
-          <Route index element={<Navigate to="live" replace />} />
-          <Route path="live" element={<PPELive />} />
-          <Route path="events" element={<PPEEvents />} />
-          <Route path="analytics" element={<PPEAnalytics />} />
-        </Route>
-        {/* Generic catch-all for other scenarios — stubs until built */}
-        <Route path="ai/modules/:slug" element={<ScenarioLayout />}>
-          <Route index element={<ScenarioStub />} />
-          <Route path="live" element={<ScenarioStub />} />
-          <Route path="events" element={<ScenarioStub />} />
-          <Route path="analytics" element={<ScenarioStub />} />
-          <Route path="reports" element={<ScenarioStub />} />
-        </Route>
-        {/* Legacy aliases — keep so existing top-nav links don't 404 */}
-        <Route path="ai/scenarios" element={<Navigate to="/ai/modules" replace />} />
-        <Route path="ai/persons" element={<Navigate to="/ai/modules/frs/persons" replace />} />
         <Route path="settings" element={<SettingsLayout />}>
           <Route index element={<Navigate to="configuration" replace />} />
           <Route path="configuration" element={<SettingsConfiguration />} />

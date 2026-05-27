@@ -14,7 +14,6 @@ import {
   Trash2,
   Cpu,
   Camera,
-  Sparkles,
   Calendar,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -81,7 +80,6 @@ const LicensePage = () => {
     onSuccess: () => {
       toast.success("License activated");
       qc.invalidateQueries({ queryKey: ["license"] });
-      qc.invalidateQueries({ queryKey: ["ai-scenarios"] });
     },
     onError: (e) =>
       toast.error(e?.response?.data?.detail || "License activation failed"),
@@ -92,7 +90,6 @@ const LicensePage = () => {
     onSuccess: () => {
       toast.success("License cleared");
       qc.invalidateQueries({ queryKey: ["license"] });
-      qc.invalidateQueries({ queryKey: ["ai-scenarios"] });
       setConfirmClear(false);
     },
   });
@@ -230,31 +227,6 @@ const LicensePage = () => {
             limit={data?.camera_limit || 0}
             icon={Camera}
           />
-          <StatBar
-            label="AI-enabled cameras"
-            used={data?.usage?.ai_cameras || 0}
-            limit={data?.ai_camera_limit || 0}
-            icon={Sparkles}
-          />
-        </div>
-      )}
-
-      {/* Licensed scenarios */}
-      {data?.active && data?.scenarios?.length > 0 && (
-        <div className="rounded-lg border border-border bg-card/40 p-4">
-          <h3 className="text-xs text-muted-foreground uppercase tracking-wider mb-3">
-            Licensed AI scenarios
-          </h3>
-          <div className="flex flex-wrap gap-1.5">
-            {data.scenarios.map((s) => (
-              <Badge
-                key={s}
-                className="bg-teal-500/15 text-teal-300 border border-teal-500/30"
-              >
-                {s}
-              </Badge>
-            ))}
-          </div>
         </div>
       )}
 

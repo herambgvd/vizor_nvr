@@ -19,7 +19,6 @@ import {
   Video,
   Film,
   Radio,
-  Sparkles,
   SlidersHorizontal,
   RefreshCw,
   Camera as CameraIcon,
@@ -34,7 +33,6 @@ const NAV = [
   { path: "live", label: "Live View", icon: Video },
   { path: "recordings", label: "Recordings", icon: Film },
   { path: "onvif", label: "ONVIF", icon: Radio },
-  { path: "ai", label: "AI Scenarios", icon: Sparkles },
   { path: "settings", label: "Settings", icon: SlidersHorizontal },
 ];
 
