@@ -476,10 +476,14 @@ class ONVIFService:
                             "ProfileToken": profile.token,
                         })
                         url = str(uri_resp.Uri)
-                        # Inject credentials into RTSP URL
+                        # Inject credentials into RTSP URL. Percent-encode
+                        # both fields so passwords containing @ / : / # /
+                        # space survive URL parsing downstream (go2rtc,
+                        # ffmpeg, browsers).
                         if username and "://" in url:
+                            from urllib.parse import quote as _q
                             proto, rest = url.split("://", 1)
-                            url = f"{proto}://{username}:{password}@{rest}"
+                            url = f"{proto}://{_q(username, safe='')}:{_q(password or '', safe='')}@{rest}"
 
                         if i == 0:
                             uris["main_stream_url"] = url

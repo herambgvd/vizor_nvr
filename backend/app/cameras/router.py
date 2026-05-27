@@ -111,7 +111,11 @@ async def onvif_probe(
 
     # Build fallback RTSP URL if ONVIF stream URI query failed
     if not uris.get("main_stream_url"):
-        cred = f"{username}:{password}@" if username else ""
+        from urllib.parse import quote as _q
+        cred = (
+            f"{_q(username, safe='')}:{_q(password or '', safe='')}@"
+            if username else ""
+        )
         uris["main_stream_url"] = f"rtsp://{cred}{host}:554/stream1"
 
     return {

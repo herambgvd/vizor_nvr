@@ -1,14 +1,14 @@
 # =============================================================================
-# go2rtc configuration template — GENERATED FILE, DO NOT EDIT DIRECTLY
+# go2rtc runtime config
 # =============================================================================
-# This file is generated from go2rtc.yaml.template by install.sh or
-# scripts/generate-go2rtc-config.py using environment variables.
-# Edit the template or env vars instead.
+# Generated from go2rtc.yaml.template by install.sh /
+# scripts/generate-go2rtc-config.py. Edit the template or env vars
+# rather than this file for production.
 # =============================================================================
 
 api:
   listen: ":1984"
-  origin: "http://localhost"
+  origin: "*"     # CORS — nginx already gates external access
 
 rtsp:
   listen: ":8554"
@@ -16,11 +16,80 @@ rtsp:
 webrtc:
   listen: ":8555"
   candidates:
-    - 192.168.1.79:8555
     - 127.0.0.1:8555
     - stun:8555
+
+# H.264 and H.265 are both supported on the RTSP ingest side. Most
+# browsers only decode H.264 over WebRTC, so we transcode H.265
+# (HEVC) sources to H.264 on demand. The default ffmpeg presets ship
+# with the alexxit/go2rtc image; this `ffmpeg` block exposes them as
+# `ffmpeg:<source>` URLs that the backend can construct when a stream
+# advertises HEVC.
+ffmpeg:
+  bin: ffmpeg
+  # Re-encode incoming H.265 → H.264 baseline with low-latency tuning.
+  # zerolatency drops B-frames so first-frame appears in <1s on WebRTC.
+  h265: "-fflags nobuffer -flags low_delay -rtsp_transport tcp -i {input} -c:v libx264 -preset ultrafast -tune zerolatency -profile:v baseline -level 4.1 -bf 0 -g 50 -pix_fmt yuv420p -an -f rtsp {output}"
 
 log:
   level: info
 
+# Per-camera streams are pushed in dynamically by the backend via the
+# go2rtc HTTP API. Keep this section empty in committed config.
 streams:
+  06eee54a-dd16-4d5a-b7fc-f8e080ebc301:
+    - rtsp://admin:Gvd%406001@45.64.11.69:80/rtsp/streaming?channel=1&subtype=0
+  06eee54a-dd16-4d5a-b7fc-f8e080ebc301_sub:
+    - rtsp://admin:Gvd%406001@45.64.11.69:80/rtsp/streaming?channel=1&subtype=1
+  118af7a7-e549-42b1-a785-40d37240382d:
+    - rtsp://admin:Gvd%406001@45.64.11.69:80/rtsp/streaming?channel=16&subtype=0
+  118af7a7-e549-42b1-a785-40d37240382d_sub:
+    - rtsp://admin:Gvd%406001@45.64.11.69:80/rtsp/streaming?channel=16&subtype=1
+  12f27827-6e9e-4c03-9734-5c053c6a8a55:
+    - rtsp://admin:Gvd%406001@45.64.11.69:80/rtsp/streaming?channel=5&subtype=0
+  12f27827-6e9e-4c03-9734-5c053c6a8a55_sub:
+    - rtsp://admin:Gvd%406001@45.64.11.69:80/rtsp/streaming?channel=5&subtype=1
+  3bb8f8eb-8667-4ce7-9268-b22c64d30f40:
+    - rtsp://admin:Gvd%406001@45.64.11.69:80/rtsp/streaming?channel=14&subtype=0
+  3bb8f8eb-8667-4ce7-9268-b22c64d30f40_sub:
+    - rtsp://admin:Gvd%406001@45.64.11.69:80/rtsp/streaming?channel=14&subtype=1
+  9cd36bab-1e24-4d76-a5e4-c1df96c72fb7:
+    - rtsp://admin:Gvd%406001@45.64.11.69:80/rtsp/streaming?channel=18&subtype=0
+  9cd36bab-1e24-4d76-a5e4-c1df96c72fb7_sub:
+    - rtsp://admin:Gvd%406001@45.64.11.69:80/rtsp/streaming?channel=18&subtype=1
+  b7d3a756-5abe-43e3-95e8-74c62148e090:
+    - rtsp://admin:Gvd%406001@45.64.11.69:80/rtsp/streaming?channel=3&subtype=0
+  b7d3a756-5abe-43e3-95e8-74c62148e090_sub:
+    - rtsp://admin:Gvd%406001@45.64.11.69:80/rtsp/streaming?channel=3&subtype=1
+  b9cbc354-49b4-4985-8c4c-1fcaa412e77c:
+    - rtsp://admin:Gvd%406001@45.64.11.69:80/rtsp/streaming?channel=22&subtype=0
+  b9cbc354-49b4-4985-8c4c-1fcaa412e77c_sub:
+    - rtsp://admin:Gvd%406001@45.64.11.69:80/rtsp/streaming?channel=22&subtype=1
+  070fd42d-3c61-4760-8430-c9349c8ab9c7:
+    - rtsp://admin:Gvd%406001@45.64.11.69:80/rtsp/streaming?channel=19&subtype=0
+  070fd42d-3c61-4760-8430-c9349c8ab9c7_sub:
+    - rtsp://admin:Gvd%406001@45.64.11.69:80/rtsp/streaming?channel=19&subtype=1
+  21473ab9-3e81-4551-ac52-f66962a62216:
+    - rtsp://admin:Gvd%406001@45.64.11.69:80/rtsp/streaming?channel=13&subtype=0
+  21473ab9-3e81-4551-ac52-f66962a62216_sub:
+    - rtsp://admin:Gvd%406001@45.64.11.69:80/rtsp/streaming?channel=13&subtype=1
+  26988ad2-d22b-4335-8ca8-4faf3f9b565f:
+    - rtsp://admin:Gvd%406001@45.64.11.69:80/rtsp/streaming?channel=17&subtype=0
+  26988ad2-d22b-4335-8ca8-4faf3f9b565f_sub:
+    - rtsp://admin:Gvd%406001@45.64.11.69:80/rtsp/streaming?channel=17&subtype=1
+  2fe6e924-0f22-4a4d-9766-3a9d29c62be3:
+    - rtsp://admin:Gvd%406001@45.64.11.69:80/rtsp/streaming?channel=2&subtype=0
+  2fe6e924-0f22-4a4d-9766-3a9d29c62be3_sub:
+    - rtsp://admin:Gvd%406001@45.64.11.69:80/rtsp/streaming?channel=2&subtype=1
+  66911d5b-8d97-4bf7-9fda-7eff6572c60c:
+    - rtsp://admin:Gvd%406001@45.64.11.69:80/rtsp/streaming?channel=24&subtype=0
+  66911d5b-8d97-4bf7-9fda-7eff6572c60c_sub:
+    - rtsp://admin:Gvd%406001@45.64.11.69:80/rtsp/streaming?channel=24&subtype=1
+  90d7c05c-9e1d-4a5e-9c8c-4ee4461d5669:
+    - rtsp://admin:Gvd%406001@45.64.11.69:80/rtsp/streaming?channel=15&subtype=0
+  90d7c05c-9e1d-4a5e-9c8c-4ee4461d5669_sub:
+    - rtsp://admin:Gvd%406001@45.64.11.69:80/rtsp/streaming?channel=15&subtype=1
+  dc8577a0-2b46-4869-a3d1-8f6b36da71ed:
+    - rtsp://admin:Gvd%406001@45.64.11.69:80/rtsp/streaming?channel=4&subtype=0
+  dc8577a0-2b46-4869-a3d1-8f6b36da71ed_sub:
+    - rtsp://admin:Gvd%406001@45.64.11.69:80/rtsp/streaming?channel=4&subtype=1

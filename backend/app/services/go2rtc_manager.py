@@ -11,7 +11,7 @@
 
 import logging
 from typing import Optional, Dict, Any
-from urllib.parse import urlparse, urlunparse, quote
+from urllib.parse import urlparse, urlunparse, quote, unquote
 
 import httpx
 
@@ -40,12 +40,17 @@ class Go2RTCManager:
 
     @staticmethod
     def _encode_rtsp_url(url: str) -> str:
-        """Percent-encode userinfo in an RTSP URL so special chars like @ don't break go2rtc YAML."""
+        """Percent-encode userinfo in an RTSP URL.
+
+        Idempotent: unquote first then re-quote so already-encoded
+        URLs (e.g. password stored as Gvd%406001) don't double-encode
+        to Gvd%25406001 on subsequent passes.
+        """
         try:
             parsed = urlparse(url)
             if parsed.username:
-                user = quote(parsed.username, safe="")
-                pwd = quote(parsed.password or "", safe="")
+                user = quote(unquote(parsed.username), safe="")
+                pwd = quote(unquote(parsed.password or ""), safe="")
                 host = parsed.hostname
                 port = f":{parsed.port}" if parsed.port else ""
                 encoded = f"{parsed.scheme}://{user}:{pwd}@{host}{port}{parsed.path}"
