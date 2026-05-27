@@ -2,7 +2,7 @@
 // LiveViewPage — /cameras/:id/live
 // =============================================================================
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useOutletContext } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -12,6 +12,8 @@ import {
   VolumeX,
   Maximize2,
   RefreshCw,
+  Mic,
+  MicOff,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -19,6 +21,7 @@ import {
   startRecording,
   stopRecording,
 } from "../../api/cameras";
+import apiClient from "../../api/client";
 import { WebRTCPlayer } from "../../components/nvr/WebRTCPlayer";
 import { PTZControls } from "../../components/nvr/PTZControls";
 import { Button } from "../../components/ui/button";
@@ -31,6 +34,77 @@ const InfoCard = ({ label, value }) => (
     <p className="text-sm font-medium text-white truncate mt-0.5">{value}</p>
   </div>
 );
+
+// ── Talk (two-way audio) button ──────────────────────────────────────────────
+
+const TalkButton = ({ cameraId }) => {
+  const [isTalking, setIsTalking] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const streamRef = useRef(null);
+
+  const startTalk = async () => {
+    setLoading(true);
+    try {
+      // Start backend session
+      await apiClient.post(`/cameras/${cameraId}/audio/backchannel/start`);
+
+      // Request mic access
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        streamRef.current = stream;
+      } catch (micErr) {
+        toast.warning("Microphone access denied — server session active but no local mic");
+      }
+
+      setIsTalking(true);
+      toast.success("Talk mode active");
+    } catch (err) {
+      const msg = err?.response?.data?.detail || err?.message || "Failed to start talk mode";
+      toast.error(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const stopTalk = async () => {
+    setLoading(true);
+    // Stop local mic tracks
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    try {
+      await apiClient.post(`/cameras/${cameraId}/audio/backchannel/stop`);
+    } catch (_) {
+      // ignore
+    }
+    setIsTalking(false);
+    setLoading(false);
+    toast.success("Talk mode stopped");
+  };
+
+  return (
+    <Button
+      variant={isTalking ? "destructive" : "outline"}
+      size="sm"
+      onClick={isTalking ? stopTalk : startTalk}
+      disabled={loading}
+      title="Two-way audio (Talk)"
+    >
+      {isTalking ? (
+        <>
+          <MicOff className="h-4 w-4 mr-1" /> Stop Talk
+        </>
+      ) : (
+        <>
+          <Mic className="h-4 w-4 mr-1" /> Talk
+        </>
+      )}
+    </Button>
+  );
+};
+
+// ── Main Component ───────────────────────────────────────────────────────────
 
 const LiveViewPage = () => {
   const { camera, cameraId } = useOutletContext();
@@ -124,6 +198,8 @@ const LiveViewPage = () => {
             </>
           )}
         </Button>
+        {/* Two-way audio Talk button */}
+        <TalkButton cameraId={cameraId} />
         <Button
           variant="outline"
           size="sm"
