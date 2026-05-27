@@ -53,6 +53,14 @@ async def lifespan(application: FastAPI):
         await AuthService.seed_roles(db)
         await SettingsService.seed_defaults(db)
 
+    # Seed default schedule templates (idempotent)
+    try:
+        from app.cameras.schedule_templates_router import seed_default_templates
+        async with async_session_maker() as db:
+            await seed_default_templates(db)
+    except Exception as _e:
+        logger.warning(f"Schedule template seed failed: {_e}")
+
     # One-shot backfill: re-encrypt any legacy plaintext ONVIF credentials.
     # Idempotent — already-encrypted rows skipped.
     try:
@@ -98,12 +106,14 @@ async def lifespan(application: FastAPI):
     from app.services.recovery_service import recovery_service
     from app.notifications.service import notification_service
     from app.services.prebuffer_service import prebuffer_service
+    from app.services.snapshot_service import snapshot_service as _snapshot_svc
     from app.core.rate_limiter import auth_limiter
 
     await monitoring_service.start()
     await prebuffer_service.start()
     await camera_monitor.start()
     await retention_service.start()
+    await _snapshot_svc.start_scheduler()
     await notification_service.start()
     auth_limiter.start_cleanup()  # Prevent in-memory leak under sustained traffic
 
@@ -147,6 +157,13 @@ async def lifespan(application: FastAPI):
     from app.services.ffmpeg_manager import ffmpeg_manager as _ffmgr
     await _ffmgr.start_watchdog()
 
+    # Start PTZ tour patrol service
+    try:
+        from app.services.ptz_tour_service import ptz_tour_service
+        await ptz_tour_service.start()
+    except Exception as _e:
+        logger.warning(f"ptz_tour_service start skipped: {_e}")
+
     # Start ONVIF event pull service
     from app.cameras.onvif_event_service import onvif_event_service as _oes
     await _oes.start_all()
@@ -171,12 +188,18 @@ async def lifespan(application: FastAPI):
     from app.services.go2rtc_manager import go2rtc_manager
     from app.notifications.service import notification_service
 
+    try:
+        from app.services.ptz_tour_service import ptz_tour_service
+        await ptz_tour_service.stop()
+    except Exception:
+        pass
     from app.cameras.onvif_event_service import onvif_event_service as _oes
     await _oes.stop_all()
     from app.onvif_device.discovery import onvif_discovery_publisher
     await onvif_discovery_publisher.stop()
 
     await camera_monitor.stop()
+    await _snapshot_svc.close()
     await prebuffer_service.stop()
     await retention_service.stop()
     await monitoring_service.stop()
@@ -300,6 +323,8 @@ from app.auth.api_keys_router import router as api_keys_router
 from app.events.ingest_router import router as events_ingest_router
 from app.events.sse_router import router as events_sse_router
 from app.license.router import router as license_router
+from app.cameras.schedule_templates_router import router as schedule_templates_router
+from app.snapshots.router import router as snapshots_router
 
 app.include_router(auth_router, prefix="/api")
 app.include_router(cameras_router, prefix="/api")
@@ -319,6 +344,8 @@ app.include_router(api_keys_router)
 app.include_router(events_ingest_router)
 app.include_router(events_sse_router)
 app.include_router(license_router)
+app.include_router(schedule_templates_router, prefix="/api")
+app.include_router(snapshots_router, prefix="/api")
 
 # ONVIF device endpoints are NOT under /api (VMS expects root-level paths)
 app.include_router(onvif_device_router)
