@@ -46,8 +46,6 @@ class LicensePayload:
     expires_at: str
     hardware_fingerprint: Optional[str] = None
     camera_limit: int = 0
-    ai_camera_limit: int = 0
-    scenarios: List[str] = field(default_factory=list)
     features: List[str] = field(default_factory=list)
     tier: str = "free"
 
@@ -60,8 +58,6 @@ class LicensePayload:
             expires_at=d.get("expires_at", ""),
             hardware_fingerprint=d.get("hardware_fingerprint"),
             camera_limit=int(d.get("camera_limit", 0)),
-            ai_camera_limit=int(d.get("ai_camera_limit", 0)),
-            scenarios=list(d.get("scenarios", []) or []),
             features=list(d.get("features", []) or []),
             tier=d.get("tier", "free"),
         )
@@ -117,13 +113,11 @@ class LicenseService:
             self._status = status
             self._payload = status.payload
             logger.info(
-                "license loaded: valid=%s tier=%s expires=%s cameras=%s ai=%s scenarios=%s",
+                "license loaded: valid=%s tier=%s expires=%s cameras=%s",
                 status.valid,
                 status.payload.tier if status.payload else "?",
                 status.payload.expires_at if status.payload else "?",
                 status.payload.camera_limit if status.payload else 0,
-                status.payload.ai_camera_limit if status.payload else 0,
-                status.payload.scenarios if status.payload else [],
             )
             return status
         except Exception as e:
@@ -234,23 +228,15 @@ class LicenseService:
         s = self.status
         return bool(s.payload) and (s.valid or s.in_grace)
 
-    def is_scenario_licensed(self, slug: str) -> bool:
-        if not self.is_active():
-            return False
-        return slug in (self._payload.scenarios if self._payload else [])
-
     def camera_limit(self) -> int:
         return self._payload.camera_limit if (self._payload and self.is_active()) else 0
-
-    def ai_camera_limit(self) -> int:
-        return self._payload.ai_camera_limit if (self._payload and self.is_active()) else 0
 
     def features(self) -> List[str]:
         return list(self._payload.features) if (self._payload and self.is_active()) else []
 
     # ── Snapshot for /api/license ─────────────────────────────────────
 
-    def snapshot(self, camera_count: int, ai_camera_count: int) -> dict:
+    def snapshot(self, camera_count: int) -> dict:
         s = self.status
         p = s.payload
         return {
@@ -266,12 +252,9 @@ class LicenseService:
             "license_id": p.license_id if p else None,
             "expires_at": p.expires_at if p else None,
             "camera_limit": p.camera_limit if p else 0,
-            "ai_camera_limit": p.ai_camera_limit if p else 0,
-            "scenarios": list(p.scenarios) if p else [],
             "features": list(p.features) if p else [],
             "usage": {
                 "cameras": camera_count,
-                "ai_cameras": ai_camera_count,
             },
         }
 

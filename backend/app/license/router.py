@@ -20,19 +20,11 @@ from app.license.service import LicenseError, get_license_service
 router = APIRouter(prefix="/api/license", tags=["License"])
 
 
-async def _counts(db: AsyncSession) -> tuple[int, int]:
+async def _counts(db: AsyncSession) -> int:
     from app.cameras.models import Camera
-    from app.ai.models import CameraAIConfig
 
     cam_total = (await db.execute(select(func.count(Camera.id)))).scalar() or 0
-    ai_cam_total = (
-        await db.execute(
-            select(func.count(func.distinct(CameraAIConfig.camera_id))).where(
-                CameraAIConfig.enabled.is_(True),
-            )
-        )
-    ).scalar() or 0
-    return int(cam_total), int(ai_cam_total)
+    return int(cam_total)
 
 
 @router.get("")
@@ -41,8 +33,8 @@ async def get_license(
     db: AsyncSession = Depends(get_db),
 ):
     svc = get_license_service()
-    cam, ai_cam = await _counts(db)
-    return svc.snapshot(cam, ai_cam)
+    cam = await _counts(db)
+    return svc.snapshot(cam)
 
 
 @router.get("/fingerprint")
@@ -63,8 +55,8 @@ async def activate_license(
         await svc.activate(raw)
     except LicenseError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
-    cam, ai_cam = await _counts(db)
-    return svc.snapshot(cam, ai_cam)
+    cam = await _counts(db)
+    return svc.snapshot(cam)
 
 
 @router.delete("", status_code=status.HTTP_204_NO_CONTENT)
