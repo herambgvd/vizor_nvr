@@ -52,11 +52,6 @@ async def lifespan(application: FastAPI):
         from app.settings.service import SettingsService
         await AuthService.seed_roles(db)
         await SettingsService.seed_defaults(db)
-        try:
-            from app.ai.seed import seed_ai_scenarios
-            await seed_ai_scenarios(db)
-        except Exception as _e:
-            logger.warning(f"AI scenario seeding failed: {_e}")
 
     # One-shot backfill: re-encrypt any legacy plaintext ONVIF credentials.
     # Idempotent — already-encrypted rows skipped.
@@ -160,21 +155,6 @@ async def lifespan(application: FastAPI):
     from app.onvif_device.discovery import onvif_discovery_publisher
     await onvif_discovery_publisher.start()
 
-    # Start Metropolis bridge (Redis Stream consumer -> /api/events/ingest)
-    # No-op unless METROPOLIS_BRIDGE_ENABLED=true env var is set.
-    try:
-        from app.services.metropolis_bridge import start_metropolis_bridge
-        await start_metropolis_bridge()
-    except Exception as _e:
-        logger.warning(f"Metropolis bridge startup skipped: {_e}")
-
-    # People counting counts writer — 30s flush buffer
-    try:
-        from app.ai.people.counts_writer import start as start_counts_writer
-        await start_counts_writer(interval=30.0)
-    except Exception as _e:
-        logger.warning(f"counts_writer startup skipped: {_e}")
-
     logger.info("All services started — NVR is ready")
 
     yield
@@ -196,19 +176,6 @@ async def lifespan(application: FastAPI):
     from app.onvif_device.discovery import onvif_discovery_publisher
     await onvif_discovery_publisher.stop()
 
-    # Stop Metropolis bridge cleanly so in-flight batches drain
-    try:
-        from app.services.metropolis_bridge import stop_metropolis_bridge
-        await stop_metropolis_bridge()
-    except Exception:
-        pass
-
-    # Final flush of buffered counts
-    try:
-        from app.ai.people.counts_writer import stop as stop_counts_writer
-        await stop_counts_writer()
-    except Exception:
-        pass
     await camera_monitor.stop()
     await prebuffer_service.stop()
     await retention_service.stop()
@@ -332,11 +299,6 @@ from app.onvif_device.router import router as onvif_device_router
 from app.auth.api_keys_router import router as api_keys_router
 from app.events.ingest_router import router as events_ingest_router
 from app.events.sse_router import router as events_sse_router
-from app.ai.scenarios_router import router as ai_scenarios_router
-from app.ai.frs_router import router as ai_frs_router
-from app.ai.frs_photos_router import router as ai_frs_photos_router
-from app.ai.people.router import router as ai_people_router, control_router as ai_control_router
-from app.ai.frs.router import router as ai_frs_actions_router
 from app.license.router import router as license_router
 
 app.include_router(auth_router, prefix="/api")
@@ -356,12 +318,6 @@ app.include_router(system_router, prefix="/api")
 app.include_router(api_keys_router)
 app.include_router(events_ingest_router)
 app.include_router(events_sse_router)
-app.include_router(ai_scenarios_router)
-app.include_router(ai_frs_router)
-app.include_router(ai_frs_photos_router)
-app.include_router(ai_people_router)
-app.include_router(ai_control_router)
-app.include_router(ai_frs_actions_router)
 app.include_router(license_router)
 
 # ONVIF device endpoints are NOT under /api (VMS expects root-level paths)
