@@ -47,12 +47,6 @@ psutil
 # Optional NVIDIA GPU telemetry. Safe import — no-op without driver/GPU.
 nvidia-ml-py
 
-# ── AI inference + vector DB clients ───────────────────────────────────
-# Triton gRPC client + Qdrant async client. Both optional — backend
-# starts cleanly without TRITON_URL/QDRANT_URL configured.
-tritonclient[grpc]
-qdrant-client
-opencv-python-headless
 pillow
 numpy
 
