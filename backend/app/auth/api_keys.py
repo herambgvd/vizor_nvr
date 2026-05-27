@@ -11,9 +11,8 @@
 #   - 192 bits of entropy is overkill for symmetric secret use
 #
 # Scopes restrict what a key can do. Current scopes:
-#   - events:ingest   — POST /api/events/ingest from inference workers
+#   - events:ingest   — POST /api/events/ingest from internal NVR services
 #   - cameras:read    — GET /api/cameras for config fetch
-#   - models:read     — GET /api/ai/models for model registry lookups
 #   - admin           — full access (avoid in production)
 # =============================================================================
 
