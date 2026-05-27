@@ -371,6 +371,7 @@ class ONVIFService:
     async def get_snapshot_uri(
         self, host: str, port: int = 80,
         username: str = "admin", password: str = "admin",
+        profile_token: Optional[str] = None,
     ) -> Optional[str]:
         """Return the camera's ONVIF GetSnapshotUri for its first profile."""
         if not _HAS_ONVIF:
@@ -380,10 +381,13 @@ class ONVIFService:
             try:
                 cam = ONVIFCamera(host, port, username, password)
                 media = cam.create_media_service()
-                profiles = media.GetProfiles()
-                if not profiles:
-                    return None
-                resp = media.GetSnapshotUri({"ProfileToken": profiles[0].token})
+                _profile_token = profile_token
+                if not _profile_token:
+                    profiles = media.GetProfiles()
+                    if not profiles:
+                        return None
+                    _profile_token = profiles[0].token
+                resp = media.GetSnapshotUri({"ProfileToken": _profile_token})
                 return getattr(resp, "Uri", None)
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"ONVIF snapshot URI query failed for {host}: {e}")
@@ -498,6 +502,7 @@ class ONVIFService:
     async def continuous_move(
         self, host: str, port: int, username: str, password: str,
         pan: float = 0.0, tilt: float = 0.0, zoom: float = 0.0, speed: float = 0.5,
+        profile_token: Optional[str] = None,
     ) -> bool:
         """Start continuous PTZ movement. Call stop() to halt."""
         if not _HAS_ONVIF:
@@ -508,11 +513,10 @@ class ONVIFService:
                 cam = ONVIFCamera(host, port, username, password)
                 media = cam.create_media_service()
                 ptz = cam.create_ptz_service()
-                profiles = media.GetProfiles()
-                profile_token = profiles[0].token
+                _profile_token = profile_token or media.GetProfiles()[0].token
 
                 request = ptz.create_type("ContinuousMove")
-                request.ProfileToken = profile_token
+                request.ProfileToken = _profile_token
                 request.Velocity = {
                     "PanTilt": {"x": pan * speed, "y": tilt * speed},
                     "Zoom": {"x": zoom * speed},
@@ -527,6 +531,7 @@ class ONVIFService:
 
     async def stop(
         self, host: str, port: int, username: str, password: str,
+        profile_token: Optional[str] = None,
     ) -> bool:
         """Stop all PTZ movement."""
         if not _HAS_ONVIF:
@@ -537,8 +542,8 @@ class ONVIFService:
                 cam = ONVIFCamera(host, port, username, password)
                 media = cam.create_media_service()
                 ptz = cam.create_ptz_service()
-                profile_token = media.GetProfiles()[0].token
-                ptz.Stop({"ProfileToken": profile_token, "PanTilt": True, "Zoom": True})
+                _profile_token = profile_token or media.GetProfiles()[0].token
+                ptz.Stop({"ProfileToken": _profile_token, "PanTilt": True, "Zoom": True})
                 return True
             except Exception as e:
                 logger.error(f"PTZ stop failed: {e}")
@@ -548,6 +553,7 @@ class ONVIFService:
 
     async def get_presets(
         self, host: str, port: int, username: str, password: str,
+        profile_token: Optional[str] = None,
     ) -> List[Dict[str, str]]:
         if not _HAS_ONVIF:
             return []
@@ -557,8 +563,8 @@ class ONVIFService:
                 cam = ONVIFCamera(host, port, username, password)
                 media = cam.create_media_service()
                 ptz = cam.create_ptz_service()
-                profile_token = media.GetProfiles()[0].token
-                presets = ptz.GetPresets({"ProfileToken": profile_token})
+                _profile_token = profile_token or media.GetProfiles()[0].token
+                presets = ptz.GetPresets({"ProfileToken": _profile_token})
                 return [{"token": str(p.token), "name": str(p.Name)} for p in presets]
             except Exception as e:
                 logger.error(f"Get presets failed: {e}")
@@ -569,6 +575,7 @@ class ONVIFService:
     async def goto_preset(
         self, host: str, port: int, username: str, password: str,
         preset_token: str,
+        profile_token: Optional[str] = None,
     ) -> bool:
         if not _HAS_ONVIF:
             return False
@@ -578,9 +585,9 @@ class ONVIFService:
                 cam = ONVIFCamera(host, port, username, password)
                 media = cam.create_media_service()
                 ptz = cam.create_ptz_service()
-                profile_token = media.GetProfiles()[0].token
+                _profile_token = profile_token or media.GetProfiles()[0].token
                 ptz.GotoPreset({
-                    "ProfileToken": profile_token,
+                    "ProfileToken": _profile_token,
                     "PresetToken": preset_token,
                 })
                 return True
@@ -593,6 +600,7 @@ class ONVIFService:
     async def set_preset(
         self, host: str, port: int, username: str, password: str,
         preset_name: str,
+        profile_token: Optional[str] = None,
     ) -> Optional[str]:
         """Save current position as a named preset. Returns preset token."""
         if not _HAS_ONVIF:
@@ -603,9 +611,9 @@ class ONVIFService:
                 cam = ONVIFCamera(host, port, username, password)
                 media = cam.create_media_service()
                 ptz = cam.create_ptz_service()
-                profile_token = media.GetProfiles()[0].token
+                _profile_token = profile_token or media.GetProfiles()[0].token
                 result = ptz.SetPreset({
-                    "ProfileToken": profile_token,
+                    "ProfileToken": _profile_token,
                     "PresetName": preset_name,
                 })
                 return str(result)
@@ -618,6 +626,7 @@ class ONVIFService:
     async def delete_preset(
         self, host: str, port: int, username: str, password: str,
         preset_token: str,
+        profile_token: Optional[str] = None,
     ) -> bool:
         """Delete a PTZ preset by its token."""
         if not _HAS_ONVIF:
@@ -628,9 +637,9 @@ class ONVIFService:
                 cam = ONVIFCamera(host, port, username, password)
                 media = cam.create_media_service()
                 ptz = cam.create_ptz_service()
-                profile_token = media.GetProfiles()[0].token
+                _profile_token = profile_token or media.GetProfiles()[0].token
                 ptz.RemovePreset({
-                    "ProfileToken": profile_token,
+                    "ProfileToken": _profile_token,
                     "PresetToken": preset_token,
                 })
                 return True
@@ -1153,6 +1162,173 @@ class ONVIFService:
                 return []
 
         return await asyncio.to_thread(_get)
+
+    # ------------------------------------------------------------------
+    # NVR Channel Enumeration
+    # ------------------------------------------------------------------
+
+    async def enumerate_channels(
+        self,
+        host: str,
+        port: int = 80,
+        username: str = "admin",
+        password: str = "admin",
+    ) -> List[Dict[str, Any]]:
+        """Enumerate all ONVIF media profiles on a device grouped by physical
+        channel (VideoSource).
+
+        Returns one entry per channel with main + sub stream information.
+        On total failure returns [] and logs a warning — never raises.
+        """
+        if not _HAS_ONVIF:
+            logger.warning("enumerate_channels: python-onvif-zeep not installed")
+            return []
+
+        def _enumerate() -> List[Dict[str, Any]]:
+            import re
+
+            try:
+                cam = ONVIFCamera(host, port, username, password)
+                media = cam.create_media_service()
+                profiles = media.GetProfiles()
+            except Exception as exc:
+                logger.warning("enumerate_channels: GetProfiles failed for %s: %s", host, exc)
+                return []
+
+            if not profiles:
+                return []
+
+            # ── Group profiles by VideoSource token ────────────────────
+            # Key = source token (string) when present; fall back to the
+            # leading integer in the profile Name ("Channel1_Main" → "1");
+            # last resort: use the profile's own token as the group key.
+            def _source_key(profile) -> str:
+                try:
+                    vsc = getattr(profile, "VideoSourceConfiguration", None)
+                    if vsc:
+                        src = getattr(vsc, "SourceToken", None)
+                        if src:
+                            return str(src)
+                except Exception:
+                    pass
+                # Heuristic: extract leading number from profile name
+                name = str(getattr(profile, "Name", "") or "")
+                m = re.search(r"\d+", name)
+                if m:
+                    return m.group(0)
+                return str(getattr(profile, "token", profile))
+
+            # Ordered dict so insertion order = channel order
+            groups: Dict[str, list] = {}
+            for p in profiles:
+                key = _source_key(p)
+                groups.setdefault(key, []).append(p)
+
+            # ── Helper: build stream URL for a profile ─────────────────
+            def _stream_url(profile) -> Optional[str]:
+                try:
+                    resp = media.GetStreamUri({
+                        "StreamSetup": {
+                            "Stream": "RTP-Unicast",
+                            "Transport": {"Protocol": "RTSP"},
+                        },
+                        "ProfileToken": profile.token,
+                    })
+                    url = str(getattr(resp, "Uri", "") or "")
+                    if url and "://" in url and "@" not in url.split("://", 1)[1].split("/")[0]:
+                        proto, rest = url.split("://", 1)
+                        url = f"{proto}://{username}:{password}@{rest}"
+                    return url or None
+                except Exception as exc:
+                    logger.debug(
+                        "enumerate_channels: GetStreamUri failed for profile %s: %s",
+                        getattr(profile, "token", "?"), exc,
+                    )
+                    return None
+
+            def _snapshot_url(profile) -> Optional[str]:
+                try:
+                    resp = media.GetSnapshotUri({"ProfileToken": profile.token})
+                    return str(getattr(resp, "Uri", "") or "") or None
+                except Exception:
+                    return None
+
+            def _resolution(profile) -> str:
+                try:
+                    enc = profile.VideoEncoderConfiguration
+                    res = enc.Resolution
+                    return f"{res.Width}x{res.Height}"
+                except Exception:
+                    return "unknown"
+
+            def _width(profile) -> int:
+                try:
+                    return int(profile.VideoEncoderConfiguration.Resolution.Width)
+                except Exception:
+                    return 0
+
+            def _fps(profile) -> Optional[int]:
+                try:
+                    return int(profile.VideoEncoderConfiguration.RateControl.FrameRateLimit)
+                except Exception:
+                    return None
+
+            def _codec(profile) -> Optional[str]:
+                try:
+                    enc_str = str(profile.VideoEncoderConfiguration.Encoding).upper()
+                    return enc_str or None
+                except Exception:
+                    return None
+
+            results = []
+            for ch_idx, (source_key, ch_profiles) in enumerate(groups.items(), start=1):
+                # Sort descending by width → first = main, second = sub
+                sorted_profiles = sorted(ch_profiles, key=_width, reverse=True)
+                main_profile = sorted_profiles[0]
+                sub_profile = sorted_profiles[1] if len(sorted_profiles) > 1 else None
+
+                # Prefer a name that includes channel info from the main profile
+                name_raw = str(getattr(main_profile, "Name", "") or "")
+                channel_name = name_raw if name_raw else f"Channel {ch_idx}"
+
+                main_url = _stream_url(main_profile)
+                main_entry = {
+                    "profile_token": str(main_profile.token),
+                    "resolution": _resolution(main_profile),
+                    "fps": _fps(main_profile),
+                    "codec": _codec(main_profile),
+                    "stream_url": main_url,
+                }
+
+                sub_entry = None
+                if sub_profile:
+                    sub_url = _stream_url(sub_profile)
+                    sub_entry = {
+                        "profile_token": str(sub_profile.token),
+                        "resolution": _resolution(sub_profile),
+                        "fps": _fps(sub_profile),
+                        "codec": _codec(sub_profile),
+                        "stream_url": sub_url,
+                    }
+
+                snapshot = _snapshot_url(main_profile)
+
+                results.append({
+                    "channel": ch_idx,
+                    "source_token": source_key,
+                    "name": channel_name,
+                    "main": main_entry,
+                    "sub": sub_entry,
+                    "snapshot_url": snapshot,
+                })
+
+            return results
+
+        try:
+            return await asyncio.to_thread(_enumerate)
+        except Exception as exc:
+            logger.warning("enumerate_channels: unexpected error for %s: %s", host, exc)
+            return []
 
     async def get_audio_output_uri(
         self, host: str, port: int = 80,

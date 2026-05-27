@@ -65,6 +65,7 @@ class CameraService:
             onvif_port=data.onvif_port,
             onvif_username=encrypted_username,
             onvif_password=encrypted_password,
+            onvif_profile_token=getattr(data, "onvif_profile_token", None),
             location=data.location,
             description=data.description,
             is_enabled=data.is_enabled,

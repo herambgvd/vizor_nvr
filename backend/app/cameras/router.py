@@ -123,6 +123,107 @@ async def onvif_probe(
     }
 
 
+@router.post("/onvif/channels")
+async def onvif_channels(
+    body: dict,
+    user: dict = Depends(require_permission("manage_camera")),
+):
+    """Enumerate all ONVIF media profiles on a device grouped by channel.
+
+    Use when a discovered device is an NVR/DVR exposing multiple cameras
+    through a single ONVIF endpoint. Returns one entry per physical
+    channel with main + sub stream URLs.
+
+    Body: {"host", "port", "username", "password"}
+    """
+    host = body.get("host")
+    port = int(body.get("port") or 80)
+    username = body.get("username") or "admin"
+    password = body.get("password") or "admin"
+    if not host:
+        raise HTTPException(400, "host required")
+    return await onvif_service.enumerate_channels(host, port, username, password)
+
+
+@router.post("/onvif/bulk-add", status_code=201)
+async def onvif_bulk_add(
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(require_permission("manage_camera")),
+):
+    """Create many cameras in one transaction.
+
+    Used by the discovery dialog to onboard every selected channel of an
+    NVR at once.
+
+    Body:
+      {
+        "cameras": [
+          {
+            "name": "CH1",
+            "onvif_host": "10.0.0.5", "onvif_port": 80,
+            "onvif_username": "admin", "onvif_password": "...",
+            "onvif_profile_token": "Profile_1_Main",
+            "main_stream_url": "rtsp://...",
+            "sub_stream_url": "rtsp://..." | null,
+            "ptz_capable": false
+          }, ...
+        ]
+      }
+
+    Returns {"created": [<camera_response>, ...], "failed": [{"name":..., "error":...}, ...]}.
+    """
+    from app.cameras.models import CameraCreate
+
+    cameras_data = body.get("cameras") or []
+    if not isinstance(cameras_data, list):
+        raise HTTPException(400, "'cameras' must be a list")
+
+    created = []
+    failed = []
+
+    for entry in cameras_data:
+        entry_name = entry.get("name", "<unnamed>")
+        try:
+            cam_create = CameraCreate(
+                name=entry_name,
+                main_stream_url=entry.get("main_stream_url") or "",
+                sub_stream_url=entry.get("sub_stream_url"),
+                onvif_host=entry.get("onvif_host"),
+                onvif_port=int(entry.get("onvif_port") or 80),
+                onvif_username=entry.get("onvif_username"),
+                onvif_password=entry.get("onvif_password"),
+                onvif_profile_token=entry.get("onvif_profile_token"),
+                ptz_capable=bool(entry.get("ptz_capable", False)),
+                location=entry.get("location"),
+                description=entry.get("description"),
+                is_enabled=bool(entry.get("is_enabled", True)),
+                recording_mode=entry.get("recording_mode", "continuous"),
+                onvif_events_enabled=bool(entry.get("onvif_events_enabled", False)),
+            )
+            # Validate main_stream_url
+            if not cam_create.main_stream_url:
+                raise ValueError("main_stream_url is required")
+
+            camera = await svc.create(db, cam_create)
+            # Also persist onvif_profile_token (not in Camera constructor yet via CameraCreate)
+            if cam_create.onvif_profile_token and not camera.onvif_profile_token:
+                camera.onvif_profile_token = cam_create.onvif_profile_token
+                await db.flush()
+            await db.commit()
+            await db.refresh(camera, ["groups"])
+            created.append(svc.to_response(camera))
+        except Exception as exc:
+            logger.warning("onvif_bulk_add: failed to create camera '%s': %s", entry_name, exc)
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            failed.append({"name": entry_name, "error": str(exc)})
+
+    return {"created": created, "failed": failed}
+
+
 @router.post("/onvif/snapshot")
 async def onvif_snapshot(
     body: dict,
@@ -892,6 +993,7 @@ async def ptz_move(
         camera.onvif_host, camera.onvif_port,
         decrypt_value(camera.onvif_username) or "", decrypt_value(camera.onvif_password or ""),
         pan=body.pan, tilt=body.tilt, zoom=body.zoom, speed=body.speed,
+        profile_token=camera.onvif_profile_token or None,
     )
     if not ok:
         raise HTTPException(500, "PTZ move failed")
@@ -911,6 +1013,7 @@ async def ptz_stop(
     await onvif_service.stop(
         camera.onvif_host, camera.onvif_port,
         decrypt_value(camera.onvif_username) or "", decrypt_value(camera.onvif_password or ""),
+        profile_token=camera.onvif_profile_token or None,
     )
     return {"status": "stopped"}
 
@@ -927,6 +1030,7 @@ async def ptz_presets(
     presets = await onvif_service.get_presets(
         camera.onvif_host, camera.onvif_port,
         decrypt_value(camera.onvif_username) or "", decrypt_value(camera.onvif_password or ""),
+        profile_token=camera.onvif_profile_token or None,
     )
     # Also update DB cache
     camera.ptz_presets = presets
@@ -952,6 +1056,7 @@ async def ptz_goto_preset(
         camera.onvif_host, camera.onvif_port,
         decrypt_value(camera.onvif_username) or "", decrypt_value(camera.onvif_password or ""),
         preset_token,
+        profile_token=camera.onvif_profile_token or None,
     )
     if not ok:
         raise HTTPException(500, "Failed to goto preset")
@@ -985,6 +1090,7 @@ async def ptz_save_preset(
         camera.onvif_host, camera.onvif_port,
         decrypt_value(camera.onvif_username) or "", decrypt_value(camera.onvif_password or ""),
         preset_name,
+        profile_token=camera.onvif_profile_token or None,
     )
     if not token:
         raise HTTPException(500, "Failed to save preset")
@@ -993,9 +1099,10 @@ async def ptz_save_preset(
     presets = await onvif_service.get_presets(
         camera.onvif_host, camera.onvif_port,
         decrypt_value(camera.onvif_username) or "", decrypt_value(camera.onvif_password or ""),
+        profile_token=camera.onvif_profile_token or None,
     )
     camera.ptz_presets = presets
-    
+
     await write_audit(
         db, action="ptz_preset_save", user_id=user["id"], username=user["username"],
         ip_address=client_ip(request), resource_type="camera", resource_id=camera_id,
@@ -1022,6 +1129,7 @@ async def ptz_delete_preset(
         camera.onvif_host, camera.onvif_port,
         decrypt_value(camera.onvif_username) or "", decrypt_value(camera.onvif_password or ""),
         preset_token,
+        profile_token=camera.onvif_profile_token or None,
     )
     if not ok:
         raise HTTPException(500, "Failed to delete preset")
@@ -1030,6 +1138,7 @@ async def ptz_delete_preset(
     presets = await onvif_service.get_presets(
         camera.onvif_host, camera.onvif_port,
         decrypt_value(camera.onvif_username) or "", decrypt_value(camera.onvif_password or ""),
+        profile_token=camera.onvif_profile_token or None,
     )
     camera.ptz_presets = presets
 

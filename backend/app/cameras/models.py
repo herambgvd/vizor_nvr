@@ -101,6 +101,12 @@ class Camera(Base):
     onvif_password = Column(String(500), nullable=True)
     ptz_capable = Column(Boolean, default=False)
     ptz_presets = Column(JSON, nullable=True)   # [{"token": "1", "name": "Gate"}]
+    # Which ONVIF media profile this camera represents.  Populated when the
+    # camera is one channel of a multi-channel NVR/DVR.  Helpers that call
+    # GetProfiles() will use this token directly when set, skipping the
+    # GetProfiles() round-trip.  NULL → fall back to profile[0] (legacy
+    # single-camera behaviour).
+    onvif_profile_token = Column(String(256), nullable=True)
 
     # ── Status ─────────────────────────────────────────────────────────
     status = Column(String(20), default=CameraStatus.OFFLINE.value)
@@ -192,6 +198,7 @@ class CameraCreate(BaseModel):
     group_ids: List[str] = []
     onvif_events_enabled: bool = False
     onvif_event_topics: Optional[List[str]] = None
+    onvif_profile_token: Optional[str] = None
 
 
 class CameraUpdate(BaseModel):
@@ -218,6 +225,7 @@ class CameraUpdate(BaseModel):
     group_ids: Optional[List[str]] = None
     onvif_events_enabled: Optional[bool] = None
     onvif_event_topics: Optional[List[str]] = None
+    onvif_profile_token: Optional[str] = None
 
 
 class CameraResponse(BaseModel):
@@ -261,6 +269,7 @@ class CameraResponse(BaseModel):
     onvif_event_topics: Optional[List[str]] = None
     relay_outputs: Optional[List[Dict[str, Any]]] = None
     digital_inputs: Optional[List[Dict[str, Any]]] = None
+    onvif_profile_token: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
