@@ -1284,6 +1284,26 @@ class ONVIFService:
                 except Exception:
                     return None
 
+            # Regex patterns for vendor-generic profile names that should be
+            # replaced with "Channel N" labels.
+            _generic_name_re = re.compile(
+                r"^(profile[_\s]?\d+([_\s]?(main|sub|stream))?|"
+                r"MediaProfile.*|"
+                r"Channel.?\d+)$",
+                re.IGNORECASE,
+            )
+
+            def _display_name(profile_name_raw: str, channel_num: int, source_key: str) -> str:
+                """Return a clean human label; replace vendor noise with 'Channel N'."""
+                stripped = profile_name_raw.strip()
+                if (
+                    not stripped
+                    or _generic_name_re.match(stripped)
+                    or stripped == source_key
+                ):
+                    return f"Channel {channel_num}"
+                return stripped
+
             results = []
             for ch_idx, (source_key, ch_profiles) in enumerate(groups.items(), start=1):
                 # Sort descending by width → first = main, second = sub
@@ -1291,9 +1311,12 @@ class ONVIFService:
                 main_profile = sorted_profiles[0]
                 sub_profile = sorted_profiles[1] if len(sorted_profiles) > 1 else None
 
-                # Prefer a name that includes channel info from the main profile
                 name_raw = str(getattr(main_profile, "Name", "") or "")
-                channel_name = name_raw if name_raw else f"Channel {ch_idx}"
+                dname = _display_name(name_raw, ch_idx, source_key)
+
+                # Optional hint: trailing digit in the raw profile name
+                ch_hint_m = re.search(r"(\d+)", name_raw)
+                ch_hint = int(ch_hint_m.group(1)) if ch_hint_m else None
 
                 main_url = _stream_url(main_profile)
                 main_entry = {
@@ -1320,7 +1343,10 @@ class ONVIFService:
                 results.append({
                     "channel": ch_idx,
                     "source_token": source_key,
-                    "name": channel_name,
+                    "name": dname,
+                    "display_name": dname,
+                    "profile_name_raw": name_raw,
+                    "channel_number_hint": ch_hint,
                     "main": main_entry,
                     "sub": sub_entry,
                     "snapshot_url": snapshot,

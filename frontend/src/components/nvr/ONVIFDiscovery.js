@@ -191,6 +191,7 @@ export const ONVIFDiscovery = ({ open, onOpenChange, onAdded }) => {
     const key = rowKey(dev);
     const { username, password } = rowCreds(key);
     if (!password) return; // No creds — skip silently
+    setRow(key, { channelsLoading: true });
     try {
       const channels = await onvifChannels({
         host: dev.ip,
@@ -198,20 +199,25 @@ export const ONVIFDiscovery = ({ open, onOpenChange, onAdded }) => {
         username,
         password,
       });
-      if (!Array.isArray(channels) || channels.length <= 1) return;
+      if (!Array.isArray(channels) || channels.length <= 1) {
+        setRow(key, { channelsLoading: false });
+        return;
+      }
       // Build default per-channel selections (all selected) and names.
       const rowName = rowState[key]?.name || dev.name || dev.model || `Camera ${dev.ip}`;
       const channelSelections = {};
       const channelNames = {};
       channels.forEach((ch) => {
         channelSelections[ch.channel] = true;
-        channelNames[ch.channel] = ch.name || `${rowName}-CH${ch.channel}`;
+        // Use "{prefix} CH{channel}" — space not hyphen
+        channelNames[ch.channel] = `${rowName} CH${ch.channel}`;
       });
-      setRow(key, { channels, channelSelections, channelNames });
+      setRow(key, { channels, channelSelections, channelNames, channelsLoading: false });
       // Auto-expand when channels load.
       setChannelsExpanded((s) => ({ ...s, [key]: true }));
     } catch (_e) {
       // Background call — swallow errors silently.
+      setRow(key, { channelsLoading: false });
     }
   };
 
@@ -483,7 +489,7 @@ export const ONVIFDiscovery = ({ open, onOpenChange, onAdded }) => {
         channels.forEach((ch) => {
           if (!sel[ch.channel]) return;
           camerasPayload.push({
-            name: names[ch.channel] || `${row.name || dev.ip}-CH${ch.channel}`,
+            name: names[ch.channel] || `${row.name || dev.ip} CH${ch.channel}`,
             onvif_host: dev.ip,
             onvif_port: dev.port || 80,
             onvif_username: username || null,
@@ -512,7 +518,7 @@ export const ONVIFDiscovery = ({ open, onOpenChange, onAdded }) => {
             const sel = row.channelSelections || {};
             const rowCameraNames = channels
               .filter((ch) => sel[ch.channel])
-              .map((ch) => names[ch.channel] || `${row.name || dev.ip}-CH${ch.channel}`);
+              .map((ch) => names[ch.channel] || `${row.name || dev.ip} CH${ch.channel}`);
             const anyCreated = (result?.created || []).some((c) =>
               rowCameraNames.includes(c.name),
             );
@@ -904,7 +910,7 @@ export const ONVIFDiscovery = ({ open, onOpenChange, onAdded }) => {
                           )}
 
                           {/* NVR channel list — collapsible */}
-                          {hasChannels && (
+                          {(hasChannels || row.channelsLoading) && (
                             <div
                               className={cn(
                                 "mt-1 rounded-md border border-violet-500/20 bg-violet-500/[0.04] transition-opacity",
@@ -915,7 +921,7 @@ export const ONVIFDiscovery = ({ open, onOpenChange, onAdded }) => {
                               <button
                                 type="button"
                                 onClick={() =>
-                                  setChannelsExpanded((s) => ({
+                                  hasChannels && setChannelsExpanded((s) => ({
                                     ...s,
                                     [key]: !s[key],
                                   }))
@@ -924,51 +930,76 @@ export const ONVIFDiscovery = ({ open, onOpenChange, onAdded }) => {
                               >
                                 <span className="flex items-center gap-1.5">
                                   <Layers className="h-3 w-3" />
-                                  Channels ({row.channels.length})
-                                </span>
-                                <span className="flex items-center gap-2">
-                                  {/* Select-all toggle */}
-                                  <span
-                                    className="text-[10px] text-zinc-400 hover:text-zinc-200 flex items-center gap-1"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      const allSel = row.channels.every(
-                                        (ch) => row.channelSelections?.[ch.channel],
-                                      );
-                                      const next = {};
-                                      row.channels.forEach((ch) => {
-                                        next[ch.channel] = !allSel;
-                                      });
-                                      setRow(key, { channelSelections: next });
-                                    }}
-                                  >
-                                    {row.channels.every(
-                                      (ch) => row.channelSelections?.[ch.channel],
-                                    )
-                                      ? "Deselect all"
-                                      : "Select all"}
-                                  </span>
-                                  {expanded ? (
-                                    <ChevronDown className="h-3.5 w-3.5" />
+                                  {row.channelsLoading ? (
+                                    <span className="flex items-center gap-1 text-violet-400">
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                      Loading channels…
+                                    </span>
                                   ) : (
-                                    <ChevronRight className="h-3.5 w-3.5" />
+                                    <>
+                                      Channels ({row.channels.length})
+                                      {" · "}
+                                      {row.channels.filter((ch) => row.channelSelections?.[ch.channel]).length} selected
+                                    </>
                                   )}
                                 </span>
+                                {hasChannels && (
+                                  <span className="flex items-center gap-2">
+                                    {/* Select-all toggle */}
+                                    <span
+                                      className="text-[10px] text-zinc-400 hover:text-zinc-200 flex items-center gap-1"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        const allSel = row.channels.every(
+                                          (ch) => row.channelSelections?.[ch.channel],
+                                        );
+                                        const next = {};
+                                        row.channels.forEach((ch) => {
+                                          next[ch.channel] = !allSel;
+                                        });
+                                        setRow(key, { channelSelections: next });
+                                      }}
+                                    >
+                                      {row.channels.every(
+                                        (ch) => row.channelSelections?.[ch.channel],
+                                      )
+                                        ? "Deselect all"
+                                        : "Select all"}
+                                    </span>
+                                    {expanded ? (
+                                      <ChevronDown className="h-3.5 w-3.5" />
+                                    ) : (
+                                      <ChevronRight className="h-3.5 w-3.5" />
+                                    )}
+                                  </span>
+                                )}
                               </button>
 
-                              {/* Channel rows */}
-                              {expanded && (
-                                <div className="px-3 pb-2 space-y-1">
+                              {/* Channel rows — 2-column grid when >6 channels */}
+                              {expanded && hasChannels && (
+                                <div className={cn(
+                                  "px-3 pb-2 gap-1",
+                                  row.channels.length > 6
+                                    ? "grid grid-cols-2"
+                                    : "flex flex-col",
+                                )}>
                                   {row.channels.map((ch) => {
                                     const chSel =
                                       row.channelSelections?.[ch.channel] ?? true;
                                     const chName =
                                       row.channelNames?.[ch.channel] ||
-                                      `${row.name || dev.ip}-CH${ch.channel}`;
+                                      `${row.name || dev.ip} CH${ch.channel}`;
+                                    const displayName = ch.display_name || ch.name || `Channel ${ch.channel}`;
+                                    const rawName = ch.profile_name_raw || "";
+                                    const showRaw = rawName && rawName !== displayName;
+                                    // Format resolution with unicode ×
+                                    const fmtRes = (res) => res ? res.replace("x", "×") : null;
+                                    const mainRes = fmtRes(ch.main?.resolution);
+                                    const subRes = fmtRes(ch.sub?.resolution);
                                     return (
                                       <div
                                         key={ch.channel}
-                                        className="flex items-center gap-2"
+                                        className="flex items-center gap-2 min-w-0"
                                       >
                                         <Checkbox
                                           checked={chSel}
@@ -982,27 +1013,34 @@ export const ONVIFDiscovery = ({ open, onOpenChange, onAdded }) => {
                                           }}
                                           className="flex-shrink-0"
                                         />
-                                        <Input
-                                          value={chName}
-                                          onChange={(e) =>
-                                            setRow(key, {
-                                              channelNames: {
-                                                ...(row.channelNames || {}),
-                                                [ch.channel]: e.target.value,
-                                              },
-                                            })
-                                          }
-                                          className="h-7 text-xs flex-1"
-                                          placeholder={`Channel ${ch.channel}`}
-                                        />
-                                        {ch.main?.resolution && (
-                                          <span className="text-[10px] text-zinc-400 font-mono flex-shrink-0">
-                                            {ch.main.resolution}
+                                        <div className="flex-1 min-w-0">
+                                          <Input
+                                            value={chName}
+                                            onChange={(e) =>
+                                              setRow(key, {
+                                                channelNames: {
+                                                  ...(row.channelNames || {}),
+                                                  [ch.channel]: e.target.value,
+                                                },
+                                              })
+                                            }
+                                            className="h-7 text-xs"
+                                            placeholder={`Channel ${ch.channel}`}
+                                          />
+                                          {showRaw && (
+                                            <div className="text-[9px] text-zinc-600 font-mono truncate mt-0.5 px-0.5">
+                                              {rawName}
+                                            </div>
+                                          )}
+                                        </div>
+                                        {mainRes && (
+                                          <span className="text-[10px] text-zinc-400 font-mono flex-shrink-0 whitespace-nowrap" title="Main stream resolution">
+                                            Main {mainRes}
                                           </span>
                                         )}
                                         {ch.sub && (
-                                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-700/60 text-zinc-400 flex-shrink-0">
-                                            +sub
+                                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-700/60 text-zinc-400 flex-shrink-0 whitespace-nowrap">
+                                            {subRes ? `+Sub ${subRes}` : "+Sub"}
                                           </span>
                                         )}
                                       </div>
