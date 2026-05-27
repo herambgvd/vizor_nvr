@@ -15,7 +15,7 @@
 import logging
 import uuid
 from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -49,7 +49,7 @@ class IngestEvent(BaseModel):
     """A single NVR event to ingest (motion, ONVIF, system, etc.)."""
 
     # Required for dedup. Workers compose this as:
-    #   sha1(f"{camera_id}:{detection_type}:{track_id or hash(bbox)}:{time_bucket}")
+    #   sha1(f"{camera_id}:{event_type}:{time_bucket}")
     dedup_key: str = Field(..., max_length=128)
 
     camera_id: Optional[str] = None
@@ -60,11 +60,6 @@ class IngestEvent(BaseModel):
 
     # Source service
     source_service: str = Field(..., max_length=50)        # "onvif-event-service", "nvr-motion-detector", etc.
-    detection_type: Optional[str] = Field(None, max_length=50)
-    confidence: Optional[float] = Field(None, ge=0.0, le=1.0)
-    bbox: Optional[List[float]] = None                       # [x, y, w, h] normalized
-    track_id: Optional[str] = Field(None, max_length=64)
-    attributes: Optional[Dict[str, Any]] = None
 
     # Optional links to NVR-native data
     snapshot_path: Optional[str] = None
@@ -131,11 +126,6 @@ async def ingest_events(
                     is_false_alarm=False,
                     triggered_at=ev.triggered_at or datetime.utcnow(),
                     source_service=ev.source_service,
-                    detection_type=ev.detection_type,
-                    confidence=ev.confidence,
-                    bbox=ev.bbox,
-                    track_id=ev.track_id,
-                    attributes=ev.attributes,
                     dedup_key=ev.dedup_key,
                 )
                 # Hypertable unique is composite (dedup_key, triggered_at)
@@ -153,7 +143,6 @@ async def ingest_events(
                 inserted_ids.append(row[0])
                 EVENTS_INGESTED.labels(
                     source_service=ev.source_service,
-                    detection_type=ev.detection_type or "unknown",
                 ).inc()
         except Exception:  # noqa: BLE001 — log per-row failure, continue batch
             logger.exception("Failed to ingest event with dedup_key=%s", ev.dedup_key)

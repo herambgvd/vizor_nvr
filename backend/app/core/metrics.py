@@ -17,8 +17,8 @@ from prometheus_client import Counter, Gauge, Histogram
 # ── Event ingest ─────────────────────────────────────────────────────────
 EVENTS_INGESTED = Counter(
     "vizor_events_ingested_total",
-    "Number of AI detection events successfully inserted via /api/events/ingest",
-    labelnames=("source_service", "detection_type"),
+    "Number of NVR events successfully inserted via /api/events/ingest",
+    labelnames=("source_service",),
 )
 
 EVENTS_SKIPPED = Counter(

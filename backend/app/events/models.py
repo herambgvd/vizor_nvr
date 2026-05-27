@@ -3,7 +3,7 @@
 # =============================================================================
 
 from sqlalchemy import (
-    Column, String, Boolean, DateTime, Integer, Float, Text, JSON,
+    Column, String, Boolean, DateTime, Integer, Text, JSON,
     ForeignKey, Index,
 )
 from sqlalchemy.sql import func
@@ -79,21 +79,13 @@ class Event(Base):
     triggered_at = Column(DateTime, server_default=func.now(), nullable=False)
     created_at = Column(DateTime, server_default=func.now())
 
-    # ── AI integration fields (Phase 1) ─────────────────────────────────
-    # Populated by vizor-gpu workers via /api/events/ingest. NULL for native
-    # NVR events (motion, ONVIF, system).
-    source_service = Column(String(50), nullable=True, index=True)   # "vizor-gpu-frs", "vizor-gpu-ppe", etc.
-    detection_type = Column(String(50), nullable=True, index=True)   # "face", "ppe_violation", "vehicle", etc.
-    confidence = Column(Float, nullable=True)                         # 0.0–1.0 inference confidence
-    bbox = Column(JSON, nullable=True)                                # [x, y, w, h] normalized 0-1
-    track_id = Column(String(64), nullable=True, index=True)          # cross-frame tracker id
-    person_id = Column(String, nullable=True, index=True)             # FRS match → frs_persons.id
-    attributes = Column(JSON, nullable=True)                          # extra inference metadata (color, age band, etc.)
+    # ── Service attribution ──────────────────────────────────────────────
+    source_service = Column(String(50), nullable=True, index=True)   # "onvif-event-service", "nvr-motion-detector", etc.
     dedup_key = Column(String(128), nullable=True, unique=True, index=True)
     """
-    Idempotency key. Workers compute this from (camera_id, detection_type,
-    track_id or pose hash, time bucket) so retries of the same logical
-    detection don't create duplicate rows.
+    Idempotency key. Workers compute this from (camera_id, event_type,
+    time bucket) so retries of the same logical event don't create
+    duplicate rows.
     """
 
     __table_args__ = (
