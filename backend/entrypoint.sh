@@ -16,7 +16,14 @@ set -e
 if [ "$(id -u)" = "0" ]; then
   mkdir -p /data /data/recordings /data/thumbnails /data/exports /data/hls /data/certs
   chown -R 1001:1001 /data
+  # Run migrations before launching the app. If the DB isn't reachable
+  # yet, fail loudly so the orchestrator (docker compose / k8s) restarts
+  # us; the depends_on healthcheck on the db service should make this
+  # rare.
+  su -s /bin/sh nvr -c "alembic upgrade head"
   exec su -s /bin/sh nvr -c "exec $*"
 fi
 
+# Re-entry path (already non-root): same order.
+alembic upgrade head
 exec "$@"
