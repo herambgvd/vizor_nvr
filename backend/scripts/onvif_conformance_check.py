@@ -496,7 +496,65 @@ def run_all():
           """<trp:GetReplayUri>
                <trp:RecordingToken>rec_1</trp:RecordingToken>
              </trp:GetReplayUri>""",
-          "GetReplayUriResponse")
+          "GetReplayUriResponse",
+          custom_check=lambda root: (
+              # Accept URI response (camera found) or NotPresent fault (no cameras yet)
+              _has_response(root, "GetReplayUriResponse") or (
+                  root is not None and b"NotPresent" in etree.tostring(root)
+              ),
+              "URI returned" if _has_response(root, "GetReplayUriResponse")
+              else ("NotPresent fault (no recordings — expected on empty NVR)" if root is not None and b"NotPresent" in etree.tostring(root)
+              else "No response")
+          ))
+
+    # GetReplayUri with StartTime — triggers time-shifted replay session
+    _five_min_ago = (
+        datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=5)
+    ).strftime("%Y-%m-%dT%H:%M:%SZ")
+    check("G", "Replay", "GetReplayUri+StartTime", False,
+          REPLAY_SERVICE, NS_TRP,
+          "GetReplayUri",
+          f"""<trp:GetReplayUri>
+               <trp:RecordingToken>rec_1</trp:RecordingToken>
+               <trp:StreamSetup>
+                 <tt:Stream>RTP-Unicast</tt:Stream>
+                 <tt:Transport><tt:Protocol>RTSP</tt:Protocol></tt:Transport>
+               </trp:StreamSetup>
+               <trp:StartTime>{_five_min_ago}</trp:StartTime>
+             </trp:GetReplayUri>""",
+          "GetReplayUriResponse",
+          custom_check=lambda root: (
+              # Accept either a URI response (segment found) or a NotPresent fault
+              # (no recordings yet) — both are correct NVR behaviour.
+              _has_response(root, "GetReplayUriResponse") or (
+                  root is not None and b"NotPresent" in etree.tostring(root)
+              ),
+              "URI returned (segment found)" if _has_response(root, "GetReplayUriResponse")
+              else ("NotPresent fault (no segments — expected on empty NVR)" if root is not None and b"NotPresent" in etree.tostring(root)
+              else "No response")
+          ))
+
+    check("G", "Replay", "GetReplayConfiguration", False,
+          REPLAY_SERVICE, NS_TRP,
+          "GetReplayConfiguration",
+          "<trp:GetReplayConfiguration/>",
+          "GetReplayConfigurationResponse")
+
+    check("G", "Replay", "SetReplayConfiguration", False,
+          REPLAY_SERVICE, NS_TRP,
+          "SetReplayConfiguration",
+          """<trp:SetReplayConfiguration>
+               <trp:Configuration>
+                 <tt:SessionTimeout>PT5M</tt:SessionTimeout>
+               </trp:Configuration>
+             </trp:SetReplayConfiguration>""",
+          "SetReplayConfigurationResponse")
+
+    check("G", "Replay", "GetServiceCapabilities", False,
+          REPLAY_SERVICE, NS_TRP,
+          "GetServiceCapabilities",
+          "<trp:GetServiceCapabilities/>",
+          "GetServiceCapabilitiesResponse")
 
 
 # ── Print table ──────────────────────────────────────────────────────────────

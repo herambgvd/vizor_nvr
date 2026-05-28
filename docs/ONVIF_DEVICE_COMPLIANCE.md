@@ -143,8 +143,20 @@ WS-Discovery Hello/ProbeMatch scopes include:
 
 | Operation | Status | Notes |
 |-----------|--------|-------|
-| GetReplayUri | ✅ | Returns go2rtc RTSP URL for the camera stream |
-| GetServiceCapabilities | ✅ | ReversePlayback=false |
+| GetReplayUri | ✅ | Time-shifted replay via ffmpeg session manager; returns `rtsp://<host>:8554/replay_<id>_<offset>` |
+| GetReplayConfiguration | ✅ | Returns `SessionTimeout=PT5M` |
+| SetReplayConfiguration | ✅ | Accepted silently (in-memory only) |
+| GetServiceCapabilities | ✅ | ReversePlayback=false; SessionTimeoutRange=1 300 |
+
+#### Replay Session Details
+
+- **Implementation**: `backend/app/onvif_device/replay.py` + `backend/app/onvif_device/replay_manager.py`
+- **Mechanism**: Each `GetReplayUri` call with a `StartTime` finds the MP4 segment containing that timestamp, computes the seek offset, and spawns an `ffmpeg` subprocess that pushes the time-shifted stream to go2rtc via `rtsp://go2rtc:8554/<stream_id>`. The stream is then accessible to VMS clients at `rtsp://<nvr-host>:8554/<stream_id>`.
+- **Session cap**: 8 concurrent sessions (LRU eviction when cap is reached).
+- **Idle timeout**: 5 minutes — sessions with no `touch_session` call are evicted by the background loop.
+- **Hard timeout**: 30 minutes per session regardless of activity.
+- **Segment boundary**: If `StartTime` falls outside all stored segments, a `ter:NotPresent` SOAP fault is returned. If no `StartTime` is provided, the most recent completed segment is used.
+- **File missing**: If the segment file is absent from disk, `ter:NotPresent` is returned.
 
 ---
 
@@ -176,7 +188,7 @@ Credentials are configured via:
 | Item | Status | Reason |
 |------|--------|--------|
 | PullMessages with real events | ⚠ Partial | Currently returns empty list; a future task should inject motion/alarm events from the DB or from `onvif_event_service` |
-| GetReplayUri for historical segments | ⚠ Partial | Returns the live stream URL for the camera, not a time-shifted replay URL. Full segment-level replay would require go2rtc seek support or an HLS seek endpoint |
+| GetReplayUri for historical segments | ✅ Implemented | ffmpeg-based time-shifted replay sessions; see Replay Service section above |
 | PTZ forwarding | ⚠ Partial | Requires `get_ptz_presets` / `goto_ptz_preset` free-function wrappers in `cameras/onvif_service.py` — currently best-effort with silent fallback |
 | Imaging service | ❌ Deferred | No `/onvif/imaging_service` endpoint. Not required by Profile S device side |
 | Multi-stream profiles (sub-stream) | ❌ Deferred | NVR registers one profile per camera. Sub-stream profile can be added as `profile_{id}_sub` |
