@@ -36,6 +36,7 @@ import {
   DropdownMenuTrigger,
 } from "../components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "../components/ui/avatar";
+import { ChangePasswordDialogTrigger } from "../components/auth/ChangePasswordDialog";
 import {
   LiveEventProvider,
   LiveEventDrawer,
