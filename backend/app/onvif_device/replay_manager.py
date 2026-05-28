@@ -23,9 +23,10 @@ from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 
-MAX_SESSIONS      = 8
-IDLE_TIMEOUT_SECS = 5 * 60    # 5 minutes idle → evict
-HARD_TIMEOUT_SECS = 30 * 60   # 30 minutes absolute hard limit
+MAX_SESSIONS           = 8
+IDLE_TIMEOUT_SECS      = 5 * 60    # 5 minutes idle → evict (overridden by persisted setting)
+HARD_TIMEOUT_SECS      = 30 * 60   # 30 minutes absolute hard limit
+DEFAULT_SESSION_TIMEOUT = 300      # seconds — fallback when DB setting absent
 
 GO2RTC_INTERNAL_HOST = os.getenv("GO2RTC_INTERNAL_HOST", "go2rtc")
 GO2RTC_RTSP_PORT     = int(os.getenv("GO2RTC_RTSP_PORT", "8554"))
@@ -36,6 +37,7 @@ class ReplaySession:
     stream_id:     str
     file_path:     str
     offset_seconds: float
+    speed_factor:   float
     process:       asyncio.subprocess.Process
     started_at:    datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     last_accessed: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -57,6 +59,39 @@ class ReplayManager:
         self._sessions: Dict[str, ReplaySession] = {}
         self._lock = asyncio.Lock()
         self._eviction_task: Optional[asyncio.Task] = None
+        # Idle timeout may be overridden by SetReplayConfiguration
+        self._session_timeout_secs: int = DEFAULT_SESSION_TIMEOUT
+
+    async def _load_session_timeout(self):
+        """Read persisted replay session timeout from settings DB."""
+        try:
+            from app.database import async_session_maker
+            from app.settings.service import SettingsService
+            async with async_session_maker() as db:
+                val = await SettingsService.get_value(db, "replay_session_timeout_seconds", None)
+                if val is not None:
+                    self._session_timeout_secs = int(val)
+        except Exception as e:
+            logger.debug(f"ReplayManager: could not load session timeout: {e}")
+
+    async def get_session_timeout(self) -> int:
+        """Return current session timeout in seconds (from DB or default)."""
+        await self._load_session_timeout()
+        return self._session_timeout_secs
+
+    async def set_session_timeout(self, seconds: int):
+        """Persist and activate a new session timeout."""
+        self._session_timeout_secs = seconds
+        try:
+            from app.database import async_session_maker
+            from app.settings.service import SettingsService
+            async with async_session_maker() as db:
+                await SettingsService.set_value(
+                    db, "replay_session_timeout_seconds", str(seconds), category="replay"
+                )
+                await db.commit()
+        except Exception as e:
+            logger.warning(f"ReplayManager: could not persist session timeout: {e}")
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -96,13 +131,24 @@ class ReplayManager:
     # Public API
     # ------------------------------------------------------------------
 
-    async def start_session(self, stream_id: str, file_path: str, offset_seconds: float) -> bool:
+    async def start_session(
+        self,
+        stream_id: str,
+        file_path: str,
+        offset_seconds: float,
+        speed_factor: float = 1.0,
+    ) -> bool:
         """
         Spawn an ffmpeg process that reads the MP4 at offset_seconds and pushes
         to go2rtc via RTSP. Returns True if session was successfully started.
         If a session with the same stream_id already exists and is alive, it is
         reused (and touched).
+
+        speed_factor: 1.0 = real-time (copy); 0.25–4.0 = speed change (re-encode).
         """
+        # Load the persisted session timeout on each new session creation
+        await self._load_session_timeout()
+
         async with self._lock:
             # Reuse existing live session
             if stream_id in self._sessions:
@@ -120,20 +166,56 @@ class ReplayManager:
 
             rtsp_push_url = f"rtsp://{GO2RTC_INTERNAL_HOST}:{GO2RTC_RTSP_PORT}/{stream_id}"
 
+            # Cap speed_factor to safe bounds
+            speed_factor = max(0.25, min(4.0, speed_factor))
+
             # Build ffmpeg command
             # -re: read at native rate (prevent flooding go2rtc)
             # -ss before -i: fast seek (keyframe-accurate is fine for replay)
-            cmd = [
-                "ffmpeg",
-                "-nostdin",
-                "-loglevel", "warning",
-                "-ss", str(offset_seconds),
-                "-i", file_path,
-                "-c", "copy",
-                "-f", "rtsp",
-                "-rtsp_transport", "tcp",
-                rtsp_push_url,
-            ]
+            if abs(speed_factor - 1.0) < 0.01:
+                # Fast path: stream copy (no re-encode)
+                cmd = [
+                    "ffmpeg",
+                    "-nostdin",
+                    "-loglevel", "warning",
+                    "-ss", str(offset_seconds),
+                    "-i", file_path,
+                    "-c", "copy",
+                    "-f", "rtsp",
+                    "-rtsp_transport", "tcp",
+                    rtsp_push_url,
+                ]
+                logger.info(
+                    f"ReplayManager: spawning ffmpeg for {stream_id} offset={offset_seconds:.1f}s "
+                    f"speed=1.0 (copy) → {rtsp_push_url}"
+                )
+            else:
+                # Re-encode path with setpts filter for speed change.
+                # Audio is dropped when changing speed (spec allows; avoids pitch issues).
+                # Use hwaccel encoder if available.
+                try:
+                    from app.services.hwaccel_probe import pick_encoder
+                    encoder_flags = pick_encoder("h264")
+                except Exception:
+                    encoder_flags = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "23"]
+
+                cmd = [
+                    "ffmpeg",
+                    "-nostdin",
+                    "-loglevel", "warning",
+                    "-ss", str(offset_seconds),
+                    "-i", file_path,
+                    "-vf", f"setpts=PTS/{speed_factor:.4f}",
+                    *encoder_flags,
+                    "-an",  # drop audio during speed change
+                    "-f", "rtsp",
+                    "-rtsp_transport", "tcp",
+                    rtsp_push_url,
+                ]
+                logger.info(
+                    f"ReplayManager: spawning ffmpeg for {stream_id} offset={offset_seconds:.1f}s "
+                    f"speed={speed_factor:.2f}x (re-encode: {encoder_flags[1]}) → {rtsp_push_url}"
+                )
             logger.info(f"ReplayManager: spawning ffmpeg for {stream_id} offset={offset_seconds:.1f}s → {rtsp_push_url}")
 
             try:
@@ -150,6 +232,7 @@ class ReplayManager:
                 stream_id=stream_id,
                 file_path=file_path,
                 offset_seconds=offset_seconds,
+                speed_factor=speed_factor,
                 process=proc,
             )
             self._sessions[stream_id] = sess
@@ -163,13 +246,14 @@ class ReplayManager:
             sess.last_accessed = datetime.now(timezone.utc)
 
     async def evict_idle(self):
-        """Kill sessions that have been idle > IDLE_TIMEOUT_SECS or exceeded HARD_TIMEOUT_SECS."""
+        """Kill sessions that have been idle > session_timeout or exceeded HARD_TIMEOUT_SECS."""
+        idle_timeout = self._session_timeout_secs  # may be updated by SetReplayConfiguration
         async with self._lock:
             to_evict = []
             for sid, sess in self._sessions.items():
                 if not sess.is_alive():
                     to_evict.append(sid)
-                elif sess.idle_seconds() > IDLE_TIMEOUT_SECS:
+                elif sess.idle_seconds() > idle_timeout:
                     to_evict.append(sid)
                     logger.info(f"ReplayManager: evicting idle session {sid}")
                 elif sess.age_seconds() > HARD_TIMEOUT_SECS:
@@ -188,6 +272,7 @@ class ReplayManager:
                 "stream_id": sid,
                 "file_path": sess.file_path,
                 "offset_seconds": sess.offset_seconds,
+                "speed_factor": sess.speed_factor,
                 "alive": sess.is_alive(),
                 "idle_seconds": round(sess.idle_seconds()),
                 "age_seconds": round(sess.age_seconds()),

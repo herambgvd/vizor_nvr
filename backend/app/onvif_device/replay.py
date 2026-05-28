@@ -19,7 +19,7 @@ import logging
 import os
 import re
 from datetime import datetime, timezone
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 
 from lxml import etree
 from fastapi import Request
@@ -64,6 +64,36 @@ def _parse_start_time(xml_bytes: bytes) -> Optional[datetime]:
     except Exception as e:
         logger.debug(f"replay._parse_start_time: {e}")
     return None
+
+
+def _parse_rate_control(xml_bytes: bytes) -> dict:
+    """
+    Extract RateControl fields from a GetReplayUri SOAP body.
+    Returns a dict with keys: speed_factor (float), reverse (bool).
+    Defaults: speed_factor=1.0, reverse=False.
+    """
+    result = {"speed_factor": 1.0, "reverse": False}
+    try:
+        root = etree.fromstring(xml_bytes)
+        for tag_prefix in ("", f"{{{NS_TRP}}}", f"{{{NS_TT}}}"):
+            rc = root.find(f".//{tag_prefix}RateControl")
+            if rc is None:
+                continue
+            for sf_tag in ("SpeedFactor", f"{{{NS_TT}}}SpeedFactor", f"{{{NS_TRP}}}SpeedFactor"):
+                sf_el = rc.find(f".//{sf_tag}") or rc.find(sf_tag)
+                if sf_el is not None and sf_el.text:
+                    try:
+                        result["speed_factor"] = float(sf_el.text.strip())
+                    except ValueError:
+                        pass
+            for rev_tag in ("Reverse", f"{{{NS_TT}}}Reverse", f"{{{NS_TRP}}}Reverse"):
+                rev_el = rc.find(f".//{rev_tag}") or rc.find(rev_tag)
+                if rev_el is not None and rev_el.text:
+                    result["reverse"] = rev_el.text.strip().lower() == "true"
+            break
+    except Exception as e:
+        logger.debug(f"replay._parse_rate_control: {e}")
+    return result
 
 
 def _recording_token_to_camera_id(token: Optional[str]) -> Optional[str]:
@@ -112,6 +142,22 @@ async def handle_get_replay_uri(
     """
     start_time = _parse_start_time(xml_bytes)
     camera_id  = _recording_token_to_camera_id(recording_token)
+
+    # ── Parse RateControl ────────────────────────────────────────────────────
+    rate_control = _parse_rate_control(xml_bytes)
+    speed_factor = rate_control["speed_factor"]
+    reverse      = rate_control["reverse"]
+
+    # Cap speed to valid range
+    speed_factor = max(0.25, min(4.0, speed_factor))
+
+    # Reverse playback is not supported — return SOAP fault
+    if reverse and speed_factor < 0:
+        logger.info("GetReplayUri: Reverse=true requested — not supported (ter:NotSupported)")
+        return None, "ter:NotSupported"
+    if reverse:
+        logger.info("GetReplayUri: Reverse=true with positive SpeedFactor — ignoring Reverse flag")
+        reverse = False
 
     segment: Optional[Recording] = None
 
@@ -180,6 +226,7 @@ async def handle_get_replay_uri(
         stream_id=stream_id,
         file_path=segment.file_path,
         offset_seconds=offset,
+        speed_factor=speed_factor,
     )
     if not ok:
         logger.error(f"GetReplayUri: failed to start replay session for {stream_id}")
