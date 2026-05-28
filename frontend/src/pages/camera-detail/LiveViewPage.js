@@ -20,8 +20,8 @@ import {
   getStreamUrls,
   startRecording,
   stopRecording,
+  postBackchannelWebrtcSignal,
 } from "../../api/cameras";
-import apiClient from "../../api/client";
 import { WebRTCPlayer } from "../../components/nvr/WebRTCPlayer";
 import { PTZControls } from "../../components/nvr/PTZControls";
 import { Button } from "../../components/ui/button";
@@ -35,52 +35,93 @@ const InfoCard = ({ label, value }) => (
   </div>
 );
 
-// ── Talk (two-way audio) button ──────────────────────────────────────────────
+// ── Talk (two-way audio) button — WebRTC publish path ────────────────────────
 
 const TalkButton = ({ cameraId }) => {
   const [isTalking, setIsTalking] = useState(false);
   const [loading, setLoading] = useState(false);
-  const streamRef = useRef(null);
+  const pcRef = useRef(null);
+  const localStreamRef = useRef(null);
+
+  const stopTalk = () => {
+    if (pcRef.current) {
+      pcRef.current.close();
+      pcRef.current = null;
+    }
+    if (localStreamRef.current) {
+      localStreamRef.current.getAudioTracks().forEach((t) => t.stop());
+      localStreamRef.current = null;
+    }
+    setIsTalking(false);
+    setLoading(false);
+  };
 
   const startTalk = async () => {
     setLoading(true);
     try {
-      // Start backend session
-      await apiClient.post(`/cameras/${cameraId}/audio/backchannel/start`);
-
-      // Request mic access
+      // 1. Request mic
+      let stream;
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-        streamRef.current = stream;
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true },
+          video: false,
+        });
       } catch (micErr) {
-        toast.warning("Microphone access denied — server session active but no local mic");
+        toast.error("Microphone access denied");
+        setLoading(false);
+        return;
+      }
+      localStreamRef.current = stream;
+
+      // 2. Build PeerConnection
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      });
+      pcRef.current = pc;
+
+      // Add mic tracks so the offer contains a sendonly audio m-line
+      stream.getAudioTracks().forEach((t) => pc.addTrack(t, stream));
+
+      // 3. Create offer and set local description
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      // 4. POST offer to backend — get SDP answer
+      let answerSdp;
+      try {
+        const result = await postBackchannelWebrtcSignal(cameraId, offer.sdp);
+        answerSdp = result.sdp;
+      } catch (err) {
+        const status = err?.response?.status;
+        if (status === 503) {
+          toast.error("Camera does not support two-way audio");
+        } else {
+          const detail = err?.response?.data?.detail || err?.message || "WebRTC signaling failed";
+          toast.error(detail);
+        }
+        stopTalk();
+        return;
       }
 
+      // 5. Apply SDP answer
+      await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
+
+      // Handle unexpected peer disconnect
+      pc.onconnectionstatechange = () => {
+        if (["failed", "disconnected", "closed"].includes(pc.connectionState)) {
+          stopTalk();
+        }
+      };
+
       setIsTalking(true);
-      toast.success("Talk mode active");
+      toast.success("Talk active — speaking to camera");
     } catch (err) {
-      const msg = err?.response?.data?.detail || err?.message || "Failed to start talk mode";
+      const msg = err?.message || "Failed to start talk mode";
       toast.error(msg);
+      stopTalk();
     } finally {
       setLoading(false);
     }
-  };
-
-  const stopTalk = async () => {
-    setLoading(true);
-    // Stop local mic tracks
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-    }
-    try {
-      await apiClient.post(`/cameras/${cameraId}/audio/backchannel/stop`);
-    } catch (_) {
-      // ignore
-    }
-    setIsTalking(false);
-    setLoading(false);
-    toast.success("Talk mode stopped");
   };
 
   return (
@@ -244,7 +285,8 @@ const LiveViewPage = () => {
           )}
         </div>
 
-        <div className="flex flex-col gap-3">
+        {/* Info cards — 2-col grid on mobile, single col on lg */}
+        <div className="grid grid-cols-2 lg:grid-cols-1 gap-3">
           <InfoCard label="Status" value={camera.status} />
           <InfoCard label="Resolution" value={camera.resolution || "—"} />
           <InfoCard label="FPS" value={camera.fps ? `${camera.fps}` : "—"} />

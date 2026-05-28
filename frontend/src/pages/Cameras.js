@@ -670,8 +670,106 @@ const Cameras = () => {
         </div>
       </div>
 
-      {/* Table */}
-      <div className="bg-card border border-border rounded-lg overflow-hidden overflow-x-auto">
+      {/* Mobile card list — visible below md, hidden above */}
+      <div className="md:hidden space-y-2 mb-4">
+        {isLoading ? (
+          <div className="text-center py-10 text-muted-foreground text-sm">Loading cameras…</div>
+        ) : paginated.length === 0 ? (
+          <div className="text-center py-10">
+            <Camera className="h-10 w-10 text-slate-300 mx-auto mb-3" />
+            <p className="text-muted-foreground text-sm">
+              {search || statusFilter !== "all" || groupFilter !== "all"
+                ? "No cameras match the current filters"
+                : "No cameras added yet"}
+            </p>
+            {!search && statusFilter === "all" && groupFilter === "all" && canManage && (
+              <Button onClick={openAdd} variant="outline" className="mt-4" size="sm">
+                <Plus className="h-4 w-4 mr-2" /> Add Your First Camera
+              </Button>
+            )}
+          </div>
+        ) : (
+          paginated.map((camera) => (
+            <div
+              key={camera.id}
+              className={cn(
+                "bg-card border border-border rounded-lg p-3 flex items-center gap-3",
+                !camera.is_enabled && "opacity-60",
+                selectedIds.has(camera.id) && "border-teal-500/40 bg-teal-500/[0.06]",
+              )}
+            >
+              <input
+                type="checkbox"
+                aria-label={`Select ${camera.name}`}
+                className="accent-teal-400 cursor-pointer flex-shrink-0"
+                checked={selectedIds.has(camera.id)}
+                onChange={() => toggleSelect(camera.id)}
+              />
+              <button
+                type="button"
+                onClick={() => setPreviewCamera(camera)}
+                className="rounded-md overflow-hidden ring-1 ring-white/5 hover:ring-teal-400/60 transition flex-shrink-0"
+              >
+                <CameraThumbnail cameraId={camera.id} className="w-16 h-10" />
+              </button>
+              <div className="flex-1 min-w-0">
+                <p
+                  className="font-medium text-white hover:text-teal-300 cursor-pointer transition-colors truncate text-sm"
+                  onClick={() => navigate(`/cameras/${camera.id}`)}
+                >
+                  {camera.name}
+                </p>
+                <div className="flex items-center gap-2 mt-1 flex-wrap">
+                  <StatusBadge status={camera.status} />
+                  {camera.is_recording && <RecordingIndicator isRecording />}
+                </div>
+              </div>
+              <div className="flex-shrink-0">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-8 w-8">
+                      <MoreVertical className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    {canOperate && (
+                      <DropdownMenuItem onClick={() => inlineToggle(camera)}>
+                        {camera.is_recording ? (
+                          <><Square className="h-4 w-4 mr-2" /> Stop Recording</>
+                        ) : (
+                          <><Play className="h-4 w-4 mr-2" /> Start Recording</>
+                        )}
+                      </DropdownMenuItem>
+                    )}
+                    {canManage && (
+                      <DropdownMenuItem onClick={() => openEdit(camera)}>
+                        <Pencil className="h-4 w-4 mr-2" /> Edit Camera
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuItem onClick={() => navigate(`/cameras/${camera.id}`)}>
+                      <ExternalLink className="h-4 w-4 mr-2" /> View Details
+                    </DropdownMenuItem>
+                    {canManage && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          onClick={() => setDeleteTarget(camera)}
+                          className="text-red-600 focus:text-red-600"
+                        >
+                          <Trash2 className="h-4 w-4 mr-2" /> Delete Camera
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Table — hidden on mobile, visible md+ */}
+      <div className="hidden md:block bg-card border border-border rounded-lg overflow-hidden overflow-x-auto">
         <Table className="min-w-[1100px]">
           <TableHeader>
             <TableRow className="bg-card/40">
