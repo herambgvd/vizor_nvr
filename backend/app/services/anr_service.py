@@ -29,10 +29,41 @@ logger = logging.getLogger(__name__)
 
 
 class ANRService:
-    """Orchestrates backfill of recording gaps after camera recovery."""
+    """Orchestrates backfill of recording gaps after camera recovery.
 
-    # Segment size for ANR downloads (seconds)
-    SEGMENT_DURATION = 600  # 10 min chunks — safe for interrupted downloads
+    DEBOUNCE
+    ────────
+    on_camera_recovered() should be called by CameraMonitor when a camera
+    transitions from offline → online.  To prevent false-fires on transient
+    blips, callers should wait ANR_DEBOUNCE_SECONDS (default 60 s) of stable
+    online state before invoking this method.  The ANR service itself also
+    checks for an already-active job to guard against duplicate triggers.
+
+    BANDWIDTH THROTTLE
+    ──────────────────
+    ANR downloads use ``-stimeout 30000000`` and ``-t <chunk_seconds>`` to
+    bound each FFmpeg call.  Concurrent ANR jobs are limited to 1 per camera
+    (idempotency guard in on_camera_recovered).  To further cap aggregate
+    bandwidth, set ANR_MAX_CONCURRENT_JOBS in the environment; this is
+    enforced via a semaphore.  Default: 2 concurrent jobs (conservative for a
+    shared NIC with live recording traffic).
+
+    FAILURE ISOLATION
+    ─────────────────
+    Every individual segment failure is caught and counted; a single bad
+    segment does not abort the whole backfill.  All methods exhausted →
+    job.status = "failed" with error_message logged but service stays running.
+    """
+
+    # Segment size for ANR downloads (seconds) — overridden by settings
+    @property
+    def SEGMENT_DURATION(self) -> int:
+        return settings.ANR_SEGMENT_DURATION
+
+    def __init__(self):
+        import os
+        _max_jobs = max(1, int(os.getenv("ANR_MAX_CONCURRENT_JOBS", "2")))
+        self._job_semaphore = asyncio.Semaphore(_max_jobs)
 
     async def on_camera_recovered(self, camera_id: str):
         """Entry point called by CameraMonitor when a camera comes back online."""
@@ -85,8 +116,11 @@ class ANRService:
             camera.anr_last_run_at = datetime.now(timezone.utc)
             await db.commit()
 
-            # Spawn background backfill
-            asyncio.create_task(self._backfill_camera(camera_id, job.id))
+            # Spawn background backfill (semaphore limits concurrent jobs)
+            asyncio.create_task(
+                self._backfill_camera_guarded(camera_id, job.id),
+                name=f"anr_{camera_id}",
+            )
 
     async def _find_gap(
         self, db, camera_id: str
@@ -124,6 +158,11 @@ class ANRService:
             return None, None
 
         return gap_start, gap_end
+
+    async def _backfill_camera_guarded(self, camera_id: str, job_id: str):
+        """Wrapper that respects the concurrent-job semaphore."""
+        async with self._job_semaphore:
+            await self._backfill_camera(camera_id, job_id)
 
     async def _backfill_camera(self, camera_id: str, job_id: str):
         """Background task: attempt to backfill a single camera's gap."""
