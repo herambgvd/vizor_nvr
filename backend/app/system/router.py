@@ -2,13 +2,20 @@
 # System Router — licensing, NTP, DDNS, version/update endpoints
 # =============================================================================
 
+import io
+import json
 import logging
 import os
+import platform
 import shutil
 import subprocess
+import tarfile
+import tempfile
+from datetime import datetime, timezone as _tz
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -452,3 +459,251 @@ async def get_hwaccel(user: dict = Depends(get_admin_user)):
     """
     from app.services.hwaccel_probe import probe
     return probe()
+
+
+# ─── Diagnostic Bundle (Q6) ───────────────────────────────────────────────────
+
+_SECRET_PATTERNS = [
+    "password", "secret", "token", "key", "passwd", "pwd", "credential",
+]
+
+
+def _sanitize_env_line(line: str) -> str:
+    """Replace secret values in KEY=VALUE lines with ***."""
+    stripped = line.strip()
+    if "=" not in stripped or stripped.startswith("#"):
+        return line
+    key, _, val = stripped.partition("=")
+    if any(pat in key.lower() for pat in _SECRET_PATTERNS) and val:
+        return f"{key}=***\n"
+    return line
+
+
+def _sanitize_compose(content: str) -> str:
+    """Strip obvious secret values from docker-compose yaml content."""
+    import re
+    # Replace environment values that look like secrets
+    return re.sub(
+        r'((?:password|secret|token|key|passwd)\s*[:=]\s*)([^\s\n#]+)',
+        r'\1***',
+        content,
+        flags=re.IGNORECASE,
+    )
+
+
+@router.get("/diagnostics/bundle")
+async def diagnostics_bundle(
+    request: Request,
+    user: dict = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Stream a gzipped tar archive containing sanitized diagnostic data.
+
+    Contents:
+    - manifest.json   — NVR version, host OS, timestamp, camera count, alembic head
+    - compose.yml     — docker-compose.yml with secrets stripped
+    - env.txt         — .env file with secrets replaced by ***
+    - app.log         — last 5000 lines from backend container stdout
+    - cameras.json    — camera list with ONVIF passwords stripped
+    - audit-last-7d.csv — last 7 days of audit log
+    - disk_health.json  — current disk health snapshot
+    - hwaccel.json      — hardware acceleration probe result
+    """
+    from sqlalchemy import text
+    from app.services.hwaccel_probe import probe as hwaccel_probe
+
+    timestamp = datetime.now(_tz.utc)
+    ts_str = timestamp.strftime("%Y%m%d-%H%M%S")
+    archive_name = f"gvd-nvr-diagnostics-{ts_str}.tar.gz"
+
+    # ── collect data ──────────────────────────────────────────────────────────
+
+    # 1. manifest.json
+    alembic_head = "unknown"
+    try:
+        result = subprocess.run(
+            ["alembic", "current"],
+            capture_output=True, text=True, timeout=10,
+            cwd=os.environ.get("APP_DIR", "/app"),
+        )
+        alembic_head = result.stdout.strip().split("\n")[0] if result.returncode == 0 else "unknown"
+    except Exception as e:
+        logger.debug(f"alembic current failed: {e}")
+
+    camera_count = 0
+    try:
+        row = await db.execute(text("SELECT COUNT(*) FROM cameras"))
+        camera_count = row.scalar() or 0
+    except Exception as e:
+        logger.debug(f"camera count query failed: {e}")
+
+    manifest = {
+        "nvr_version": __version__,
+        "timestamp_utc": timestamp.isoformat(),
+        "hostname": platform.node(),
+        "platform": platform.platform(),
+        "python_version": platform.python_version(),
+        "camera_count": camera_count,
+        "alembic_head": alembic_head,
+        "env_name": os.environ.get("ENV_NAME", "production"),
+    }
+
+    # 2. docker-compose.yml (sanitized)
+    compose_content = ""
+    script_dir = os.environ.get("COMPOSE_DIR", "/app")
+    for candidate in [
+        os.path.join(script_dir, "docker-compose.yml"),
+        "/app/docker-compose.yml",
+        "/opt/gvd-nvr/docker-compose.yml",
+    ]:
+        if os.path.exists(candidate):
+            try:
+                with open(candidate) as f:
+                    compose_content = _sanitize_compose(f.read())
+            except Exception as e:
+                compose_content = f"# Error reading compose file: {e}"
+            break
+    if not compose_content:
+        compose_content = "# docker-compose.yml not found at expected paths"
+
+    # 3. .env (sanitized)
+    env_content = ""
+    for candidate in [
+        "/app/.env",
+        "/opt/gvd-nvr/.env",
+        os.path.join(script_dir, ".env"),
+    ]:
+        if os.path.exists(candidate):
+            try:
+                with open(candidate) as f:
+                    env_content = "".join(_sanitize_env_line(l) for l in f)
+            except Exception as e:
+                env_content = f"# Error reading .env: {e}"
+            break
+    if not env_content:
+        env_content = "# .env not found at expected paths"
+
+    # 4. app.log (last 5000 lines from container log)
+    log_content = ""
+    try:
+        log_result = subprocess.run(
+            ["docker", "compose", "logs", "--no-color", "--tail=5000", "backend"],
+            capture_output=True, text=True, timeout=30,
+            cwd=os.environ.get("COMPOSE_DIR", "/opt/gvd-nvr"),
+        )
+        log_content = log_result.stdout or log_result.stderr or "# No log output"
+    except Exception as e:
+        # Inside container: read from /proc/1/fd/1 or default log path
+        for log_path in ["/var/log/app.log", "/app/app.log"]:
+            if os.path.exists(log_path):
+                try:
+                    with open(log_path) as f:
+                        lines = f.readlines()
+                        log_content = "".join(lines[-5000:])
+                    break
+                except Exception:
+                    pass
+        if not log_content:
+            log_content = f"# Could not retrieve logs: {e}"
+
+    # 5. cameras.json (strip ONVIF passwords)
+    cameras_data = []
+    try:
+        rows = await db.execute(text(
+            "SELECT id, name, onvif_host, onvif_port, onvif_username, "
+            "recording_mode, is_active, created_at FROM cameras"
+        ))
+        for row in rows.fetchall():
+            r = dict(row._mapping)
+            # Explicitly do NOT include onvif_password
+            cameras_data.append(r)
+    except Exception as e:
+        cameras_data = [{"error": str(e)}]
+    # Serialize datetimes
+    cameras_json = json.dumps(
+        cameras_data,
+        default=lambda o: o.isoformat() if hasattr(o, "isoformat") else str(o),
+        indent=2,
+    )
+
+    # 6. audit-last-7d.csv
+    audit_csv = "timestamp,action,username,ip_address,resource_type,description\n"
+    try:
+        audit_rows = await db.execute(text(
+            "SELECT created_at, action, username, ip_address, resource_type, description "
+            "FROM audit_logs "
+            "WHERE created_at >= datetime('now', '-7 days') "
+            "ORDER BY created_at DESC "
+            "LIMIT 10000"
+        ))
+        import csv as _csv
+        buf = io.StringIO()
+        writer = _csv.writer(buf)
+        writer.writerow(["timestamp", "action", "username", "ip_address", "resource_type", "description"])
+        for row in audit_rows.fetchall():
+            writer.writerow([
+                str(row[0] or ""),
+                str(row[1] or ""),
+                str(row[2] or ""),
+                str(row[3] or ""),
+                str(row[4] or ""),
+                str(row[5] or ""),
+            ])
+        audit_csv = buf.getvalue()
+    except Exception as e:
+        audit_csv = f"error,{e},,,,\n"
+
+    # 7. disk_health.json
+    disk_health_json = "{}"
+    try:
+        from app.monitoring.disk_health import get_disk_health
+        disk_health_json = json.dumps(await get_disk_health(), default=str, indent=2)
+    except Exception as e:
+        disk_health_json = json.dumps({"error": str(e)})
+
+    # 8. hwaccel.json
+    hwaccel_json = "{}"
+    try:
+        hwaccel_json = json.dumps(hwaccel_probe(), default=str, indent=2)
+    except Exception as e:
+        hwaccel_json = json.dumps({"error": str(e)})
+
+    # ── build tar.gz in memory ────────────────────────────────────────────────
+
+    def _add_text(tf: tarfile.TarFile, name: str, content: str) -> None:
+        data = content.encode("utf-8", errors="replace")
+        info = tarfile.TarInfo(name=name)
+        info.size = len(data)
+        info.mtime = int(timestamp.timestamp())
+        tf.addfile(info, io.BytesIO(data))
+
+    buf_out = io.BytesIO()
+    with tarfile.open(fileobj=buf_out, mode="w:gz") as tf:
+        _add_text(tf, "manifest.json",     json.dumps(manifest, indent=2))
+        _add_text(tf, "compose.yml",       compose_content)
+        _add_text(tf, "env.txt",           env_content)
+        _add_text(tf, "app.log",           log_content)
+        _add_text(tf, "cameras.json",      cameras_json)
+        _add_text(tf, "audit-last-7d.csv", audit_csv)
+        _add_text(tf, "disk_health.json",  disk_health_json)
+        _add_text(tf, "hwaccel.json",      hwaccel_json)
+
+    await write_audit(
+        db, action="diagnostics_bundle_download",
+        user_id=user["id"], username=user["username"],
+        ip_address=client_ip(request), resource_type="system",
+        description=f"Diagnostic bundle downloaded: {archive_name}",
+    )
+    await db.commit()
+
+    buf_out.seek(0)
+    archive_bytes = buf_out.read()
+
+    return StreamingResponse(
+        io.BytesIO(archive_bytes),
+        media_type="application/gzip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{archive_name}"',
+            "Content-Length": str(len(archive_bytes)),
+        },
+    )

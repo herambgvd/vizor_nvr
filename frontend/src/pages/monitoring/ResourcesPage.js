@@ -5,7 +5,7 @@
 // per-camera bandwidth list. Dark-theme tokens throughout.
 // =============================================================================
 
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Cpu,
@@ -20,6 +20,8 @@ import {
   AlertTriangle,
   CheckCircle,
   XCircle,
+  Download,
+  FileArchive,
 } from "lucide-react";
 import {
   getResources,
@@ -28,6 +30,7 @@ import {
   getSystemInfo,
   getDiskHealth,
 } from "../../api/monitoring";
+import { downloadDiagnosticsBundle } from "../../api/system";
 import { useAuth } from "../../context/AuthContext";
 import { Button } from "../../components/ui/button";
 import { cn } from "../../lib/utils";
@@ -302,6 +305,74 @@ const DiskCard = ({ disk }) => {
     </div>
   );
 };
+
+// ─── Diagnostics card ─────────────────────────────────────────────────────────
+
+const DiagnosticsCard = () => {
+  const [downloading, setDownloading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const handleDownload = async () => {
+    setDownloading(true);
+    setError(null);
+    try {
+      const blob = await downloadDiagnosticsBundle();
+      const now = new Date();
+      const ts = now.toISOString().replace(/[-:T]/g, "").slice(0, 15);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `gvd-nvr-diagnostics-${ts}.tar.gz`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err?.response?.data?.detail || err.message || "Download failed");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  return (
+    <div className="rounded-lg border border-border bg-card/40">
+      <div className="flex items-center gap-2 px-5 py-3 border-b border-white/5">
+        <FileArchive className="h-4 w-4 text-teal-300" />
+        <h2 className="text-sm font-semibold">Diagnostics</h2>
+      </div>
+      <div className="p-5 space-y-3">
+        <p className="text-sm text-muted-foreground">
+          Download a support bundle for troubleshooting. The archive contains
+          system manifest, sanitized config files, the last 5 000 log lines,
+          camera inventory (ONVIF passwords stripped), audit log (last 7 days),
+          disk health, and hardware acceleration status.
+        </p>
+        <p className="text-[11px] text-amber-300 flex items-start gap-1.5">
+          <AlertTriangle className="h-3 w-3 mt-0.5 flex-shrink-0" />
+          The bundle may contain sensitive information such as host paths and
+          IP addresses. Share only with trusted support personnel.
+        </p>
+        {error && (
+          <p className="text-[11px] text-rose-300">{error}</p>
+        )}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleDownload}
+          disabled={downloading}
+        >
+          <Download className={cn("h-4 w-4 mr-2", downloading && "animate-pulse")} />
+          {downloading ? "Preparing bundle…" : "Download support bundle"}
+        </Button>
+        <p className="text-[11px] text-muted-foreground">
+          Estimated size: 50 KB – 2 MB depending on log volume.
+        </p>
+      </div>
+    </div>
+  );
+};
+
+// ─── Main page ────────────────────────────────────────────────────────────────
 
 const ResourcesPage = () => {
   const { isAdmin } = useAuth();
@@ -699,6 +770,9 @@ const ResourcesPage = () => {
           )}
         </div>
       )}
+
+      {/* Diagnostics — admin only */}
+      {isAdmin && <DiagnosticsCard />}
     </div>
   );
 };

@@ -93,6 +93,10 @@ export const exportEvidence = (id) =>
 export const issueDownloadToken = (id) =>
   client.post(`/recordings/${id}/download-token`).then(r => r.data);
 
+// ── Diagnostics bundle (Q6) ────────────────────────────────────────────────
+export const downloadDiagnosticsBundle = () =>
+  client.get("/system/diagnostics/bundle", { responseType: "blob" }).then(r => r.data);
+
 // ── Audit report (Phase 5.7 / 5.8) ─────────────────────────────────────────
 export const getAuditReport = (from, to, format = "csv") =>
   client.get("/audit/report", { params: { from, to, format }, responseType: format === "csv" ? "blob" : "json" })
