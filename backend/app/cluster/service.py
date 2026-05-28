@@ -129,7 +129,7 @@ class ClusterService:
             start = asyncio.get_event_loop().time()
             try:
                 await self._heartbeat()
-                self._last_heartbeat_at = datetime.now(timezone.utc)
+                self._last_heartbeat_at = datetime.now(timezone.utc).replace(tzinfo=None)
             except Exception as exc:
                 logger.error(f"[cluster] Heartbeat error on node {self._node_id}: {exc}")
             elapsed = asyncio.get_event_loop().time() - start
@@ -208,7 +208,7 @@ class ClusterService:
         """Promote this node to active leader."""
         logger.warning(f"[cluster] Node {self._node_id} PROMOTED to active leader")
         self._is_leader = True
-        self._last_role_change = datetime.now(timezone.utc)
+        self._last_role_change = datetime.now(timezone.utc).replace(tzinfo=None)
 
         try:
             from app.cluster.models import ClusterNode
@@ -262,7 +262,7 @@ class ClusterService:
         """Demote this node to standby."""
         logger.warning(f"[cluster] Node {self._node_id} DEMOTED to standby (reason={reason})")
         self._is_leader = False
-        self._last_role_change = datetime.now(timezone.utc)
+        self._last_role_change = datetime.now(timezone.utc).replace(tzinfo=None)
 
         try:
             async with async_session_maker() as db:
@@ -307,7 +307,7 @@ class ClusterService:
             if node:
                 # Naive UTC: cluster_nodes.last_heartbeat_at is TIMESTAMP
                 # WITHOUT TIME ZONE; asyncpg refuses to bind a tz-aware value.
-                node.last_heartbeat_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                node.last_heartbeat_at = datetime.now(timezone.utc).replace(tzinfo=None).replace(tzinfo=None)
                 await db.commit()
         except Exception as exc:
             logger.debug(f"[cluster] Heartbeat DB update failed: {exc}")
