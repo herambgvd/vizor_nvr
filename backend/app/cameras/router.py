@@ -7,6 +7,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
+from pydantic import BaseModel
+
 from fastapi import APIRouter, Depends, HTTPException, Request, BackgroundTasks, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -2361,3 +2363,59 @@ async def stop_backchannel(
     """Stop two-way audio backchannel session."""
     await twoway_audio_service.stop_session(camera_id)
     return {"camera_id": camera_id, "status": "stopped"}
+
+
+# ── WebRTC publish path (preferred) ────────────────────────────────────────
+
+class BackchannelWebrtcSignalRequest(BaseModel):
+    sdp: str
+
+
+@router.post("/{camera_id}/audio/backchannel/webrtc-signal")
+async def backchannel_webrtc_signal(
+    camera_id: str,
+    body: BackchannelWebrtcSignalRequest,
+    user: dict = Depends(require_permission("view_live")),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    WebRTC publish signaling endpoint for two-way audio.
+
+    The browser creates an RTCPeerConnection, adds mic audio tracks, creates
+    an SDP offer, and POSTs it here.  This endpoint:
+
+    1. Looks up the camera's source URL.
+    2. Re-registers the go2rtc stream with ``?backchannel=1`` so go2rtc opens
+       a backchannel toward the camera when the WebRTC push session connects.
+    3. Forwards the SDP offer to go2rtc ``POST /api/webrtc?src=<id>&mode=push``
+       and returns the SDP answer to the browser.
+
+    The browser then sets the answer as its remote description; WebRTC
+    negotiation completes and audio flows:
+        browser mic → WebRTC → go2rtc → RTSP backchannel → camera speaker.
+
+    Returns 503 if the camera has no usable source URL (backchannel
+    unsupported), 502 if go2rtc signaling fails.
+    """
+    from app.services.go2rtc_manager import go2rtc_manager
+
+    camera = await svc.get_by_id(db, camera_id)
+    if not camera:
+        raise HTTPException(404, "Camera not found")
+
+    source_url = camera.main_stream_url
+    if not source_url:
+        raise HTTPException(503, "Camera does not support two-way audio")
+
+    # Re-register stream with backchannel=1 so go2rtc can open the write path
+    stream_id = camera_id
+    ok = await go2rtc_manager.add_stream_with_backchannel(stream_id, source_url)
+    if not ok:
+        logger.warning(f"go2rtc backchannel re-register failed for {camera_id}; proceeding anyway")
+
+    answer_sdp = await go2rtc_manager.webrtc_signal_publish(stream_id, body.sdp)
+    if not answer_sdp:
+        raise HTTPException(502, "go2rtc WebRTC publish signaling failed — camera may not support two-way audio")
+
+    logger.info(f"WebRTC backchannel signal OK camera={camera_id}")
+    return {"sdp": answer_sdp}

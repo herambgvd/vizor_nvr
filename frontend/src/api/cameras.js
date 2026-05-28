@@ -437,6 +437,20 @@ export const stopBackchannel = async (cameraId) => {
   return response.data;
 };
 
+/**
+ * Send a WebRTC SDP offer for the two-way audio publish (push) path.
+ * The browser creates a PeerConnection with mic audio, generates an offer,
+ * and passes the raw SDP string here.  Returns { sdp: <answer> }.
+ */
+export const postBackchannelWebrtcSignal = async (cameraId, sdp) => {
+  const response = await apiClient.post(
+    `/cameras/${cameraId}/audio/backchannel/webrtc-signal`,
+    { sdp },
+    { timeout: 15000 },
+  );
+  return response.data;
+};
+
 // ---------- Scheduled Snapshots (D1) ----------
 
 export const getScheduledSnapshotConfig = async (cameraId) => {

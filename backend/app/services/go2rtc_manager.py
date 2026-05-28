@@ -167,6 +167,50 @@ class Go2RTCManager:
             logger.error(f"WebRTC signal error: {e}")
             return None
 
+    async def webrtc_signal_publish(self, stream_id: str, offer_sdp: str) -> Optional[str]:
+        """
+        Send a WebRTC publish (push) SDP offer to go2rtc.
+
+        go2rtc v1.9.x accepts a push/publish offer via the same
+        POST /api/webrtc endpoint but with ``mode=push`` in the query string.
+        The browser SDP must include a sendonly (or sendrecv) audio m-line so
+        go2rtc knows to open a backchannel toward the camera.
+
+        Returns the SDP answer string, or None on failure.
+        """
+        try:
+            resp = await self.client.post(
+                "/api/webrtc",
+                params={"src": stream_id, "mode": "push"},
+                content=offer_sdp,
+                headers={"Content-Type": "application/sdp"},
+                timeout=15,
+            )
+            if resp.status_code in (200, 201):
+                logger.info(f"go2rtc WebRTC publish signal OK: {stream_id}")
+                return resp.text
+            logger.warning(
+                f"go2rtc WebRTC publish signal failed: {resp.status_code} {resp.text[:200]}"
+            )
+            return None
+        except Exception as e:
+            logger.error(f"go2rtc WebRTC publish signal error: {e}")
+            return None
+
+    async def add_stream_with_backchannel(self, stream_id: str, source_url: str) -> bool:
+        """
+        Register (or re-register) a stream source with ``?backchannel=1``
+        appended, which tells go2rtc to negotiate a two-way audio track when
+        connecting to the RTSP/ONVIF source.
+
+        Idempotent: safe to call even if the stream is already registered.
+        """
+        # Append backchannel param if not already present
+        sep = "&" if "?" in source_url else "?"
+        if "backchannel=1" not in source_url:
+            source_url = f"{source_url}{sep}backchannel=1"
+        return await self.add_stream(stream_id, source_url)
+
     # ------------------------------------------------------------------
     # Health
     # ------------------------------------------------------------------
