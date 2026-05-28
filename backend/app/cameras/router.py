@@ -9,7 +9,7 @@ from typing import List, Optional
 
 from pydantic import BaseModel
 
-from fastapi import APIRouter, Depends, HTTPException, Request, BackgroundTasks, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, BackgroundTasks, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -2229,6 +2229,7 @@ async def get_firmware_info(
 async def upload_firmware(
     camera_id: str,
     request: Request,
+    dry_run: bool = Query(False, description="Build SOAP envelope but do not send. Returns envelope description for inspection."),
     user: dict = Depends(get_admin_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -2253,9 +2254,36 @@ async def upload_firmware(
     if not firmware_bytes:
         raise HTTPException(400, "Empty firmware file")
 
+    onvif_user = decrypt_value(camera.onvif_username) or "admin"
+    # RECOVERY NOTE: If upgrade_firmware succeeds on the camera but the NVR
+    # process crashes before returning, the camera will reboot with new firmware.
+    # Recovery: re-probe the camera via /cameras/{id}/onvif/probe to confirm
+    # the firmware version, then re-register the stream if RTSP URLs changed.
+
+    if dry_run:
+        # Build the envelope description without touching the camera
+        envelope_desc = {
+            "soap_action": "http://www.onvif.org/ver10/device/wsdl/UpgradeSystemFirmware",
+            "target_host": camera.onvif_host,
+            "target_port": camera.onvif_port,
+            "onvif_user": onvif_user,
+            "firmware_size_bytes": len(firmware_bytes),
+            "firmware_sha256": __import__("hashlib").sha256(firmware_bytes).hexdigest(),
+            "method": "UpgradeSystemFirmware (primary) / SystemFirmwareUpgrade (fallback)",
+            "note": "dry_run=true — SOAP call was NOT sent. No camera change occurred.",
+        }
+        await write_audit(
+            db, action="firmware_upload_dry_run", user_id=user["id"], username=user["username"],
+            ip_address=client_ip(request), resource_type="camera", resource_id=camera_id,
+            severity="info",
+            details={"bytes": len(firmware_bytes), "dry_run": True},
+        )
+        await db.commit()
+        return {"dry_run": True, "camera_id": camera_id, "envelope": envelope_desc}
+
     result = await onvif_service.upgrade_firmware(
         camera.onvif_host, camera.onvif_port,
-        decrypt_value(camera.onvif_username) or "admin",
+        onvif_user,
         decrypt_value(camera.onvif_password or ""),
         firmware_bytes=firmware_bytes,
     )
@@ -2279,6 +2307,7 @@ async def rotate_credentials(
     camera_id: str,
     body: dict,
     request: Request,
+    dry_run: bool = Query(False, description="Return the SetUser SOAP envelope description without sending."),
     user: dict = Depends(get_admin_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -2296,6 +2325,42 @@ async def rotate_credentials(
 
     current_user = decrypt_value(camera.onvif_username) if camera.onvif_username else "admin"
     current_pass = decrypt_value(camera.onvif_password) if camera.onvif_password else ""
+
+    # RECOVERY PROCEDURE (partial-success failure scenario):
+    # If set_user_password succeeds on the camera but the DB commit below fails,
+    # the camera now uses new_pass but the NVR still stores the old encrypted password.
+    # Recovery steps:
+    #   1. Call POST /cameras/{id}/credentials/rotate with body {"new_password": "<new_pass>"}
+    #      using a session authenticated with the new password directly on the camera,
+    #      OR manually update the DB:
+    #      UPDATE cameras SET onvif_password = '<encrypt(new_pass)>' WHERE id = '<camera_id>';
+    #   2. Call POST /cameras/{id}/audio/backchannel/recheck to clear capability cache.
+    #   3. Call GET /cameras/{id}/onvif/probe to verify connectivity.
+
+    if dry_run:
+        envelope_desc = {
+            "soap_action": "http://www.onvif.org/ver10/device/wsdl/SetUser",
+            "target_host": camera.onvif_host,
+            "target_port": camera.onvif_port,
+            "onvif_user": current_user,
+            "method": "DeviceManagement SetUser",
+            "user_token": f"user:{current_user}",
+            "new_password_length": len(new_pass),
+            "user_level": "Administrator",
+            "note": "dry_run=true — SOAP call was NOT sent. No camera change occurred.",
+            "recovery_hint": (
+                "If the live rotate succeeds on the camera but the NVR DB commit fails, "
+                "use the recovery steps documented in router.py rotate_credentials."
+            ),
+        }
+        await write_audit(
+            db, action="credentials_rotate_dry_run", user_id=user["id"], username=user["username"],
+            ip_address=client_ip(request), resource_type="camera", resource_id=camera_id,
+            severity="info",
+            details={"dry_run": True, "new_password_length": len(new_pass)},
+        )
+        await db.commit()
+        return {"dry_run": True, "camera_id": camera_id, "envelope": envelope_desc}
 
     ok = await onvif_service.set_user_password(
         camera.onvif_host, camera.onvif_port,
@@ -2415,6 +2480,10 @@ async def start_backchannel(
     if not ok:
         raise HTTPException(500, "Failed to start two-way audio session")
 
+    logger.info(
+        f"[audio-path] camera={camera_id} path=ffmpeg_pcm "
+        f"capable={capable}"
+    )
     return {
         "camera_id": camera_id,
         "status": "active",
@@ -2530,8 +2599,12 @@ async def backchannel_webrtc_signal(
         camera.backchannel_capable = True
         await db.commit()
 
-    logger.info(f"WebRTC backchannel signal OK camera={camera_id}")
-    return {"sdp": answer_sdp}
+    logger.info(
+        f"[audio-path] camera={camera_id} path=webrtc_publish "
+        f"backchannel_capable={getattr(camera, 'backchannel_capable', None)} "
+        f"stream_id={stream_id}"
+    )
+    return {"sdp": answer_sdp, "audio_path": "webrtc"}
 
 
 # ══════════════════════════════════════════════════════════════════════
