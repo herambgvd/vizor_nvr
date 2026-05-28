@@ -1123,11 +1123,43 @@ class ONVIFDeviceService:
             _add_text(resp, NS_TRP, "Uri", uri or "")
 
         elif "GetReplayConfiguration" in action:
+            from app.onvif_device.replay_manager import replay_manager as _rm
+            timeout_secs = await _rm.get_session_timeout()
+            # Format as ISO 8601 duration (PT<N>S or PT<N>M)
+            if timeout_secs % 60 == 0:
+                iso_dur = f"PT{timeout_secs // 60}M"
+            else:
+                iso_dur = f"PT{timeout_secs}S"
             resp = etree.SubElement(body, _qn(NS_TRP, "GetReplayConfigurationResponse"))
             config = etree.SubElement(resp, _qn(NS_TRP, "Configuration"))
-            _add_text(config, NS_TT, "SessionTimeout", "PT5M")
+            _add_text(config, NS_TT, "SessionTimeout", iso_dur)
 
         elif "SetReplayConfiguration" in action:
+            # Parse SessionTimeout from body (ISO 8601 duration PTnS or PTnM)
+            req_bytes = await request.body()
+            try:
+                _root = etree.fromstring(req_bytes)
+                _st_el = _root.find(".//{http://www.onvif.org/ver10/schema}SessionTimeout")
+                if _st_el is None:
+                    _st_el = _root.find(".//SessionTimeout")
+                if _st_el is not None and _st_el.text:
+                    _dur_text = _st_el.text.strip()
+                    import re as _re
+                    _m_min = _re.search(r"PT(\d+)M", _dur_text)
+                    _m_sec = _re.search(r"PT(\d+)S", _dur_text)
+                    if _m_min:
+                        _timeout = int(_m_min.group(1)) * 60
+                    elif _m_sec:
+                        _timeout = int(_m_sec.group(1))
+                    else:
+                        _timeout = 300
+                    # Clamp to 60–3600 seconds
+                    _timeout = max(60, min(3600, _timeout))
+                    from app.onvif_device.replay_manager import replay_manager as _rm
+                    await _rm.set_session_timeout(_timeout)
+                    logger.info(f"SetReplayConfiguration: session timeout → {_timeout}s")
+            except Exception as _e:
+                logger.warning(f"SetReplayConfiguration parse error: {_e}")
             etree.SubElement(body, _qn(NS_TRP, "SetReplayConfigurationResponse"))
 
         elif "GetServiceCapabilities" in action:
