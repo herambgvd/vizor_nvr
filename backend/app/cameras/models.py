@@ -166,6 +166,12 @@ class Camera(Base):
     # instead of the main stream (~80% less storage at the cost of resolution).
     record_substream = Column(Boolean, default=False, nullable=False, server_default="0")
 
+    # ── ANR (Automatic Network Replenishment) ──────────────────────────
+    anr_enabled = Column(Boolean, default=False, nullable=False, server_default="0")
+    anr_max_gap_hours = Column(Integer, default=24, nullable=False, server_default="24")
+    anr_status = Column(String(20), nullable=True)   # idle | searching | downloading | completed | failed
+    anr_last_run_at = Column(DateTime, nullable=True)
+
     # ── Retention override ─────────────────────────────────────────────
     retention_days = Column(Integer, nullable=True)   # NULL = use global
 
@@ -183,6 +189,18 @@ class Camera(Base):
     # Cached on first Talk press; reset by POST /audio/backchannel/recheck.
     backchannel_capable = Column(Boolean, nullable=True)
 
+    # ── POS / ATM Text Overlay ─────────────────────────────────────────
+    # { "enabled": bool, "source": "http" | "tcp", "tcp_port": int,
+    #   "text_style": "fontfile=/usr/share/fonts/...:fontsize=24:fontcolor=white",
+    #   "position": "x=10:y=10" }
+    pos_overlay_config = Column(JSON, nullable=True)
+
+    # ── Fisheye Dewarp ─────────────────────────────────────────────────
+    # { "enabled": bool, "mount_mode": "ceiling"|"wall"|"desktop",
+    #   "view_mode": "panoramic"|"quad"|"ptz"|"single",
+    #   "fov_x": 90, "fov_y": 60, "pan": 0, "tilt": 0, "roll": 0 }
+    dewarp_config = Column(JSON, nullable=True)
+
     # ── Metadata ───────────────────────────────────────────────────────
     location = Column(String(200), nullable=True)
     description = Column(Text, nullable=True)
@@ -194,6 +212,23 @@ class Camera(Base):
 
     # ── Relationships ──────────────────────────────────────────────────
     groups = relationship("CameraGroup", secondary=camera_group_members, back_populates="cameras")
+
+
+class AnrJob(Base):
+    """Tracks an Automatic Network Replenishment backfill operation."""
+    __tablename__ = "anr_jobs"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    camera_id = Column(String, ForeignKey("cameras.id", ondelete="CASCADE"), nullable=False, index=True)
+    gap_start = Column(DateTime, nullable=False)
+    gap_end = Column(DateTime, nullable=False)
+    status = Column(String(20), nullable=False, default="pending")
+    segments_found = Column(Integer, default=0)
+    segments_downloaded = Column(Integer, default=0)
+    segments_failed = Column(Integer, default=0)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    completed_at = Column(DateTime, nullable=True)
 
 
 # =============================================================================
@@ -225,12 +260,16 @@ class CameraCreate(BaseModel):
     record_substream: bool = False
     pre_buffer_seconds: int = 10
     post_buffer_seconds: int = 30
+    anr_enabled: bool = False
+    anr_max_gap_hours: int = 24
     group_ids: List[str] = []
     onvif_events_enabled: bool = False
     onvif_event_topics: Optional[List[str]] = None
     onvif_profile_token: Optional[str] = None
     ptz_tour_config: Optional[Dict[str, Any]] = None
     ptz_tour_enabled: bool = False
+    pos_overlay_config: Optional[Dict[str, Any]] = None
+    dewarp_config: Optional[Dict[str, Any]] = None
 
 
 class CameraUpdate(BaseModel):
@@ -256,12 +295,16 @@ class CameraUpdate(BaseModel):
     record_substream: Optional[bool] = None
     pre_buffer_seconds: Optional[int] = None
     post_buffer_seconds: Optional[int] = None
+    anr_enabled: Optional[bool] = None
+    anr_max_gap_hours: Optional[int] = Field(None, ge=1, le=168)
     group_ids: Optional[List[str]] = None
     onvif_events_enabled: Optional[bool] = None
     onvif_event_topics: Optional[List[str]] = None
     onvif_profile_token: Optional[str] = None
     ptz_tour_config: Optional[Dict[str, Any]] = None
     ptz_tour_enabled: Optional[bool] = None
+    pos_overlay_config: Optional[Dict[str, Any]] = None
+    dewarp_config: Optional[Dict[str, Any]] = None
 
 
 class CameraResponse(BaseModel):
@@ -299,6 +342,10 @@ class CameraResponse(BaseModel):
     bandwidth_limit_kbps: int
     pre_buffer_seconds: int
     post_buffer_seconds: int
+    anr_enabled: bool = False
+    anr_max_gap_hours: int = 24
+    anr_status: Optional[str] = None
+    anr_last_run_at: Optional[datetime] = None
     location: Optional[str]
     description: Optional[str]
     thumbnail_path: Optional[str]
@@ -310,6 +357,8 @@ class CameraResponse(BaseModel):
     onvif_profile_token: Optional[str] = None
     ptz_tour_config: Optional[Dict[str, Any]] = None
     ptz_tour_enabled: bool = False
+    pos_overlay_config: Optional[Dict[str, Any]] = None
+    dewarp_config: Optional[Dict[str, Any]] = None
     credentials_status: Optional[str] = None
     credentials_checked_at: Optional[datetime] = None
     created_at: datetime

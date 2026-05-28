@@ -41,7 +41,7 @@ function parseUtc(s) {
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const SPEEDS = [0.25, 0.5, 1, 2, 4, 8];
-const MAX_CAMERAS = 16;
+const MAX_CAMERAS = 64;
 
 const GRID_CONFIGS = {
   1: "grid-cols-1",
@@ -492,7 +492,7 @@ export default function MultiPlayback() {
   // scrub bar shows which parts of the day actually have footage. Hit
   // /recordings once per (cam, date) and merge.
   const { data: aggregateSegments = [] } = useQuery({
-    queryKey: ["aggregate-segments", date, selectedCameraIds.sort().join(",")],
+    queryKey: ["aggregate-segments", date, [...selectedCameraIds].sort().join(",")],
     queryFn: async () => {
       if (selectedCameraIds.length === 0) return [];
       const lists = await Promise.all(

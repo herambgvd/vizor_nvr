@@ -138,11 +138,16 @@ class PrebufferService:
                 "-f", "segment",
                 "-segment_time", str(seg_dur),
                 "-segment_format", "mpegts",
-                "-segment_atclocktime", "1",
                 "-reset_timestamps", "1",
                 "-strftime", "1",
                 os.path.join(buffer_dir, "%Y%m%d_%H%M%S.ts"),
             ]
+
+            # Acquire global FFmpeg process slot
+            from app.services.ffmpeg_governor import ffmpeg_governor
+            if not await ffmpeg_governor.acquire(camera_id, "prebuffer"):
+                logger.warning(f"[{camera_id}] Prebuffer skipped — global FFmpeg cap reached")
+                return False
 
             try:
                 proc = await asyncio.create_subprocess_exec(
@@ -151,6 +156,7 @@ class PrebufferService:
                     stderr=asyncio.subprocess.PIPE,
                 )
             except Exception as e:
+                ffmpeg_governor.release(camera_id, "prebuffer")
                 logger.error(f"[{camera_id}] Prebuffer FFmpeg launch failed: {e}")
                 return False
 
@@ -220,6 +226,27 @@ class PrebufferService:
                 ok = await self._remux_to_mp4(entry.path, dest)
                 if ok:
                     copied.append(dest)
+                    # Register prebuffer segment in DB so it appears in timeline/playback
+                    try:
+                        from app.database import async_session_maker
+                        from app.recordings.service import RecordingService
+                        ts_str = entry.name.replace(".ts", "")
+                        start_time = datetime.strptime(ts_str, "%Y%m%d_%H%M%S").replace(tzinfo=timezone.utc)
+                        file_size = os.path.getsize(dest)
+                        async with async_session_maker() as db:
+                            await RecordingService.register_segment(
+                                db,
+                                camera_id=camera_id,
+                                file_path=dest,
+                                start_time=start_time,
+                                end_time=start_time,  # exact end unknown; will be updated by ffprobe
+                                duration=5,  # nominal prebuffer segment duration
+                                file_size=file_size,
+                                stream_type="main",
+                                trigger_type="motion",
+                            )
+                    except Exception as reg_err:
+                        logger.warning(f"[{camera_id}] Failed to register prebuffer segment {dest}: {reg_err}")
         except Exception as e:
             logger.error(f"[{camera_id}] Prebuffer flush failed: {e}")
 
@@ -246,11 +273,11 @@ class PrebufferService:
 
         async def _timed_stop():
             await asyncio.sleep(post_seconds)
-            await ffmpeg_manager.stop_recording(f"{camera_id}_post")
+            await ffmpeg_manager.stop_recording(camera_id)
             logger.info(f"[{camera_id}] Post-recording auto-stopped after {post_seconds}s")
 
         ok, _ = await ffmpeg_manager.start_recording(
-            camera_id=f"{camera_id}_post",
+            camera_id=camera_id,
             rtsp_url=rtsp_url,
             storage_path=recording_dir,
             recording_fps=recording_fps,
@@ -308,6 +335,8 @@ class PrebufferService:
             await pb.process.wait()
         if pb.stderr_task and not pb.stderr_task.done():
             pb.stderr_task.cancel()
+        from app.services.ffmpeg_governor import ffmpeg_governor
+        ffmpeg_governor.release(pb.camera_id, "prebuffer")
 
     async def _read_stderr(self, pb: PrebufferProcess):
         """Drain stderr to keep pipe from blocking."""

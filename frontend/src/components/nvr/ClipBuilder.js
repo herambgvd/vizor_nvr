@@ -85,7 +85,9 @@ export const ClipBuilder = ({ cameraId, currentTime, className }) => {
           return;
         }
       } catch {
-        break;
+        // Network blip — continue polling with backoff rather than aborting
+        await new Promise((r) => setTimeout(r, 4000));
+        continue;
       }
     }
   };

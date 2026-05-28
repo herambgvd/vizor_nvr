@@ -122,8 +122,8 @@ class BackupService:
             from sqlalchemy import select
             from app.cameras.models import Camera, CameraGroup
             from app.auth.models import User, Role
-            from app.settings.models import Setting
-            from app.events.models import LinkageRule
+            from app.settings.models import Settings
+            from app.events.models import EventLinkageRule
             from app.storage.models import StoragePool, CloudStorageConfig
             from app.notifications.models import WebhookConfig
 
@@ -164,14 +164,14 @@ class BackupService:
                 data["roles"].append(d)
 
             # Settings
-            settings_list = (await db.execute(select(Setting))).scalars().all()
+            settings_list = (await db.execute(select(Settings))).scalars().all()
             for s in settings_list:
                 d = s.__dict__.copy()
                 d.pop("_sa_instance_state", None)
                 data["settings"].append(d)
 
             # Linkage rules
-            rules = (await db.execute(select(LinkageRule))).scalars().all()
+            rules = (await db.execute(select(EventLinkageRule))).scalars().all()
             for r in rules:
                 d = r.__dict__.copy()
                 d.pop("_sa_instance_state", None)
@@ -203,21 +203,31 @@ class BackupService:
         """Import configuration, overwriting existing data."""
         async with async_session_maker() as db:
             from sqlalchemy import select, delete
-            from app.cameras.models import Camera, CameraGroup
+            from app.cameras.models import Camera, CameraGroup, camera_group_members
             from app.auth.models import User, Role
-            from app.settings.models import Setting
-            from app.events.models import LinkageRule
+            from app.settings.models import Settings
+            from app.events.models import EventLinkageRule
             from app.storage.models import StoragePool, CloudStorageConfig
             from app.notifications.models import WebhookConfig
 
-            # Truncate tables (careful order to avoid FK violations)
+            # Truncate tables (careful order to avoid FK violations).
+            # Do NOT delete Camera until after recordings are preserved.
+            # Instead, we use ON DELETE SET NULL on recordings.camera_id
+            # or we preserve recordings by updating camera_id to NULL first.
+            await db.execute(delete(camera_group_members))
             await db.execute(delete(WebhookConfig))
             await db.execute(delete(CloudStorageConfig))
-            await db.execute(delete(StoragePool))
-            await db.execute(delete(LinkageRule))
-            await db.execute(delete(Setting))
+            await db.execute(delete(EventLinkageRule))
+            await db.execute(delete(Settings))
+            # Preserve recordings by nulling camera_id before camera deletion
+            from app.recordings.models import Recording
+            await db.execute(
+                Recording.__table__.update().where(Recording.camera_id.isnot(None))
+                .values(camera_id=None)
+            )
             await db.execute(delete(CameraGroup))
             await db.execute(delete(Camera))
+            await db.execute(delete(StoragePool))
             await db.execute(delete(User))
             await db.execute(delete(Role))
 
@@ -231,7 +241,7 @@ class BackupService:
 
             # Settings
             for s in data.get("settings", []):
-                db.add(Setting(**{k: v for k, v in s.items() if k != "id" or v}))
+                db.add(Settings(**{k: v for k, v in s.items() if k != "id" or v}))
 
             # Storage pools
             for p in data.get("storage_pools", []):
@@ -256,7 +266,7 @@ class BackupService:
 
             # Linkage rules
             for r in data.get("linkage_rules", []):
-                db.add(LinkageRule(**{k: v for k, v in r.items() if k != "id" or v}))
+                db.add(EventLinkageRule(**{k: v for k, v in r.items() if k != "id" or v}))
 
             # Webhooks
             for h in data.get("webhooks", []):

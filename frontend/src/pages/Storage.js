@@ -19,6 +19,14 @@ import {
   TestTube,
   Check,
   X,
+  Server,
+  Wifi,
+  WifiOff,
+  Plug,
+  Unplug,
+  Activity,
+  Archive,
+  Play,
 } from "lucide-react";
 import {
   getStoragePools,
@@ -35,6 +43,15 @@ import {
   updateCloudConfig,
   deleteCloudConfig,
   testCloudConfig,
+  testNasConnection,
+  mountNasPool,
+  unmountNasPool,
+  getNasPoolHealth,
+  getBackupSchedules,
+  createBackupSchedule,
+  updateBackupSchedule,
+  deleteBackupSchedule,
+  runBackupNow,
 } from "../api/storage";
 import { Button } from "../components/ui/button";
 import PageTabs from "../components/ui/page-tabs";
@@ -76,6 +93,7 @@ const TABS = [
   { id: "disks", label: "System Disks", icon: Disc },
   { id: "cloud", label: "Cloud Storage", icon: Cloud },
   { id: "rules", label: "Tier Rules", icon: Settings },
+  { id: "backups", label: "Backup", icon: Archive },
 ];
 
 // ── main page ──────────────────────────────────────────────────────────────────
@@ -114,6 +132,8 @@ const Storage = () => {
   const [ruleDialog, setRuleDialog] = useState(false);
   const [cloudDialog, setCloudDialog] = useState(false);
   const [editCloud, setEditCloud] = useState(null);
+  const [backupDialog, setBackupDialog] = useState(false);
+  const [editBackup, setEditBackup] = useState(null);
 
   const disks = disksData?.disks ?? [];
 
@@ -178,6 +198,16 @@ const Storage = () => {
           onDeleteRule={handleDeleteRule}
         />
       )}
+      {activeTab === "backups" && (
+        <BackupTab
+          pools={pools}
+          canManage={canManage}
+          onAdd={() => { setEditBackup(null); setBackupDialog(true); }}
+          onEdit={(b) => { setEditBackup(b); setBackupDialog(true); }}
+          onDelete={handleDeleteBackup}
+          queryClient={qc}
+        />
+      )}
 
       {/* dialogs */}
       <PoolFormDialog
@@ -196,6 +226,13 @@ const Storage = () => {
         open={cloudDialog}
         onOpenChange={setCloudDialog}
         config={editCloud}
+        queryClient={qc}
+      />
+      <BackupFormDialog
+        open={backupDialog}
+        onOpenChange={setBackupDialog}
+        schedule={editBackup}
+        pools={pools}
         queryClient={qc}
       />
     </div>
@@ -237,6 +274,223 @@ const Storage = () => {
         toast.error(e.response?.data?.detail || "Failed to delete"),
       );
   }
+
+  function handleDeleteBackup(id) {
+    if (!window.confirm("Delete this backup schedule?")) return;
+    deleteBackupSchedule(id)
+      .then(() => {
+        qc.invalidateQueries({ queryKey: ["backup-schedules"] });
+        toast.success("Backup schedule deleted");
+      })
+      .catch((e) =>
+        toast.error(e.response?.data?.detail || "Failed to delete"),
+      );
+  }
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TAB: Backup Schedules
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const BackupTab = ({ pools, canManage, onAdd, onEdit, onDelete, queryClient }) => {
+  const { data: schedules = [] } = useQuery({
+    queryKey: ["backup-schedules"],
+    queryFn: getBackupSchedules,
+  });
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-medium">Scheduled Archives</h3>
+        {canManage && (
+          <Button size="sm" onClick={onAdd}>
+            <Plus className="h-4 w-4 mr-1.5" />
+            Add Schedule
+          </Button>
+        )}
+      </div>
+
+      {schedules.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No backup schedules configured.</p>
+      ) : (
+        <div className="space-y-3">
+          {schedules.map((s) => (
+            <div
+              key={s.id}
+              className="flex items-center justify-between bg-card border border-border rounded-lg p-4"
+            >
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium text-sm">{s.name}</span>
+                  {!s.is_active && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">
+                      Paused
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Copies recordings older than <strong>{s.age_days}</strong> days via cron{" "}
+                  <code className="text-teal-400">{s.schedule}</code>
+                </p>
+                {s.last_run_status && (
+                  <p className="text-xs text-muted-foreground">
+                    Last run: {s.last_run_status} {s.last_run_at && `— ${new Date(s.last_run_at).toLocaleString()}`}
+                    {s.last_run_message && ` (${s.last_run_message})`}
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() =>
+                    runBackupNow(s.id)
+                      .then(() => {
+                        toast.success("Backup started");
+                        queryClient.invalidateQueries({ queryKey: ["backup-schedules"] });
+                      })
+                      .catch((e) => toast.error(e.response?.data?.detail || "Failed"))
+                  }
+                  title="Run now"
+                >
+                  <Play className="h-4 w-4" />
+                </Button>
+                {canManage && (
+                  <>
+                    <Button size="sm" variant="ghost" onClick={() => onEdit(s)}>
+                      <Edit2 className="h-4 w-4" />
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => onDelete(s.id)}>
+                      <Trash2 className="h-4 w-4 text-rose-400" />
+                    </Button>
+                  </>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const BackupFormDialog = ({ open, onOpenChange, schedule, pools, queryClient }) => {
+  const isEdit = !!schedule;
+  const [form, setForm] = useState({
+    name: "",
+    source_pool_id: "",
+    target_pool_id: "",
+    schedule: "0 2 * * *",
+    age_days: 7,
+    is_active: true,
+  });
+
+  React.useEffect(() => {
+    if (schedule) {
+      setForm({
+        name: schedule.name || "",
+        source_pool_id: schedule.source_pool_id || "",
+        target_pool_id: schedule.target_pool_id || "",
+        schedule: schedule.schedule || "0 2 * * *",
+        age_days: schedule.age_days || 7,
+        is_active: schedule.is_active ?? true,
+      });
+    } else {
+      setForm({
+        name: "",
+        source_pool_id: "",
+        target_pool_id: "",
+        schedule: "0 2 * * *",
+        age_days: 7,
+        is_active: true,
+      });
+    }
+  }, [schedule, open]);
+
+  const mutation = useMutation({
+    mutationFn: (data) =>
+      isEdit
+        ? updateBackupSchedule(schedule.id, data)
+        : createBackupSchedule(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["backup-schedules"] });
+      toast.success(isEdit ? "Schedule updated" : "Schedule created");
+      onOpenChange(false);
+    },
+    onError: (e) => toast.error(e.response?.data?.detail || "Failed"),
+  });
+
+  const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md bg-card border-border">
+        <DialogHeader>
+          <DialogTitle>{isEdit ? "Edit Backup Schedule" : "New Backup Schedule"}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div>
+            <Label>Name</Label>
+            <Input value={form.name} onChange={(e) => set("name", e.target.value)} className="mt-1" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Source Pool</Label>
+              <select
+                className="w-full mt-1 h-9 px-2 text-sm bg-zinc-900 border border-border rounded-md"
+                value={form.source_pool_id}
+                onChange={(e) => set("source_pool_id", e.target.value)}
+              >
+                <option value="">Select…</option>
+                {pools.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <Label>Target Pool (NAS)</Label>
+              <select
+                className="w-full mt-1 h-9 px-2 text-sm bg-zinc-900 border border-border rounded-md"
+                value={form.target_pool_id}
+                onChange={(e) => set("target_pool_id", e.target.value)}
+              >
+                <option value="">Select…</option>
+                {pools.filter((p) => p.pool_type !== "local").map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div>
+            <Label>Cron Schedule</Label>
+            <Input value={form.schedule} onChange={(e) => set("schedule", e.target.value)} className="mt-1" placeholder="0 2 * * *" />
+            <p className="text-[10px] text-muted-foreground mt-1">Minute Hour Day Month DayOfWeek</p>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Age Threshold (days)</Label>
+              <Input type="number" min={1} value={form.age_days} onChange={(e) => set("age_days", parseInt(e.target.value, 10) || 1)} className="mt-1" />
+            </div>
+            <div className="flex items-center gap-2 pt-6">
+              <input
+                type="checkbox"
+                checked={form.is_active}
+                onChange={(e) => set("is_active", e.target.checked)}
+                className="rounded border-border"
+              />
+              <Label className="text-sm">Active</Label>
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button onClick={() => mutation.mutate(form)} disabled={mutation.isPending}>
+            {isEdit ? "Save Changes" : "Create Schedule"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -671,6 +925,33 @@ const PoolCard = ({ pool, canManage, onEdit, onDelete }) => {
         ? "bg-yellow-500"
         : "bg-blue-500";
 
+  const isNas = pool.pool_type !== "local";
+  const mountState = pool.nas_mount_state || "unknown";
+  const mountColor =
+    mountState === "mounted"
+      ? "text-teal-400"
+      : mountState === "error"
+        ? "text-rose-400"
+        : "text-zinc-400";
+
+  const qc = useQueryClient();
+  const mountMut = useMutation({
+    mutationFn: () => mountNasPool(pool.id),
+    onSuccess: () => {
+      toast.success("Pool mounted");
+      qc.invalidateQueries({ queryKey: ["storage-pools"] });
+    },
+    onError: (e) => toast.error(e.response?.data?.detail || "Mount failed"),
+  });
+  const unmountMut = useMutation({
+    mutationFn: () => unmountNasPool(pool.id),
+    onSuccess: () => {
+      toast.success("Pool unmounted");
+      qc.invalidateQueries({ queryKey: ["storage-pools"] });
+    },
+    onError: (e) => toast.error(e.response?.data?.detail || "Unmount failed"),
+  });
+
   return (
     <div className="bg-card border border-border rounded-lg p-5">
       <div className="flex items-center justify-between mb-3">
@@ -685,6 +966,33 @@ const PoolCard = ({ pool, canManage, onEdit, onDelete }) => {
         </div>
         {canManage && (
           <div className="flex gap-1">
+            {isNas && (
+              <>
+                {mountState !== "mounted" ? (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    title="Mount"
+                    onClick={() => mountMut.mutate()}
+                    disabled={mountMut.isPending}
+                  >
+                    <Plug className="h-3.5 w-3.5" />
+                  </Button>
+                ) : (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    title="Unmount"
+                    onClick={() => unmountMut.mutate()}
+                    disabled={unmountMut.isPending}
+                  >
+                    <Unplug className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+              </>
+            )}
             <Button
               variant="ghost"
               size="icon"
@@ -707,10 +1015,28 @@ const PoolCard = ({ pool, canManage, onEdit, onDelete }) => {
       <p className="text-xs text-muted-foreground font-mono truncate mb-1">
         {pool.path}
       </p>
-      <p className="text-xs text-muted-foreground mb-3">
+      <p className="text-xs text-muted-foreground mb-2">
         Type: {pool.pool_type} | Priority: {pool.priority}
         {pool.recording_count > 0 && ` | ${pool.recording_count} recordings`}
       </p>
+      {isNas && (
+        <div className="flex items-center gap-2 mb-2 text-xs">
+          <span className={mountColor}>
+            {mountState === "mounted" ? <Wifi className="h-3 w-3 inline mr-1" /> : <WifiOff className="h-3 w-3 inline mr-1" />}
+            {mountState}
+          </span>
+          {pool.nas_server && (
+            <span className="text-zinc-500">
+              {pool.nas_server}:{pool.nas_share}
+            </span>
+          )}
+          {pool.nas_last_mount_error && (
+            <span className="text-rose-400 truncate" title={pool.nas_last_mount_error}>
+              {pool.nas_last_mount_error}
+            </span>
+          )}
+        </div>
+      )}
       {capacity > 0 ? (
         <>
           <div className="h-2 bg-card/60 rounded-full overflow-hidden mb-2">
@@ -756,6 +1082,13 @@ const PoolFormDialog = ({ open, onOpenChange, pool, queryClient }) => {
     max_size_bytes: "",
     priority: "0",
     is_default: false,
+    nas_server: "",
+    nas_share: "",
+    nas_protocol: "nfs",
+    nas_username: "",
+    nas_password: "",
+    nas_domain: "",
+    nas_auto_mount: true,
   });
 
   React.useEffect(() => {
@@ -767,6 +1100,13 @@ const PoolFormDialog = ({ open, onOpenChange, pool, queryClient }) => {
         max_size_bytes: pool.max_size_bytes || "",
         priority: String(pool.priority ?? 0),
         is_default: pool.is_default ?? false,
+        nas_server: pool.nas_server || "",
+        nas_share: pool.nas_share || "",
+        nas_protocol: pool.nas_protocol || "nfs",
+        nas_username: pool.nas_username || "",
+        nas_password: "",
+        nas_domain: pool.nas_domain || "",
+        nas_auto_mount: pool.nas_auto_mount ?? true,
       });
     } else {
       setForm({
@@ -776,6 +1116,13 @@ const PoolFormDialog = ({ open, onOpenChange, pool, queryClient }) => {
         max_size_bytes: "",
         priority: "0",
         is_default: false,
+        nas_server: "",
+        nas_share: "",
+        nas_protocol: "nfs",
+        nas_username: "",
+        nas_password: "",
+        nas_domain: "",
+        nas_auto_mount: true,
       });
     }
   }, [pool, open]);
@@ -802,6 +1149,15 @@ const PoolFormDialog = ({ open, onOpenChange, pool, queryClient }) => {
       priority: parseInt(form.priority, 10) || 0,
       is_default: form.is_default,
     };
+    if (form.pool_type !== "local") {
+      payload.nas_server = form.nas_server || null;
+      payload.nas_share = form.nas_share || null;
+      payload.nas_protocol = form.nas_protocol || null;
+      payload.nas_username = form.nas_username || null;
+      payload.nas_password = form.nas_password || null;
+      payload.nas_domain = form.nas_domain || null;
+      payload.nas_auto_mount = form.nas_auto_mount;
+    }
     mutation.mutate(payload);
   };
 
@@ -873,6 +1229,122 @@ const PoolFormDialog = ({ open, onOpenChange, pool, queryClient }) => {
               e.g., 1099511627776 = 1 TB. Leave empty for unlimited.
             </p>
           </div>
+          {/* NAS fields */}
+          {form.pool_type !== "local" && (
+            <div className="space-y-3 border-t border-border pt-3">
+              <div className="flex items-center gap-2 text-sm font-medium text-zinc-200">
+                <Server className="h-4 w-4" /> NAS Configuration
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Server / IP</Label>
+                  <Input
+                    value={form.nas_server}
+                    onChange={(e) => set("nas_server", e.target.value)}
+                    placeholder="192.168.1.50"
+                    required={form.pool_type !== "local"}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Share / Export</Label>
+                  <Input
+                    value={form.nas_share}
+                    onChange={(e) => set("nas_share", e.target.value)}
+                    placeholder="recordings"
+                    required={form.pool_type !== "local"}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Protocol</Label>
+                  <Select
+                    value={form.nas_protocol}
+                    onValueChange={(v) => set("nas_protocol", v)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="nfs">NFS</SelectItem>
+                      <SelectItem value="smb">SMB / CIFS</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs">Domain / Workgroup</Label>
+                  <Input
+                    value={form.nas_domain}
+                    onChange={(e) => set("nas_domain", e.target.value)}
+                    placeholder="WORKGROUP"
+                  />
+                </div>
+              </div>
+              {form.nas_protocol === "smb" && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-xs">Username</Label>
+                    <Input
+                      value={form.nas_username}
+                      onChange={(e) => set("nas_username", e.target.value)}
+                      placeholder="admin"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Password</Label>
+                    <Input
+                      type="password"
+                      value={form.nas_password}
+                      onChange={(e) => set("nas_password", e.target.value)}
+                      placeholder={isEdit ? "Leave blank to keep" : ""}
+                    />
+                  </div>
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="nas_auto_mount"
+                  checked={form.nas_auto_mount}
+                  onChange={(e) => set("nas_auto_mount", e.target.checked)}
+                  className="rounded border-border"
+                />
+                <Label htmlFor="nas_auto_mount" className="text-xs cursor-pointer">
+                  Auto-mount on startup
+                </Label>
+              </div>
+              {!isEdit && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => {
+                    testNasConnection({
+                      server: form.nas_server,
+                      protocol: form.nas_protocol,
+                      username: form.nas_username,
+                      password: form.nas_password,
+                      domain: form.nas_domain,
+                    })
+                      .then((res) => {
+                        if (res.ok) {
+                          toast.success(res.message);
+                        } else {
+                          toast.error(res.message);
+                        }
+                      })
+                      .catch((e) => toast.error(e.response?.data?.detail || "Test failed"));
+                  }}
+                  disabled={!form.nas_server}
+                >
+                  <TestTube className="h-3.5 w-3.5 mr-1.5" />
+                  Test Connection
+                </Button>
+              )}
+            </div>
+          )}
+
           <div className="flex items-center gap-2">
             <input
               type="checkbox"

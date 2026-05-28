@@ -21,33 +21,15 @@ from pathlib import Path
 
 
 def get_default_candidates() -> list[str]:
-    """Collect local IP addresses suitable for WebRTC candidates."""
-    candidates = ["127.0.0.1:8555"]
-    try:
-        # Get the primary outbound IP
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.settimeout(0.5)
-        s.connect(("8.8.8.8", 80))
-        primary_ip = s.getsockname()[0]
-        s.close()
-        if primary_ip != "127.0.0.1":
-            candidates.insert(0, f"{primary_ip}:8555")
-    except Exception:
-        pass
+    """Return minimal localhost candidate list.
 
-    # Add all non-loopback interface addresses
-    try:
-        import psutil
-        for iface, addrs in psutil.net_if_addrs().items():
-            for addr in addrs:
-                if addr.family == socket.AF_INET:
-                    ip = addr.address
-                    if ip != "127.0.0.1" and ip not in [c.replace(":8555", "") for c in candidates]:
-                        candidates.append(f"{ip}:8555")
-    except ImportError:
-        pass
-
-    return candidates
+    We no longer auto-detect interface IPs because:
+    1. On cloud/VPN hosts this leaks private VPC IPs and internal topology.
+    2. On multi-homed servers it produces invalid candidates that break WebRTC.
+    3. The operator-provided NVR_PUBLIC_HOST (set via install.sh) is the
+       authoritative public candidate and is injected separately.
+    """
+    return ["127.0.0.1:8555"]
 
 
 def generate_config() -> str:

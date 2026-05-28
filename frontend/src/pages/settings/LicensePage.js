@@ -255,9 +255,9 @@ const LicensePage = () => {
           <AlertDialogHeader>
             <AlertDialogTitle>Remove license?</AlertDialogTitle>
             <AlertDialogDescription>
-              The .lic file will be deleted. All AI workers will idle and new
-              cameras above the dev cap will be rejected. Upload a new
-              license file to restore functionality.
+              The .lic file will be deleted. New cameras above the dev cap
+              will be rejected. Upload a new license file to restore
+              functionality.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

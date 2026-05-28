@@ -23,13 +23,13 @@ EVENTS_INGESTED = Counter(
 
 EVENTS_SKIPPED = Counter(
     "vizor_events_skipped_total",
-    "Number of AI detection events skipped due to dedup_key conflict",
+    "Number of NVR events skipped due to dedup_key conflict",
     labelnames=("source_service",),
 )
 
 EVENTS_FAILED = Counter(
     "vizor_events_failed_total",
-    "Number of AI detection events that failed to insert",
+    "Number of NVR events that failed to insert",
     labelnames=("source_service",),
 )
 

@@ -23,6 +23,7 @@ import {
   User,
   Menu,
   X,
+  Key,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useAuth } from "../context/AuthContext";
@@ -299,6 +300,7 @@ const Layout = () => {
                 <Settings className="h-4 w-4 mr-2" />
                 Settings
               </DropdownMenuItem>
+              <ChangePasswordDialogTrigger />
               <DropdownMenuSeparator className="bg-white/10" />
               <DropdownMenuItem
                 onClick={handleLogout}

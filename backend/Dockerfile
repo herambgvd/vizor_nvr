@@ -35,9 +35,15 @@ ENV PYTHONDONTWRITEBYTECODE=1
 WORKDIR /app
 
 # Runtime system dependencies — curl dropped; healthcheck uses python urllib
+# nfs-common + cifs-utils enable NAS pool mounting inside the container.
+# NOTE: Kernel mounts still require CAP_SYS_ADMIN or --privileged.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     libpq5 \
+    nfs-common \
+    cifs-utils \
+    smbclient \
+    mdadm \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy installed Python packages from builder

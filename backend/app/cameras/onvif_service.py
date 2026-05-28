@@ -465,7 +465,17 @@ class ONVIFService:
 
                 uris = {"main_stream_url": None, "sub_stream_url": None}
 
-                for i, profile in enumerate(profiles[:2]):  # main + sub
+                # Use the first 2 profiles per-channel, not globally first 2
+                channel_profiles = []
+                seen_channels = set()
+                for p in profiles:
+                    ch = getattr(p, "Name", "") or ""
+                    if ch not in seen_channels:
+                        seen_channels.add(ch)
+                        channel_profiles.append(p)
+                    if len(channel_profiles) >= 2:
+                        break
+                for i, profile in enumerate(channel_profiles):  # main + sub
                     try:
                         stream_setup = {
                             "Stream": "RTP-Unicast",
@@ -529,6 +539,62 @@ class ONVIFService:
                 return True
             except Exception as e:
                 logger.error(f"PTZ move failed: {e}")
+                return False
+
+        return await asyncio.to_thread(_move)
+
+    async def relative_move(
+        self, host: str, port: int, username: str, password: str,
+        translation: dict, profile_token: Optional[str] = None,
+    ) -> bool:
+        """Start relative PTZ movement."""
+        if not _HAS_ONVIF:
+            raise RuntimeError("python-onvif-zeep not installed")
+
+        def _move():
+            try:
+                cam = ONVIFCamera(host, port, username, password)
+                media = cam.create_media_service()
+                ptz = cam.create_ptz_service()
+                _profile_token = profile_token or media.GetProfiles()[0].token
+                request = ptz.create_type("RelativeMove")
+                request.ProfileToken = _profile_token
+                request.Translation = {
+                    "PanTilt": {"x": translation.get("x", 0), "y": translation.get("y", 0)},
+                    "Zoom": {"x": translation.get("z", 0)},
+                }
+                ptz.RelativeMove(request)
+                return True
+            except Exception as e:
+                logger.error(f"PTZ relative move failed: {e}")
+                return False
+
+        return await asyncio.to_thread(_move)
+
+    async def absolute_move(
+        self, host: str, port: int, username: str, password: str,
+        position: dict, profile_token: Optional[str] = None,
+    ) -> bool:
+        """Move PTZ to absolute position."""
+        if not _HAS_ONVIF:
+            raise RuntimeError("python-onvif-zeep not installed")
+
+        def _move():
+            try:
+                cam = ONVIFCamera(host, port, username, password)
+                media = cam.create_media_service()
+                ptz = cam.create_ptz_service()
+                _profile_token = profile_token or media.GetProfiles()[0].token
+                request = ptz.create_type("AbsoluteMove")
+                request.ProfileToken = _profile_token
+                request.Position = {
+                    "PanTilt": {"x": position.get("x", 0), "y": position.get("y", 0)},
+                    "Zoom": {"x": position.get("z", 0)},
+                }
+                ptz.AbsoluteMove(request)
+                return True
+            except Exception as e:
+                logger.error(f"PTZ absolute move failed: {e}")
                 return False
 
         return await asyncio.to_thread(_move)
@@ -620,7 +686,9 @@ class ONVIFService:
                     "ProfileToken": _profile_token,
                     "PresetName": preset_name,
                 })
-                return str(result)
+                # zeep returns a SetPresetResponse object; extract the actual token
+                token = getattr(result, "PresetToken", None) or getattr(result, "token", None)
+                return str(token) if token else None
             except Exception as e:
                 logger.error(f"Set preset failed: {e}")
                 return None
@@ -719,8 +787,11 @@ class ONVIFService:
                         })
                         url = str(uri_resp.Uri) if hasattr(uri_resp, "Uri") else str(uri_resp[0].Uri)
                         if username and "://" in url:
+                            from urllib.parse import quote
                             proto, rest = url.split("://", 1)
-                            url = f"{proto}://{username}:{password}@{rest}"
+                            safe_user = quote(username, safe="")
+                            safe_pass = quote(password, safe="")
+                            url = f"{proto}://{safe_user}:{safe_pass}@{rest}"
                         if i == 0:
                             uris["main_stream_url"] = url
                         else:
@@ -1492,6 +1563,148 @@ class ONVIFService:
                 return False
 
         return await asyncio.to_thread(_set)
+
+
+    # ------------------------------------------------------------------
+    # Profile G — Recording Search & Replay
+    # ------------------------------------------------------------------
+
+    async def search_recordings(
+        self,
+        host: str, port: int = 80,
+        username: str = "admin", password: str = "admin",
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+    ) -> List[Dict[str, Any]]:
+        """Search camera local recordings via ONVIF Profile G RecordingSearch.
+
+        Returns a list of dicts:
+            [{"recording_token": str, "start_time": datetime, "end_time": datetime}, ...]
+        """
+        if not _HAS_ONVIF:
+            return []
+
+        def _search():
+            try:
+                cam = ONVIFCamera(host, port, username, password)
+                # Create recording service if available
+                try:
+                    recording = cam.create_recording_service()
+                except Exception:
+                    logger.debug(f"[{host}] Recording service not available")
+                    return []
+
+                # Build search scope — all sources
+                scope = {
+                    "IncludedSources": [],
+                    "IncludedRecordings": [],
+                    "RecordingInformationFilter": None,
+                }
+
+                # Time filter
+                if start_time and end_time:
+                    scope["StartTime"] = start_time.isoformat()
+                    scope["EndTime"] = end_time.isoformat()
+
+                # Some cameras support GetRecordings directly (simpler)
+                try:
+                    recs = recording.GetRecordings()
+                    if recs:
+                        out = []
+                        for rec in recs:
+                            info = getattr(rec, "RecordingToken", rec)
+                            token = info if isinstance(info, str) else getattr(info, "RecordingToken", str(info))
+                            # Try to get source / time info
+                            src = getattr(rec, "Source", None)
+                            source_id = getattr(src, "SourceId", None) if src else None
+                            out.append({
+                                "recording_token": token,
+                                "source_id": source_id,
+                                "start_time": start_time,
+                                "end_time": end_time,
+                            })
+                        return out
+                except Exception:
+                    pass
+
+                # Fallback: FindRecordings (search API)
+                try:
+                    result = recording.FindRecordings({"Scope": scope})
+                    search_token = getattr(result, "SearchToken", None)
+                    if not search_token:
+                        return []
+
+                    # Get results
+                    results = recording.GetRecordingSearchResults({
+                        "SearchToken": search_token,
+                        "MinResults": 1,
+                        "MaxResults": 100,
+                        "WaitTime": "PT5S",
+                    })
+
+                    out = []
+                    for rec in getattr(results, "RecordingResult", []) or []:
+                        token = getattr(rec, "RecordingToken", None)
+                        if token:
+                            # Try to extract track time ranges
+                            tracks = getattr(rec, "TrackList", []) or []
+                            for track in tracks:
+                                tr = getattr(track, "Track", track)
+                                start = getattr(tr, "StartTime", start_time)
+                                end = getattr(tr, "EndTime", end_time)
+                                if isinstance(start, str):
+                                    start = datetime.fromisoformat(start.replace("Z", "+00:00"))
+                                if isinstance(end, str):
+                                    end = datetime.fromisoformat(end.replace("Z", "+00:00"))
+                                out.append({
+                                    "recording_token": token,
+                                    "track_token": getattr(tr, "TrackToken", None),
+                                    "start_time": start,
+                                    "end_time": end,
+                                })
+                    return out
+                except Exception as e:
+                    logger.debug(f"[{host}] FindRecordings failed: {e}")
+                    return []
+
+            except Exception as e:
+                logger.warning(f"[{host}] ONVIF recording search failed: {e}")
+                return []
+
+        return await asyncio.to_thread(_search)
+
+    async def get_replay_uri(
+        self,
+        host: str, port: int = 80,
+        username: str = "admin", password: str = "admin",
+        recording_token: str = "",
+    ) -> Optional[str]:
+        """Get RTSP replay URI for a recording token via ONVIF Profile G."""
+        if not _HAS_ONVIF:
+            return None
+
+        def _get_uri():
+            try:
+                cam = ONVIFCamera(host, port, username, password)
+                try:
+                    replay = cam.create_replay_service()
+                except Exception:
+                    logger.debug(f"[{host}] Replay service not available")
+                    return None
+
+                uri = replay.GetReplayUri({
+                    "StreamSetup": {
+                        "Stream": "RTP_Unicast",
+                        "Transport": {"Protocol": "RTSP"},
+                    },
+                    "RecordingToken": recording_token,
+                })
+                return getattr(uri, "Uri", None)
+            except Exception as e:
+                logger.warning(f"[{host}] GetReplayUri failed: {e}")
+                return None
+
+        return await asyncio.to_thread(_get_uri)
 
 
 # Module singleton

@@ -194,7 +194,8 @@ class _CameraPullWorker:
                         last_renewal = now
                         logger.debug(f"[{self.camera_id}] ONVIF subscription renewed")
                     except Exception as e:
-                        logger.warning(f"[{self.camera_id}] Subscription renewal failed: {e}")
+                        logger.warning(f"[{self.camera_id}] Subscription renewal failed: {e} — recreating subscription")
+                        break  # Exit inner loop so _run() recreates the subscription
 
                 # Pull messages
                 messages = await asyncio.to_thread(self._pull_messages, pullpoint)

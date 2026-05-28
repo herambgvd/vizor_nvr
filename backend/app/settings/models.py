@@ -41,7 +41,7 @@ DEFAULT_SETTINGS = {
     "recording_format": {"value": "mp4", "type": "string", "category": "recording", "desc": "mp4 or mkv"},
 
     # License
-    "max_cameras": {"value": "16", "type": "int", "category": "license", "desc": "Maximum cameras allowed"},
+    "max_cameras": {"value": "64", "type": "int", "category": "license", "desc": "Maximum cameras allowed"},
     "license_key": {"value": "", "type": "string", "category": "license", "desc": "License key"},
 
     # FFmpeg
@@ -63,6 +63,24 @@ DEFAULT_SETTINGS = {
         "value": "camera_offline,recording_error,storage_low,storage_full,recording_gap",
         "type": "string", "category": "notifications",
         "desc": "Comma-separated event types that trigger emails"
+    },
+
+    # Twilio / SMS / WhatsApp
+    "twilio_account_sid":  {"value": "", "type": "string", "category": "notifications", "desc": "Twilio Account SID"},
+    "twilio_auth_token":   {"value": "", "type": "string", "category": "notifications", "desc": "Twilio Auth Token", "sensitive": True},
+    "twilio_phone_number": {"value": "", "type": "string", "category": "notifications", "desc": "Twilio phone number for SMS (E.164, e.g. +1234567890)"},
+    "twilio_whatsapp_number": {"value": "", "type": "string", "category": "notifications", "desc": "Twilio WhatsApp sender number (E.164)"},
+    "sms_recipients":      {"value": "", "type": "string", "category": "notifications", "desc": "Comma-separated phone numbers for SMS alerts"},
+    "whatsapp_recipients": {"value": "", "type": "string", "category": "notifications", "desc": "Comma-separated phone numbers for WhatsApp alerts"},
+    "sms_alert_events": {
+        "value": "camera_offline,recording_error,storage_full",
+        "type": "string", "category": "notifications",
+        "desc": "Comma-separated event types that trigger SMS"
+    },
+    "whatsapp_alert_events": {
+        "value": "camera_offline,recording_error,storage_full",
+        "type": "string", "category": "notifications",
+        "desc": "Comma-separated event types that trigger WhatsApp"
     },
 }
 

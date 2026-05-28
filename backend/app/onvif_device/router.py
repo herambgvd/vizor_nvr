@@ -15,6 +15,7 @@ SERVICE_PATHS = [
     "/onvif/media_service",
     "/onvif/media2_service",
     "/onvif/ptz_service",
+    "/onvif/imaging_service",
     "/onvif/recording_service",
     "/onvif/search_service",
     "/onvif/replay_service",

@@ -194,6 +194,17 @@ async def login(
         await db.commit()
         raise HTTPException(401, "Invalid username or password")
 
+    # ── Password policy enforcement (Phase 5.6) ──────────────────────────
+    policy_msg = await svc.check_password_policy_on_login(db, user)
+    if policy_msg:
+        await write_audit(
+            db, action="login_password_policy", user_id=user.id, username=user.username,
+            ip_address=client_ip(request), severity="warning",
+            description=policy_msg,
+        )
+        await db.commit()
+        raise HTTPException(403, policy_msg, headers={"X-Password-Change-Required": "true"})
+
     # ── TOTP gate (Phase 5.3) ────────────────────────────────────────────
     if user.totp_enabled and user.totp_secret:
         from app.core.crypto import decrypt_value
@@ -267,6 +278,11 @@ async def refresh_token(
     if not user or not user.is_active:
         raise HTTPException(401, "User not found or disabled")
 
+    # ── Password policy enforcement on refresh ───────────────────────────
+    policy_msg = await svc.check_password_policy_on_login(db, user)
+    if policy_msg:
+        raise HTTPException(403, policy_msg, headers={"X-Password-Change-Required": "true"})
+
     await db.refresh(user, ["role"])
     token_data = svc.build_token_data(user)
     new_access = create_access_token(token_data)
@@ -334,6 +350,44 @@ async def update_profile(
         raise HTTPException(404, "User not found")
     await db.refresh(updated, ["role"])
     return UserResponse(**svc.user_to_response(updated))
+
+
+class PasswordChangeBody(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@router.post("/me/change-password", status_code=200)
+async def change_own_password(
+    body: PasswordChangeBody,
+    request: Request,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Self-service password change with current-password verification."""
+    db_user = await svc.get_user_by_id(db, user["id"])
+    if not db_user:
+        raise HTTPException(404, "User not found")
+
+    from app.core.security import verify_password
+    if not verify_password(body.current_password, db_user.hashed_password):
+        raise HTTPException(401, "Current password is incorrect")
+
+    try:
+        updated = await svc.update_user(
+            db, user["id"],
+            UserUpdate(password=body.new_password),
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+    await write_audit(
+        db, action="password_change", user_id=user["id"], username=user["username"],
+        ip_address=client_ip(request), resource_type="user", resource_id=user["id"],
+        description="User changed their own password",
+    )
+    await db.commit()
+    return {"success": True, "message": "Password changed successfully"}
 
 
 # ------------------------------------------------------------------

@@ -78,6 +78,20 @@ class LinkageEngine:
                 for rule in rules:
                     await self._execute_rule(rule, event, camera_id)
 
+                # 4. Push into ONVIF PullPoint subscription queues so VMS clients
+                # receive NVR-internal events (motion, tamper, etc.) via ONVIF.
+                try:
+                    from app.onvif_device.service import inject_nvr_event
+                    await inject_nvr_event(
+                        camera_id=camera_id,
+                        event_type=event_type,
+                        severity=severity,
+                        title=title,
+                        metadata=metadata,
+                    )
+                except Exception:
+                    pass
+
         except Exception as e:
             logger.error(f"LinkageEngine.fire_event error: {e}", exc_info=True)
 
@@ -144,7 +158,7 @@ class LinkageEngine:
             if not camera:
                 return
 
-            await go2rtc_manager.add_stream(camera.id, camera.main_stream_url)
+            await go2rtc_manager.add_stream(camera.id, camera.main_stream_url, dewarp_config=camera.dewarp_config)
             rtsp_url = go2rtc_manager.get_rtsp_output_url(camera.id)
             storage_path = await StorageService.resolve_recording_path(db, camera)
 

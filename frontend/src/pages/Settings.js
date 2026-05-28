@@ -11,6 +11,7 @@ import {
   Video,
   Database,
   Users,
+  Shield,
 } from "lucide-react";
 import {
   getRetentionConfig,
@@ -40,6 +41,7 @@ const Settings = () => {
     { id: "retention", label: "Retention", icon: Clock },
     { id: "recording", label: "Recording", icon: Video },
     { id: "general", label: "General", icon: SettingsIcon },
+    { id: "security", label: "Security", icon: Shield },
     { id: "system", label: "System", icon: Database },
     ...(isAdmin ? [{ id: "users", label: "Users", icon: Users }] : []),
   ];
@@ -60,6 +62,7 @@ const Settings = () => {
       {tab === "retention" && <RetentionTab queryClient={qc} />}
       {tab === "recording" && <RecordingTab queryClient={qc} />}
       {tab === "general" && <GeneralTab queryClient={qc} />}
+      {tab === "security" && <SecurityTab queryClient={qc} />}
       {tab === "system" && <SystemTab />}
       {tab === "users" && isAdmin && (
         <React.Suspense
@@ -388,6 +391,134 @@ const GeneralTab = ({ queryClient }) => {
         >
           <Save className="h-4 w-4 mr-2" />
           Save Changes
+        </Button>
+      </div>
+    </Card>
+  );
+};
+
+// ---------- Security ----------
+
+const SecurityTab = ({ queryClient }) => {
+  const { data: settings } = useQuery({
+    queryKey: ["settings"],
+    queryFn: getSettings,
+  });
+
+  const [form, setForm] = useState({
+    password_min_length: 8,
+    password_require_uppercase: "true",
+    password_require_number: "true",
+    password_require_symbol: "false",
+    password_history_count: 0,
+    password_max_age_days: 0,
+  });
+
+  React.useEffect(() => {
+    if (settings) {
+      const flat = Array.isArray(settings)
+        ? Object.fromEntries(settings.map((s) => [s.key, s.value]))
+        : settings;
+      setForm({
+        password_min_length: parseInt(flat.password_min_length ?? "8", 10),
+        password_require_uppercase: flat.password_require_uppercase ?? "true",
+        password_require_number: flat.password_require_number ?? "true",
+        password_require_symbol: flat.password_require_symbol ?? "false",
+        password_history_count: parseInt(flat.password_history_count ?? "0", 10),
+        password_max_age_days: parseInt(flat.password_max_age_days ?? "0", 10),
+      });
+    }
+  }, [settings]);
+
+  const mutation = useMutation({
+    mutationFn: (data) => updateSettings({ settings: data }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["settings"] });
+      toast.success("Security policy updated");
+    },
+    onError: (e) => toast.error(e.response?.data?.detail || "Failed to update"),
+  });
+
+  const set = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
+
+  return (
+    <Card title="Password Policy" description="Control password strength and rotation requirements">
+      <div className="space-y-5">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <Label>Minimum Length</Label>
+            <Input
+              type="number"
+              min={4}
+              max={64}
+              value={form.password_min_length}
+              onChange={(e) => set("password_min_length", parseInt(e.target.value, 10) || 8)}
+              className="mt-1"
+            />
+          </div>
+          <div>
+            <Label>History Count</Label>
+            <Input
+              type="number"
+              min={0}
+              max={24}
+              value={form.password_history_count}
+              onChange={(e) => set("password_history_count", parseInt(e.target.value, 10) || 0)}
+              className="mt-1"
+            />
+            <p className="text-xs text-muted-foreground mt-1">0 = disabled</p>
+          </div>
+          <div>
+            <Label>Max Age (days)</Label>
+            <Input
+              type="number"
+              min={0}
+              max={365}
+              value={form.password_max_age_days}
+              onChange={(e) => set("password_max_age_days", parseInt(e.target.value, 10) || 0)}
+              className="mt-1"
+            />
+            <p className="text-xs text-muted-foreground mt-1">0 = never expires</p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-6 pt-2">
+          <div className="flex items-center gap-2">
+            <Switch
+              checked={form.password_require_uppercase === "true"}
+              onCheckedChange={(v) => set("password_require_uppercase", v ? "true" : "false")}
+            />
+            <Label className="text-sm">Require uppercase letter</Label>
+          </div>
+          <div className="flex items-center gap-2">
+            <Switch
+              checked={form.password_require_number === "true"}
+              onCheckedChange={(v) => set("password_require_number", v ? "true" : "false")}
+            />
+            <Label className="text-sm">Require number</Label>
+          </div>
+          <div className="flex items-center gap-2">
+            <Switch
+              checked={form.password_require_symbol === "true"}
+              onCheckedChange={(v) => set("password_require_symbol", v ? "true" : "false")}
+            />
+            <Label className="text-sm">Require symbol</Label>
+          </div>
+        </div>
+
+        <Button
+          onClick={() => mutation.mutate({
+            password_min_length: String(form.password_min_length),
+            password_require_uppercase: form.password_require_uppercase,
+            password_require_number: form.password_require_number,
+            password_require_symbol: form.password_require_symbol,
+            password_history_count: String(form.password_history_count),
+            password_max_age_days: String(form.password_max_age_days),
+          })}
+          disabled={mutation.isPending}
+        >
+          <Save className="h-4 w-4 mr-2" />
+          Save Policy
         </Button>
       </div>
     </Card>

@@ -137,6 +137,12 @@ class NotificationService:
         # ── Push Notifications (FCM) ──────────────────────────────────
         await self._send_push_if_configured(event, data, camera_id)
 
+        # ── SMS (Twilio) ──────────────────────────────────────────────
+        await self._send_sms_if_configured(event, data)
+
+        # ── WhatsApp (Twilio) ─────────────────────────────────────────
+        await self._send_whatsapp_if_configured(event, data)
+
     async def _send_webhook(
         self,
         db: AsyncSession,
@@ -440,6 +446,80 @@ class NotificationService:
                 )
         except Exception as e:
             logger.error(f"Push dispatch error for {event.value}: {e}")
+
+    # ------------------------------------------------------------------
+    # SMS dispatch (Twilio)
+    # ------------------------------------------------------------------
+
+    async def _send_sms_if_configured(
+        self,
+        event: NotificationEvent,
+        data: Dict[str, Any],
+    ) -> None:
+        try:
+            from app.settings.service import SettingsService
+            from app.notifications.sms_service import sms_service
+
+            async with async_session_maker() as db:
+                alert_events_raw = await SettingsService.get_value(
+                    db, "sms_alert_events",
+                    "camera_offline,recording_error,storage_full"
+                )
+                alert_events = [e.strip() for e in alert_events_raw.split(",")]
+                if event.value not in alert_events:
+                    return
+
+                recipients_raw = await SettingsService.get_value(db, "sms_recipients", "")
+                recipients = [r.strip() for r in recipients_raw.split(",") if r.strip()]
+                if not recipients:
+                    return
+
+            message = f"GVD NVR Alert: {event.value}"
+            if data.get("camera_name"):
+                message += f" | {data['camera_name']}"
+            if data.get("message"):
+                message += f" | {data['message']}"
+
+            await sms_service.send_bulk(recipients, message)
+        except Exception as e:
+            logger.error(f"SMS dispatch error for {event.value}: {e}")
+
+    # ------------------------------------------------------------------
+    # WhatsApp dispatch (Twilio)
+    # ------------------------------------------------------------------
+
+    async def _send_whatsapp_if_configured(
+        self,
+        event: NotificationEvent,
+        data: Dict[str, Any],
+    ) -> None:
+        try:
+            from app.settings.service import SettingsService
+            from app.notifications.whatsapp_service import whatsapp_service
+
+            async with async_session_maker() as db:
+                alert_events_raw = await SettingsService.get_value(
+                    db, "whatsapp_alert_events",
+                    "camera_offline,recording_error,storage_full"
+                )
+                alert_events = [e.strip() for e in alert_events_raw.split(",")]
+                if event.value not in alert_events:
+                    return
+
+                recipients_raw = await SettingsService.get_value(db, "whatsapp_recipients", "")
+                recipients = [r.strip() for r in recipients_raw.split(",") if r.strip()]
+                if not recipients:
+                    return
+
+            message = f"*GVD NVR Alert*: {event.value}"
+            if data.get("camera_name"):
+                message += f"\nCamera: {data['camera_name']}"
+            if data.get("message"):
+                message += f"\nDetails: {data['message']}"
+
+            await whatsapp_service.send_bulk(recipients, message)
+        except Exception as e:
+            logger.error(f"WhatsApp dispatch error for {event.value}: {e}")
 
 
 # Module singleton

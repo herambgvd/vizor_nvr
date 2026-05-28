@@ -107,6 +107,9 @@ class Settings:
     FFMPEG_HEALTH_CHECK_INTERVAL: int = int(
         os.getenv("FFMPEG_HEALTH_CHECK_INTERVAL", "30")
     )
+    FFMPEG_GLOBAL_PROCESS_CAP: int = int(
+        os.getenv("FFMPEG_GLOBAL_PROCESS_CAP", "192")
+    )  # Max concurrent FFmpeg processes across recording, motion, prebuffer
     # Hardware encoder selection for FFmpeg re-encode paths (privacy masks).
     # auto = detect best | nvenc | vaapi | videotoolbox | software
     HARDWARE_TRANSCODING: str = os.getenv("HARDWARE_TRANSCODING", "auto")

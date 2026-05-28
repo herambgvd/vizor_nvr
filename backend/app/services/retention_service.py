@@ -78,21 +78,27 @@ class RetentionService:
 
             deleted = 0
 
+            # 0. Stale export lock cleanup — unlock recordings locked >24h ago
+            try:
+                stale_cutoff = datetime.utcnow() - timedelta(hours=24)
+                stale_locked = await db.execute(
+                    select(Recording).where(
+                        Recording.locked.is_(True),
+                        Recording.locked_at < stale_cutoff,
+                    )
+                )
+                for rec in stale_locked.scalars().all():
+                    rec.locked = False
+                    rec.locked_by = None
+                    logger.info(f"Retention: cleared stale lock on {rec.file_path}")
+            except Exception as _sle:
+                logger.debug(f"Stale lock cleanup error: {_sle}")
+
             # 1. Age-based retention — honour per-camera override when set
             if config["days"] > 0:
                 from app.cameras.models import Camera
                 cameras_result = await db.execute(select(Camera))
                 cameras_map = {c.id: c for c in cameras_result.scalars().all()}
-
-                # Group cameras by their effective retention
-                from collections import defaultdict
-                retention_groups: dict[int, list] = defaultdict(list)
-                no_camera_default = []
-
-                for cam in cameras_map.values():
-                    eff = cam.retention_days if cam.retention_days is not None else config["days"]
-                    if eff > 0:
-                        retention_groups[eff].append(cam.id)
 
                 # Fetch all unlocked recordings and delete based on per-camera cutoff
                 recs_result = await db.execute(
@@ -108,6 +114,15 @@ class RetentionService:
                         continue
                     cutoff = datetime.utcnow() - timedelta(days=eff_days)
                     if rec.start_time < cutoff:
+                        # TOCTOU guard: re-check lock status before unlink
+                        fresh = await db.execute(
+                            select(Recording).where(
+                                Recording.id == rec.id,
+                                Recording.locked.is_(False),
+                            )
+                        )
+                        if fresh.scalar_one_or_none() is None:
+                            continue
                         if rec.file_path and os.path.exists(rec.file_path):
                             try:
                                 os.unlink(rec.file_path)
@@ -137,6 +152,15 @@ class RetentionService:
                     for rec in oldest.scalars().all():
                         if freed >= excess:
                             break
+                        # TOCTOU guard
+                        fresh = await db.execute(
+                            select(Recording).where(
+                                Recording.id == rec.id,
+                                Recording.locked.is_(False),
+                            )
+                        )
+                        if fresh.scalar_one_or_none() is None:
+                            continue
                         size = rec.file_size or 0
                         if rec.file_path and os.path.exists(rec.file_path):
                             try:
@@ -166,6 +190,15 @@ class RetentionService:
                         for rec in recs.scalars().all():
                             if freed >= excess:
                                 break
+                            # TOCTOU guard
+                            fresh = await db.execute(
+                                select(Recording).where(
+                                    Recording.id == rec.id,
+                                    Recording.locked.is_(False),
+                                )
+                            )
+                            if fresh.scalar_one_or_none() is None:
+                                continue
                             size = rec.file_size or 0
                             if rec.file_path and os.path.exists(rec.file_path):
                                 try:

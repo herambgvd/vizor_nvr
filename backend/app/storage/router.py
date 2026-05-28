@@ -13,6 +13,7 @@ from app.storage.models import (
     StoragePoolCreate, StoragePoolUpdate, StoragePoolResponse,
     TierRuleCreate, TierRuleResponse, StorageSummary,
     CloudConfigCreate, CloudConfigUpdate, CloudConfigResponse, CloudUploadJob,
+    BackupScheduleCreate, BackupScheduleUpdate, BackupScheduleResponse,
 )
 from app.storage.service import StorageService
 from app.core.dependencies import get_admin_user
@@ -385,6 +386,155 @@ async def test_cloud_config(
     if not cfg:
         raise HTTPException(404, "Cloud config not found")
     return await svc.test_cloud_connection(cfg)
+
+
+# ── Backup Schedules ───────────────────────────────────────────────
+
+@router.get("/backups", response_model=list[BackupScheduleResponse])
+async def list_backup_schedules(
+    user: dict = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.storage.models import BackupSchedule
+    from sqlalchemy import select
+    result = await db.execute(select(BackupSchedule).order_by(BackupSchedule.created_at))
+    return [BackupScheduleResponse.model_validate(s) for s in result.scalars().all()]
+
+
+@router.post("/backups", response_model=BackupScheduleResponse, status_code=201)
+async def create_backup_schedule(
+    data: BackupScheduleCreate,
+    request: Request,
+    user: dict = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.storage.models import BackupSchedule
+    sched = BackupSchedule(**data.model_dump())
+    db.add(sched)
+    await db.commit()
+    await db.refresh(sched)
+    await write_audit(
+        db, action="backup_schedule_create", user_id=user["id"], username=user["username"],
+        ip_address=client_ip(request), resource_type="backup_schedule", resource_id=sched.id,
+    )
+    await db.commit()
+    return BackupScheduleResponse.model_validate(sched)
+
+
+@router.put("/backups/{schedule_id}", response_model=BackupScheduleResponse)
+async def update_backup_schedule(
+    schedule_id: str,
+    data: BackupScheduleUpdate,
+    user: dict = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.storage.models import BackupSchedule
+    sched = await db.get(BackupSchedule, schedule_id)
+    if not sched:
+        raise HTTPException(404, "Backup schedule not found")
+    for k, v in data.model_dump(exclude_unset=True).items():
+        setattr(sched, k, v)
+    await db.commit()
+    await db.refresh(sched)
+    return BackupScheduleResponse.model_validate(sched)
+
+
+@router.delete("/backups/{schedule_id}", status_code=204)
+async def delete_backup_schedule(
+    schedule_id: str,
+    request: Request,
+    user: dict = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.storage.models import BackupSchedule
+    sched = await db.get(BackupSchedule, schedule_id)
+    if not sched:
+        raise HTTPException(404)
+    await db.delete(sched)
+    await write_audit(
+        db, action="backup_schedule_delete", user_id=user["id"], username=user["username"],
+        ip_address=client_ip(request), resource_type="backup_schedule", resource_id=schedule_id,
+        severity="warning",
+    )
+    await db.commit()
+
+
+@router.post("/backups/{schedule_id}/run")
+async def run_backup_now(
+    schedule_id: str,
+    user: dict = Depends(get_admin_user),
+):
+    from app.storage.archive_service import archive_service
+    result = await archive_service.run_backup_now(schedule_id)
+    if "error" in result:
+        raise HTTPException(400, result["error"])
+    return result
+
+
+# ── RAID Management ────────────────────────────────────────────────
+
+@router.get("/raid/arrays")
+async def list_raid_arrays(
+    user: dict = Depends(get_admin_user),
+):
+    from app.storage.raid_service import raid_service
+    return await raid_service.list_arrays()
+
+
+@router.get("/raid/devices")
+async def list_block_devices(
+    user: dict = Depends(get_admin_user),
+):
+    from app.storage.raid_service import raid_service
+    return await raid_service.list_block_devices()
+
+
+class RAIDCreateBody(BaseModel):
+    device: str
+    level: str
+    members: List[str]
+    force: bool = False
+
+
+@router.post("/raid/arrays")
+async def create_raid_array(
+    body: RAIDCreateBody,
+    request: Request,
+    user: dict = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.storage.raid_service import raid_service
+    result = await raid_service.create_array(body.device, body.level, body.members, body.force)
+    await write_audit(
+        db, action="raid_create", user_id=user["id"], username=user["username"],
+        ip_address=client_ip(request), resource_type="raid", resource_id=body.device,
+        description=f"Created RAID {body.level} on {body.device}",
+    )
+    await db.commit()
+    if not result["success"]:
+        raise HTTPException(400, result["message"])
+    return result
+
+
+@router.delete("/raid/arrays/{device}")
+async def remove_raid_array(
+    device: str,
+    request: Request,
+    user: dict = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.storage.raid_service import raid_service
+    result = await raid_service.remove_array(device)
+    await write_audit(
+        db, action="raid_remove", user_id=user["id"], username=user["username"],
+        ip_address=client_ip(request), resource_type="raid", resource_id=device,
+        description=f"Removed RAID array {device}",
+        severity="warning",
+    )
+    await db.commit()
+    if not result["success"]:
+        raise HTTPException(400, result["message"])
+    return result
 
 
 @router.post("/cloud/upload")

@@ -47,6 +47,12 @@ export function useWebSocket({
   const wsRef = useRef(null);
   const reconnectTimerRef = useRef(null);
   const pingIntervalRef = useRef(null);
+  const reconnectCountRef = useRef(0);
+
+  // Keep ref in sync with state so closures see current value
+  useEffect(() => {
+    reconnectCountRef.current = reconnectCount;
+  }, [reconnectCount]);
 
   /**
    * Build WebSocket URL with authentication
@@ -172,7 +178,7 @@ export function useWebSocket({
 
         // Auto-reconnect if enabled and not intentionally closed
         if (autoReconnect && event.code !== 1000 && event.code !== 1008) {
-          if (reconnectCount < maxReconnectAttempts) {
+          if (reconnectCountRef.current < maxReconnectAttempts) {
             reconnectTimerRef.current = setTimeout(() => {
               setReconnectCount((c) => c + 1);
               connect();

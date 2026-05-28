@@ -84,9 +84,15 @@ class RecoveryService:
                                 continue
 
                         # Register streams with go2rtc
-                        await go2rtc_manager.add_stream(camera.id, camera.main_stream_url)
+                        ok = await go2rtc_manager.add_stream(camera.id, camera.main_stream_url, dewarp_config=camera.dewarp_config)
+                        if not ok:
+                            raise RuntimeError("go2rtc add_stream failed")
                         if camera.sub_stream_url:
-                            await go2rtc_manager.add_stream(f"{camera.id}_sub", camera.sub_stream_url)
+                            await go2rtc_manager.add_stream(f"{camera.id}_sub", camera.sub_stream_url, dewarp_config=camera.dewarp_config)
+
+                        ready = await go2rtc_manager.wait_for_stream_ready(camera.id)
+                        if not ready:
+                            raise RuntimeError("go2rtc stream not ready")
 
                         rtsp_url = go2rtc_manager.get_rtsp_output_url(camera.id)
                         sub_rtsp_url = (
@@ -107,6 +113,7 @@ class RecoveryService:
                             camera.id, record_url, storage_path, camera.recording_fps,
                             sub_stream_url=sub_rtsp_url,
                             privacy_masks=camera.privacy_masks,
+                            pos_overlay_config=camera.pos_overlay_config,
                         )
                         if success:
                             camera.status = "online"
@@ -115,10 +122,12 @@ class RecoveryService:
                             logger.info(f"Recovery: {camera.name} ({camera.id}) restored")
                         else:
                             camera.status = "error"
+                            camera.is_recording = False
                             logger.warning(f"Recovery: {camera.name} ({camera.id}) failed to start")
 
                     except Exception as e:
                         camera.status = "error"
+                        camera.is_recording = False
                         logger.error(f"Recovery: {camera.name} error: {e}")
 
                 await db.commit()

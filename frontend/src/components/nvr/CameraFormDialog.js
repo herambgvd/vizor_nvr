@@ -61,6 +61,7 @@ const DEFAULT_FORM = {
   onvif_port: 80,
   onvif_username: "",
   onvif_password: "",
+  anr_enabled: false,
 };
 
 const DEFAULT_PERIOD = { days: [0, 1, 2, 3, 4], start: "08:00", end: "18:00" };
@@ -104,6 +105,7 @@ export const CameraFormDialog = ({
         onvif_port: camera.onvif_port ?? 80,
         onvif_username: camera.onvif_username || "",
         onvif_password: "",  // never pre-fill password
+        anr_enabled: camera.anr_enabled ?? false,
       });
       if (camera.recording_schedule?.enabled) {
         setScheduleEnabled(true);
@@ -437,6 +439,24 @@ export const CameraFormDialog = ({
               )}
             </div>
           </div>
+
+            {/* ANR Configuration */}
+            <div className="flex items-center justify-between border-t border-border pt-4">
+              <div>
+                <Label htmlFor="anr-enabled">Automatic Network Replenishment (ANR)</Label>
+                <p className="text-xs text-muted-foreground">
+                  Backfill missing recordings from camera SD card after outages
+                </p>
+              </div>
+              <Switch
+                id="anr-enabled"
+                data-testid="anr-enabled-switch"
+                checked={form.anr_enabled}
+                onCheckedChange={(checked) =>
+                  updateField("anr_enabled", checked)
+                }
+              />
+            </div>
 
             {/* ONVIF Configuration */}
             <div className="space-y-3 border-t border-border pt-4">

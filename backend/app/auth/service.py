@@ -105,6 +105,16 @@ class AuthService:
         return user
 
     @staticmethod
+    async def check_password_policy_on_login(db: AsyncSession, user: User) -> Optional[str]:
+        """Return an error message if the user must change their password, else None."""
+        from app.auth.password_policy import expired
+        if user.force_password_reset:
+            return "Password change required — an administrator has forced a password reset"
+        if await expired(db, user.password_changed_at):
+            return "Password expired — please change your password"
+        return None
+
+    @staticmethod
     async def get_user_by_id(db: AsyncSession, user_id: str) -> Optional[User]:
         result = await db.execute(select(User).where(User.id == user_id))
         return result.scalar_one_or_none()
@@ -186,6 +196,8 @@ class AuthService:
             "permissions": permissions,
             "last_login_at": user.last_login_at,
             "created_at": user.created_at,
+            "password_changed_at": user.password_changed_at,
+            "force_password_reset": user.force_password_reset,
         }
 
     @staticmethod

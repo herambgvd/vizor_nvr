@@ -48,7 +48,7 @@ class ExportService:
 
     def __init__(self):
         self._jobs: Dict[str, ExportJob] = {}
-        self._semaphore = asyncio.Semaphore(3)  # max concurrent exports
+        self._semaphore = asyncio.Semaphore(8)  # max concurrent exports (64-channel NVR)
 
     @property
     def jobs(self) -> Dict[str, ExportJob]:
@@ -60,6 +60,7 @@ class ExportService:
     async def create_export(
         self, camera_id: str, start_time: datetime, end_time: datetime,
         segments: list, fmt: str = "mp4", db=None, user_id: str = None,
+        privacy_masks: list = None, pos_overlay_config: dict = None,
     ) -> ExportJob:
         """
         Queue an export. segments is a list of Recording ORM objects
@@ -76,8 +77,23 @@ class ExportService:
         if db and segment_ids:
             await self._lock_segments(db, segment_ids, user_id, job.id)
 
+        # Fetch camera overlay config if not provided
+        if privacy_masks is None and pos_overlay_config is None and db:
+            from app.cameras.models import Camera
+            from sqlalchemy import select
+            try:
+                result = await db.execute(select(Camera).where(Camera.id == camera_id))
+                cam = result.scalar_one_or_none()
+                if cam:
+                    privacy_masks = cam.privacy_masks
+                    pos_overlay_config = cam.pos_overlay_config
+            except Exception:
+                pass
+
         # Fire-and-forget the export
-        asyncio.create_task(self._run_export(job, segments, segment_ids))
+        asyncio.create_task(
+            self._run_export(job, segments, segment_ids, privacy_masks, pos_overlay_config)
+        )
         return job
 
     async def _lock_segments(self, db, segment_ids: list, user_id: str, export_id: str):
@@ -121,7 +137,10 @@ class ExportService:
         except Exception as e:
             logger.warning(f"Failed to unlock segments: {e}")
 
-    async def _run_export(self, job: ExportJob, segments: list, segment_ids: list = None):
+    async def _run_export(
+        self, job: ExportJob, segments: list, segment_ids: list = None,
+        privacy_masks: list = None, pos_overlay_config: dict = None,
+    ):
         async with self._semaphore:
             job.status = "processing"
             job.progress = 0.1
@@ -155,16 +174,57 @@ class ExportService:
                 output = os.path.join(settings.EXPORT_PATH, f"{job.id}.{job.format}")
 
                 # 4. Build FFmpeg command
+                vf_parts = []
+                if privacy_masks:
+                    for mask in privacy_masks:
+                        x = mask.get("x", 0)
+                        y = mask.get("y", 0)
+                        w = mask.get("width", 0)
+                        h = mask.get("height", 0)
+                        vf_parts.append(
+                            f"drawbox=x=trunc(iw*{x}):y=trunc(ih*{y}):w=trunc(iw*{w}):h=trunc(ih*{h})"
+                            f":color=black:t=fill"
+                        )
+
+                if pos_overlay_config and pos_overlay_config.get("enabled"):
+                    from app.services.pos_overlay_service import pos_overlay_service
+                    text_file = pos_overlay_service._file_path(job.camera_id)
+                    style = pos_overlay_config.get("text_style", "fontsize=24:fontcolor=white@0.9:box=1:boxcolor=black@0.5")
+                    position = pos_overlay_config.get("position", "x=10:y=10")
+                    if os.path.exists(text_file):
+                        vf_parts.append(
+                            f"drawtext=textfile={text_file}:reload=1:{style}:{position}"
+                        )
+
                 cmd = [
                     "ffmpeg", "-y",
                     "-f", "concat", "-safe", "0",
                     "-i", concat_file.name,
                     "-ss", f"{ss_offset:.3f}",
                     "-t", f"{duration:.3f}",
-                    "-c", "copy",
+                ]
+
+                if vf_parts:
+                    cmd.extend(["-vf", ",".join(vf_parts)])
+                    # Select encoder
+                    from app.services.ffmpeg_manager import FFmpegManager
+                    hw = FFmpegManager._detect_hwaccel()
+                    if hw == "h264_nvenc":
+                        cmd.extend(["-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr", "-cq", "23"])
+                    elif hw == "h264_vaapi":
+                        cmd.extend(["-c:v", "h264_vaapi", "-qp", "23"])
+                    elif hw == "h264_videotoolbox":
+                        cmd.extend(["-c:v", "h264_videotoolbox", "-b:v", "4M"])
+                    else:
+                        cmd.extend(["-c:v", "libx264", "-preset", "ultrafast", "-crf", "23"])
+                    cmd.extend(["-c:a", "aac", "-b:a", "64k"])
+                else:
+                    cmd.extend(["-c", "copy"])
+
+                cmd.extend([
                     "-movflags", "+faststart",
                     output,
-                ]
+                ])
                 job.progress = 0.3
 
                 # 5. Run FFmpeg

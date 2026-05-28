@@ -123,6 +123,20 @@ async def lifespan(application: FastAPI):
     await notification_service.start()
     auth_limiter.start_cleanup()  # Prevent in-memory leak under sustained traffic
 
+    # Scheduled backup / archive service
+    try:
+        from app.storage.archive_service import archive_service
+        await archive_service.start()
+    except Exception as _e:
+        logger.warning(f"archive_service start skipped: {_e}")
+
+    # N+1 clustering / hot standby
+    try:
+        from app.cluster.service import cluster_service
+        await cluster_service.start()
+    except Exception as _e:
+        logger.warning(f"cluster_service start skipped: {_e}")
+
     # S.M.A.R.T disk health poller (no-op if smartctl missing)
     try:
         from app.services.disk_health_service import disk_health_service
@@ -147,10 +161,10 @@ async def lifespan(application: FastAPI):
             synced = 0
             for cam in cameras:
                 if cam.main_stream_url:
-                    await go2rtc_manager.add_stream(cam.id, cam.main_stream_url)
+                    await go2rtc_manager.add_stream(cam.id, cam.main_stream_url, dewarp_config=cam.dewarp_config)
                     synced += 1
                 if cam.sub_stream_url:
-                    await go2rtc_manager.add_stream(f"{cam.id}_sub", cam.sub_stream_url)
+                    await go2rtc_manager.add_stream(f"{cam.id}_sub", cam.sub_stream_url, dewarp_config=cam.dewarp_config)
         logger.info(f"go2rtc: synced {synced} camera streams on startup")
     except Exception as _e:
         logger.warning(f"go2rtc startup sync failed (go2rtc may not be running yet): {_e}")
@@ -181,6 +195,28 @@ async def lifespan(application: FastAPI):
     # Start background task to sweep expired PullPoint subscriptions
     from app.onvif_device.service import sweep_expired_subscriptions
     _sweep_task = asyncio.create_task(sweep_expired_subscriptions(), name="onvif_subscription_sweep")
+
+    # Auto-mount NAS storage pools
+    try:
+        from app.storage.nas_service import nas_service
+        async with async_session_maker() as db:
+            await nas_service.auto_mount_all_pools(db)
+    except Exception as _e:
+        logger.warning(f"NAS auto-mount skipped: {_e}")
+
+    # Refresh spot output streams for decoder boxes
+    try:
+        from app.spot_output.service import spot_output_service
+        await spot_output_service.refresh_all()
+    except Exception as _e:
+        logger.warning(f"Spot output refresh skipped: {_e}")
+
+    # Start POS overlay TCP listener (if any cameras have TCP source configured)
+    try:
+        from app.services.pos_overlay_service import pos_overlay_service
+        await pos_overlay_service.start_tcp_listener(host="0.0.0.0", port=9100)
+    except Exception as _e:
+        logger.warning(f"POS TCP listener skipped: {_e}")
 
     # Start ONVIF replay session eviction loop
     from app.onvif_device.replay_manager import replay_manager as _replay_mgr
@@ -222,6 +258,11 @@ async def lifespan(application: FastAPI):
     await prebuffer_service.stop()
     await retention_service.stop()
     await monitoring_service.stop()
+    try:
+        from app.services.pos_overlay_service import pos_overlay_service
+        await pos_overlay_service.stop_tcp_listener()
+    except Exception:
+        pass
     await notification_service.stop()
     await ffmpeg_manager.stop_watchdog()
     try:
@@ -354,14 +395,19 @@ from app.events.sse_router import router as events_sse_router
 from app.license.router import router as license_router
 from app.cameras.schedule_templates_router import router as schedule_templates_router
 from app.snapshots.router import router as snapshots_router
+from app.spot_output.router import router as spot_output_router
 
 app.include_router(auth_router, prefix="/api")
 app.include_router(snapshots_router, prefix="/api")
 app.include_router(cameras_router, prefix="/api")
+from app.cameras.pos_router import router as pos_router
+app.include_router(pos_router, prefix="/api")
 app.include_router(recordings_router, prefix="/api")
 app.include_router(bookmarks_router, prefix="/api")
 app.include_router(events_router, prefix="/api")
 app.include_router(storage_router, prefix="/api")
+from app.cluster.router import router as cluster_router
+app.include_router(cluster_router, prefix="/api")
 app.include_router(monitoring_router, prefix="/api")
 app.include_router(camera_health_router, prefix="/api")
 app.include_router(settings_router, prefix="/api")
@@ -375,6 +421,7 @@ app.include_router(events_ingest_router)
 app.include_router(events_sse_router)
 app.include_router(license_router)
 app.include_router(schedule_templates_router, prefix="/api")
+app.include_router(spot_output_router, prefix="/api")
 
 # ONVIF device endpoints are NOT under /api (VMS expects root-level paths)
 app.include_router(onvif_device_router)

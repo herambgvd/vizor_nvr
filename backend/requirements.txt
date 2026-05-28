@@ -66,3 +66,4 @@ WSDiscovery
 # isort==8.0.0
 # mypy==1.19.1
 # pytest==9.0.2
+twilio>=9.0.0

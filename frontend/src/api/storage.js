@@ -26,6 +26,26 @@ export const deleteStoragePool = async (poolId) => {
   return response.data;
 };
 
+export const testNasConnection = async (data) => {
+  const response = await apiClient.post("/storage/nas/test-connection", data);
+  return response.data;
+};
+
+export const mountNasPool = async (poolId) => {
+  const response = await apiClient.post(`/storage/pools/${poolId}/mount`);
+  return response.data;
+};
+
+export const unmountNasPool = async (poolId) => {
+  const response = await apiClient.post(`/storage/pools/${poolId}/unmount`);
+  return response.data;
+};
+
+export const getNasPoolHealth = async (poolId) => {
+  const response = await apiClient.get(`/storage/pools/${poolId}/nas-health`);
+  return response.data;
+};
+
 // ---------- rules ----------
 
 export const getStorageRules = async () => {
@@ -86,5 +106,32 @@ export const testCloudConfig = async (configId) => {
 
 export const uploadToCloud = async (data) => {
   const response = await apiClient.post("/storage/cloud/upload", data);
+  return response.data;
+};
+
+// ---------- backup schedules ----------
+
+export const getBackupSchedules = async () => {
+  const response = await apiClient.get("/storage/backups");
+  return response.data;
+};
+
+export const createBackupSchedule = async (data) => {
+  const response = await apiClient.post("/storage/backups", data);
+  return response.data;
+};
+
+export const updateBackupSchedule = async (scheduleId, data) => {
+  const response = await apiClient.put(`/storage/backups/${scheduleId}`, data);
+  return response.data;
+};
+
+export const deleteBackupSchedule = async (scheduleId) => {
+  const response = await apiClient.delete(`/storage/backups/${scheduleId}`);
+  return response.data;
+};
+
+export const runBackupNow = async (scheduleId) => {
+  const response = await apiClient.post(`/storage/backups/${scheduleId}/run`);
   return response.data;
 };

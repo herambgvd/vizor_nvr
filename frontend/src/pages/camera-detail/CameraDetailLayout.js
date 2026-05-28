@@ -186,7 +186,7 @@ const CameraDetailLayout = () => {
           </div>
         </div>
 
-        <main className="flex-1 min-w-0 overflow-y-auto pt-10 md:pt-0">
+        <main className="flex-1 min-w-0 overflow-y-auto pt-16 md:pt-0">
           <Outlet context={{ camera, cameraId }} />
         </main>
       </div>

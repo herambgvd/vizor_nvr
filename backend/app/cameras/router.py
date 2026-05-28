@@ -457,9 +457,9 @@ async def update_camera(
     if any(k in changes for k in ("main_stream_url", "sub_stream_url", "username", "password", "ip_address", "port")):
         from app.services.go2rtc_manager import go2rtc_manager
         if camera.main_stream_url:
-            await go2rtc_manager.add_stream(camera_id, camera.main_stream_url)
+            await go2rtc_manager.add_stream(camera_id, camera.main_stream_url, dewarp_config=camera.dewarp_config)
         if camera.sub_stream_url:
-            await go2rtc_manager.add_stream(f"{camera_id}_sub", camera.sub_stream_url)
+            await go2rtc_manager.add_stream(f"{camera_id}_sub", camera.sub_stream_url, dewarp_config=camera.dewarp_config)
 
     await write_audit(
         db, action="camera_update", user_id=user["id"], username=user["username"],
@@ -799,9 +799,9 @@ async def _start_camera_recording_helper(db, camera):
     from app.services.go2rtc_manager import go2rtc_manager
     from app.storage.service import StorageService
 
-    await go2rtc_manager.add_stream(camera.id, camera.main_stream_url)
+    await go2rtc_manager.add_stream(camera.id, camera.main_stream_url, dewarp_config=camera.dewarp_config)
     if camera.sub_stream_url:
-        await go2rtc_manager.add_stream(f"{camera.id}_sub", camera.sub_stream_url)
+        await go2rtc_manager.add_stream(f"{camera.id}_sub", camera.sub_stream_url, dewarp_config=camera.dewarp_config)
     await go2rtc_manager.wait_for_stream_ready(camera.id)
 
     rtsp_url = go2rtc_manager.get_rtsp_output_url(camera.id)
@@ -816,6 +816,7 @@ async def _start_camera_recording_helper(db, camera):
         camera.id, rtsp_url, storage_path, camera.recording_fps,
         sub_stream_url=sub_rtsp_url,
         privacy_masks=camera.privacy_masks,
+        pos_overlay_config=camera.pos_overlay_config,
     )
     if success:
         camera.status = "online"
@@ -941,9 +942,9 @@ async def start_recording(
     from app.services.ffmpeg_manager import ffmpeg_manager
 
     # Register main stream with go2rtc and wait for it to be ready
-    await go2rtc_manager.add_stream(camera_id, camera.main_stream_url)
+    await go2rtc_manager.add_stream(camera_id, camera.main_stream_url, dewarp_config=camera.dewarp_config)
     if camera.sub_stream_url:
-        await go2rtc_manager.add_stream(f"{camera_id}_sub", camera.sub_stream_url)
+        await go2rtc_manager.add_stream(f"{camera_id}_sub", camera.sub_stream_url, dewarp_config=camera.dewarp_config)
 
     # Wait for go2rtc to pull the RTSP stream before FFmpeg connects
     await go2rtc_manager.wait_for_stream_ready(camera_id)
@@ -960,6 +961,7 @@ async def start_recording(
         storage_path=storage_path,
         recording_fps=camera.recording_fps,
         sub_stream_url=go2rtc_manager.get_rtsp_output_url(f"{camera_id}_sub") if camera.sub_stream_url else None,
+        pos_overlay_config=camera.pos_overlay_config,
         privacy_masks=camera.privacy_masks,
     )
     if not success:
@@ -1019,9 +1021,9 @@ async def get_stream_urls(
     from app.services.go2rtc_manager import go2rtc_manager
 
     # Register streams with go2rtc
-    await go2rtc_manager.add_stream(camera_id, camera.main_stream_url)
+    await go2rtc_manager.add_stream(camera_id, camera.main_stream_url, dewarp_config=camera.dewarp_config)
     if camera.sub_stream_url:
-        await go2rtc_manager.add_stream(f"{camera_id}_sub", camera.sub_stream_url)
+        await go2rtc_manager.add_stream(f"{camera_id}_sub", camera.sub_stream_url, dewarp_config=camera.dewarp_config)
 
     # For live viewing, prefer sub stream (lower bandwidth)
     live_id = f"{camera_id}_sub" if camera.sub_stream_url else camera_id
@@ -1105,9 +1107,9 @@ async def webrtc_signal(
         raise HTTPException(404, "Camera not found")
 
     from app.services.go2rtc_manager import go2rtc_manager
-    await go2rtc_manager.add_stream(camera_id, camera.main_stream_url)
+    await go2rtc_manager.add_stream(camera_id, camera.main_stream_url, dewarp_config=camera.dewarp_config)
     if camera.sub_stream_url:
-        await go2rtc_manager.add_stream(f"{camera_id}_sub", camera.sub_stream_url)
+        await go2rtc_manager.add_stream(f"{camera_id}_sub", camera.sub_stream_url, dewarp_config=camera.dewarp_config)
 
     body = await request.json()
     live_id = f"{camera_id}_sub" if camera.sub_stream_url else camera_id
@@ -1323,7 +1325,7 @@ async def start_buffer_recording(
     from app.services.ffmpeg_manager import ffmpeg_manager
     from app.storage.service import StorageService
 
-    await go2rtc_manager.add_stream(camera_id, camera.main_stream_url)
+    await go2rtc_manager.add_stream(camera_id, camera.main_stream_url, dewarp_config=camera.dewarp_config)
     rtsp_url = go2rtc_manager.get_rtsp_output_url(camera_id)
     storage_path = await StorageService.resolve_recording_path(db, camera)
 
@@ -1371,9 +1373,9 @@ async def _bg_test_connection(camera_id: str):
                 camera.resolution = info.get("resolution")
                 camera.fps = info.get("fps")
                 camera.bitrate = info.get("bitrate")
-            await go2rtc_manager.add_stream(camera_id, camera.main_stream_url)
+            await go2rtc_manager.add_stream(camera_id, camera.main_stream_url, dewarp_config=camera.dewarp_config)
             if camera.sub_stream_url:
-                await go2rtc_manager.add_stream(f"{camera_id}_sub", camera.sub_stream_url)
+                await go2rtc_manager.add_stream(f"{camera_id}_sub", camera.sub_stream_url, dewarp_config=camera.dewarp_config)
             snap = await ffmpeg_manager.capture_snapshot(camera.main_stream_url, camera_id)
             if snap:
                 camera.thumbnail_path = snap
@@ -1472,7 +1474,7 @@ async def update_motion_config(
 
     if config.get("enabled"):
         detect_url = camera.detect_stream_url or camera.sub_stream_url or camera.main_stream_url
-        await go2rtc_manager.add_stream(f"{camera.id}_detect", detect_url)
+        await go2rtc_manager.add_stream(f"{camera.id}_detect", detect_url, dewarp_config=camera.dewarp_config)
         rtsp_url = go2rtc_manager.get_rtsp_output_url(f"{camera.id}_detect")
         await motion_detector.start_detection(camera.id, rtsp_url, config)
     else:
@@ -2322,11 +2324,11 @@ async def rotate_credentials(
 
         new_main = _inject_creds(camera.main_stream_url, current_user, new_pass)
         camera.main_stream_url = new_main
-        await go2rtc_manager.add_stream(camera_id, new_main)
+        await go2rtc_manager.add_stream(camera_id, new_main, dewarp_config=camera.dewarp_config)
         if camera.sub_stream_url:
             new_sub = _inject_creds(camera.sub_stream_url, current_user, new_pass)
             camera.sub_stream_url = new_sub
-            await go2rtc_manager.add_stream(f"{camera_id}_sub", new_sub)
+            await go2rtc_manager.add_stream(f"{camera_id}_sub", new_sub, dewarp_config=camera.dewarp_config)
 
     await write_audit(
         db, action="credentials_rotate", user_id=user["id"], username=user["username"],
@@ -2418,7 +2420,7 @@ async def start_backchannel(
         "status": "active",
         "backchannel_url": backchannel_url,
         "backchannel_capable_cached": camera.backchannel_capable,
-        "note": "WebRTC publish path not yet wired; FFmpeg fallback active",
+        "note": "FFmpeg PCM→RTSP fallback active. For WebRTC, use /audio/backchannel/webrtc-signal instead.",
     }
 
 
@@ -2530,3 +2532,128 @@ async def backchannel_webrtc_signal(
 
     logger.info(f"WebRTC backchannel signal OK camera={camera_id}")
     return {"sdp": answer_sdp}
+
+
+# ══════════════════════════════════════════════════════════════════════
+# ANR (Automatic Network Replenishment)
+# ══════════════════════════════════════════════════════════════════════
+
+class ANRTriggerRequest(BaseModel):
+    gap_start: Optional[datetime] = None
+    gap_end: Optional[datetime] = None
+
+
+@router.get("/{camera_id}/anr/status")
+async def get_anr_status(
+    camera_id: str,
+    user: dict = Depends(require_permission("view_live")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get the latest ANR job status for a camera."""
+    camera = await svc.get_by_id(db, camera_id)
+    if not camera:
+        raise HTTPException(404, "Camera not found")
+
+    from app.services.anr_service import anr_service
+    status = await anr_service.get_job_status(camera_id)
+    return {
+        "camera_id": camera_id,
+        "anr_enabled": camera.anr_enabled,
+        "anr_status": camera.anr_status,
+        "anr_last_run_at": camera.anr_last_run_at.isoformat() if camera.anr_last_run_at else None,
+        "job": status,
+    }
+
+
+@router.post("/{camera_id}/anr/trigger")
+async def trigger_anr(
+    camera_id: str,
+    body: ANRTriggerRequest,
+    background_tasks: BackgroundTasks,
+    user: dict = Depends(require_permission("manage_cameras")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Manually trigger ANR backfill for a camera.
+
+    If gap_start/gap_end are omitted, the service auto-detects the gap.
+    """
+    camera = await svc.get_by_id(db, camera_id)
+    if not camera:
+        raise HTTPException(404, "Camera not found")
+
+    if not camera.anr_enabled:
+        raise HTTPException(400, "ANR is not enabled for this camera. Enable it first via camera settings.")
+
+    from app.services.anr_service import anr_service
+
+    # If explicit gap provided, create job directly; otherwise auto-detect
+    if body.gap_start and body.gap_end:
+        from app.cameras.models import AnrJob
+        from sqlalchemy import select
+
+        # Check for active job
+        existing = await db.execute(
+            select(AnrJob).where(
+                AnrJob.camera_id == camera_id,
+                AnrJob.status.in_(["pending", "searching", "downloading"]),
+            )
+        )
+        if existing.scalars().first():
+            raise HTTPException(409, "ANR job already active for this camera")
+
+        job = AnrJob(
+            camera_id=camera_id,
+            gap_start=body.gap_start,
+            gap_end=body.gap_end,
+            status="pending",
+        )
+        db.add(job)
+        camera.anr_status = "pending"
+        camera.anr_last_run_at = datetime.utcnow()
+        await db.commit()
+
+        background_tasks.add_task(anr_service._backfill_camera, camera_id, job.id)
+        return {"message": "ANR backfill triggered", "job_id": job.id}
+    else:
+        # Auto-detect gap
+        background_tasks.add_task(anr_service.on_camera_recovered, camera_id)
+        return {"message": "ANR backfill triggered (auto-detect gap)"}
+
+
+@router.get("/{camera_id}/anr/jobs")
+async def list_anr_jobs(
+    camera_id: str,
+    limit: int = 20,
+    user: dict = Depends(require_permission("view_live")),
+    db: AsyncSession = Depends(get_db),
+):
+    """List ANR jobs for a camera, newest first."""
+    camera = await svc.get_by_id(db, camera_id)
+    if not camera:
+        raise HTTPException(404, "Camera not found")
+
+    from sqlalchemy import select
+    from app.cameras.models import AnrJob
+
+    result = await db.execute(
+        select(AnrJob)
+        .where(AnrJob.camera_id == camera_id)
+        .order_by(AnrJob.created_at.desc())
+        .limit(limit)
+    )
+    jobs = result.scalars().all()
+    return [
+        {
+            "id": j.id,
+            "status": j.status,
+            "gap_start": j.gap_start.isoformat() if j.gap_start else None,
+            "gap_end": j.gap_end.isoformat() if j.gap_end else None,
+            "segments_found": j.segments_found,
+            "segments_downloaded": j.segments_downloaded,
+            "segments_failed": j.segments_failed,
+            "error_message": j.error_message,
+            "created_at": j.created_at.isoformat() if j.created_at else None,
+            "completed_at": j.completed_at.isoformat() if j.completed_at else None,
+        }
+        for j in jobs
+    ]

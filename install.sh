@@ -73,7 +73,21 @@ prompt NVR_LICENSE_KEY    "License key (optional)"       ""
 prompt NVR_STORAGE_PATH   "Storage path on host"         "/var/lib/gvd-nvr/data"
 prompt NVR_HTTP_PORT      "HTTP port"                    "80"
 prompt NVR_HTTPS_PORT     "HTTPS port"                   "443"
-prompt NVR_PUBLIC_HOST   "Public host/IP (for WebRTC)"  "$(hostname -I | awk '{print $1}')"
+# Portable host IP detection (works on Linux, macOS, and minimal distros)
+_detect_host_ip() {
+    local ip=""
+    if command -v ip >/dev/null 2>&1; then
+        ip=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}')
+    fi
+    if [[ -z "$ip" ]] && command -v hostname >/dev/null 2>&1; then
+        ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+    fi
+    if [[ -z "$ip" ]]; then
+        ip=$(ifconfig 2>/dev/null | awk '/inet / {print $2; exit}' | sed 's/addr://')
+    fi
+    echo "${ip:-127.0.0.1}"
+}
+prompt NVR_PUBLIC_HOST   "Public host/IP (for WebRTC)"  "$(_detect_host_ip)"
 
 [[ ${#NVR_ADMIN_PASSWORD} -lt 12 ]] && fatal "Admin password must be >=12 chars"
 
@@ -81,7 +95,16 @@ prompt NVR_PUBLIC_HOST   "Public host/IP (for WebRTC)"  "$(hostname -I | awk '{p
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ENV_FILE="$SCRIPT_DIR/.env"
 log "Writing $ENV_FILE"
-JWT_SECRET=$(openssl rand -hex 32)
+
+# Preserve existing JWT secret so re-running the installer doesn't invalidate
+# all sessions, refresh tokens, and API keys.
+if [[ -f "$ENV_FILE" ]]; then
+    EXISTING_JWT=$(grep '^JWT_SECRET_KEY=' "$ENV_FILE" 2>/dev/null | cut -d= -f2-)
+fi
+JWT_SECRET=${EXISTING_JWT:-$(openssl rand -hex 32)}
+if [[ -n "${EXISTING_JWT:-}" ]]; then
+    log "Preserved existing JWT_SECRET_KEY from $ENV_FILE"
+fi
 
 mkdir -p "$NVR_STORAGE_PATH"
 
@@ -92,7 +115,7 @@ DB_PASSWORD=$NVR_DB_PASSWORD
 JWT_SECRET_KEY=$JWT_SECRET
 JWT_ACCESS_TOKEN_EXPIRE_HOURS=24
 JWT_REFRESH_TOKEN_EXPIRE_DAYS=30
-CORS_ORIGINS=https://localhost
+CORS_ORIGINS=https://$NVR_PUBLIC_HOST,http://$NVR_PUBLIC_HOST,https://localhost,http://localhost
 HTTP_PORT=$NVR_HTTP_PORT
 HTTPS_PORT=$NVR_HTTPS_PORT
 STORAGE_HOST_PATH=$NVR_STORAGE_PATH
@@ -155,17 +178,28 @@ if [[ -n "$NVR_LICENSE_KEY" && -f "$NVR_LICENSE_KEY" ]]; then
 fi
 
 # ── 7. Wait for backend then create admin user (via the first-run API) ─────
-log "Waiting for backend to come up..."
-for i in $(seq 1 30); do
-    if curl -fsS http://localhost:8000/api/health >/dev/null 2>&1; then break; fi
+log "Waiting for backend to come up (max 90s)..."
+ADMIN_CREATED=0
+for i in $(seq 1 45); do
+    if curl -fsS http://localhost:8000/api/health >/dev/null 2>&1; then
+        log "Backend healthy — creating admin user '$NVR_ADMIN_EMAIL'"
+        if curl -fsS -X POST http://localhost:8000/api/auth/register \
+            -H 'Content-Type: application/json' \
+            -d "{\"username\":\"admin\",\"email\":\"$NVR_ADMIN_EMAIL\",\"password\":\"$NVR_ADMIN_PASSWORD\"}" \
+            >/dev/null 2>&1; then
+            ADMIN_CREATED=1
+            log "Admin user created successfully"
+        else
+            warn "Admin user may already exist — skipping registration"
+        fi
+        break
+    fi
     sleep 2
 done
 
-log "Creating admin user '$NVR_ADMIN_EMAIL'"
-curl -fsS -X POST http://localhost:8000/api/auth/register \
-    -H 'Content-Type: application/json' \
-    -d "{\"username\":\"admin\",\"email\":\"$NVR_ADMIN_EMAIL\",\"password\":\"$NVR_ADMIN_PASSWORD\"}" \
-    >/dev/null || warn "Admin user may already exist — skipping"
+if [[ $ADMIN_CREATED -eq 0 && $i -eq 45 ]]; then
+    fatal "Backend did not become healthy within 90s. Check logs: docker compose -f $SCRIPT_DIR/docker-compose.yml logs backend"
+fi
 
 # ── 8. Done ────────────────────────────────────────────────────────────────
 echo
@@ -175,4 +209,5 @@ log "Admin user:    admin"
 log "Admin email:   $NVR_ADMIN_EMAIL"
 log "Storage path:  $NVR_STORAGE_PATH"
 echo
-log "Logs:  docker compose -f $SCRIPT_DIR/docker-compose.yml logs -f"
+log "Uninstall:     $SCRIPT_DIR/scripts/uninstall.sh"
+log "Logs:          docker compose -f $SCRIPT_DIR/docker-compose.yml logs -f"

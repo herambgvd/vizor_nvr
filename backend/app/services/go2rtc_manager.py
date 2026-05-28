@@ -9,6 +9,7 @@
 #   POST /api/webrtc?src=ID        → WebRTC signalling
 # =============================================================================
 
+import asyncio
 import logging
 from typing import Optional, Dict, Any
 from urllib.parse import urlparse, urlunparse, quote, unquote
@@ -61,24 +62,64 @@ class Go2RTCManager:
             pass
         return url
 
-    async def add_stream(self, stream_id: str, source_url: str) -> bool:
-        """Register a source URL with go2rtc under the given stream ID."""
-        try:
-            safe_url = self._encode_rtsp_url(source_url)
-            # go2rtc v1.9.x API: PUT /api/streams?name=ID&src=SOURCE
-            resp = await self.client.put(
-                "/api/streams",
-                params={"name": stream_id, "src": safe_url},
+    async def add_stream(
+        self,
+        stream_id: str,
+        source_url: str,
+        max_retries: int = 3,
+        dewarp_config: Optional[dict] = None,
+    ) -> bool:
+        """Register a source URL with go2rtc under the given stream ID.
+        Retries on transient errors (connect errors, 503s).
+        If dewarp_config is provided and enabled, pipes through FFmpeg v360.
+        """
+        safe_url = self._encode_rtsp_url(source_url)
+
+        # Apply fisheye dewarp via FFmpeg if configured
+        if dewarp_config and dewarp_config.get("enabled"):
+            from app.services.dewarp_service import dewarp_service
+            filter_str = dewarp_service.build_v360_filter(
+                camera_id=stream_id,
+                mount_mode=dewarp_config.get("mount_mode", "ceiling"),
+                view_mode=dewarp_config.get("view_mode", "panoramic"),
+                fov_x=dewarp_config.get("fov_x", 90.0),
+                fov_y=dewarp_config.get("fov_y", 60.0),
+                pan=dewarp_config.get("pan", 0.0),
+                tilt=dewarp_config.get("tilt", 0.0),
+                roll=dewarp_config.get("roll", 0.0),
             )
-            ok = resp.status_code < 400
-            if ok:
-                logger.info(f"go2rtc stream registered: {stream_id}")
-            else:
-                logger.warning(f"go2rtc add_stream failed: {resp.status_code} {resp.text}")
-            return ok
-        except Exception as e:
-            logger.error(f"go2rtc add_stream error: {e}")
-            return False
+            if filter_str:
+                safe_url = f"ffmpeg:{safe_url}#video=h264#raw=-vf {filter_str}"
+                logger.info(f"[go2rtc] Dewarp filter applied for {stream_id}")
+
+        last_err = None
+        for attempt in range(1, max_retries + 1):
+            try:
+                # go2rtc v1.9.x API: PUT /api/streams?name=ID&src=SOURCE
+                resp = await self.client.put(
+                    "/api/streams",
+                    params={"name": stream_id, "src": safe_url},
+                )
+                ok = resp.status_code < 400
+                if ok:
+                    if attempt > 1:
+                        logger.info(f"go2rtc stream registered on retry {attempt}: {stream_id}")
+                    else:
+                        logger.info(f"go2rtc stream registered: {stream_id}")
+                    return True
+                else:
+                    logger.warning(f"go2rtc add_stream attempt {attempt} failed: {resp.status_code} {resp.text}")
+                    if resp.status_code >= 500 and attempt < max_retries:
+                        await asyncio.sleep(0.5 * attempt)
+                        continue
+                    return False
+            except Exception as e:
+                last_err = e
+                logger.warning(f"go2rtc add_stream attempt {attempt} error: {e}")
+                if attempt < max_retries:
+                    await asyncio.sleep(0.5 * attempt)
+        logger.error(f"go2rtc add_stream failed after {max_retries} attempts: {last_err}")
+        return False
 
     async def remove_stream(self, stream_id: str) -> bool:
         try:

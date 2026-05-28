@@ -72,6 +72,12 @@ class MotionDetector:
             "-f", "null", "-",
         ]
 
+        # Acquire global FFmpeg process slot
+        from app.services.ffmpeg_governor import ffmpeg_governor
+        if not await ffmpeg_governor.acquire(camera_id, "motion"):
+            logger.warning(f"[{camera_id}] Motion detection skipped — global FFmpeg cap reached")
+            return
+
         try:
             process = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -87,6 +93,7 @@ class MotionDetector:
                 f"(sensitivity={sensitivity}, threshold={threshold:.3f})"
             )
         except Exception as e:
+            ffmpeg_governor.release(camera_id, "motion")
             logger.error(f"[{camera_id}] Failed to start motion detection: {e}")
 
     async def stop_detection(self, camera_id: str):
@@ -106,6 +113,9 @@ class MotionDetector:
                 await asyncio.wait_for(process.wait(), timeout=5)
             except (asyncio.TimeoutError, ProcessLookupError):
                 process.kill()
+
+        from app.services.ffmpeg_governor import ffmpeg_governor
+        ffmpeg_governor.release(camera_id, "motion")
 
         self._configs.pop(camera_id, None)
         self._last_motion.pop(camera_id, None)

@@ -160,6 +160,8 @@ class UserResponse(BaseModel):
     permissions: List[str] = []
     last_login_at: Optional[datetime] = None
     created_at: datetime
+    password_changed_at: Optional[datetime] = None
+    force_password_reset: bool = False
 
     class Config:
         from_attributes = True

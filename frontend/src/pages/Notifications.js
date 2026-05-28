@@ -7,7 +7,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Bell, Plus, Trash2, TestTube2, CheckCircle, XCircle,
   Mail, Webhook, ChevronDown, RefreshCw, Eye, EyeOff,
-  AlertCircle, Settings2,
+  AlertCircle, Settings2, MessageSquare, Smartphone,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "../components/ui/button";
@@ -430,6 +430,138 @@ const SMTPPanel = ({ settings }) => {
   );
 };
 
+// ─── Twilio SMS / WhatsApp Panel ─────────────────────────────────────────────
+
+const TwilioPanel = ({ settings }) => {
+  const qc = useQueryClient();
+  const [form, setForm] = useState({
+    twilio_account_sid: settings?.twilio_account_sid || "",
+    twilio_auth_token: "",
+    twilio_phone_number: settings?.twilio_phone_number || "",
+    twilio_whatsapp_number: settings?.twilio_whatsapp_number || "",
+    sms_recipients: settings?.sms_recipients || "",
+    whatsapp_recipients: settings?.whatsapp_recipients || "",
+    sms_alert_events: settings?.sms_alert_events || "camera_offline,recording_error,storage_full",
+    whatsapp_alert_events: settings?.whatsapp_alert_events || "camera_offline,recording_error,storage_full",
+  });
+  const [showToken, setShowToken] = useState(false);
+  const [testingSms, setTestingSms] = useState(false);
+  const [testingWa, setTestingWa] = useState(false);
+
+  React.useEffect(() => {
+    setForm((prev) => ({
+      ...prev,
+      twilio_account_sid: settings?.twilio_account_sid || "",
+      twilio_phone_number: settings?.twilio_phone_number || "",
+      twilio_whatsapp_number: settings?.twilio_whatsapp_number || "",
+      sms_recipients: settings?.sms_recipients || "",
+      whatsapp_recipients: settings?.whatsapp_recipients || "",
+      sms_alert_events: settings?.sms_alert_events || "camera_offline,recording_error,storage_full",
+      whatsapp_alert_events: settings?.whatsapp_alert_events || "camera_offline,recording_error,storage_full",
+    }));
+  }, [settings]);
+
+  const saveMutation = useMutation({
+    mutationFn: (data) => api.put("/settings", { settings: data }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["settings"] });
+      toast.success("Twilio settings saved");
+    },
+    onError: () => toast.error("Failed to save Twilio settings"),
+  });
+
+  const handleSave = (e) => {
+    e.preventDefault();
+    const payload = { ...form };
+    if (!payload.twilio_auth_token) delete payload.twilio_auth_token;
+    saveMutation.mutate(payload);
+  };
+
+  const testSms = async () => {
+    if (!form.sms_recipients) return toast.error("Add at least one SMS recipient");
+    setTestingSms(true);
+    try {
+      await api.post("/notifications/sms/test", { to: form.sms_recipients.split(",")[0].trim(), message: "GVD NVR SMS test" });
+      toast.success("Test SMS sent");
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "SMS test failed");
+    } finally {
+      setTestingSms(false);
+    }
+  };
+
+  const testWa = async () => {
+    if (!form.whatsapp_recipients) return toast.error("Add at least one WhatsApp recipient");
+    setTestingWa(true);
+    try {
+      await api.post("/notifications/whatsapp/test", { to: form.whatsapp_recipients.split(",")[0].trim(), message: "GVD NVR WhatsApp test" });
+      toast.success("Test WhatsApp sent");
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "WhatsApp test failed");
+    } finally {
+      setTestingWa(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSave} className="space-y-5">
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-1">
+          <Label>Account SID</Label>
+          <Input value={form.twilio_account_sid} onChange={(e) => setForm((f) => ({ ...f, twilio_account_sid: e.target.value }))} placeholder="ACxxxxxxxxxxxxxxxx" />
+        </div>
+        <div className="space-y-1">
+          <Label>Auth Token</Label>
+          <div className="flex gap-2">
+            <Input type={showToken ? "text" : "password"} value={form.twilio_auth_token} onChange={(e) => setForm((f) => ({ ...f, twilio_auth_token: e.target.value }))} placeholder="Leave blank to keep existing" className="flex-1" />
+            <Button type="button" variant="ghost" size="icon" onClick={() => setShowToken((v) => !v)}>
+              {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </Button>
+          </div>
+        </div>
+        <div className="space-y-1">
+          <Label>SMS Sender Number</Label>
+          <Input value={form.twilio_phone_number} onChange={(e) => setForm((f) => ({ ...f, twilio_phone_number: e.target.value }))} placeholder="+1234567890" />
+        </div>
+        <div className="space-y-1">
+          <Label>WhatsApp Sender Number</Label>
+          <Input value={form.twilio_whatsapp_number} onChange={(e) => setForm((f) => ({ ...f, twilio_whatsapp_number: e.target.value }))} placeholder="+1234567890" />
+        </div>
+        <div className="col-span-2 space-y-1">
+          <Label>SMS Recipients (comma-separated)</Label>
+          <Input value={form.sms_recipients} onChange={(e) => setForm((f) => ({ ...f, sms_recipients: e.target.value }))} placeholder="+911234567890, +911234567891" />
+        </div>
+        <div className="col-span-2 space-y-1">
+          <Label>WhatsApp Recipients (comma-separated)</Label>
+          <Input value={form.whatsapp_recipients} onChange={(e) => setForm((f) => ({ ...f, whatsapp_recipients: e.target.value }))} placeholder="+911234567890, +911234567891" />
+        </div>
+        <div className="col-span-2 space-y-1">
+          <Label>SMS Alert Events (comma-separated)</Label>
+          <Input value={form.sms_alert_events} onChange={(e) => setForm((f) => ({ ...f, sms_alert_events: e.target.value }))} />
+        </div>
+        <div className="col-span-2 space-y-1">
+          <Label>WhatsApp Alert Events (comma-separated)</Label>
+          <Input value={form.whatsapp_alert_events} onChange={(e) => setForm((f) => ({ ...f, whatsapp_alert_events: e.target.value }))} />
+        </div>
+      </div>
+
+      <div className="flex gap-3">
+        <Button type="submit" disabled={saveMutation.isPending}>
+          {saveMutation.isPending ? "Saving…" : "Save Twilio Settings"}
+        </Button>
+        <Button type="button" variant="outline" onClick={testSms} disabled={testingSms}>
+          {testingSms ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : <MessageSquare className="h-4 w-4 mr-2" />}
+          Test SMS
+        </Button>
+        <Button type="button" variant="outline" onClick={testWa} disabled={testingWa}>
+          {testingWa ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : <Smartphone className="h-4 w-4 mr-2" />}
+          Test WhatsApp
+        </Button>
+      </div>
+    </form>
+  );
+};
+
 // ─── Notification Logs ───────────────────────────────────────────────────────
 
 const LogsPanel = () => {
@@ -553,6 +685,7 @@ export default function Notifications() {
   const tabs = [
     { id: "webhooks", label: "Webhooks", icon: Webhook },
     { id: "email", label: "Email (SMTP)", icon: Mail },
+    { id: "sms", label: "SMS / WhatsApp", icon: Smartphone },
     { id: "logs", label: "Delivery Logs", icon: Bell },
   ];
 
@@ -563,7 +696,7 @@ export default function Notifications() {
           Notifications
         </h2>
         <p className="text-xs text-muted-foreground mt-0.5">
-          Configure webhooks and email alerts
+          Configure webhooks, email, SMS and WhatsApp alerts
         </p>
       </div>
 
@@ -685,6 +818,21 @@ export default function Notifications() {
           </CardHeader>
           <CardContent>
             <SMTPPanel settings={settings} />
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className={tab === "sms" ? "" : "hidden"}>
+        {/* ── SMS / WhatsApp ── */}
+        <Card>
+          <CardHeader>
+            <CardTitle>SMS / WhatsApp (Twilio)</CardTitle>
+            <CardDescription>
+              Send SMS and WhatsApp alerts via Twilio
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <TwilioPanel settings={settings} />
           </CardContent>
         </Card>
       </div>

@@ -199,6 +199,10 @@ class CameraMonitor:
                             await connection_manager.broadcast_camera_status(
                                 camera.id, "online", camera.is_recording
                             )
+                            # ── ANR: backfill missing recordings from camera SD card ──
+                            if camera.anr_enabled:
+                                from app.services.anr_service import anr_service
+                                asyncio.create_task(anr_service.on_camera_recovered(camera.id))
                             from app.events.linkage_service import linkage_engine
                             await linkage_engine.fire_event(
                                 camera_id=camera.id,
@@ -298,7 +302,7 @@ class CameraMonitor:
                         try:
                             from app.recordings.service import RecordingService
                             latest_seg = await RecordingService.get_latest_segment(db, camera.id)
-                            seg_dur = 900  # default 15 min; use camera recording fps later
+                            seg_dur = getattr(camera, "segment_duration", None) or settings.DEFAULT_SEGMENT_DURATION or 900
                             if latest_seg and latest_seg.end_time:
                                 import calendar
                                 last_ts = calendar.timegm(latest_seg.end_time.timetuple())
@@ -438,25 +442,27 @@ class CameraMonitor:
                         # Schedule says record, but not recording → start
                         if should_record and not is_live:
                             logger.info(f"[{camera.id}] Schedule triggered: starting recording")
-                            camera.is_recording = True
                             await self._start_camera_recording(db, camera)
-                            await notification_service.notify(
-                                NotificationEvent.RECORDING_STARTED,
-                                {"camera_id": camera.id, "camera_name": camera.name, 
-                                 "trigger": "schedule"},
-                                camera_id=camera.id
-                            )
-                            # Broadcast recording started via WebSocket
-                            await connection_manager.broadcast_camera_status(
-                                camera.id, camera.status, True
-                            )
+                            if camera.status == "online":
+                                camera.is_recording = True
+                                await notification_service.notify(
+                                    NotificationEvent.RECORDING_STARTED,
+                                    {"camera_id": camera.id, "camera_name": camera.name, 
+                                     "trigger": "schedule"},
+                                    camera_id=camera.id
+                                )
+                                # Broadcast recording started via WebSocket
+                                await connection_manager.broadcast_camera_status(
+                                    camera.id, camera.status, True
+                                )
                         
                         # Schedule says don't record, but we're recording → stop
                         elif not should_record and is_live:
                             logger.info(f"[{camera.id}] Schedule ended: stopping recording")
-                            await ffmpeg_manager.stop_recording(camera.id)
-                            camera.is_recording = False
-                            camera.status = "online"  # Keep online but not recording
+                            stopped = await ffmpeg_manager.stop_recording(camera.id)
+                            if stopped:
+                                camera.is_recording = False
+                                camera.status = "online"  # Keep online but not recording
                             await notification_service.notify(
                                 NotificationEvent.RECORDING_STOPPED,
                                 {"camera_id": camera.id, "camera_name": camera.name,
@@ -686,40 +692,51 @@ class CameraMonitor:
         from app.services.go2rtc_manager import go2rtc_manager
         from app.storage.service import StorageService
 
-        # Register streams with go2rtc and wait for ready
-        await go2rtc_manager.add_stream(camera.id, camera.main_stream_url)
-        if camera.sub_stream_url:
-            await go2rtc_manager.add_stream(f"{camera.id}_sub", camera.sub_stream_url)
-
-        # Wait for go2rtc to establish the RTSP pull before starting FFmpeg
-        await go2rtc_manager.wait_for_stream_ready(camera.id)
-
-        rtsp_url = go2rtc_manager.get_rtsp_output_url(camera.id)
-        sub_rtsp_url = go2rtc_manager.get_rtsp_output_url(f"{camera.id}_sub") if camera.sub_stream_url else None
-        storage_path = await StorageService.resolve_recording_path(db, camera)
-
-        # N5: record from sub-stream when operator opts in and sub is available
-        record_url = rtsp_url
-        if getattr(camera, "record_substream", False) and sub_rtsp_url:
-            record_url = sub_rtsp_url
-            logger.info(f"[{camera.id}] Recording from sub-stream (record_substream=True)")
-
-        success, _ = await ffmpeg_manager.start_recording(
-            camera.id, record_url, storage_path, camera.recording_fps,
-            sub_stream_url=sub_rtsp_url,
-            privacy_masks=camera.privacy_masks,
-        )
-        
         camera.retry_count += 1
         camera.last_retry_at = datetime.utcnow()
 
-        if success:
-            camera.status = "online"
-            camera.retry_count = 0
-            logger.info(f"[{camera.id}] Recording started successfully")
-        else:
+        try:
+            # Register streams with go2rtc and wait for ready
+            ok = await go2rtc_manager.add_stream(camera.id, camera.main_stream_url, dewarp_config=camera.dewarp_config)
+            if not ok:
+                raise RuntimeError("go2rtc add_stream failed for main stream")
+            if camera.sub_stream_url:
+                ok_sub = await go2rtc_manager.add_stream(f"{camera.id}_sub", camera.sub_stream_url, dewarp_config=camera.dewarp_config)
+                if not ok_sub:
+                    logger.warning(f"[{camera.id}] go2rtc sub-stream registration failed — continuing without failover")
+
+            # Wait for go2rtc to establish the RTSP pull before starting FFmpeg
+            ready = await go2rtc_manager.wait_for_stream_ready(camera.id)
+            if not ready:
+                raise RuntimeError("go2rtc stream not ready")
+
+            rtsp_url = go2rtc_manager.get_rtsp_output_url(camera.id)
+            sub_rtsp_url = go2rtc_manager.get_rtsp_output_url(f"{camera.id}_sub") if camera.sub_stream_url else None
+            storage_path = await StorageService.resolve_recording_path(db, camera)
+
+            # N5: record from sub-stream when operator opts in and sub is available
+            record_url = rtsp_url
+            if getattr(camera, "record_substream", False) and sub_rtsp_url:
+                record_url = sub_rtsp_url
+                logger.info(f"[{camera.id}] Recording from sub-stream (record_substream=True)")
+
+            success, _ = await ffmpeg_manager.start_recording(
+                camera.id, record_url, storage_path, camera.recording_fps,
+                sub_stream_url=sub_rtsp_url,
+                privacy_masks=camera.privacy_masks,
+                pos_overlay_config=camera.pos_overlay_config,
+            )
+
+            if success:
+                camera.status = "online"
+                camera.retry_count = 0
+                logger.info(f"[{camera.id}] Recording started successfully")
+            else:
+                camera.status = "error"
+                logger.warning(f"[{camera.id}] Failed to start recording")
+        except Exception as e:
             camera.status = "error"
-            logger.warning(f"[{camera.id}] Failed to start recording")
+            logger.warning(f"[{camera.id}] Recording setup failed: {e}")
 
 
 # Module singleton

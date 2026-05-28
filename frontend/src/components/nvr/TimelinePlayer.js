@@ -142,17 +142,29 @@ export const TimelinePlayer = forwardRef(
       });
     };
 
+    const getClientPos = (e) => {
+      if (e.touches && e.touches.length > 0) {
+        return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      }
+      if (e.changedTouches && e.changedTouches.length > 0) {
+        return { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY };
+      }
+      return { x: e.clientX, y: e.clientY };
+    };
+
     const handlePanStart = (e) => {
       if (zoomScale <= 1) return;
       setIsPanning(true);
-      panStartRef.current = { x: e.clientX - panX, y: e.clientY - panY };
+      const pos = getClientPos(e);
+      panStartRef.current = { x: pos.x - panX, y: pos.y - panY };
     };
 
     const handlePanMove = (e) => {
       if (!isPanning || zoomScale <= 1) return;
+      const pos = getClientPos(e);
       const maxPan = (zoomScale - 1) * 200;
-      const newX = Math.max(-maxPan, Math.min(maxPan, e.clientX - panStartRef.current.x));
-      const newY = Math.max(-maxPan, Math.min(maxPan, e.clientY - panStartRef.current.y));
+      const newX = Math.max(-maxPan, Math.min(maxPan, pos.x - panStartRef.current.x));
+      const newY = Math.max(-maxPan, Math.min(maxPan, pos.y - panStartRef.current.y));
       setPanX(newX);
       setPanY(newY);
     };
@@ -359,6 +371,7 @@ export const TimelinePlayer = forwardRef(
       if (!timelineRef.current) return null;
 
       const rect = timelineRef.current.getBoundingClientRect();
+      if (!rect.width) return null;
       const clickX = clientX - rect.left;
       const percentage = Math.max(0, Math.min(1, clickX / rect.width));
 
@@ -387,8 +400,8 @@ export const TimelinePlayer = forwardRef(
       dragStartedRef.current = true;
       setIsDragging(true);
       setIsPlaying(false); // Pause during drag
-
-      const newTime = getTimeFromPosition(e.clientX);
+      const pos = getClientPos(e);
+      const newTime = getTimeFromPosition(pos.x);
       if (newTime) {
         setCurrentTime(newTime);
         onSeek?.(newTime);
@@ -398,8 +411,8 @@ export const TimelinePlayer = forwardRef(
     // Handle drag move
     const handleMouseMove = (e) => {
       if (!isDragging) return;
-
-      const newTime = getTimeFromPosition(e.clientX);
+      const pos = getClientPos(e);
+      const newTime = getTimeFromPosition(pos.x);
       if (newTime) {
         setCurrentTime(newTime);
         onSeek?.(newTime);
@@ -415,11 +428,12 @@ export const TimelinePlayer = forwardRef(
     // Handle timeline hover for thumbnail preview
     const handleTimelineHover = (e) => {
       if (isDragging) return;
-      const t = getTimeFromPosition(e.clientX);
+      const pos = getClientPos(e);
+      const t = getTimeFromPosition(pos.x);
       if (t) {
         setHoverTime(t);
         const rect = timelineRef.current?.getBoundingClientRect();
-        if (rect) setHoverX(e.clientX - rect.left);
+        if (rect) setHoverX(pos.x - rect.left);
       }
     };
 
@@ -581,7 +595,7 @@ export const TimelinePlayer = forwardRef(
         video.removeEventListener("timeupdate", handleTimeUpdate);
         video.removeEventListener("ended", handleEnded);
       };
-    }, [currentRecording, currentTime, recordings]);
+    }, [currentRecording, currentTime, recordings, smartPlayback]);
 
     return (
       <div
@@ -603,6 +617,9 @@ export const TimelinePlayer = forwardRef(
           onMouseMove={handlePanMove}
           onMouseUp={handlePanEnd}
           onMouseLeave={handlePanEnd}
+          onTouchStart={handlePanStart}
+          onTouchMove={handlePanMove}
+          onTouchEnd={handlePanEnd}
         >
           {/* Loading Overlay */}
           {isLoading && recordings.length === 0 && (
@@ -880,6 +897,9 @@ export const TimelinePlayer = forwardRef(
             onMouseDown={handleMouseDown}
             onMouseMove={handleTimelineHover}
             onMouseLeave={handleTimelineLeave}
+            onTouchStart={handleMouseDown}
+            onTouchMove={handleTimelineHover}
+            onTouchEnd={handleTimelineLeave}
           >
             {/* Thumbnail hover preview */}
             {hoverTime && cameraId && !isDragging && (

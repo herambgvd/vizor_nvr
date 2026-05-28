@@ -4,7 +4,7 @@
 
 import React, { useState } from "react";
 import { useOutletContext } from "react-router-dom";
-import { SlidersHorizontal, Upload, KeyRound, Loader2, Network, Save, RefreshCw as RefreshCwIcon, HardDrive } from "lucide-react";
+import { SlidersHorizontal, Upload, KeyRound, Loader2, Network, Save, RefreshCw as RefreshCwIcon, HardDrive, DownloadCloud, Clock, AlertCircle, CheckCircle2, Search, XCircle, Receipt, Globe } from "lucide-react";
 import { toast } from "sonner";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getBandwidthPolicy, updateBandwidthPolicy } from "../../api/monitoring";
@@ -259,6 +259,206 @@ const BandwidthPolicyCard = ({ cameraId }) => {
   );
 };
 
+// ── ANR Settings Card ────────────────────────────────────────────────────────
+
+const ANR_STATUS_ICONS = {
+  idle: Clock,
+  pending: Clock,
+  searching: Search,
+  downloading: Loader2,
+  completed: CheckCircle2,
+  failed: XCircle,
+};
+
+const ANR_STATUS_COLORS = {
+  idle: "text-zinc-400",
+  pending: "text-amber-400",
+  searching: "text-blue-400",
+  downloading: "text-blue-400",
+  completed: "text-teal-400",
+  failed: "text-rose-400",
+};
+
+const AnrSettingsCard = ({ cameraId, camera }) => {
+  const qc = useQueryClient();
+  const [maxGapHours, setMaxGapHours] = useState(camera?.anr_max_gap_hours ?? 24);
+
+  const { mutate: updateAnr, isPending: saving } = useMutation({
+    mutationFn: (data) =>
+      apiClient.patch(`/cameras/${cameraId}`, data).then((r) => r.data),
+    onSuccess: () => {
+      toast.success("ANR settings saved");
+      qc.invalidateQueries(["camera", cameraId]);
+    },
+    onError: (err) =>
+      toast.error(err?.response?.data?.detail || "Failed to save ANR settings"),
+  });
+
+  const { mutate: triggerAnr, isPending: triggering } = useMutation({
+    mutationFn: () =>
+      apiClient.post(`/cameras/${cameraId}/anr/trigger`, {}).then((r) => r.data),
+    onSuccess: (data) => {
+      toast.success(data.message || "ANR backfill triggered");
+      qc.invalidateQueries(["anr-status", cameraId]);
+      qc.invalidateQueries(["anr-jobs", cameraId]);
+    },
+    onError: (err) =>
+      toast.error(err?.response?.data?.detail || "Failed to trigger ANR"),
+  });
+
+  const { data: anrStatus, isLoading: statusLoading } = useQuery({
+    queryKey: ["anr-status", cameraId],
+    queryFn: () => apiClient.get(`/cameras/${cameraId}/anr/status`).then((r) => r.data),
+    enabled: !!cameraId,
+    refetchInterval: 5000,
+  });
+
+  const { data: anrJobs, isLoading: jobsLoading } = useQuery({
+    queryKey: ["anr-jobs", cameraId],
+    queryFn: () => apiClient.get(`/cameras/${cameraId}/anr/jobs?limit=5`).then((r) => r.data),
+    enabled: !!cameraId,
+    refetchInterval: 10000,
+  });
+
+  const enabled = camera?.anr_enabled ?? false;
+  const status = anrStatus?.anr_status || "idle";
+  const StatusIcon = ANR_STATUS_ICONS[status] || Clock;
+  const statusColor = ANR_STATUS_COLORS[status] || "text-zinc-400";
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm flex items-center gap-2">
+          <DownloadCloud className="h-4 w-4" /> Automatic Network Replenishment (ANR)
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Enable Toggle */}
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <Label className="text-sm font-medium">Enable ANR</Label>
+            <p className="text-xs text-muted-foreground">
+              Automatically backfill recording gaps from camera local storage after network outages
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={enabled}
+            disabled={saving}
+            onClick={() => updateAnr({ anr_enabled: !enabled })}
+            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 ${
+              enabled ? "bg-teal-600" : "bg-zinc-600"
+            }`}
+          >
+            <span
+              className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
+                enabled ? "translate-x-4.5" : "translate-x-0.5"
+              }`}
+            />
+          </button>
+        </div>
+
+        {enabled && (
+          <>
+            {/* Max Gap Hours */}
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Maximum gap to backfill (hours)</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min={1}
+                  max={168}
+                  value={maxGapHours}
+                  onChange={(e) => setMaxGapHours(Number(e.target.value))}
+                  className="w-24"
+                />
+                <Button
+                  size="sm"
+                  disabled={saving || maxGapHours === (camera?.anr_max_gap_hours ?? 24)}
+                  onClick={() => updateAnr({ anr_max_gap_hours: maxGapHours })}
+                >
+                  {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save"}
+                </Button>
+              </div>
+              <p className="text-xs text-zinc-500">
+                Gaps larger than this will be skipped to avoid excessive download time
+              </p>
+            </div>
+
+            {/* Status + Trigger */}
+            <div className="bg-card/60 border border-border rounded-lg p-3 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <StatusIcon className={`h-4 w-4 ${statusColor} ${status === "downloading" ? "animate-spin" : ""}`} />
+                  <span className="text-sm font-medium capitalize">{status.replace(/_/g, " ")}</span>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={triggering || ["pending", "searching", "downloading"].includes(status)}
+                  onClick={() => triggerAnr()}
+                >
+                  {triggering ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <DownloadCloud className="h-3.5 w-3.5 mr-1" />}
+                  Backfill Now
+                </Button>
+              </div>
+
+              {anrStatus?.anr_last_run_at && (
+                <p className="text-xs text-muted-foreground">
+                  Last run: {new Date(anrStatus.anr_last_run_at).toLocaleString()}
+                </p>
+              )}
+
+              {anrStatus?.job && (
+                <div className="text-xs space-y-1 border-t border-border pt-2">
+                  <p className="text-muted-foreground">Active job</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="text-zinc-400">Found: <span className="text-zinc-200">{anrStatus.job.segments_found}</span></div>
+                    <div className="text-zinc-400">Downloaded: <span className="text-teal-400">{anrStatus.job.segments_downloaded}</span></div>
+                    <div className="text-zinc-400">Failed: <span className="text-rose-400">{anrStatus.job.segments_failed}</span></div>
+                  </div>
+                  {anrStatus.job.error_message && (
+                    <p className="text-rose-400 truncate">{anrStatus.job.error_message}</p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Recent Jobs */}
+            {anrJobs && anrJobs.length > 0 && (
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Recent backfill jobs</Label>
+                <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                  {anrJobs.map((job) => (
+                    <div
+                      key={job.id}
+                      className="flex items-center justify-between text-xs px-2 py-1.5 rounded bg-card/40 border border-border"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        {(ANR_STATUS_ICONS[job.status] || Clock) && (
+                          <span className={ANR_STATUS_COLORS[job.status] || "text-zinc-400"}>
+                            {React.createElement(ANR_STATUS_ICONS[job.status] || Clock, { className: "h-3 w-3" })}
+                          </span>
+                        )}
+                        <span className="capitalize truncate">{job.status}</span>
+                      </div>
+                      <div className="flex items-center gap-3 text-zinc-500 shrink-0">
+                        <span>{job.segments_downloaded} downloaded</span>
+                        <span>{new Date(job.created_at).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
+
 // ── Sub-stream Recording Toggle (N5) ────────────────────────────────────────
 
 const SubStreamRecordingCard = ({ cameraId, camera }) => {
@@ -331,6 +531,164 @@ const SubStreamRecordingCard = ({ cameraId, camera }) => {
   );
 };
 
+// ── POS / ATM Overlay Card ───────────────────────────────────────────────────
+
+const PosOverlayCard = ({ cameraId, camera }) => {
+  const qc = useQueryClient();
+  const config = camera?.pos_overlay_config || {};
+  const enabled = config.enabled ?? false;
+
+  const { mutate: update, isPending } = useMutation({
+    mutationFn: (data) => apiClient.patch(`/cameras/${cameraId}`, { pos_overlay_config: data }).then((r) => r.data),
+    onSuccess: () => {
+      toast.success("POS overlay settings saved");
+      qc.invalidateQueries(["camera", cameraId]);
+    },
+    onError: (err) => toast.error(err?.response?.data?.detail || "Failed to save"),
+  });
+
+  const [text, setText] = React.useState("TEST TRANSACTION: $123.45");
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm flex items-center gap-2">
+          <Receipt className="h-4 w-4" /> POS / ATM Text Overlay
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <Label className="text-sm font-medium">Enable Overlay</Label>
+            <p className="text-xs text-muted-foreground">Burn POS/ATM transaction text onto recordings</p>
+          </div>
+          <button
+            type="button" role="switch" aria-checked={enabled}
+            disabled={isPending}
+            onClick={() => update({ ...config, enabled: !enabled })}
+            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${enabled ? "bg-teal-600" : "bg-zinc-600"}`}
+          >
+            <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${enabled ? "translate-x-4.5" : "translate-x-0.5"}`} />
+          </button>
+        </div>
+        {enabled && (
+          <>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Text Style (FFmpeg drawtext opts)</Label>
+              <Input
+                value={config.text_style || "fontsize=24:fontcolor=white@0.9:box=1:boxcolor=black@0.5"}
+                onChange={(e) => update({ ...config, text_style: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Position (x=y=...)</Label>
+              <Input
+                value={config.position || "x=10:y=10"}
+                onChange={(e) => update({ ...config, position: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Test Text</Label>
+              <div className="flex gap-2">
+                <Input value={text} onChange={(e) => setText(e.target.value)} />
+                <Button size="sm" onClick={() => apiClient.post(`/pos-overlay/${cameraId}`, { text }).then(() => toast.success("Sent")).catch(() => toast.error("Failed"))}>
+                  Send
+                </Button>
+              </div>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
+
+// ── Fisheye Dewarp Card ──────────────────────────────────────────────────────
+
+const DewarpCard = ({ cameraId, camera }) => {
+  const qc = useQueryClient();
+  const config = camera?.dewarp_config || {};
+  const enabled = config.enabled ?? false;
+
+  const { mutate: update, isPending } = useMutation({
+    mutationFn: (data) => apiClient.patch(`/cameras/${cameraId}`, { dewarp_config: data }).then((r) => r.data),
+    onSuccess: () => {
+      toast.success("Dewarp settings saved");
+      qc.invalidateQueries(["camera", cameraId]);
+    },
+    onError: (err) => toast.error(err?.response?.data?.detail || "Failed to save"),
+  });
+
+  const modes = [
+    { value: "ceiling", label: "Ceiling mount (looking down)" },
+    { value: "wall", label: "Wall mount" },
+    { value: "desktop", label: "Desktop / flat mount" },
+  ];
+  const views = [
+    { value: "panoramic", label: "Panoramic (180°)" },
+    { value: "quad", label: "Quad view (4x split)" },
+    { value: "single", label: "Single PTZ-like view" },
+  ];
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm flex items-center gap-2">
+          <Globe className="h-4 w-4" /> Fisheye Dewarp (360° Camera)
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <Label className="text-sm font-medium">Enable Dewarp</Label>
+            <p className="text-xs text-muted-foreground">Convert fisheye/360° stream to rectilinear view</p>
+          </div>
+          <button
+            type="button" role="switch" aria-checked={enabled}
+            disabled={isPending}
+            onClick={() => update({ ...config, enabled: !enabled })}
+            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${enabled ? "bg-teal-600" : "bg-zinc-600"}`}
+          >
+            <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${enabled ? "translate-x-4.5" : "translate-x-0.5"}`} />
+          </button>
+        </div>
+        {enabled && (
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Mount mode</Label>
+              <select
+                className="w-full h-9 px-2 text-sm bg-zinc-900 border border-border rounded-md"
+                value={config.mount_mode || "ceiling"}
+                onChange={(e) => update({ ...config, mount_mode: e.target.value })}
+              >
+                {modes.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">View mode</Label>
+              <select
+                className="w-full h-9 px-2 text-sm bg-zinc-900 border border-border rounded-md"
+                value={config.view_mode || "panoramic"}
+                onChange={(e) => update({ ...config, view_mode: e.target.value })}
+              >
+                {views.map((v) => <option key={v.value} value={v.value}>{v.label}</option>)}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">FOV X (°)</Label>
+              <Input type="number" value={config.fov_x || 90} onChange={(e) => update({ ...config, fov_x: Number(e.target.value) })} />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">FOV Y (°)</Label>
+              <Input type="number" value={config.fov_y || 60} onChange={(e) => update({ ...config, fov_y: Number(e.target.value) })} />
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
+
 // ── Main Settings Page ───────────────────────────────────────────────────────
 
 const SettingsPage = () => {
@@ -381,12 +739,27 @@ const SettingsPage = () => {
         <LinkageRuleBuilder />
       </div>
 
+      {/* ANR Settings */}
+      <div className="border-t border-border pt-6">
+        <AnrSettingsCard cameraId={cameraId} camera={camera} />
+      </div>
+
       {/* Storage Optimization — N5 sub-stream recording */}
       {camera?.sub_stream_url && (
         <div className="border-t border-border pt-6">
           <SubStreamRecordingCard cameraId={cameraId} camera={camera} />
         </div>
       )}
+
+      {/* POS Overlay */}
+      <div className="border-t border-border pt-6">
+        <PosOverlayCard cameraId={cameraId} camera={camera} />
+      </div>
+
+      {/* Fisheye Dewarp */}
+      <div className="border-t border-border pt-6">
+        <DewarpCard cameraId={cameraId} camera={camera} />
+      </div>
 
       {/* Bandwidth Policy — D2 */}
       <div className="border-t border-border pt-6">

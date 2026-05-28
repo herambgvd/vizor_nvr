@@ -17,6 +17,7 @@
 import asyncio
 import os
 import re
+import shutil
 import signal
 import logging
 import time
@@ -46,7 +47,8 @@ class FFmpegProcess:
                  rtsp_url: str, storage_path: str, segment_duration: int,
                  recording_fps: Optional[int],
                  sub_stream_url: Optional[str] = None,
-                 privacy_masks: Optional[list] = None):
+                 privacy_masks: Optional[list] = None,
+                 pos_overlay_config: Optional[dict] = None):
         self.camera_id = camera_id
         self.process = process
         self.pid = process.pid
@@ -58,6 +60,7 @@ class FFmpegProcess:
         self.segment_duration = segment_duration
         self.recording_fps = recording_fps
         self.privacy_masks = privacy_masks
+        self.pos_overlay_config = pos_overlay_config
         self.started_at = datetime.now(timezone.utc)
         self.last_health = time.time()
         self.restart_count = 0
@@ -113,6 +116,7 @@ class FFmpegManager:
         segment_duration: Optional[int] = None,
         sub_stream_url: Optional[str] = None,
         privacy_masks: Optional[list] = None,
+        pos_overlay_config: Optional[dict] = None,
     ) -> Tuple[bool, str]:
         """Start FFmpeg recording for a camera. Returns (success, message)."""
         self._stopped.discard(camera_id)
@@ -129,14 +133,34 @@ class FFmpegManager:
                 del self._processes[camera_id]
 
             os.makedirs(storage_path, exist_ok=True)
+
+            # Pre-flight disk space check: ensure at least 2 segments can fit
+            # (estimates 8 Mbps = 1 MB/s as a safe conservative bitrate)
             seg_dur = segment_duration or self._segment_duration
+            try:
+                required_bytes = seg_dur * 2 * 1_000_000  # ~2 segments @ 1 MB/s
+                disk = shutil.disk_usage(storage_path)
+                if disk.free < required_bytes:
+                    logger.error(
+                        f"[{camera_id}] Insufficient disk space: {disk.free} bytes free, "
+                        f"{required_bytes} required"
+                    )
+                    return False, "Insufficient disk space"
+            except Exception:
+                pass  # If we can't check, proceed anyway
 
             # Build command
             cmd = self._build_ffmpeg_cmd(
                 rtsp_url, storage_path, seg_dur, recording_fps,
                 privacy_masks=privacy_masks,
+                pos_overlay_config=pos_overlay_config,
             )
             logger.info(f"[{camera_id}] Starting FFmpeg: {' '.join(cmd)}")
+
+            # Acquire global FFmpeg process slot
+            from app.services.ffmpeg_governor import ffmpeg_governor
+            if not await ffmpeg_governor.acquire(camera_id, "recording"):
+                return False, "Global FFmpeg process cap reached — cannot start recording"
 
             try:
                 proc = await asyncio.create_subprocess_exec(
@@ -145,6 +169,7 @@ class FFmpegManager:
                     stderr=asyncio.subprocess.PIPE,
                 )
             except Exception as e:
+                ffmpeg_governor.release(camera_id, "recording")
                 logger.error(f"[{camera_id}] FFmpeg launch failed: {e}")
                 return False, str(e)
 
@@ -152,6 +177,7 @@ class FFmpegManager:
                 camera_id, proc, rtsp_url, storage_path, seg_dur, recording_fps,
                 sub_stream_url=sub_stream_url,
                 privacy_masks=privacy_masks,
+                pos_overlay_config=pos_overlay_config,
             )
             ff.stderr_task = asyncio.create_task(self._read_stderr(ff))
             self._processes[camera_id] = ff
@@ -168,6 +194,9 @@ class FFmpegManager:
             return await self._kill_process(ff)
 
     async def _kill_process(self, ff: FFmpegProcess, graceful: bool = True) -> bool:
+        # Release global FFmpeg process slot
+        from app.services.ffmpeg_governor import ffmpeg_governor
+        ffmpeg_governor.release(ff.camera_id, "recording")
         """Stop an FFmpeg process.
 
         graceful=True (default): send SIGINT so FFmpeg flushes the moov atom
@@ -287,9 +316,10 @@ class FFmpegManager:
         rtsp_url: str, storage_path: str,
         segment_duration: int, recording_fps: Optional[int],
         privacy_masks: Optional[list] = None,
+        pos_overlay_config: Optional[dict] = None,
     ) -> List[str]:
         cmd = [
-            "ffmpeg", "-hide_banner", "-y",
+            "ffmpeg", "-hide_banner",
             "-loglevel", "info",
             "-rtsp_transport", "tcp",
             "-use_wallclock_as_timestamps", "1",
@@ -313,7 +343,21 @@ class FFmpegManager:
                     f":color=black:t=fill"
                 )
 
-        output_pattern = os.path.join(storage_path, "%Y%m%d_%H%M%S.mp4")
+        # POS / ATM text overlay
+        if pos_overlay_config and pos_overlay_config.get("enabled"):
+            from app.services.pos_overlay_service import pos_overlay_service
+            text_file = pos_overlay_service._file_path(
+                pos_overlay_config.get("camera_id", "unknown")
+            )
+            style = pos_overlay_config.get("text_style", "fontsize=24:fontcolor=white@0.9:box=1:boxcolor=black@0.5")
+            position = pos_overlay_config.get("position", "x=10:y=10")
+            if os.path.exists(text_file):
+                vf_parts.append(
+                    f"drawtext=textfile={text_file}:reload=1:{style}:{position}"
+                )
+
+        # Append milliseconds to avoid overwriting if clock jumps backward
+        output_pattern = os.path.join(storage_path, "%Y%m%d_%H%M%S_%f.mp4")
 
         if vf_parts:
             cmd.extend(["-vf", ",".join(vf_parts)])
@@ -376,9 +420,11 @@ class FFmpegManager:
                         new_segment = m.group(1)
                         # Register the PREVIOUS segment (now finalized)
                         if ff.current_segment:
-                            asyncio.create_task(
+                            task = asyncio.create_task(
                                 self._on_segment_complete(ff.camera_id, ff.current_segment)
                             )
+                            # Shield from cancellation so DB write completes
+                            asyncio.shield(task)
                         ff.current_segment = new_segment
                     ff.last_health = time.time()
 
@@ -392,8 +438,13 @@ class FFmpegManager:
             logger.error(f"[{ff.camera_id}] stderr reader error: {e}")
 
         # Process ended — register the last segment that was being written
+        # Only register if the file is non-empty (SIGKILL mid-segment = corrupt)
         if ff.current_segment:
-            await self._on_segment_complete(ff.camera_id, ff.current_segment)
+            try:
+                if os.path.exists(ff.current_segment) and os.path.getsize(ff.current_segment) >= 10240:
+                    await self._on_segment_complete(ff.camera_id, ff.current_segment)
+            except OSError:
+                pass
             ff.current_segment = None
 
         rc = ff.process.returncode
@@ -433,12 +484,12 @@ class FFmpegManager:
             basename = os.path.basename(segment_path)
 
             # Parse timestamp from filename: 20240101_120000.mp4
-            # NOTE: DB column is TIMESTAMP WITHOUT TIME ZONE — must use naive datetimes
+            # Treat the filename as UTC to avoid timezone skew.
             try:
                 ts_str = basename.replace(".mp4", "").replace(".mkv", "")
-                start_time = datetime.strptime(ts_str, "%Y%m%d_%H%M%S")
+                start_time = datetime.strptime(ts_str, "%Y%m%d_%H%M%S").replace(tzinfo=timezone.utc)
             except ValueError:
-                start_time = datetime.utcnow()
+                start_time = datetime.now(timezone.utc)
 
             # Probe duration with ffprobe
             duration = await self._probe_duration(segment_path)
@@ -505,6 +556,10 @@ class FFmpegManager:
                     except Exception as mirror_err:
                         logger.warning(f"[{camera_id}] mirror copy failed: {mirror_err}")
 
+                # Determine actual stream type from process state
+                ff_proc = self._processes.get(camera_id)
+                stream_type = "sub" if (ff_proc and ff_proc.failover_active) else "main"
+
                 await RecordingService.register_segment(
                     session,
                     camera_id=camera_id,
@@ -513,7 +568,7 @@ class FFmpegManager:
                     end_time=end_time,
                     duration=duration,
                     file_size=file_size,
-                    stream_type="main",
+                    stream_type=stream_type,
                     storage_pool_id=pool_id,
                     checksum=checksum,
                 )
@@ -659,6 +714,7 @@ class FFmpegManager:
             ff.recording_fps, ff.segment_duration,
             sub_stream_url=ff.sub_stream_url,
             privacy_masks=ff.privacy_masks,
+            pos_overlay_config=ff.pos_overlay_config,
         )
         if ok and ff.camera_id in self._processes:
             new_ff = self._processes[ff.camera_id]
@@ -727,7 +783,10 @@ class FFmpegManager:
             return
 
         logger.info(f"[{camera_id}] Attempting main-stream recovery after failover...")
-        ok, info = await self.test_rtsp_connection(ff.main_stream_url)
+        # Test the go2rtc proxy URL, not the camera directly, because the proxy
+        # may have dropped the upstream while the camera is still reachable.
+        proxy_url = go2rtc_manager.get_rtsp_output_url(camera_id)
+        ok, info = await self.test_rtsp_connection(proxy_url)
         if ok:
             logger.info(f"[{camera_id}] Main stream recovered — switching back from sub-stream")
             await self.stop_recording(camera_id)
@@ -735,6 +794,7 @@ class FFmpegManager:
             await self.start_recording(
                 camera_id, ff.main_stream_url, ff.storage_path,
                 ff.recording_fps, ff.segment_duration,
+                pos_overlay_config=ff.pos_overlay_config,
                 sub_stream_url=ff.sub_stream_url,
             )
             if camera_id in self._processes:
@@ -1027,7 +1087,8 @@ class FFmpegManager:
     async def _stop_buffer_after(self, buf_key: str, delay: int):
         """Auto-stop the buffer process after *delay* seconds."""
         await asyncio.sleep(delay + 2)
-        ff = self._processes.pop(buf_key, None)
+        async with self._lock:
+            ff = self._processes.pop(buf_key, None)
         if ff and ff.process.returncode is None:
             await self._kill_process(ff)
             logger.info(f"[{buf_key}] Buffer recording auto-stopped")

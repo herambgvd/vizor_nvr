@@ -251,6 +251,7 @@ class RecordingService:
         stream_type: str = "main",
         storage_pool_id: Optional[str] = None,
         checksum: Optional[str] = None,
+        trigger_type: str = "continuous",
         **kwargs,
     ) -> str:
         """Register a recording segment using raw SQL to avoid ORM import issues."""
@@ -277,7 +278,7 @@ class RecordingService:
                 "file_size": file_size,
                 "stream_type": stream_type,
                 "storage_pool_id": storage_pool_id,
-                "trigger_type": "continuous",
+                "trigger_type": trigger_type,
                 "locked": False,
                 "checksum": checksum,
                 "integrity_status": "verified" if checksum else "unchecked",

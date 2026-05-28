@@ -72,6 +72,19 @@ async def record_history(db: AsyncSession, user_id: str, password_hash: str):
         INSERT INTO password_history (id, user_id, password_hash, changed_at)
         VALUES (:id, :uid, :ph, CURRENT_TIMESTAMP)
     """), {"id": str(uuid.uuid4()), "uid": user_id, "ph": password_hash})
+    # Auto-truncate rows beyond the configured history count to prevent unbounded growth
+    from app.settings.service import SettingsService
+    keep = int(await SettingsService.get_value(db, "password_history_count", "0") or 0)
+    if keep > 0:
+        await db.execute(text("""
+            DELETE FROM password_history
+            WHERE id NOT IN (
+                SELECT id FROM password_history
+                WHERE user_id = :uid
+                ORDER BY changed_at DESC LIMIT :k
+            )
+            AND user_id = :uid
+        """), {"uid": user_id, "k": keep})
 
 
 async def expired(db: AsyncSession, password_changed_at: Optional[datetime]) -> bool:

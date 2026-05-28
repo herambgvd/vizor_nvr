@@ -38,6 +38,11 @@ const onRefreshed = (token) => {
   refreshSubscribers = [];
 };
 
+const onRefreshFailed = () => {
+  refreshSubscribers.forEach((cb) => cb(null));
+  refreshSubscribers = [];
+};
+
 const addRefreshSubscriber = (cb) => {
   refreshSubscribers.push(cb);
 };
@@ -74,8 +79,12 @@ apiClient.interceptors.response.use(
 
       if (isRefreshing) {
         // Queue this request until the ongoing refresh completes
-        return new Promise((resolve) => {
+        return new Promise((resolve, reject) => {
           addRefreshSubscriber((newToken) => {
+            if (!newToken) {
+              reject(error);
+              return;
+            }
             originalRequest.headers.Authorization = `Bearer ${newToken}`;
             resolve(apiClient(originalRequest));
           });
@@ -97,7 +106,7 @@ apiClient.interceptors.response.use(
         return apiClient(originalRequest);
       } catch (refreshError) {
         clearTokens();
-        refreshSubscribers = [];
+        onRefreshFailed();
         window.dispatchEvent(new Event("auth:logout"));
         return Promise.reject(refreshError);
       } finally {

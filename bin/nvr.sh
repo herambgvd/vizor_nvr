@@ -43,7 +43,7 @@ case "$cmd" in
     ;;
 
   migrate)
-    $COMPOSE run --rm migrate alembic upgrade head
+    $COMPOSE run --rm migrate
     ;;
 
   ps)

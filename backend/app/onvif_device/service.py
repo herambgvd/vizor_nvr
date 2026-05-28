@@ -45,6 +45,7 @@ NS_TSE   = "http://www.onvif.org/ver10/search/wsdl"
 NS_TRP   = "http://www.onvif.org/ver10/replay/wsdl"
 NS_TEV   = "http://www.onvif.org/ver10/events/wsdl"
 NS_TPTZ  = "http://www.onvif.org/ver20/ptz/wsdl"
+NS_TIMG  = "http://www.onvif.org/ver20/imaging/wsdl"
 NS_TT    = "http://www.onvif.org/ver10/schema"
 NS_WSNT  = "http://docs.oasis-open.org/wsn/b-2"
 NS_WSRF  = "http://docs.oasis-open.org/wsrf/bf-2"
@@ -59,6 +60,7 @@ TSE_ENV  = "{%s}" % NS_TSE
 TRP_ENV  = "{%s}" % NS_TRP
 TEV_ENV  = "{%s}" % NS_TEV
 TPTZ_ENV = "{%s}" % NS_TPTZ
+TIMG_ENV = "{%s}" % NS_TIMG
 TT_ENV   = "{%s}" % NS_TT
 WSNT_ENV = "{%s}" % NS_WSNT
 WSRF_ENV = "{%s}" % NS_WSRF
@@ -96,6 +98,7 @@ def _soap_envelope() -> etree.Element:
         "tse":  NS_TSE,
         "trp":  NS_TRP,
         "tev":  NS_TEV,
+        "timg": NS_TIMG,
         "tptz": NS_TPTZ,
         "wsa":  NS_WSA,
         "wsnt": NS_WSNT,
@@ -247,6 +250,8 @@ class ONVIFDeviceService:
                     await self._handle_media2(action, resp_body, request, db)
                 elif service_path == "/onvif/ptz_service":
                     await self._handle_ptz(action, resp_body, request, db)
+                elif service_path == "/onvif/imaging_service":
+                    await self._handle_imaging(action, resp_body, request, db)
                 elif service_path == "/onvif/recording_service":
                     await self._handle_recording(action, resp_body, request, db)
                 elif service_path == "/onvif/search_service":
@@ -449,6 +454,9 @@ class ONVIFDeviceService:
         ptz = etree.SubElement(parent, _qn(NS_TT, "PTZ"))
         _add_text(ptz, NS_TT, "XAddr", f"{base}/onvif/ptz_service")
 
+        img = etree.SubElement(parent, _qn(NS_TT, "Imaging"))
+        _add_text(img, NS_TT, "XAddr", f"{base}/onvif/imaging_service")
+
         # Extension (Profile G + Media2)
         ext = etree.SubElement(parent, _qn(NS_TT, "Extension"))
 
@@ -471,6 +479,7 @@ class ONVIFDeviceService:
             (NS_TRT,  f"{base}/onvif/media_service",     2, 6),
             (NS_TR2,  f"{base}/onvif/media2_service",    2, 0),
             (NS_TPTZ, f"{base}/onvif/ptz_service",       2, 4),
+            (NS_TIMG, f"{base}/onvif/imaging_service",    2, 0),
             (NS_TRC,  f"{base}/onvif/recording_service", 2, 0),
             (NS_TSE,  f"{base}/onvif/search_service",    2, 0),
             (NS_TRP,  f"{base}/onvif/replay_service",    1, 0),
@@ -901,15 +910,54 @@ class ONVIFDeviceService:
 
         elif "ContinuousMove" in action:
             etree.SubElement(body, _qn(NS_TPTZ, "ContinuousMoveResponse"))
+            req_bytes = await request.body()
+            profile_token = self._extract_profile_token(req_bytes)
+            cam_id = self._profile_token_to_camera_id(profile_token)
+            cam = await _get_camera_by_id(db, cam_id) if cam_id else None
+            if cam:
+                try:
+                    velocity = self._extract_velocity(req_bytes)
+                    await self._forward_move(cam, "continuous", velocity, profile_token)
+                except Exception as e:
+                    logger.debug(f"PTZ ContinuousMove forward failed: {e}")
 
         elif "RelativeMove" in action:
             etree.SubElement(body, _qn(NS_TPTZ, "RelativeMoveResponse"))
+            req_bytes = await request.body()
+            profile_token = self._extract_profile_token(req_bytes)
+            cam_id = self._profile_token_to_camera_id(profile_token)
+            cam = await _get_camera_by_id(db, cam_id) if cam_id else None
+            if cam:
+                try:
+                    translation = self._extract_velocity(req_bytes)
+                    await self._forward_move(cam, "relative", translation, profile_token)
+                except Exception as e:
+                    logger.debug(f"PTZ RelativeMove forward failed: {e}")
 
         elif "AbsoluteMove" in action:
             etree.SubElement(body, _qn(NS_TPTZ, "AbsoluteMoveResponse"))
+            req_bytes = await request.body()
+            profile_token = self._extract_profile_token(req_bytes)
+            cam_id = self._profile_token_to_camera_id(profile_token)
+            cam = await _get_camera_by_id(db, cam_id) if cam_id else None
+            if cam:
+                try:
+                    position = self._extract_velocity(req_bytes)
+                    await self._forward_move(cam, "absolute", position, profile_token)
+                except Exception as e:
+                    logger.debug(f"PTZ AbsoluteMove forward failed: {e}")
 
         elif "Stop" in action:
             etree.SubElement(body, _qn(NS_TPTZ, "StopResponse"))
+            req_bytes = await request.body()
+            profile_token = self._extract_profile_token(req_bytes)
+            cam_id = self._profile_token_to_camera_id(profile_token)
+            cam = await _get_camera_by_id(db, cam_id) if cam_id else None
+            if cam:
+                try:
+                    await self._forward_stop(cam, profile_token)
+                except Exception as e:
+                    logger.debug(f"PTZ Stop forward failed: {e}")
 
         elif "GetStatus" in action:
             resp = etree.SubElement(body, _qn(NS_TPTZ, "GetStatusResponse"))
@@ -973,6 +1021,70 @@ class ONVIFDeviceService:
             await onvif_service.goto_preset(host, port, username, password, preset_token, cam_profile_token)
         except Exception as e:
             logger.debug(f"_forward_goto_preset error for cam {cam.id}: {e}")
+
+    async def _forward_move(self, cam: Camera, move_type: str, params: dict, profile_token: str):
+        """Forward ContinuousMove/RelativeMove/AbsoluteMove to camera PTZ."""
+        try:
+            from app.cameras.onvif_service import onvif_service
+            from app.core.crypto import decrypt_value
+            host = cam.onvif_host
+            port = cam.onvif_port or 80
+            username = decrypt_value(cam.onvif_username) if cam.onvif_username else "admin"
+            password = decrypt_value(cam.onvif_password) if cam.onvif_password else "admin"
+            cam_profile_token = cam.onvif_profile_token or profile_token or f"profile_{cam.id}"
+            if not host:
+                return
+            if move_type == "continuous":
+                await onvif_service.continuous_move(host, port, username, password, params, cam_profile_token)
+            elif move_type == "relative":
+                await onvif_service.relative_move(host, port, username, password, params, cam_profile_token)
+            elif move_type == "absolute":
+                await onvif_service.absolute_move(host, port, username, password, params, cam_profile_token)
+        except Exception as e:
+            logger.debug(f"_forward_move error for cam {cam.id}: {e}")
+
+    async def _forward_stop(self, cam: Camera, profile_token: str):
+        """Forward Stop to camera PTZ."""
+        try:
+            from app.cameras.onvif_service import onvif_service
+            from app.core.crypto import decrypt_value
+            host = cam.onvif_host
+            port = cam.onvif_port or 80
+            username = decrypt_value(cam.onvif_username) if cam.onvif_username else "admin"
+            password = decrypt_value(cam.onvif_password) if cam.onvif_password else "admin"
+            cam_profile_token = cam.onvif_profile_token or profile_token or f"profile_{cam.id}"
+            if not host:
+                return
+            await onvif_service.stop(host, port, username, password, cam_profile_token)
+        except Exception as e:
+            logger.debug(f"_forward_stop error for cam {cam.id}: {e}")
+
+    def _extract_velocity(self, xml_bytes: bytes) -> dict:
+        """Parse Velocity/Position element from PTZ request body."""
+        try:
+            root = etree.fromstring(xml_bytes)
+            vel = root.find(".//{%s}Velocity" % NS_TPTZ)
+            if vel is not None:
+                pt = vel.find("{%s}PanTilt" % NS_TT)
+                zoom = vel.find("{%s}Zoom" % NS_TT)
+                return {
+                    "x": float(pt.get("x", 0)) if pt is not None else 0.0,
+                    "y": float(pt.get("y", 0)) if pt is not None else 0.0,
+                    "z": float(zoom.get("x", 0)) if zoom is not None else 0.0,
+                }
+            # Try Position for AbsoluteMove
+            pos = root.find(".//{%s}Position" % NS_TPTZ)
+            if pos is not None:
+                pt = pos.find("{%s}PanTilt" % NS_TT)
+                zoom = pos.find("{%s}Zoom" % NS_TT)
+                return {
+                    "x": float(pt.get("x", 0)) if pt is not None else 0.0,
+                    "y": float(pt.get("y", 0)) if pt is not None else 0.0,
+                    "z": float(zoom.get("x", 0)) if zoom is not None else 0.0,
+                }
+        except Exception:
+            pass
+        return {"x": 0.0, "y": 0.0, "z": 0.0}
 
     # =====================================================================
     # Recording Service (Profile G)
@@ -1106,6 +1218,218 @@ class ONVIFDeviceService:
             tag = action.split("}")[-1] if "}" in action else action
             if tag:
                 etree.SubElement(body, _qn(NS_TSE, tag + "Response"))
+
+    # =====================================================================
+    # Imaging Service
+    # =====================================================================
+
+    async def _handle_imaging(self, action: str, body: etree.Element, request: Request, db: AsyncSession):
+        if "GetServiceCapabilities" in action:
+            resp = etree.SubElement(body, _qn(NS_TIMG, "GetServiceCapabilitiesResponse"))
+            caps = etree.SubElement(resp, _qn(NS_TIMG, "Capabilities"))
+            caps.set("ImageStabilization", "false")
+            caps.set("Presets", "false")
+
+        elif "GetImagingSettings" in action:
+            resp = etree.SubElement(body, _qn(NS_TIMG, "GetImagingSettingsResponse"))
+            req_bytes = await request.body()
+            vs_token = self._extract_video_source_token(req_bytes)
+            cam = await self._camera_from_video_source_token(db, vs_token)
+            if cam and cam.onvif_host:
+                from app.cameras.onvif_service import onvif_service
+                from app.core.crypto import decrypt_value
+                try:
+                    settings = await onvif_service.get_imaging_settings(
+                        cam.onvif_host, cam.onvif_port or 80,
+                        decrypt_value(cam.onvif_username) or "admin",
+                        decrypt_value(cam.onvif_password) or "admin",
+                    )
+                    self._build_imaging_settings(resp, settings)
+                except Exception as e:
+                    logger.debug(f"GetImagingSettings proxy failed for {cam.id}: {e}")
+                    self._build_imaging_settings(resp, {})
+            else:
+                self._build_imaging_settings(resp, {})
+
+        elif "SetImagingSettings" in action:
+            resp = etree.SubElement(body, _qn(NS_TIMG, "SetImagingSettingsResponse"))
+            req_bytes = await request.body()
+            vs_token = self._extract_video_source_token(req_bytes)
+            cam = await self._camera_from_video_source_token(db, vs_token)
+            settings_patch = self._extract_imaging_settings_patch(req_bytes)
+            if cam and cam.onvif_host and settings_patch:
+                from app.cameras.onvif_service import onvif_service
+                from app.core.crypto import decrypt_value
+                try:
+                    ok = await onvif_service.set_imaging_settings(
+                        cam.onvif_host, cam.onvif_port or 80,
+                        decrypt_value(cam.onvif_username) or "admin",
+                        decrypt_value(cam.onvif_password) or "admin",
+                        settings_patch,
+                    )
+                    if not ok:
+                        raise _SOAPFault("ter:Action", "Camera rejected imaging settings")
+                except Exception as e:
+                    logger.debug(f"SetImagingSettings proxy failed for {cam.id}: {e}")
+                    raise _SOAPFault("ter:Action", "Failed to apply imaging settings")
+
+        elif "GetOptions" in action:
+            resp = etree.SubElement(body, _qn(NS_TIMG, "GetOptionsResponse"))
+            req_bytes = await request.body()
+            vs_token = self._extract_video_source_token(req_bytes)
+            cam = await self._camera_from_video_source_token(db, vs_token)
+            if cam and cam.onvif_host:
+                from app.cameras.onvif_service import onvif_service
+                from app.core.crypto import decrypt_value
+                try:
+                    opts = await onvif_service.get_imaging_options(
+                        cam.onvif_host, cam.onvif_port or 80,
+                        decrypt_value(cam.onvif_username) or "admin",
+                        decrypt_value(cam.onvif_password) or "admin",
+                    )
+                    self._build_imaging_options(resp, opts)
+                except Exception as e:
+                    logger.debug(f"GetOptions proxy failed for {cam.id}: {e}")
+                    self._build_imaging_options(resp, {})
+            else:
+                self._build_imaging_options(resp, {})
+
+        elif "GetMoveOptions" in action:
+            resp = etree.SubElement(body, _qn(NS_TIMG, "GetMoveOptionsResponse"))
+            move = etree.SubElement(resp, _qn(NS_TIMG, "MoveOptions"))
+            abs_el = etree.SubElement(move, _qn(NS_TIMG, "Absolute"))
+            _add_text(abs_el, NS_TT, "Position", "0 1")
+            rel_el = etree.SubElement(move, _qn(NS_TIMG, "Relative"))
+            _add_text(rel_el, NS_TT, "Distance", "-1 1")
+            cont_el = etree.SubElement(move, _qn(NS_TIMG, "Continuous"))
+            _add_text(cont_el, NS_TT, "Speed", "-1 1")
+
+        elif "Move" in action:
+            resp = etree.SubElement(body, _qn(NS_TIMG, "MoveResponse"))
+            req_bytes = await request.body()
+            vs_token = self._extract_video_source_token(req_bytes)
+            cam = await self._camera_from_video_source_token(db, vs_token)
+            if cam and cam.onvif_host:
+                from app.cameras.onvif_service import onvif_service
+                from app.core.crypto import decrypt_value
+                try:
+                    await onvif_service.move_focus(
+                        cam.onvif_host, cam.onvif_port or 80,
+                        decrypt_value(cam.onvif_username) or "admin",
+                        decrypt_value(cam.onvif_password) or "admin",
+                        mode="Auto",
+                    )
+                except Exception as e:
+                    logger.debug(f"Move focus failed for {cam.id}: {e}")
+
+        elif "Stop" in action:
+            etree.SubElement(body, _qn(NS_TIMG, "StopResponse"))
+
+        elif "GetStatus" in action:
+            resp = etree.SubElement(body, _qn(NS_TIMG, "GetStatusResponse"))
+            req_bytes = await request.body()
+            vs_token = self._extract_video_source_token(req_bytes)
+            cam = await self._camera_from_video_source_token(db, vs_token)
+            if cam and cam.onvif_host:
+                from app.cameras.onvif_service import onvif_service
+                from app.core.crypto import decrypt_value
+                try:
+                    settings = await onvif_service.get_imaging_settings(
+                        cam.onvif_host, cam.onvif_port or 80,
+                        decrypt_value(cam.onvif_username) or "admin",
+                        decrypt_value(cam.onvif_password) or "admin",
+                    )
+                    status = etree.SubElement(resp, _qn(NS_TIMG, "Status"))
+                    _add_text(status, NS_TT, "Brightness", settings.get("brightness", 50))
+                    _add_text(status, NS_TT, "Contrast", settings.get("contrast", 50))
+                    _add_text(status, NS_TT, "ColorSaturation", settings.get("color_saturation", 50))
+                    _add_text(status, NS_TT, "Sharpness", settings.get("sharpness", 50))
+                except Exception as e:
+                    logger.debug(f"GetStatus proxy failed for {cam.id}: {e}")
+                    status = etree.SubElement(resp, _qn(NS_TIMG, "Status"))
+                    _add_text(status, NS_TT, "Brightness", 50)
+                    _add_text(status, NS_TT, "Contrast", 50)
+            else:
+                status = etree.SubElement(resp, _qn(NS_TIMG, "Status"))
+                _add_text(status, NS_TT, "Brightness", 50)
+                _add_text(status, NS_TT, "Contrast", 50)
+
+        else:
+            tag = action.split("}")[-1] if "}" in action else action
+            if tag:
+                etree.SubElement(body, _qn(NS_TIMG, tag + "Response"))
+
+    def _build_imaging_settings(self, parent: etree.Element, settings: dict):
+        img = etree.SubElement(parent, _qn(NS_TIMG, "ImagingSettings"))
+        _add_text(img, NS_TT, "Brightness", settings.get("brightness", 50))
+        _add_text(img, NS_TT, "ColorSaturation", settings.get("color_saturation", 50))
+        _add_text(img, NS_TT, "Contrast", settings.get("contrast", 50))
+        _add_text(img, NS_TT, "Sharpness", settings.get("sharpness", 50))
+        if settings.get("ir_cut_filter"):
+            _add_text(img, NS_TT, "IrCutFilter", settings["ir_cut_filter"])
+        if settings.get("wide_dynamic_range"):
+            wdr = etree.SubElement(img, _qn(NS_TT, "WideDynamicRange"))
+            _add_text(wdr, NS_TT, "Mode", settings["wide_dynamic_range"].get("mode", "OFF"))
+            _add_text(wdr, NS_TT, "Level", settings["wide_dynamic_range"].get("level", 0))
+        if settings.get("exposure"):
+            exp = etree.SubElement(img, _qn(NS_TT, "Exposure"))
+            _add_text(exp, NS_TT, "Mode", settings["exposure"].get("mode", "AUTO"))
+
+    def _build_imaging_options(self, parent: etree.Element, opts: dict):
+        img_opts = etree.SubElement(parent, _qn(NS_TIMG, "ImagingOptions"))
+        for field in ("brightness", "color_saturation", "contrast", "sharpness"):
+            if field in opts:
+                fmin = opts[field].get("min", 0)
+                fmax = opts[field].get("max", 100)
+                el = etree.SubElement(img_opts, _qn(NS_TT, field.capitalize()))
+                rng = etree.SubElement(el, _qn(NS_TT, "MinMax"))
+                _add_text(rng, NS_TT, "Min", fmin)
+                _add_text(rng, NS_TT, "Max", fmax)
+
+    def _extract_video_source_token(self, xml_bytes: bytes) -> Optional[str]:
+        try:
+            root = etree.fromstring(xml_bytes)
+            for tag in ("VideoSourceToken", "{%s}VideoSourceToken" % NS_TT):
+                el = root.find(".//" + tag)
+                if el is not None:
+                    return el.text
+        except Exception:
+            pass
+        return None
+
+    async def _camera_from_video_source_token(self, db: AsyncSession, vs_token: Optional[str]) -> Optional[Camera]:
+        if not vs_token:
+            return None
+        cam_id = vs_token.replace("vs_", "") if vs_token.startswith("vs_") else vs_token
+        return await _get_camera_by_id(db, cam_id)
+
+    def _extract_imaging_settings_patch(self, xml_bytes: bytes) -> Optional[dict]:
+        try:
+            root = etree.fromstring(xml_bytes)
+            patch = {}
+            for tag in ("Brightness", "{%s}Brightness" % NS_TT):
+                el = root.find(".//" + tag)
+                if el is not None and el.text:
+                    patch["brightness"] = float(el.text)
+            for tag in ("Contrast", "{%s}Contrast" % NS_TT):
+                el = root.find(".//" + tag)
+                if el is not None and el.text:
+                    patch["contrast"] = float(el.text)
+            for tag in ("ColorSaturation", "{%s}ColorSaturation" % NS_TT):
+                el = root.find(".//" + tag)
+                if el is not None and el.text:
+                    patch["color_saturation"] = float(el.text)
+            for tag in ("Sharpness", "{%s}Sharpness" % NS_TT):
+                el = root.find(".//" + tag)
+                if el is not None and el.text:
+                    patch["sharpness"] = float(el.text)
+            for tag in ("IrCutFilter", "{%s}IrCutFilter" % NS_TT):
+                el = root.find(".//" + tag)
+                if el is not None and el.text:
+                    patch["ir_cut_filter"] = el.text
+            return patch if patch else None
+        except Exception:
+            return None
 
     # =====================================================================
     # Replay Service
@@ -1565,6 +1889,45 @@ async def sweep_expired_subscriptions():
             raise
         except Exception as e:
             logger.debug(f"sweep_expired_subscriptions error: {e}")
+
+
+# ── NVR event injection helper ───────────────────────────────────────────────
+# Called by linkage_engine, motion_service, and other subsystems to push
+# NVR-internal events into active ONVIF PullPoint subscription queues.
+
+async def inject_nvr_event(
+    camera_id: Optional[str] = None,
+    event_type: str = "motion_detected",
+    severity: str = "alarm",
+    title: str = "",
+    metadata: Optional[Dict[str, Any]] = None,
+):
+    """Push an NVR-internal event into all active ONVIF PullPoint queues."""
+    if not subscription_queues:
+        return
+    topic_map = {
+        "motion_detected": "tns1:VideoSource/MotionAlarm",
+        "camera_tamper":   "tns1:VideoSource/ImageTooBlurry",
+        "video_loss":      "tns1:VideoSource/ConnectionFailed",
+        "line_crossing":   "tns1:RuleEngine/LineDetector/Crossed",
+        "zone_intrusion":  "tns1:RuleEngine/FieldDetector/ObjectInside",
+        "audio_alarm":     "tns1:AudioAnalytics/Audio/DetectedSound",
+        "system_error":    "tns1:Device/Trigger/DigitalInput",
+    }
+    topic = topic_map.get(event_type, "tns1:VideoSource/MotionAlarm")
+    evt = {
+        "topic": topic,
+        "camera_id": camera_id or "",
+        "source": f"camera:{camera_id}" if camera_id else "nvr:system",
+        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "value": "true",
+        "metadata": metadata or {"nvr_event_type": event_type, "severity": severity},
+    }
+    for q in list(subscription_queues.values()):
+        try:
+            q.put_nowait(evt)
+        except Exception:
+            pass  # Queue full — drop event
 
 
 # Module singleton

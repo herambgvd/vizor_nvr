@@ -257,4 +257,47 @@ async def test_push(
         body="Push notifications are working!",
         data={"event_type": "test", "click_action": "/"},
     )
+    if not ok:
+        raise HTTPException(400, "Push test failed — no registered devices or FCM error")
+    return {"success": True}
+
+
+# ------------------------------------------------------------------
+# SMS / WhatsApp (Twilio)
+# ------------------------------------------------------------------
+
+class SMSTestRequest(BaseModel):
+    to: str
+    message: Optional[str] = "GVD NVR SMS test"
+
+
+@router.post("/sms/test")
+async def test_sms(
+    body: SMSTestRequest,
+    user: dict = Depends(get_admin_user),
+):
+    """Send a test SMS via Twilio."""
+    from app.notifications.sms_service import sms_service
+    result = await sms_service.send(body.to, body.message)
+    if not result["ok"]:
+        raise HTTPException(400, result.get("error", "SMS failed"))
+    return result
+
+
+class WhatsAppTestRequest(BaseModel):
+    to: str
+    message: Optional[str] = "GVD NVR WhatsApp test"
+
+
+@router.post("/whatsapp/test")
+async def test_whatsapp(
+    body: WhatsAppTestRequest,
+    user: dict = Depends(get_admin_user),
+):
+    """Send a test WhatsApp message via Twilio."""
+    from app.notifications.whatsapp_service import whatsapp_service
+    result = await whatsapp_service.send(body.to, body.message)
+    if not result["ok"]:
+        raise HTTPException(400, result.get("error", "WhatsApp failed"))
+    return result
     return {"success": ok}
