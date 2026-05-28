@@ -112,6 +112,8 @@ else
 fi
 
 # ── 4. Pull + up ────────────────────────────────────────────────────────────
+log "Seeding go2rtc config from template"
+bash "$SCRIPT_DIR/scripts/seed-go2rtc-config.sh"
 log "Pulling images"
 docker compose -f "$SCRIPT_DIR/docker-compose.yml" pull
 log "Running migrations"

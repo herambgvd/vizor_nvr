@@ -12,9 +12,11 @@ help: ## Show this help
 	@awk 'BEGIN {FS = ":.*##"; printf "Usage: make <target>\n\nTargets:\n"} /^[a-zA-Z_-]+:.*?##/ { printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
 up: ## Start full stack (production-mode)
+	bash scripts/seed-go2rtc-config.sh
 	docker compose $(COMPOSE_FILES_PROD) up -d
 
 dev: ## Start full stack with hot reload (bind-mounts source)
+	bash scripts/seed-go2rtc-config.sh
 	docker compose $(COMPOSE_FILES_DEV) up -d
 
 down: ## Stop all services

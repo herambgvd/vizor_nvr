@@ -67,6 +67,12 @@ backend/data/
 **/*.db
 **/*.db-*
 
+# go2rtc runtime config — seeded from go2rtc.yaml.template by scripts/seed-go2rtc-config.sh
+# The file must exist before `docker compose up` (bind-mount); run `make up` or
+# `bash scripts/seed-go2rtc-config.sh` to create it.  NEVER commit after go2rtc
+# mutates it with discovered stream entries.
+go2rtc.yaml
+
 # Archive files and large assets
 **/*.zip
 **/*.tar.gz
