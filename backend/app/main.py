@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
 
 from app import __version__
 from app.config import settings
@@ -43,6 +43,11 @@ logger = logging.getLogger("app")
 async def lifespan(application: FastAPI):
     # ── Startup ──────────────────────────────────────────────────────
     logger.info(f"GVD NVR v{__version__} starting (env={settings.ENV})")
+
+    # Wait for the database to accept connections before starting anything
+    # (guards against Postgres still in recovery on container startup)
+    from app.core.db_retry import wait_for_db
+    await wait_for_db(timeout=60.0, op_name="startup_gate")
 
     # Create database tables
     await init_db()

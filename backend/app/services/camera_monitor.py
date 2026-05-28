@@ -8,7 +8,10 @@ from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import urlparse
 
+from sqlalchemy.exc import DBAPIError, InterfaceError, OperationalError
+
 from app.config import settings
+from app.core.db_retry import with_db_retry
 from app.database import async_session_maker
 
 # Consecutive failed probes before flipping status to offline
@@ -123,12 +126,25 @@ class CameraMonitor:
         # Wait a bit before first check to let everything initialize
         await asyncio.sleep(10)
 
+        _transient_sleep = self._interval
+        _transient_count = 0
         while self._running:
             try:
                 await self._check_cameras()
+                _transient_sleep = self._interval
+                _transient_count = 0
+            except (OperationalError, InterfaceError, DBAPIError) as e:
+                _transient_count += 1
+                _transient_sleep = min(_transient_sleep * 2, 120)
+                if _transient_count == 1:
+                    logger.warning(
+                        "Camera monitor: transient DB error (%s); "
+                        "backing off to %.0fs poll",
+                        type(e).__name__, _transient_sleep,
+                    )
             except Exception as e:
                 logger.error(f"Camera monitor error: {e}")
-            await asyncio.sleep(self._interval)
+            await asyncio.sleep(_transient_sleep)
 
     async def _check_cameras(self):
         from app.cameras.service import CameraService

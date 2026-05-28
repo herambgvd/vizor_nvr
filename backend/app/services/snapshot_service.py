@@ -19,7 +19,9 @@ from pathlib import Path
 from typing import Optional
 
 import httpx
+from sqlalchemy.exc import DBAPIError, InterfaceError, OperationalError
 
+from app.core.db_retry import with_db_retry
 from app.services.go2rtc_manager import go2rtc_manager
 
 
@@ -130,12 +132,25 @@ class SnapshotService:
 
     async def _scheduler_loop(self) -> None:
         await asyncio.sleep(15)  # Wait for other services to settle
+        _transient_sleep = SCHEDULED_LOOP_INTERVAL
+        _transient_count = 0
         while self._sched_running:
             try:
                 await self._tick()
+                _transient_sleep = SCHEDULED_LOOP_INTERVAL
+                _transient_count = 0
+            except (OperationalError, InterfaceError, DBAPIError) as e:
+                _transient_count += 1
+                _transient_sleep = min(_transient_sleep * 2, 120)
+                if _transient_count == 1:
+                    logger.warning(
+                        "Snapshot scheduler: transient DB error (%s); "
+                        "backing off to %.0fs poll",
+                        type(e).__name__, _transient_sleep,
+                    )
             except Exception as e:
                 logger.error("Snapshot scheduler error: %s", e)
-            await asyncio.sleep(SCHEDULED_LOOP_INTERVAL)
+            await asyncio.sleep(_transient_sleep)
 
     async def _tick(self) -> None:
         from app.database import async_session_maker

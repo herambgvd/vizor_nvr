@@ -19,7 +19,10 @@ import logging
 import os
 from typing import Optional
 
+from sqlalchemy.exc import DBAPIError, InterfaceError, OperationalError
+
 from app.config import settings
+from app.core.db_retry import with_db_retry
 
 logger = logging.getLogger(__name__)
 
@@ -52,12 +55,25 @@ class ThumbnailService:
 
     async def _loop(self):
         await asyncio.sleep(30)  # let other startup tasks settle
+        _transient_sleep = self._interval
+        _transient_count = 0
         while self._running:
             try:
                 await self._tick()
+                _transient_sleep = self._interval
+                _transient_count = 0
+            except (OperationalError, InterfaceError, DBAPIError) as e:
+                _transient_count += 1
+                _transient_sleep = min(_transient_sleep * 2, 120)
+                if _transient_count == 1:
+                    logger.warning(
+                        "Thumbnail service: transient DB error (%s); "
+                        "backing off to %.0fs poll",
+                        type(e).__name__, _transient_sleep,
+                    )
             except Exception as e:
                 logger.error(f"thumbnail tick error: {e}")
-            await asyncio.sleep(self._interval)
+            await asyncio.sleep(_transient_sleep)
 
     async def _tick(self):
         """One pass: pick up to 50 recordings without thumbnails, generate."""

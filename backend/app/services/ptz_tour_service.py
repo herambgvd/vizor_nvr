@@ -11,6 +11,10 @@ import asyncio
 import logging
 from typing import Dict, Optional
 
+from sqlalchemy.exc import DBAPIError, InterfaceError, OperationalError
+
+from app.core.db_retry import with_db_retry
+
 logger = logging.getLogger(__name__)
 
 
@@ -62,24 +66,42 @@ class PTZTourService:
         """
         Every _POLL_INTERVAL seconds: query DB for cameras whose
         ptz_tour_enabled flag changed, start/stop individual tour tasks.
+        Uses exponential back-off on transient DB errors so we don't
+        spam ERROR logs every few seconds when Postgres is recovering.
         """
+        _transient_sleep = self._POLL_INTERVAL
+        _transient_count = 0
         while self._running:
             try:
                 await self._sync_tours()
+                _transient_sleep = self._POLL_INTERVAL
+                _transient_count = 0
+            except (OperationalError, InterfaceError, DBAPIError) as exc:
+                _transient_count += 1
+                _transient_sleep = min(_transient_sleep * 2, 60)
+                if _transient_count == 1:
+                    logger.warning(
+                        "PTZ tour supervisor: transient DB error (%s); "
+                        "backing off to %.0fs poll",
+                        type(exc).__name__, _transient_sleep,
+                    )
             except Exception as exc:
                 logger.warning("PTZ tour supervisor error: %s", exc)
-            await asyncio.sleep(self._POLL_INTERVAL)
+            await asyncio.sleep(_transient_sleep)
 
     async def _sync_tours(self):
         from app.database import async_session_maker
         from app.cameras.models import Camera
         from sqlalchemy import select
 
-        async with async_session_maker() as db:
-            result = await db.execute(
-                select(Camera).where(Camera.is_enabled.is_(True))
-            )
-            cameras = result.scalars().all()
+        async def _query():
+            async with async_session_maker() as db:
+                result = await db.execute(
+                    select(Camera).where(Camera.is_enabled.is_(True))
+                )
+                return result.scalars().all()
+
+        cameras = await with_db_retry(_query, op_name="ptz_tour_supervisor")
 
         enabled_ids = set()
         for cam in cameras:
