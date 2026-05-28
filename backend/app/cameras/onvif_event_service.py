@@ -343,6 +343,27 @@ class _CameraPullWorker:
             snapshot_path=snapshot_path,
         )
 
+        # Push event into active PullPoint subscription queues (device server)
+        try:
+            from app.onvif_device.service import subscription_queues
+            if subscription_queues:
+                from datetime import datetime, timezone
+                evt_payload = {
+                    "topic": topic_raw,
+                    "camera_id": self.camera_id,
+                    "source": meta.get("source", f"camera:{self.camera_id}"),
+                    "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "value": "true",
+                    "metadata": meta,
+                }
+                for q in list(subscription_queues.values()):
+                    try:
+                        q.put_nowait(evt_payload)
+                    except Exception:
+                        pass  # Queue full — drop event
+        except Exception:
+            pass
+
 
 # ---------------------------------------------------------------------------
 # Service manager — one worker per camera

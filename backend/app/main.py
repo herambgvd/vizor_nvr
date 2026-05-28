@@ -4,6 +4,7 @@
 # Entry point: uvicorn app.main:app  (from backend/ directory)
 # =============================================================================
 
+import asyncio
 import logging
 import sys
 from contextlib import asynccontextmanager
@@ -172,6 +173,14 @@ async def lifespan(application: FastAPI):
     from app.onvif_device.discovery import onvif_discovery_publisher
     await onvif_discovery_publisher.start()
 
+    # Start background task to sweep expired PullPoint subscriptions
+    from app.onvif_device.service import sweep_expired_subscriptions
+    _sweep_task = asyncio.create_task(sweep_expired_subscriptions(), name="onvif_subscription_sweep")
+
+    # Start ONVIF replay session eviction loop
+    from app.onvif_device.replay_manager import replay_manager as _replay_mgr
+    await _replay_mgr.start_eviction_loop()
+
     logger.info("All services started — NVR is ready")
 
     yield
@@ -197,6 +206,11 @@ async def lifespan(application: FastAPI):
     await _oes.stop_all()
     from app.onvif_device.discovery import onvif_discovery_publisher
     await onvif_discovery_publisher.stop()
+    try:
+        _sweep_task.cancel()
+        await asyncio.gather(_sweep_task, return_exceptions=True)
+    except Exception:
+        pass
 
     await camera_monitor.stop()
     await _snapshot_svc.close()
@@ -217,6 +231,13 @@ async def lifespan(application: FastAPI):
         pass
     await ffmpeg_manager.cleanup()
     await go2rtc_manager.close()
+
+    # Stop replay session manager
+    try:
+        from app.onvif_device.replay_manager import replay_manager as _replay_mgr
+        await _replay_mgr.stop_eviction_loop()
+    except Exception:
+        pass
 
     logger.info("Shutdown complete")
 

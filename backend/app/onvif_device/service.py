@@ -11,13 +11,14 @@
 # expectations used by mainstream VMS clients.
 # =============================================================================
 
+import asyncio
 import logging
 import base64
 import hashlib
 import uuid
 import os
 from datetime import datetime, timezone, timedelta
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 
 from lxml import etree
 from fastapi import Request, Response
@@ -65,6 +66,18 @@ WSRF_ENV = "{%s}" % NS_WSRF
 # ── ONVIF Device credentials ────────────────────────────────────────────────
 ONVIF_DEVICE_USER = os.getenv("ONVIF_DEVICE_USERNAME", "admin")
 ONVIF_DEVICE_PASS = os.getenv("ONVIF_DEVICE_PASSWORD", "admin")
+
+# ── PullPoint subscription state ─────────────────────────────────────────────
+# keyed by subscription token (UUID hex string)
+subscription_queues: Dict[str, asyncio.Queue] = {}
+subscription_expires: Dict[str, datetime] = {}
+_QUEUE_MAX_SIZE = 200
+_SUBSCRIPTION_TTL_SECONDS = 300  # 5 minutes default
+
+# ── Audio encoder configuration cache ────────────────────────────────────────
+# keyed by camera_id → (list_of_configs, cached_at)
+_audio_encoder_cache: Dict[str, Tuple[list, datetime]] = {}
+_AUDIO_CACHE_TTL = 300  # 5 minutes
 
 # ── XML helpers ─────────────────────────────────────────────────────────────
 
@@ -197,6 +210,14 @@ async def _get_recordings_for_camera(
 # Service Handlers
 # =============================================================================
 
+class _SOAPFault(Exception):
+    """Internal sentinel to signal a SOAP fault from within service handlers."""
+    def __init__(self, code: str, text: str):
+        self.code = code
+        self.text = text
+        super().__init__(text)
+
+
 class ONVIFDeviceService:
     """Dispatches ONVIF SOAP requests to the correct handler."""
 
@@ -236,6 +257,8 @@ class ONVIFDeviceService:
                     await self._handle_event(action, resp_body, request, db)
                 else:
                     return self._fault("ter:ActionNotSupported", f"Unknown service {service_path}")
+        except _SOAPFault as sf:
+            return self._fault(sf.code, sf.text)
         except Exception as e:
             logger.exception(f"ONVIF handler error for {action}: {e}")
             return self._fault("ter:Receiver", "Internal error")
@@ -551,8 +574,35 @@ class ONVIFDeviceService:
             # Return empty list — NVR doesn't expose audio sources
             etree.SubElement(body, _qn(NS_TRT, "GetAudioSourcesResponse"))
 
+        elif "GetAudioEncoderConfiguration" in action and "GetAudioEncoderConfigurations" not in action:
+            resp = etree.SubElement(body, _qn(NS_TRT, "GetAudioEncoderConfigurationResponse"))
+            req_bytes = await request.body()
+            aec_token = self._extract_text_field(req_bytes, "ConfigurationToken") or ""
+            cam_id = aec_token.replace("aec_", "") if aec_token.startswith("aec_") else None
+            cam = await _get_camera_by_id(db, cam_id) if cam_id else None
+            if cam:
+                cfgs = await self._get_audio_encoder_configs(cam)
+                for cfg in cfgs:
+                    self._build_aec_element(resp, cam.id, cfg, NS_TRT)
+
         elif "GetAudioEncoderConfigurations" in action:
-            etree.SubElement(body, _qn(NS_TRT, "GetAudioEncoderConfigurationsResponse"))
+            resp = etree.SubElement(body, _qn(NS_TRT, "GetAudioEncoderConfigurationsResponse"))
+            cameras = await _get_cameras(db)
+            for cam in cameras:
+                cfgs = await self._get_audio_encoder_configs(cam)
+                for cfg in cfgs:
+                    self._build_aec_element(resp, cam.id, cfg, NS_TRT)
+
+        elif "GetCompatibleAudioEncoderConfigurations" in action:
+            resp = etree.SubElement(body, _qn(NS_TRT, "GetCompatibleAudioEncoderConfigurationsResponse"))
+            req_bytes = await request.body()
+            profile_token = self._extract_profile_token(req_bytes)
+            cam_id = self._profile_token_to_camera_id(profile_token)
+            cam = await _get_camera_by_id(db, cam_id) if cam_id else None
+            if cam:
+                cfgs = await self._get_audio_encoder_configs(cam)
+                for cfg in cfgs:
+                    self._build_aec_element(resp, cam.id, cfg, NS_TRT)
 
         elif "GetMetadataConfigurations" in action:
             etree.SubElement(body, _qn(NS_TRT, "GetMetadataConfigurationsResponse"))
@@ -894,18 +944,35 @@ class ONVIFDeviceService:
     async def _forward_get_presets(self, cam: Camera) -> List[Dict[str, Any]]:
         """Try to get presets from camera's own ONVIF PTZ service."""
         try:
-            from app.cameras.onvif_service import get_ptz_presets
-            return await get_ptz_presets(cam)
-        except Exception:
+            from app.cameras.onvif_service import onvif_service
+            from app.core.crypto import decrypt_value
+            host = cam.onvif_host
+            port = cam.onvif_port or 80
+            username = decrypt_value(cam.onvif_username) if cam.onvif_username else "admin"
+            password = decrypt_value(cam.onvif_password) if cam.onvif_password else "admin"
+            profile_token = cam.onvif_profile_token
+            if not host:
+                return []
+            return await onvif_service.get_presets(host, port, username, password, profile_token)
+        except Exception as e:
+            logger.debug(f"_forward_get_presets error for cam {cam.id}: {e}")
             return []
 
     async def _forward_goto_preset(self, cam: Camera, profile_token: str, preset_token: str):
         """Forward GotoPreset to camera's own ONVIF PTZ service."""
         try:
-            from app.cameras.onvif_service import goto_ptz_preset
-            await goto_ptz_preset(cam, profile_token, preset_token)
-        except Exception:
-            pass
+            from app.cameras.onvif_service import onvif_service
+            from app.core.crypto import decrypt_value
+            host = cam.onvif_host
+            port = cam.onvif_port or 80
+            username = decrypt_value(cam.onvif_username) if cam.onvif_username else "admin"
+            password = decrypt_value(cam.onvif_password) if cam.onvif_password else "admin"
+            cam_profile_token = cam.onvif_profile_token or profile_token
+            if not host:
+                return
+            await onvif_service.goto_preset(host, port, username, password, preset_token, cam_profile_token)
+        except Exception as e:
+            logger.debug(f"_forward_goto_preset error for cam {cam.id}: {e}")
 
     # =====================================================================
     # Recording Service (Profile G)
@@ -1046,19 +1113,28 @@ class ONVIFDeviceService:
 
     async def _handle_replay(self, action: str, body: etree.Element, request: Request, db: AsyncSession):
         if "GetReplayUri" in action:
-            resp = etree.SubElement(body, _qn(NS_TRP, "GetReplayUriResponse"))
+            from app.onvif_device.replay import handle_get_replay_uri
             req_bytes = await request.body()
             rec_token = self._extract_recording_token(req_bytes)
-            cam_id = rec_token.replace("rec_", "") if rec_token and rec_token.startswith("rec_") else None
-            cam = await _get_camera_by_id(db, cam_id) if cam_id else None
-            uri = self._camera_rtsp_url(request, cam) if cam else ""
-            _add_text(resp, NS_TRP, "Uri", uri)
+            uri, fault_code = await handle_get_replay_uri(req_bytes, rec_token, request, db)
+            if fault_code:
+                raise _SOAPFault(fault_code, f"Replay URI not available: {fault_code}")
+            resp = etree.SubElement(body, _qn(NS_TRP, "GetReplayUriResponse"))
+            _add_text(resp, NS_TRP, "Uri", uri or "")
+
+        elif "GetReplayConfiguration" in action:
+            resp = etree.SubElement(body, _qn(NS_TRP, "GetReplayConfigurationResponse"))
+            config = etree.SubElement(resp, _qn(NS_TRP, "Configuration"))
+            _add_text(config, NS_TT, "SessionTimeout", "PT5M")
+
+        elif "SetReplayConfiguration" in action:
+            etree.SubElement(body, _qn(NS_TRP, "SetReplayConfigurationResponse"))
 
         elif "GetServiceCapabilities" in action:
             resp = etree.SubElement(body, _qn(NS_TRP, "GetServiceCapabilitiesResponse"))
             caps = etree.SubElement(resp, _qn(NS_TRP, "Capabilities"))
             caps.set("ReversePlayback", "false")
-            caps.set("SessionTimeoutRange", "1 60")
+            caps.set("SessionTimeoutRange", "1 300")
 
         else:
             tag = action.split("}")[-1] if "}" in action else action
@@ -1097,31 +1173,101 @@ class ONVIFDeviceService:
                       "http://www.onvif.org/ver10/schema/onvif.xsd")
 
         elif "CreatePullPointSubscription" in action:
+            sub_token = uuid.uuid4().hex
+            subscription_queues[sub_token] = asyncio.Queue(maxsize=_QUEUE_MAX_SIZE)
+            now = datetime.now(timezone.utc)
+            expires_at = now + timedelta(seconds=_SUBSCRIPTION_TTL_SECONDS)
+            subscription_expires[sub_token] = expires_at
             resp = etree.SubElement(body, _qn(NS_TEV, "CreatePullPointSubscriptionResponse"))
             ref = etree.SubElement(resp, _qn(NS_WSNT, "SubscriptionReference"))
             addr = etree.SubElement(ref, _qn(NS_WSA, "Address"))
             addr.text = f"{_base_xaddr(request)}/onvif/event_service"
+            # Embed token in ReferenceParameters so PullMessages can identify the queue
+            ref_params = etree.SubElement(ref, _qn(NS_WSA, "ReferenceParameters"))
+            token_el = etree.SubElement(ref_params, _qn(NS_TEV, "SubscriptionId"))
+            token_el.text = sub_token
             _add_text(resp, NS_WSNT, "CurrentTime",
-                      datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+                      now.strftime("%Y-%m-%dT%H:%M:%SZ"))
             _add_text(resp, NS_WSNT, "TerminationTime",
-                      (datetime.now(timezone.utc) + timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ"))
+                      expires_at.strftime("%Y-%m-%dT%H:%M:%SZ"))
+            logger.debug(f"ONVIF CreatePullPointSubscription: token={sub_token}")
 
         elif "PullMessages" in action:
+            req_bytes = await request.body()
+            # Extract subscription token from request or use oldest active queue
+            sub_token = self._extract_subscription_token(req_bytes)
+            # If token not found or unknown, fall back to first available queue
+            if not sub_token or sub_token not in subscription_queues:
+                sub_token = next(iter(subscription_queues), None)
+
+            # Parse timeout from request (ISO 8601 duration PT<N>S)
+            timeout_str = self._extract_text_field(req_bytes, "Timeout") or "PT5S"
+            try:
+                if "PT" in timeout_str and "S" in timeout_str:
+                    pull_timeout = float(timeout_str.replace("PT", "").replace("S", ""))
+                else:
+                    pull_timeout = 5.0
+            except Exception:
+                pull_timeout = 5.0
+            pull_timeout = min(pull_timeout, 30.0)  # cap at 30s
+
+            now = datetime.now(timezone.utc)
+            expires_at = now + timedelta(seconds=_SUBSCRIPTION_TTL_SECONDS)
+            if sub_token and sub_token in subscription_expires:
+                expires_at = subscription_expires[sub_token]
+
             resp = etree.SubElement(body, _qn(NS_TEV, "PullMessagesResponse"))
             _add_text(resp, NS_TEV, "CurrentTime",
-                      datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+                      now.strftime("%Y-%m-%dT%H:%M:%SZ"))
             _add_text(resp, NS_TEV, "TerminationTime",
-                      (datetime.now(timezone.utc) + timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ"))
-            # Empty NotificationMessage list is valid per ONVIF spec
+                      expires_at.strftime("%Y-%m-%dT%H:%M:%SZ"))
+
+            # Drain available events from queue (up to MessageLimit or 50)
+            msg_limit_str = self._extract_text_field(req_bytes, "MessageLimit") or "50"
+            try:
+                msg_limit = int(msg_limit_str)
+            except Exception:
+                msg_limit = 50
+
+            events: list = []
+            q = subscription_queues.get(sub_token) if sub_token else None
+            if q is not None:
+                # Wait for at least one event (up to pull_timeout), then drain the rest
+                try:
+                    first = await asyncio.wait_for(q.get(), timeout=pull_timeout)
+                    events.append(first)
+                except asyncio.TimeoutError:
+                    pass
+                # Non-blocking drain of remaining items
+                while len(events) < msg_limit:
+                    try:
+                        events.append(q.get_nowait())
+                    except asyncio.QueueEmpty:
+                        break
+
+            for evt in events:
+                self._build_notification_message(resp, evt)
 
         elif "Renew" in action:
+            req_bytes = await request.body()
+            sub_token = self._extract_subscription_token(req_bytes)
+            now = datetime.now(timezone.utc)
+            new_expires = now + timedelta(seconds=_SUBSCRIPTION_TTL_SECONDS)
+            if sub_token and sub_token in subscription_expires:
+                subscription_expires[sub_token] = new_expires
             resp = etree.SubElement(body, _qn(NS_TEV, "RenewResponse"))
             _add_text(resp, NS_WSNT, "TerminationTime",
-                      (datetime.now(timezone.utc) + timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ"))
+                      new_expires.strftime("%Y-%m-%dT%H:%M:%SZ"))
             _add_text(resp, NS_WSNT, "CurrentTime",
-                      datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+                      now.strftime("%Y-%m-%dT%H:%M:%SZ"))
 
         elif "Unsubscribe" in action:
+            req_bytes = await request.body()
+            sub_token = self._extract_subscription_token(req_bytes)
+            if sub_token:
+                subscription_queues.pop(sub_token, None)
+                subscription_expires.pop(sub_token, None)
+                logger.debug(f"ONVIF Unsubscribe: removed token={sub_token}")
             etree.SubElement(body, _qn(NS_TEV, "UnsubscribeResponse"))
 
         elif "GetServiceCapabilities" in action:
@@ -1250,6 +1396,143 @@ class ONVIFDeviceService:
         except Exception:
             pass
         return start, end
+
+    def _extract_subscription_token(self, xml_bytes: bytes) -> Optional[str]:
+        """Extract subscription token from SOAP request (ReferenceParameters or header)."""
+        try:
+            root = etree.fromstring(xml_bytes)
+            # Try SubscriptionId in ReferenceParameters
+            for tag in (
+                "{%s}SubscriptionId" % NS_TEV,
+                "SubscriptionId",
+            ):
+                el = root.find(".//" + tag)
+                if el is not None and el.text:
+                    return el.text.strip()
+        except Exception:
+            pass
+        return None
+
+    def _build_notification_message(self, parent: etree.Element, evt: dict):
+        """Build a WS-Notification NotificationMessage element from an event dict."""
+        NS_WSTOP = "http://docs.oasis-open.org/wsn/t-1"
+        msg_el = etree.SubElement(parent, _qn(NS_WSNT, "NotificationMessage"))
+        topic_el = etree.SubElement(msg_el, _qn(NS_WSNT, "Topic"))
+        topic_el.set("Dialect", "http://www.onvif.org/ver10/tev/topicExpression/ConcreteSet")
+        topic_el.text = evt.get("topic", "tns1:VideoSource/MotionAlarm")
+        prod_ref = etree.SubElement(msg_el, _qn(NS_WSNT, "ProducerReference"))
+        addr_el = etree.SubElement(prod_ref, _qn(NS_WSA, "Address"))
+        addr_el.text = evt.get("source", "")
+        msg_inner = etree.SubElement(msg_el, _qn(NS_WSNT, "Message"))
+        tt_msg = etree.SubElement(msg_inner, _qn(NS_TT, "Message"))
+        ts = evt.get("timestamp", datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+        tt_msg.set("UtcTime", ts)
+        tt_msg.set("PropertyOperation", "Changed")
+        src_el = etree.SubElement(tt_msg, _qn(NS_TT, "Source"))
+        si = etree.SubElement(src_el, _qn(NS_TT, "SimpleItem"))
+        si.set("Name", "VideoSourceConfigurationToken")
+        si.set("Value", evt.get("camera_id", ""))
+        data_el = etree.SubElement(tt_msg, _qn(NS_TT, "Data"))
+        di = etree.SubElement(data_el, _qn(NS_TT, "SimpleItem"))
+        di.set("Name", "IsMotion")
+        di.set("Value", str(evt.get("value", "true")).lower())
+        # Include any extra metadata as SimpleItems
+        for k, v in evt.get("metadata", {}).items():
+            if k not in ("onvif_topic", "source"):
+                extra = etree.SubElement(data_el, _qn(NS_TT, "SimpleItem"))
+                extra.set("Name", str(k))
+                extra.set("Value", str(v))
+
+    async def _get_audio_encoder_configs(self, cam: Camera) -> list:
+        """Query camera's audio encoder configurations (cached 5 min). Returns list of dicts."""
+        from datetime import datetime as _dt
+        cache_entry = _audio_encoder_cache.get(cam.id)
+        if cache_entry:
+            cached_list, cached_at = cache_entry
+            if (_dt.now(timezone.utc) - cached_at).total_seconds() < _AUDIO_CACHE_TTL:
+                return cached_list
+
+        configs = await self._fetch_audio_encoder_configs(cam)
+        _audio_encoder_cache[cam.id] = (configs, datetime.now(timezone.utc))
+        return configs
+
+    async def _fetch_audio_encoder_configs(self, cam: Camera) -> list:
+        """Attempt to query audio encoder configurations from the camera via ONVIF."""
+        try:
+            from app.cameras.onvif_service import _HAS_ONVIF
+            if not _HAS_ONVIF:
+                return []
+            from onvif import ONVIFCamera
+            from app.core.crypto import decrypt_value
+            host = cam.onvif_host
+            if not host:
+                return []
+            port = cam.onvif_port or 80
+            username = decrypt_value(cam.onvif_username) if cam.onvif_username else "admin"
+            password = decrypt_value(cam.onvif_password) if cam.onvif_password else "admin"
+
+            def _query():
+                try:
+                    onvif_cam = ONVIFCamera(host, port, username, password)
+                    media = onvif_cam.create_media_service()
+                    result = media.GetAudioEncoderConfigurations()
+                    configs = []
+                    for cfg in (result or []):
+                        configs.append({
+                            "token": str(getattr(cfg, "token", f"aec_{cam.id}")),
+                            "name": str(getattr(cfg, "Name", f"Audio {cam.name}")),
+                            "use_count": str(getattr(cfg, "UseCount", "1")),
+                            "encoding": str(getattr(cfg, "Encoding", "AAC")),
+                            "bitrate": str(getattr(cfg, "Bitrate", "64")),
+                            "sample_rate": str(getattr(cfg, "SampleRate", "8000")),
+                        })
+                    return configs
+                except Exception as e:
+                    logger.debug(f"Audio encoder query failed for cam {cam.id}: {e}")
+                    return []
+
+            return await asyncio.to_thread(_query)
+        except Exception as e:
+            logger.debug(f"_fetch_audio_encoder_configs error: {e}")
+            return []
+
+    def _build_aec_element(self, parent: etree.Element, cam_id: str, cfg: dict, ns: str):
+        """Build AudioEncoderConfiguration element."""
+        aec = etree.SubElement(parent, _qn(ns, "Configurations"))
+        aec.set("token", cfg.get("token", f"aec_{cam_id}"))
+        _add_text(aec, NS_TT, "Name", cfg.get("name", f"Audio {cam_id}"))
+        _add_text(aec, NS_TT, "UseCount", cfg.get("use_count", "1"))
+        _add_text(aec, NS_TT, "Encoding", cfg.get("encoding", "AAC"))
+        _add_text(aec, NS_TT, "Bitrate", cfg.get("bitrate", "64"))
+        _add_text(aec, NS_TT, "SampleRate", cfg.get("sample_rate", "8000"))
+        multicast = etree.SubElement(aec, _qn(NS_TT, "Multicast"))
+        addr = etree.SubElement(multicast, _qn(NS_TT, "Address"))
+        _add_text(addr, NS_TT, "Type", "IPv4")
+        _add_text(addr, NS_TT, "IPv4Address", "0.0.0.0")
+        _add_text(multicast, NS_TT, "Port", "0")
+        _add_text(multicast, NS_TT, "TTL", "1")
+        _add_text(multicast, NS_TT, "AutoStart", "false")
+        _add_text(aec, NS_TT, "SessionTimeout", "PT0S")
+
+
+async def sweep_expired_subscriptions():
+    """Background task: remove expired PullPoint subscriptions every 30s."""
+    while True:
+        try:
+            await asyncio.sleep(30)
+            now = datetime.now(timezone.utc)
+            expired = [
+                token for token, exp in list(subscription_expires.items())
+                if exp <= now
+            ]
+            for token in expired:
+                subscription_queues.pop(token, None)
+                subscription_expires.pop(token, None)
+                logger.debug(f"ONVIF: swept expired subscription token={token}")
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.debug(f"sweep_expired_subscriptions error: {e}")
 
 
 # Module singleton
