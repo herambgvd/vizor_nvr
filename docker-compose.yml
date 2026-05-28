@@ -26,6 +26,7 @@ services:
     image: timescale/timescaledb:2.17.2-pg16
     container_name: gvd_db
     restart: unless-stopped
+    stop_grace_period: 30s
     environment:
       POSTGRES_DB: gvd_nvr
       POSTGRES_USER: ${DB_USER:-nvr}
@@ -51,14 +52,15 @@ services:
   # Mac), and the backend couldn't reach go2rtc at all. Running on the
   # shared internal bridge with explicit port mappings works everywhere.
   go2rtc:
-    image: alexxit/go2rtc:latest
+    image: alexxit/go2rtc:1.9.9
     container_name: gvd_go2rtc
     restart: unless-stopped
     networks:
       - internal
     ports:
-      - "1984:1984"          # HTTP API + WebRTC signaling (nginx proxies /go2rtc → here)
-      - "8554:8554"          # RTSP restream
+      # go2rtc is accessed through nginx proxy at /go2rtc
+      # Do not expose directly to avoid bypassing auth and CORS controls
+      - "8554:8554"          # RTSP restream (required for camera ingestion)
       - "8555:8555/tcp"      # WebRTC TCP fallback
       - "8555:8555/udp"      # WebRTC UDP
     volumes:
@@ -97,7 +99,7 @@ services:
       migrate:
         condition: service_completed_successfully
     environment:
-      ENV: ${ENV:-development}
+      ENV: ${ENV:-production}
       DATABASE_URL: postgresql+asyncpg://${DB_USER:-nvr}:${DB_PASSWORD}@db:5432/gvd_nvr
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required}
       JWT_ACCESS_TOKEN_EXPIRE_HOURS: ${JWT_ACCESS_TOKEN_EXPIRE_HOURS:-24}
@@ -111,10 +113,11 @@ services:
       # results. Required: backend runs in Docker bridge so it can't
       # reach LAN multicast, and its auto-detected subnet is the bridge
       # subnet (172.x). Operator must set this to the real LAN CIDR.
-      LAN_SUBNET: ${LAN_SUBNET:-192.168.1.0/24}
+      LAN_SUBNET: ${LAN_SUBNET:?LAN_SUBNET is required — set to your LAN CIDR (e.g. 192.168.1.0/24)}
       STORAGE_PATH: /data/recordings
       THUMBNAIL_PATH: /data/thumbnails
       EXPORT_PATH: /data/exports
+      HLS_PATH: /data/hls
       DATA_PATH: /data
       CERT_PATH: /data/certs
       NGINX_CERT_PATH: /data/certs    # shared volume — nginx mounts the same dir
@@ -128,20 +131,29 @@ services:
       - recordings:/data/recordings
       - thumbnails:/data/thumbnails
       - exports:/data/exports
+      - hls:/data/hls
       - certs:/data/certs
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
       - internal
+    # NAS mounting (SMB / NFS / iSCSI) needs CAP_SYS_ADMIN inside the
+    # container, otherwise `mount` returns "operation not permitted" and
+    # the storage UI flashes a 500. Safer alternative for production:
+    # mount the NAS share on the host, then bind-mount it here:
+    #   volumes:
+    #     - /mnt/host-side-nas:/data/recordings/netgear:rw
+    # Then drop SYS_ADMIN from this list to restore an unprivileged
+    # container. The capability is narrowly scoped (just mount perms),
+    # not full privileged mode.
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - apparmor=unconfined
     ports:
       # WS-Discovery multicast listener (UDP 3702). May require host network mode
       # for reliable multicast across the LAN.
       - "3702:3702/udp"
-      # Backend HTTP exposed on host port 8000 so the dev frontend can
-      # call it directly (REACT_APP_BACKEND_URL=http://localhost:8000).
-      # Production deployments should drop this and proxy via nginx /api
-      # instead.
-      - "8000:8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health').read()"]
       interval: 30s
@@ -151,6 +163,7 @@ services:
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "5" }
+    stop_grace_period: 30s
     deploy:
       resources:
         limits:
@@ -187,6 +200,11 @@ services:
       resources:
         limits:
           memory: 64m
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     networks:
       - internal
 
@@ -195,6 +213,7 @@ services:
     image: nginx:1.27-alpine
     container_name: gvd_nginx
     restart: unless-stopped
+    stop_grace_period: 30s
     deploy:
       resources:
         limits:
@@ -211,10 +230,19 @@ services:
       - recordings:/data/recordings:ro
       - thumbnails:/data/thumbnails:ro
       - exports:/data/exports:ro
+      - hls:/data/hls:ro
     depends_on:
-      - backend
-      - frontend
-      - go2rtc
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+      go2rtc:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- --no-check-certificate https://127.0.0.1/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     networks:
       - internal
 
@@ -235,6 +263,9 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
     networks:
       - internal
 
@@ -250,4 +281,5 @@ volumes:
   recordings:
   thumbnails:
   exports:
+  hls:
   certs:

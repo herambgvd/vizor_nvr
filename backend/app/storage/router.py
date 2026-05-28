@@ -2,8 +2,9 @@
 # Storage Router
 # =============================================================================
 
-from typing import List
+from typing import List, Optional
 
+from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -207,6 +208,75 @@ async def delete_pool(
         severity="warning",
     )
     await db.commit()
+
+
+# ── NAS Operations ─────────────────────────────────────────────────
+
+class NASTestRequest(BaseModel):
+    server: str
+    protocol: str  # nfs / smb
+    username: Optional[str] = None
+    password: Optional[str] = None
+    domain: Optional[str] = None
+
+
+@router.post("/nas/test-connection")
+async def test_nas_connection(
+    body: NASTestRequest,
+    user: dict = Depends(get_admin_user),
+):
+    """Test reachability of a NAS server before creating a pool."""
+    from app.storage.nas_service import nas_service
+    return nas_service.test_connection(
+        body.server, body.protocol,
+        username=body.username, password=body.password, domain=body.domain,
+    )
+
+
+@router.post("/pools/{pool_id}/mount")
+async def mount_nas_pool(
+    pool_id: str,
+    user: dict = Depends(get_admin_user),
+):
+    """Manually mount a NAS storage pool."""
+    result = await svc.mount_pool(pool_id)
+    if not result["ok"]:
+        # 500 with the upstream message in the body so the UI surfaces
+        # the real reason (e.g. "Container lacks CAP_SYS_ADMIN") instead
+        # of the misleading "502 Bad Gateway" axios reports for 502 codes.
+        raise HTTPException(status_code=500, detail=result["message"])
+    return result
+
+
+@router.post("/pools/{pool_id}/unmount")
+async def unmount_nas_pool(
+    pool_id: str,
+    user: dict = Depends(get_admin_user),
+):
+    """Manually unmount a NAS storage pool."""
+    result = await svc.unmount_pool(pool_id)
+    if not result["ok"]:
+        # 500 with the upstream message in the body so the UI surfaces
+        # the real reason (e.g. "Container lacks CAP_SYS_ADMIN") instead
+        # of the misleading "502 Bad Gateway" axios reports for 502 codes.
+        raise HTTPException(status_code=500, detail=result["message"])
+    return result
+
+
+@router.get("/pools/{pool_id}/nas-health")
+async def nas_pool_health(
+    pool_id: str,
+    user: dict = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Deep health check for a NAS pool (mount state + write latency)."""
+    from app.storage.nas_service import nas_service
+    pool = await svc.get_pool(db, pool_id)
+    if not pool:
+        raise HTTPException(404, "Pool not found")
+    if pool.pool_type == "local":
+        raise HTTPException(400, "Local pools do not support NAS health checks")
+    return nas_service.check_mount_health(pool)
 
 
 # ── Tier Rules ─────────────────────────────────────────────────────
