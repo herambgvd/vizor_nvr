@@ -76,7 +76,12 @@ def _sign(key: rsa.RSAPrivateKey, data: bytes) -> bytes:
     )
 
 
-def build_evidence_zip(recording: dict, operator: dict, output_dir: str) -> str:
+def build_evidence_zip(
+    recording: dict,
+    operator: dict,
+    output_dir: str,
+    attach_snapshots: list = None,
+) -> str:
     """Bundle a recording into a signed evidence zip. Returns the path to the
     zip file. *recording* must include: id, camera_id, camera_name, file_path,
     start_time, end_time, duration, checksum (or None if unverified yet)."""
@@ -126,6 +131,37 @@ def build_evidence_zip(recording: dict, operator: dict, output_dir: str) -> str:
     except Exception:
         pass
 
+    # Resolve and hash attached snapshots
+    snapshot_entries = []
+    resolved_snapshot_paths = []
+    if attach_snapshots:
+        from app.services.snapshot_service import _snapshot_base_path
+        for snap_url in attach_snapshots:
+            # snap_url format: /cameras/{cam_id}/snapshots/files/{date}/{filename}
+            local_path = None
+            if snap_url.startswith("/cameras/"):
+                parts = snap_url.lstrip("/").split("/")
+                # parts: ["cameras", cam_id, "snapshots", "files", date, filename]
+                if len(parts) == 6 and parts[2] == "snapshots" and parts[3] == "files":
+                    cam_id, date_str, filename = parts[1], parts[4], parts[5]
+                    base = _snapshot_base_path()
+                    local_path = base / cam_id / date_str / filename
+            if local_path and local_path.exists():
+                import hashlib
+                sha = hashlib.sha256(local_path.read_bytes()).hexdigest()
+                snapshot_entries.append({
+                    "kind": "snapshot",
+                    "filename": local_path.name,
+                    "original_url": snap_url,
+                    "sha256": sha,
+                    "size_bytes": local_path.stat().st_size,
+                    "added_at": datetime.now(timezone.utc).isoformat(),
+                })
+                resolved_snapshot_paths.append(local_path)
+            else:
+                logger.warning(f"build_evidence_zip: snapshot not found locally: {snap_url}")
+    custody["attached_snapshots"] = snapshot_entries
+
     custody_json = json.dumps(custody, indent=2, default=str).encode()
     signature = _sign(key, custody_json)
 
@@ -137,6 +173,8 @@ def build_evidence_zip(recording: dict, operator: dict, output_dir: str) -> str:
         zf.writestr("chain_of_custody.txt", _custody_to_text(custody))
         zf.writestr("signature.sig", signature)
         zf.writestr("public_key.pem", public_key_pem())
+        for snap_path in resolved_snapshot_paths:
+            zf.write(str(snap_path), arcname=f"snapshots/{snap_path.name}")
     return out_zip
 
 

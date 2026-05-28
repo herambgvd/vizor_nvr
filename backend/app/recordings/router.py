@@ -8,6 +8,7 @@ from datetime import datetime, date, timedelta
 from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, Field
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -421,10 +422,15 @@ async def purge_recordings(
     return {"deleted": deleted}
 
 
+class EvidenceExportRequest(BaseModel):
+    attach_snapshots: list = Field(default_factory=list, description="List of snapshot URLs to bundle")
+
+
 @router.post("/{recording_id}/export-evidence")
 async def export_evidence(
     recording_id: str,
     request: Request,
+    body: EvidenceExportRequest = None,
     user: dict = Depends(require_permission("export_clips")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -444,7 +450,8 @@ async def export_evidence(
         "checksum": rec.checksum,
     }
     try:
-        zip_path = build_evidence_zip(payload, user, settings.EXPORT_PATH)
+        attach = (body.attach_snapshots if body else None) or []
+        zip_path = build_evidence_zip(payload, user, settings.EXPORT_PATH, attach_snapshots=attach)
     except FileNotFoundError:
         raise HTTPException(404, "Recording file missing on disk")
     await write_audit(
