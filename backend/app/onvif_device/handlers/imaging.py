@@ -199,7 +199,7 @@ def _build_imaging_options(parent: etree.Element, opts: dict):
 
 def _extract_video_source_token(xml_bytes: bytes) -> Optional[str]:
     try:
-        root = etree.fromstring(xml_bytes)
+        root = etree.fromstring((xml_bytes or b'').lstrip() if isinstance(xml_bytes, (bytes, bytearray)) else xml_bytes)
         for tag in ("VideoSourceToken", "{%s}VideoSourceToken" % NS_TT):
             el = root.find(".//" + tag)
             if el is not None:
@@ -218,7 +218,7 @@ async def _camera_from_vs_token(db, vs_token: Optional[str], get_camera_by_id) -
 
 def _extract_imaging_settings_patch(xml_bytes: bytes) -> Optional[dict]:
     try:
-        root = etree.fromstring(xml_bytes)
+        root = etree.fromstring((xml_bytes or b'').lstrip() if isinstance(xml_bytes, (bytes, bytearray)) else xml_bytes)
         patch = {}
         for tag in ("Brightness", "{%s}Brightness" % NS_TT):
             el = root.find(".//" + tag)

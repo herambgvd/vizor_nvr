@@ -30,8 +30,11 @@ from lxml import etree
 
 # ── Configuration ────────────────────────────────────────────────────────────
 HOST     = os.getenv("ONVIF_HOST", "localhost:8000")
-USERNAME = os.getenv("ONVIF_USER", "admin")
-PASSWORD = os.getenv("ONVIF_PASS", "Admin@12345")
+# Default matches the device-server's own default (admin/admin from
+# ONVIF_DEVICE_USERNAME / ONVIF_DEVICE_PASSWORD in .env). Override via
+# ONVIF_USER / ONVIF_PASS env vars when the operator has rotated them.
+USERNAME = os.getenv("ONVIF_USER", os.getenv("ONVIF_DEVICE_USERNAME", "admin"))
+PASSWORD = os.getenv("ONVIF_PASS", os.getenv("ONVIF_DEVICE_PASSWORD", "admin"))
 SCHEME   = os.getenv("ONVIF_SCHEME", "http")
 
 DEVICE_SERVICE  = f"{SCHEME}://{HOST}/onvif/device_service"

@@ -247,7 +247,7 @@ async def _forward_stop(cam: Camera, profile_token: str):
 
 def _extract_ptz_token(xml_bytes: bytes) -> Optional[str]:
     try:
-        root = etree.fromstring(xml_bytes)
+        root = etree.fromstring((xml_bytes or b'').lstrip() if isinstance(xml_bytes, (bytes, bytearray)) else xml_bytes)
         from ._common import NS_TPTZ as _TPTZ
         for tag in ("PTZConfigurationToken", "{%s}PTZConfigurationToken" % _TPTZ):
             el = root.find(".//" + tag)
@@ -262,7 +262,7 @@ def _extract_ptz_token(xml_bytes: bytes) -> Optional[str]:
 def _extract_velocity(xml_bytes: bytes) -> dict:
     try:
         from ._common import NS_TPTZ as _TPTZ, NS_TT as _TT
-        root = etree.fromstring(xml_bytes)
+        root = etree.fromstring((xml_bytes or b'').lstrip() if isinstance(xml_bytes, (bytes, bytearray)) else xml_bytes)
         vel = root.find(".//{%s}Velocity" % _TPTZ)
         if vel is not None:
             pt = vel.find("{%s}PanTilt" % _TT)

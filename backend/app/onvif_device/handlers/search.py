@@ -95,7 +95,7 @@ async def dispatch(action: str, body: etree.Element, request: Request, db: Async
 
 def _extract_search_token(xml_bytes: bytes):
     try:
-        root = etree.fromstring(xml_bytes)
+        root = etree.fromstring((xml_bytes or b'').lstrip() if isinstance(xml_bytes, (bytes, bytearray)) else xml_bytes)
         for tag in ("SearchToken", "{%s}SearchToken" % NS_TSE):
             el = root.find(".//" + tag)
             if el is not None:
@@ -108,7 +108,7 @@ def _extract_search_token(xml_bytes: bytes):
 def _extract_time_range(xml_bytes: bytes):
     start, end = None, None
     try:
-        root = etree.fromstring(xml_bytes)
+        root = etree.fromstring((xml_bytes or b'').lstrip() if isinstance(xml_bytes, (bytes, bytearray)) else xml_bytes)
         for tag in ("StartPoint", "{%s}StartPoint" % NS_TSE):
             el = root.find(".//" + tag)
             if el is not None and el.text:

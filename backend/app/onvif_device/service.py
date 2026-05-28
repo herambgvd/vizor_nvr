@@ -41,7 +41,13 @@ logger = logging.getLogger(__name__)
 
 def _verify_username_token(xml_bytes: bytes) -> bool:
     try:
-        root = etree.fromstring(xml_bytes)
+        # Tolerate clients that emit leading whitespace / BOM before
+        # the <?xml ...?> declaration. Strict lxml rejects that; ONVIF
+        # spec is silent on it but many real-world clients (and our own
+        # conformance script via textwrap.dedent) produce it.
+        if isinstance(xml_bytes, bytes):
+            xml_bytes = xml_bytes.lstrip()
+        root = etree.fromstring((xml_bytes or b'').lstrip() if isinstance(xml_bytes, (bytes, bytearray)) else xml_bytes)
         header = root.find(_qn(NS_SOAP, "Header"))
         if header is None:
             return True  # No security header → allow (dev mode)
@@ -86,7 +92,7 @@ def _verify_username_token(xml_bytes: bytes) -> bool:
 # ── DB helpers ───────────────────────────────────────────────────────────────
 
 async def _get_cameras(db: AsyncSession) -> List[Camera]:
-    result = await db.execute(select(Camera).where(Camera.is_active == True))
+    result = await db.execute(select(Camera).where(Camera.is_enabled == True))
     return result.scalars().all()
 
 
@@ -199,7 +205,7 @@ class ONVIFDeviceService:
         if action:
             return action
         try:
-            root = etree.fromstring(body_bytes)
+            root = etree.fromstring((body_bytes or b"").lstrip())
             body = root.find(_qn(NS_SOAP, "Body"))
             if body is not None and len(body) > 0:
                 return body[0].tag
@@ -238,7 +244,7 @@ class ONVIFDeviceService:
         elif "SetReplayConfiguration" in action:
             req_bytes = await request.body()
             try:
-                _root = etree.fromstring(req_bytes)
+                _root = etree.fromstring((req_bytes or b"").lstrip())
                 _st_el = _root.find(".//{http://www.onvif.org/ver10/schema}SessionTimeout")
                 if _st_el is None:
                     _st_el = _root.find(".//SessionTimeout")

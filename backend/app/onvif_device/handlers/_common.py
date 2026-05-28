@@ -102,7 +102,7 @@ def _base_xaddr(request: Request) -> str:
 
 def _extract_profile_token(xml_bytes: bytes) -> Optional[str]:
     try:
-        root = etree.fromstring(xml_bytes)
+        root = etree.fromstring((xml_bytes or b'').lstrip() if isinstance(xml_bytes, (bytes, bytearray)) else xml_bytes)
         for tag in ("ProfileToken", "{%s}ProfileToken" % NS_TRT, "{%s}ProfileToken" % NS_TR2):
             el = root.find(".//" + tag)
             if el is not None:
@@ -122,7 +122,7 @@ def _profile_token_to_camera_id(token: Optional[str]) -> Optional[str]:
 
 def _extract_text_field(xml_bytes: bytes, field: str) -> Optional[str]:
     try:
-        root = etree.fromstring(xml_bytes)
+        root = etree.fromstring((xml_bytes or b'').lstrip() if isinstance(xml_bytes, (bytes, bytearray)) else xml_bytes)
         el = root.find(".//" + field)
         if el is None:
             el = root.find(".//{*}" + field)
@@ -135,7 +135,7 @@ def _extract_text_field(xml_bytes: bytes, field: str) -> Optional[str]:
 
 def _extract_recording_token(xml_bytes: bytes) -> Optional[str]:
     try:
-        root = etree.fromstring(xml_bytes)
+        root = etree.fromstring((xml_bytes or b'').lstrip() if isinstance(xml_bytes, (bytes, bytearray)) else xml_bytes)
         for tag in ("RecordingToken",
                     "{%s}RecordingToken" % NS_TRC,
                     "{%s}RecordingToken" % NS_TSE,
@@ -150,7 +150,7 @@ def _extract_recording_token(xml_bytes: bytes) -> Optional[str]:
 
 def _extract_subscription_token(xml_bytes: bytes) -> Optional[str]:
     try:
-        root = etree.fromstring(xml_bytes)
+        root = etree.fromstring((xml_bytes or b'').lstrip() if isinstance(xml_bytes, (bytes, bytearray)) else xml_bytes)
         for tag in ("{%s}SubscriptionId" % NS_TEV, "SubscriptionId"):
             el = root.find(".//" + tag)
             if el is not None and el.text:

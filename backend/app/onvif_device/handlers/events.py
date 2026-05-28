@@ -400,7 +400,7 @@ async def inject_nvr_event(
 
 def _extract_text_field(xml_bytes: bytes, field: str) -> Optional[str]:
     try:
-        root = etree.fromstring(xml_bytes)
+        root = etree.fromstring((xml_bytes or b'').lstrip() if isinstance(xml_bytes, (bytes, bytearray)) else xml_bytes)
         el = root.find(".//" + field)
         if el is None:
             el = root.find(".//{*}" + field)
@@ -413,7 +413,7 @@ def _extract_text_field(xml_bytes: bytes, field: str) -> Optional[str]:
 
 def _extract_consumer_reference(xml_bytes: bytes) -> Optional[str]:
     try:
-        root = etree.fromstring(xml_bytes)
+        root = etree.fromstring((xml_bytes or b'').lstrip() if isinstance(xml_bytes, (bytes, bytearray)) else xml_bytes)
         for tag in ("{%s}ConsumerReference" % NS_WSNT, "ConsumerReference"):
             cr = root.find(".//" + tag)
             if cr is not None:
@@ -429,7 +429,7 @@ def _extract_consumer_reference(xml_bytes: bytes) -> Optional[str]:
 def _extract_topic_filter(xml_bytes: bytes) -> list:
     topics = []
     try:
-        root = etree.fromstring(xml_bytes)
+        root = etree.fromstring((xml_bytes or b'').lstrip() if isinstance(xml_bytes, (bytes, bytearray)) else xml_bytes)
         for tag in ("{%s}Filter" % NS_WSNT, "Filter"):
             flt = root.find(".//" + tag)
             if flt is not None:

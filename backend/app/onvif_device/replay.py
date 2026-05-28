@@ -43,7 +43,7 @@ def _parse_start_time(xml_bytes: bytes) -> Optional[datetime]:
     Returns a timezone-aware UTC datetime or None if absent/unparseable.
     """
     try:
-        root = etree.fromstring(xml_bytes)
+        root = etree.fromstring((xml_bytes or b'').lstrip() if isinstance(xml_bytes, (bytes, bytearray)) else xml_bytes)
         for tag in ("StartTime",
                     f"{{{NS_TRP}}}StartTime",
                     f"{{{NS_TT}}}StartTime"):
@@ -74,7 +74,7 @@ def _parse_rate_control(xml_bytes: bytes) -> dict:
     """
     result = {"speed_factor": 1.0, "reverse": False}
     try:
-        root = etree.fromstring(xml_bytes)
+        root = etree.fromstring((xml_bytes or b'').lstrip() if isinstance(xml_bytes, (bytes, bytearray)) else xml_bytes)
         for tag_prefix in ("", f"{{{NS_TRP}}}", f"{{{NS_TT}}}"):
             rc = root.find(f".//{tag_prefix}RateControl")
             if rc is None:
