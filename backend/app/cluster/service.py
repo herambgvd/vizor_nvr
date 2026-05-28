@@ -305,7 +305,9 @@ class ClusterService:
             )
             node = result.scalar_one_or_none()
             if node:
-                node.last_heartbeat_at = datetime.now(timezone.utc)
+                # Naive UTC: cluster_nodes.last_heartbeat_at is TIMESTAMP
+                # WITHOUT TIME ZONE; asyncpg refuses to bind a tz-aware value.
+                node.last_heartbeat_at = datetime.now(timezone.utc).replace(tzinfo=None)
                 await db.commit()
         except Exception as exc:
             logger.debug(f"[cluster] Heartbeat DB update failed: {exc}")
