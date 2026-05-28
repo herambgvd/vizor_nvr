@@ -48,6 +48,10 @@ export default function SnapshotAnnotator({ cameraId, sourceUrl, onClose, onSave
   const [previewDataUrl, setPreviewDataUrl] = useState(null);
   const [saving, setSaving] = useState(false);
   const [previewing, setPreviewing] = useState(false);
+  const [savedUrl, setSavedUrl] = useState(null);
+  const [showEvidenceDialog, setShowEvidenceDialog] = useState(false);
+  const [evidenceRecordingId, setEvidenceRecordingId] = useState("");
+  const [exportingEvidence, setExportingEvidence] = useState(false);
 
   const imgSrc = `${BACKEND_URL}${sourceUrl.startsWith("/api") ? "" : "/api"}${sourceUrl}`;
 
@@ -237,12 +241,31 @@ export default function SnapshotAnnotator({ cameraId, sourceUrl, onClose, onSave
     try {
       const result = await annotateAndSaveSnapshot(cameraId, sourceUrl, operations);
       toast.success("Annotated snapshot saved");
+      setSavedUrl(result.url);
       if (onSaved) onSaved(result.url);
-      onClose?.();
+      // Do NOT close — show the "Add to Evidence Export" offer
     } catch (e) {
       toast.error(`Save failed: ${e?.response?.data?.detail || e.message}`);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleAddToEvidence = async () => {
+    if (!evidenceRecordingId.trim()) {
+      toast.error("Enter a recording ID");
+      return;
+    }
+    setExportingEvidence(true);
+    try {
+      const { exportEvidence } = await import("../../api/cameras");
+      const res = await exportEvidence(evidenceRecordingId.trim(), [savedUrl]);
+      toast.success(`Evidence bundle created: ${res.data.filename}`);
+      setShowEvidenceDialog(false);
+    } catch (e) {
+      toast.error(`Evidence export failed: ${e?.response?.data?.detail || e.message}`);
+    } finally {
+      setExportingEvidence(false);
     }
   };
 
@@ -335,6 +358,35 @@ export default function SnapshotAnnotator({ cameraId, sourceUrl, onClose, onSave
             <Button size="sm" onClick={handleSave} disabled={saving} className="w-full text-xs bg-teal-600 hover:bg-teal-500 text-white">
               {saving ? "Saving…" : "Save"}
             </Button>
+            {savedUrl && !showEvidenceDialog && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full text-xs border-amber-500 text-amber-400 hover:bg-amber-950"
+                onClick={() => setShowEvidenceDialog(true)}
+              >
+                Add to Evidence Export
+              </Button>
+            )}
+            {showEvidenceDialog && (
+              <div className="flex flex-col gap-2 mt-2 p-3 bg-zinc-900 border border-amber-700 rounded">
+                <p className="text-xs text-zinc-300">Recording ID to attach snapshot to:</p>
+                <input
+                  className="px-2 py-1 rounded bg-zinc-800 border border-zinc-600 text-xs text-white focus:outline-none focus:border-amber-500"
+                  placeholder="recording-uuid"
+                  value={evidenceRecordingId}
+                  onChange={(e) => setEvidenceRecordingId(e.target.value)}
+                />
+                <div className="flex gap-2">
+                  <Button size="sm" disabled={exportingEvidence} onClick={handleAddToEvidence} className="text-xs">
+                    {exportingEvidence ? "Exporting…" : "Export Evidence"}
+                  </Button>
+                  <Button size="sm" variant="ghost" className="text-xs" onClick={() => setShowEvidenceDialog(false)}>
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

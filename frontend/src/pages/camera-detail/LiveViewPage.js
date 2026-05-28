@@ -114,7 +114,8 @@ const TalkButton = ({ cameraId }) => {
       };
 
       setIsTalking(true);
-      toast.success("Talk active — speaking to camera");
+      const pathLabel = result?.audio_path === "webrtc" ? "WebRTC" : "audio";
+      toast.success(`Talk active — speaking to camera (${pathLabel})`);
     } catch (err) {
       const msg = err?.message || "Failed to start talk mode";
       toast.error(msg);

@@ -487,3 +487,9 @@ export const annotateAndSaveSnapshot = async (cameraId, sourceUrl, operations) =
   );
   return response.data;
 };
+
+// Evidence export with optional snapshot attachments
+export const exportEvidence = (recordingId, attachSnapshots = []) =>
+  apiClient.post(`/recordings/${recordingId}/export-evidence`, {
+    attach_snapshots: attachSnapshots,
+  });
