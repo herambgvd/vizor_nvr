@@ -336,8 +336,11 @@ class CameraMonitor:
                         except Exception as _ge:
                             logger.debug(f"[{camera.id}] Gap check error: {_ge}")
 
-                    # Camera should be recording but isn't
-                    if camera.is_recording and not is_live:
+                    # Camera should be recording but isn't.
+                    # Motion and manual cameras never run a persistent FFmpeg process —
+                    # skip the restart path for those modes entirely.
+                    _mode = (camera.recording_mode or "continuous").lower()
+                    if camera.is_recording and not is_live and _mode in ("continuous", "schedule"):
                         if camera.retry_count < camera.max_retries:
                             logger.info(
                                 f"[{camera.id}] Recording expected but FFmpeg not running. "
@@ -695,8 +698,14 @@ class CameraMonitor:
         sub_rtsp_url = go2rtc_manager.get_rtsp_output_url(f"{camera.id}_sub") if camera.sub_stream_url else None
         storage_path = await StorageService.resolve_recording_path(db, camera)
 
+        # N5: record from sub-stream when operator opts in and sub is available
+        record_url = rtsp_url
+        if getattr(camera, "record_substream", False) and sub_rtsp_url:
+            record_url = sub_rtsp_url
+            logger.info(f"[{camera.id}] Recording from sub-stream (record_substream=True)")
+
         success, _ = await ffmpeg_manager.start_recording(
-            camera.id, rtsp_url, storage_path, camera.recording_fps,
+            camera.id, record_url, storage_path, camera.recording_fps,
             sub_stream_url=sub_rtsp_url,
             privacy_masks=camera.privacy_masks,
         )
