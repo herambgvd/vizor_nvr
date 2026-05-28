@@ -2,6 +2,8 @@
 # =============================================================================
 # GVD NVR — single-server Linux installer (Phase 7.4)
 # =============================================================================
+# Windows users: use install.ps1 instead (PowerShell equivalent of this file).
+# See docs/INSTALL_WINDOWS.md for step-by-step instructions.
 # Usage:
 #   sudo ./install.sh           # interactive
 #   sudo ./install.sh --quiet   # non-interactive (reads env vars)
