@@ -17,19 +17,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
+# Strip stubs, caches, and test directories from site-packages (saves 30–80 MB)
+RUN find /install/lib/python3.12/site-packages -name '*.pyi' -delete \
+ && find /install/lib/python3.12/site-packages -depth -type d -name '__pycache__' -exec rm -rf {} + \
+ && find /install/lib/python3.12/site-packages -depth -type d -name 'tests' -exec rm -rf {} + \
+ && find /install/lib/python3.12/site-packages -depth -type d -name 'test' -exec rm -rf {} +
+
 
 # =============================================================================
 # Final image
 # =============================================================================
 FROM python:3.12-slim
 
+# Do not write .pyc files or __pycache__ at runtime
+ENV PYTHONDONTWRITEBYTECODE=1
+
 WORKDIR /app
 
-# Runtime system dependencies
+# Runtime system dependencies — curl dropped; healthcheck uses python urllib
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     libpq5 \
-    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy installed Python packages from builder
@@ -50,7 +58,7 @@ RUN chmod +x /app/entrypoint.sh
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD curl -f http://localhost:8000/api/health || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health').read()" || exit 1
 
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1 --loop asyncio"]
