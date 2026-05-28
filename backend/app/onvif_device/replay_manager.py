@@ -193,11 +193,8 @@ class ReplayManager:
                 # Re-encode path with setpts filter for speed change.
                 # Audio is dropped when changing speed (spec allows; avoids pitch issues).
                 # Use hwaccel encoder if available.
-                try:
-                    from app.services.hwaccel_probe import pick_encoder
-                    encoder_flags = pick_encoder("h264")
-                except Exception:
-                    encoder_flags = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "23"]
+                from app.services.hwaccel_probe import pick_encoder
+                encoder_flags = pick_encoder("h264")
 
                 cmd = [
                     "ffmpeg",

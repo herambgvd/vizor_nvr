@@ -206,17 +206,8 @@ class ExportService:
 
                 if vf_parts:
                     cmd.extend(["-vf", ",".join(vf_parts)])
-                    # Select encoder
-                    from app.services.ffmpeg_manager import FFmpegManager
-                    hw = FFmpegManager._detect_hwaccel()
-                    if hw == "h264_nvenc":
-                        cmd.extend(["-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr", "-cq", "23"])
-                    elif hw == "h264_vaapi":
-                        cmd.extend(["-c:v", "h264_vaapi", "-qp", "23"])
-                    elif hw == "h264_videotoolbox":
-                        cmd.extend(["-c:v", "h264_videotoolbox", "-b:v", "4M"])
-                    else:
-                        cmd.extend(["-c:v", "libx264", "-preset", "ultrafast", "-crf", "23"])
+                    from app.services.hwaccel_probe import pick_encoder
+                    cmd.extend(pick_encoder("h264"))
                     cmd.extend(["-c:a", "aac", "-b:a", "64k"])
                 else:
                     cmd.extend(["-c", "copy"])
