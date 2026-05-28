@@ -46,6 +46,13 @@ class StorageService:
             priority=data.priority,
             is_default=data.is_default,
             mount_options=data.mount_options,
+            nas_server=data.nas_server,
+            nas_share=data.nas_share,
+            nas_protocol=data.nas_protocol,
+            nas_username=data.nas_username,
+            nas_password=data.nas_password,
+            nas_domain=data.nas_domain,
+            nas_auto_mount=data.nas_auto_mount,
         )
 
         # If is_default, un-default all others
@@ -74,6 +81,43 @@ class StorageService:
         await db.commit()
         await db.refresh(pool)
         return pool
+
+    @staticmethod
+    async def mount_pool(pool_id: str) -> dict:
+        """Attempt to mount a NAS pool by ID."""
+        from app.storage.nas_service import nas_service
+        from app.database import async_session_maker
+        async with async_session_maker() as db:
+            pool = await StorageService.get_pool(db, pool_id)
+            if not pool:
+                return {"ok": False, "message": "Pool not found"}
+            result = nas_service.mount_pool(pool)
+            pool.nas_mount_state = "mounted" if result["ok"] else "error"
+            pool.nas_last_mount_error = None if result["ok"] else result["message"]
+            # Strip tzinfo: nas_last_mount_at column is TIMESTAMP WITHOUT TIME ZONE.
+            # asyncpg refuses to bind a tz-aware datetime to a naive column.
+            pool.nas_last_mount_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            await db.commit()
+            return result
+
+    @staticmethod
+    async def unmount_pool(pool_id: str) -> dict:
+        """Unmount a NAS pool by ID."""
+        from app.storage.nas_service import nas_service
+        from app.database import async_session_maker
+        async with async_session_maker() as db:
+            pool = await StorageService.get_pool(db, pool_id)
+            if not pool:
+                return {"ok": False, "message": "Pool not found"}
+            result = nas_service.unmount_pool(pool.path)
+            if result["ok"]:
+                pool.nas_mount_state = "unmounted"
+                pool.nas_last_mount_error = None
+            else:
+                pool.nas_mount_state = "error"
+                pool.nas_last_mount_error = result["message"]
+            await db.commit()
+            return result
 
     @staticmethod
     async def delete_pool(db: AsyncSession, pool_id: str) -> bool:
@@ -120,9 +164,9 @@ class StorageService:
 
     @staticmethod
     def _pool_writable(pool) -> dict:
-        """Cheap health check: path exists, is a directory, is writable, and
-        has at least 1 GiB free (or quota headroom). Used by select_writable_pool
-        and exposed at GET /api/storage/pools/{id}/health."""
+        """Cheap health check: path exists, is a directory, is writable,
+        has at least 1 GiB free (or quota headroom), and is not a stale mount.
+        Used by select_writable_pool and exposed at GET /api/storage/pools/{id}/health."""
         path = pool.path
         info = {"id": pool.id, "name": pool.name, "writable": False, "reason": None,
                 "free_bytes": 0, "quota_bytes": pool.max_size_bytes}
@@ -131,6 +175,15 @@ class StorageService:
             return info
         if not os.access(path, os.W_OK):
             info["reason"] = "not writable"
+            return info
+        # Stale mount detection: try to create and remove a sentinel file
+        try:
+            sentinel = os.path.join(path, ".gvd_nvr_write_test")
+            with open(sentinel, "w") as f:
+                f.write("ok")
+            os.remove(sentinel)
+        except OSError:
+            info["reason"] = "mount stale or read-only"
             return info
         disk = StorageService.get_disk_usage(path)
         free = disk["free_bytes"]
@@ -195,6 +248,16 @@ class StorageService:
         else:
             logger.warning(f"[{camera.id}] no writable pool available, using STORAGE_PATH fallback")
             base = str(settings.STORAGE_PATH)
+            # Validate fallback path is actually writable
+            try:
+                sentinel = os.path.join(base, ".gvd_nvr_write_test")
+                os.makedirs(base, exist_ok=True)
+                with open(sentinel, "w") as f:
+                    f.write("ok")
+                os.remove(sentinel)
+            except OSError as e:
+                logger.error(f"[{camera.id}] STORAGE_PATH fallback is not writable: {e}")
+                raise RuntimeError(f"No writable storage available for camera {camera.id}")
         path = os.path.join(base, camera.id)
         os.makedirs(path, exist_ok=True)
         return path
@@ -293,7 +356,19 @@ class StorageService:
                 os.makedirs(os.path.dirname(new_path), exist_ok=True)
 
                 try:
-                    shutil.move(old_path, new_path)
+                    # Atomic cross-filesystem move: copy to temp, verify, then swap
+                    tmp_path = new_path + ".tmp"
+                    shutil.copy2(old_path, tmp_path)
+                    # Verify checksum after copy (optional but recommended)
+                    from app.recordings.service import RecordingService
+                    src_hash = RecordingService.compute_sha256(old_path)
+                    dst_hash = RecordingService.compute_sha256(tmp_path)
+                    if src_hash != dst_hash:
+                        os.remove(tmp_path)
+                        logger.error(f"Tier move checksum mismatch: {old_path} → {new_path}")
+                        continue
+                    os.rename(tmp_path, new_path)
+                    os.remove(old_path)
                     rec.file_path = new_path
                     rec.storage_pool_id = target.id
                     moved += 1
