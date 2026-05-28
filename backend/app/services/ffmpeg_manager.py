@@ -818,89 +818,20 @@ class FFmpegManager:
             logger.debug(f"[{camera_id}] Failed to broadcast failover status: {e}")
 
     # ------------------------------------------------------------------
-    # Test connection
+    # Test connection + Snapshot  (implementations in ffmpeg/snapshots.py)
     # ------------------------------------------------------------------
 
     @staticmethod
     async def test_rtsp_connection(rtsp_url: str) -> Tuple[bool, Optional[dict]]:
         """Test if an RTSP URL is reachable. Returns (success, stream_info)."""
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "ffprobe", "-v", "error",
-                "-rtsp_transport", "tcp",
-                # Also probe format-level fields (bit_rate is often only
-                # set on the container, not the per-stream entry).
-                "-show_entries",
-                "stream=width,height,r_frame_rate,codec_name,bit_rate:format=bit_rate",
-                "-of", "json",
-                rtsp_url,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=15)
-
-            if proc.returncode != 0:
-                return False, None
-
-            import json
-            data = json.loads(stdout.decode())
-            streams = data.get("streams", [])
-            video = next((s for s in streams if s.get("codec_name") in
-                         ("h264", "h265", "hevc", "mpeg4", "mjpeg")), None)
-            if not video:
-                return True, None
-
-            fps = None
-            if video.get("r_frame_rate"):
-                parts = video["r_frame_rate"].split("/")
-                if len(parts) == 2 and int(parts[1]) > 0:
-                    fps = round(int(parts[0]) / int(parts[1]))
-
-            # Many ONVIF cameras leave per-stream bit_rate=N/A and only
-            # populate format.bit_rate. Fall back when needed.
-            bitrate = video.get("bit_rate") or (data.get("format") or {}).get("bit_rate")
-
-            info = {
-                "resolution": f"{video.get('width', '?')}x{video.get('height', '?')}",
-                "fps": fps,
-                "codec": video.get("codec_name"),
-                "bitrate": bitrate,
-            }
-            return True, info
-
-        except asyncio.TimeoutError:
-            return False, None
-        except Exception as e:
-            logger.error(f"Connection test failed: {e}")
-            return False, None
-
-    # ------------------------------------------------------------------
-    # Snapshot
-    # ------------------------------------------------------------------
+        from app.services.ffmpeg.snapshots import test_rtsp_connection as _impl
+        return await _impl(rtsp_url)
 
     @staticmethod
     async def capture_snapshot(rtsp_url: str, camera_id: str) -> Optional[str]:
         """Capture a single frame from the stream."""
-        thumb_dir = str(settings.THUMBNAIL_PATH / camera_id) if hasattr(settings.THUMBNAIL_PATH, '__truediv__') else os.path.join(str(settings.THUMBNAIL_PATH), camera_id)
-        os.makedirs(thumb_dir, exist_ok=True)
-        path = os.path.join(thumb_dir, "latest.jpg")
-
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "ffmpeg", "-y",
-                "-rtsp_transport", "tcp",
-                "-i", rtsp_url,
-                "-frames:v", "1",
-                "-q:v", "2",
-                path,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            await asyncio.wait_for(proc.wait(), timeout=15)
-            return path if os.path.exists(path) else None
-        except Exception as e:
-            logger.error(f"Snapshot failed for {camera_id}: {e}")
-            return None
+        from app.services.ffmpeg.snapshots import capture_snapshot as _impl
+        return await _impl(rtsp_url, camera_id)
 
     # ------------------------------------------------------------------
     # Cleanup
@@ -926,56 +857,9 @@ class FFmpegManager:
                 pass
 
     async def _watchdog_loop(self):
-        """Poll every _watchdog_interval seconds. Two failure modes:
-        1. Dead PID — stderr reader should already fire restart, but if it
-           somehow missed (e.g. cancelled), the watchdog kicks one off.
-        2. Hung PID — process alive but `last_health` (updated on every new
-           segment opened in stderr) older than stall_factor * segment_duration.
-           Force-kill so stderr-reader → _auto_restart path fires.
-        """
-        while not self._shutting_down:
-            try:
-                await asyncio.sleep(self._watchdog_interval)
-                if self._shutting_down:
-                    break
-                now = time.time()
-                for camera_id, ff in list(self._processes.items()):
-                    if camera_id in self._stopped or camera_id in self._failed_cameras:
-                        continue
-                    rc = ff.process.returncode
-                    if rc is not None:
-                        # Process is dead. stderr reader normally handles this,
-                        # but if its task already finished without scheduling a
-                        # restart (and we're not shutting down), retry here.
-                        if (
-                            settings.FFMPEG_RECOVERY_ENABLED
-                            and ff.stderr_task
-                            and ff.stderr_task.done()
-                        ):
-                            logger.warning(
-                                f"[{camera_id}] Watchdog detected dead PID {ff.pid} "
-                                f"(rc={rc}) — scheduling restart"
-                            )
-                            asyncio.create_task(self._auto_restart(ff))
-                        continue
-                    # Stall check — no new segment in stall_threshold seconds
-                    stall_threshold = max(60, ff.segment_duration * self._stall_factor)
-                    if now - ff.last_health > stall_threshold:
-                        stall_age = int(now - ff.last_health)
-                        logger.warning(
-                            f"[{camera_id}] Watchdog: FFmpeg hung "
-                            f"(no segment for {stall_age}s, PID {ff.pid}) — force-killing"
-                        )
-                        # Force-kill (not graceful — process is hung). The
-                        # stderr-reader loop will then exit and schedule a restart.
-                        try:
-                            ff.process.kill()
-                        except ProcessLookupError:
-                            pass
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error(f"Watchdog loop error: {e}")
+        """Delegate to ffmpeg/watchdog.py for process health polling."""
+        from app.services.ffmpeg.watchdog import watchdog_loop
+        await watchdog_loop(self)
 
     async def cleanup(self):
         """Stop all FFmpeg processes gracefully — called on shutdown.
