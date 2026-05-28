@@ -891,7 +891,19 @@ const Cameras = () => {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <StatusBadge status={camera.status} />
+                      <div className="flex flex-col gap-1">
+                        <StatusBadge status={camera.status} />
+                        {camera.credentials_status === "unauthorized" && (
+                          <a
+                            href={`/cameras/${camera.id}/settings#credentials`}
+                            onClick={(e) => { e.stopPropagation(); navigate(`/cameras/${camera.id}/settings`); e.preventDefault(); }}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30 hover:bg-amber-500/25 transition-colors whitespace-nowrap"
+                            title="ONVIF credentials invalid — click to update"
+                          >
+                            Credentials invalid
+                          </a>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       {canOperate ? (

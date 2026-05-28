@@ -467,3 +467,23 @@ export const listSnapshots = async (cameraId, params = {}) => {
   const response = await apiClient.get(`/cameras/${cameraId}/snapshots/gallery`, { params });
   return response.data;
 };
+
+// ---------- Snapshot Annotation (K3) ----------
+
+export const annotateSnapshot = async (cameraId, sourceUrl, operations) => {
+  const response = await apiClient.post(
+    `/cameras/${cameraId}/snapshots/annotate`,
+    { source_url: sourceUrl, operations },
+    { responseType: "blob", timeout: 30000 },
+  );
+  return response.data;
+};
+
+export const annotateAndSaveSnapshot = async (cameraId, sourceUrl, operations) => {
+  const response = await apiClient.post(
+    `/cameras/${cameraId}/snapshots/annotate/save`,
+    { source_url: sourceUrl, operations },
+    { timeout: 30000 },
+  );
+  return response.data;
+};

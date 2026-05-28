@@ -14,7 +14,9 @@ import {
   ChevronLeft,
   ChevronRight,
   Calendar,
+  Pencil,
 } from "lucide-react";
+import SnapshotAnnotator from "../../components/nvr/SnapshotAnnotator";
 import { toast } from "sonner";
 import {
   getScheduledSnapshotConfig,
@@ -81,6 +83,7 @@ const SnapshotsPage = () => {
   const [fromDt, setFromDt] = useState(iso24hAgo());
   const [toDt, setToDt] = useState(isoNow());
   const [lightboxIdx, setLightboxIdx] = useState(null);
+  const [annotatorUrl, setAnnotatorUrl] = useState(null);
 
   const { data: snaps = [], isFetching: snapsFetching, refetch: refetchSnaps } = useQuery({
     queryKey: ["snapshots-list", cameraId, fromDt, toDt],
@@ -256,21 +259,27 @@ const SnapshotsPage = () => {
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
             {snaps.map((snap, idx) => (
-              <button
-                key={snap.url}
-                onClick={() => openLightbox(idx)}
-                className="relative group rounded-md overflow-hidden border border-border hover:border-teal-500/60 transition-colors aspect-video"
-              >
-                <img
-                  src={getImgSrc(snap.url)}
-                  alt={snap.timestamp}
-                  className="w-full h-full object-cover"
-                  loading="lazy"
-                />
-                <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-2 py-1 text-[10px] text-zinc-300 font-mono opacity-0 group-hover:opacity-100 transition-opacity">
-                  {new Date(snap.timestamp).toLocaleTimeString()}
+              <div key={snap.url} className="relative group rounded-md overflow-hidden border border-border hover:border-teal-500/60 transition-colors aspect-video">
+                <button className="w-full h-full" onClick={() => openLightbox(idx)}>
+                  <img
+                    src={getImgSrc(snap.url)}
+                    alt={snap.timestamp}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                  />
+                </button>
+                <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-2 py-1 text-[10px] text-zinc-300 font-mono opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-between">
+                  <span>{new Date(snap.timestamp).toLocaleTimeString()}</span>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setAnnotatorUrl(snap.url); }}
+                    className="flex items-center gap-0.5 text-teal-300 hover:text-teal-100"
+                    title="Annotate this snapshot"
+                  >
+                    <Pencil className="h-3 w-3" />
+                    <span className="text-[9px]">Annotate</span>
+                  </button>
                 </div>
-              </button>
+              </div>
             ))}
           </div>
         )}
@@ -304,12 +313,21 @@ const SnapshotsPage = () => {
               alt={snaps[lightboxIdx].timestamp}
               className="max-w-full max-h-[80vh] rounded-lg shadow-2xl"
             />
-            <p className="text-sm text-zinc-400 font-mono">
-              {new Date(snaps[lightboxIdx].timestamp).toLocaleString()}
-              <span className="ml-3 text-zinc-600">
-                {lightboxIdx + 1} / {snaps.length}
-              </span>
-            </p>
+            <div className="flex items-center gap-4">
+              <p className="text-sm text-zinc-400 font-mono">
+                {new Date(snaps[lightboxIdx].timestamp).toLocaleString()}
+                <span className="ml-3 text-zinc-600">
+                  {lightboxIdx + 1} / {snaps.length}
+                </span>
+              </p>
+              <button
+                onClick={() => { setAnnotatorUrl(snaps[lightboxIdx].url); closeLightbox(); }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-teal-600/20 text-teal-300 border border-teal-600/40 hover:bg-teal-600/40 transition-colors"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                Annotate
+              </button>
+            </div>
           </div>
           <button
             className="absolute right-4 text-zinc-400 hover:text-white p-2 disabled:opacity-30"
@@ -318,6 +336,17 @@ const SnapshotsPage = () => {
           >
             <ChevronRight className="h-8 w-8" />
           </button>
+        </div>
+      )}
+      {/* ── Annotator overlay ── */}
+      {annotatorUrl && (
+        <div className="fixed inset-0 z-[60] bg-black/95">
+          <SnapshotAnnotator
+            cameraId={cameraId}
+            sourceUrl={annotatorUrl}
+            onClose={() => setAnnotatorUrl(null)}
+            onSaved={() => { setAnnotatorUrl(null); refetchSnaps(); }}
+          />
         </div>
       )}
     </div>

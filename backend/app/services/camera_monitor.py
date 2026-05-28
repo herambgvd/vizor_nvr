@@ -26,6 +26,9 @@ BANDWIDTH_ALERT_CONSECUTIVE = 3    # Must exceed threshold for this many samples
 BANDWIDTH_ALERT_COOLDOWN_SECS = 600  # 10 minutes between repeated alerts
 
 
+CRED_PROBE_INTERVAL_SEC = 300   # 5 minutes between credential probes per camera
+
+
 class CameraMonitor:
     """
     Periodically checks camera health:
@@ -36,6 +39,7 @@ class CameraMonitor:
     - Triggers bandwidth monitoring per camera
     - Detects recording gaps (no new segment in 2× segment_duration)
     - Detects bandwidth budget overages and fires bandwidth_alert events
+    - Probes ONVIF credential validity every 5 minutes
     """
 
     def __init__(self, interval: int = 30):
@@ -53,6 +57,8 @@ class CameraMonitor:
         self._bw_over_count: dict = {}
         # camera_id → monotonic time of last alert fired (0 = never)
         self._bw_alert_fired_at: dict = {}
+        # camera_id → monotonic time of last credential probe
+        self._cred_probed_at: dict = {}
 
     async def start(self):
         if self._running:
@@ -410,6 +416,18 @@ class CameraMonitor:
                         setattr(self, health_key, _t.time())
                         asyncio.create_task(self._probe_camera_health(camera))
 
+                    # ── Credential health probe every 5 min (ONVIF only) ──────
+                    if camera.onvif_host:
+                        last_cred = self._cred_probed_at.get(camera.id, 0.0)
+                        if (_t.time() - last_cred) >= CRED_PROBE_INTERVAL_SEC:
+                            self._cred_probed_at[camera.id] = _t.time()
+                            asyncio.create_task(
+                                self._probe_credentials(camera.id, camera.onvif_host,
+                                                        camera.onvif_port or 80,
+                                                        camera.onvif_username,
+                                                        camera.onvif_password)
+                            )
+
                     # ── Schedule enforcement ─────────────────────────────────────
                     if camera.recording_schedule:
                         should_record = self._should_record_now(camera.recording_schedule)
@@ -578,6 +596,86 @@ class CameraMonitor:
                 await db.commit()
         except Exception as e:
             logger.debug(f"[{camera.id}] Health probe failed: {e}")
+
+    async def _probe_credentials(
+        self,
+        camera_id: str,
+        onvif_host: str,
+        onvif_port: int,
+        onvif_username_enc: Optional[str],
+        onvif_password_enc: Optional[str],
+    ):
+        """
+        Probe ONVIF credentials by calling GetProfiles (requires auth).
+        Updates Camera.credentials_status: "ok" | "unauthorized" | "unreachable".
+        Fires a camera_credentials_invalid event on ok → unauthorized transition.
+        """
+        try:
+            from app.core.crypto import decrypt_value
+            from app.cameras.models import Camera
+            from sqlalchemy import select
+
+            username = decrypt_value(onvif_username_enc) if onvif_username_enc else "admin"
+            password = decrypt_value(onvif_password_enc) if onvif_password_enc else ""
+
+            import onvif as _onvif_module
+
+            def _do_probe():
+                try:
+                    cam = _onvif_module.ONVIFCamera(
+                        onvif_host, onvif_port, username, password,
+                        no_cache=True,
+                    )
+                    # Lightweight: does not require auth
+                    cam.devicemgmt.GetSystemDateAndTime()
+                    # Requires auth — will raise if credentials are wrong
+                    media = cam.create_media_service()
+                    media.GetProfiles()
+                    return "ok"
+                except Exception as exc:
+                    msg = str(exc).lower()
+                    if "not authorized" in msg or "401" in msg or "sender" in msg:
+                        return "unauthorized"
+                    return "unreachable"
+
+            new_status = await asyncio.to_thread(_do_probe)
+
+            async with async_session_maker() as db:
+                result = await db.execute(select(Camera).where(Camera.id == camera_id))
+                cam_row = result.scalar_one_or_none()
+                if cam_row is None:
+                    return
+
+                prev_status = cam_row.credentials_status
+                cam_row.credentials_status = new_status
+                cam_row.credentials_checked_at = datetime.utcnow()
+
+                # Fire event on ok → unauthorized transition
+                if new_status == "unauthorized" and prev_status != "unauthorized":
+                    logger.warning(
+                        "[%s] ONVIF credentials invalid (unauthorized). "
+                        "Previous status: %s", camera_id, prev_status
+                    )
+                    try:
+                        from app.events.linkage_service import linkage_engine
+                        await linkage_engine.fire_event(
+                            camera_id=camera_id,
+                            event_type="camera_credentials_invalid",
+                            severity="warning",
+                            title=f"Credentials invalid — {cam_row.name}",
+                            description=(
+                                "ONVIF GetProfiles returned 401 Unauthorized. "
+                                "Rotate the camera password to restore service."
+                            ),
+                        )
+                    except Exception as _ee:
+                        logger.debug("[%s] Event fire failed: %s", camera_id, _ee)
+
+                await db.commit()
+                logger.debug("[%s] Credential probe: %s", camera_id, new_status)
+
+        except Exception as exc:
+            logger.debug("[%s] _probe_credentials error: %s", camera_id, exc)
 
     async def _start_camera_recording(self, db, camera):
         """Helper to start recording for a camera with proper setup."""

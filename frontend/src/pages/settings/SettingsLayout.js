@@ -16,6 +16,7 @@ import {
   KeyRound,
   Clock,
   Network,
+  BookOpen,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { useAuth } from "../../context/AuthContext";
@@ -37,6 +38,7 @@ const SettingsLayout = () => {
         { path: "network", label: "Network", icon: Network },
         { path: "license", label: "License", icon: KeyRound },
         { path: "audit", label: "Audit Log", icon: Shield },
+        { path: "__api_docs__", label: "API Docs", icon: BookOpen, external: "/api/docs" },
       ]
     : BASE_NAV;
   const isActive = (sub) => location.pathname.endsWith(`/${sub}`);
@@ -53,6 +55,20 @@ const SettingsLayout = () => {
           {NAV.map((item) => {
             const Icon = item.icon;
             const active = isActive(item.path);
+            if (item.external) {
+              return (
+                <a
+                  key={item.path}
+                  href={item.external}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="relative flex items-center gap-2 px-4 py-2.5 text-sm transition-colors text-zinc-400 hover:text-white hover:bg-card/60"
+                >
+                  <Icon className="h-4 w-4" />
+                  {item.label}
+                </a>
+              );
+            }
             return (
               <Link
                 key={item.path}
@@ -80,6 +96,20 @@ const SettingsLayout = () => {
             {NAV.map((item) => {
               const Icon = item.icon;
               const active = isActive(item.path);
+              if (item.external) {
+                return (
+                  <a
+                    key={item.path}
+                    href={item.external}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap text-zinc-400 hover:text-white hover:bg-card/60"
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    {item.label}
+                  </a>
+                );
+              }
               return (
                 <Link
                   key={item.path}

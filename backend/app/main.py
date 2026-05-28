@@ -252,17 +252,20 @@ async def lifespan(application: FastAPI):
 # ══════════════════════════════════════════════════════════════════════
 
 app = FastAPI(
-    title="GVD NVR API",
+    title="GVD NVR",
     description=(
+        "GVD NVR REST API. ONVIF Profile S/T compliant. "
+        "All endpoints require Bearer JWT or X-Vizor-API-Key header.\n\n"
         "Network Video Recorder with RBAC, ONVIF, PTZ, multi-stream, "
         "storage pools, integrity verification, signed evidence export, "
-        "and TOTP 2FA. Auth: JWT bearer or signed download tokens. "
-        "Audit log accessible via /api/audit/logs."
+        "and TOTP 2FA."
     ),
-    version=__version__,
+    version="2.0.0",
     lifespan=lifespan,
-    docs_url="/api/docs" if settings.ENV == "development" else None,
-    redoc_url="/api/redoc" if settings.ENV == "development" else None,
+    # Disable auto-mounted docs — we serve admin-gated branded versions below
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
     openapi_tags=[
         {"name": "Authentication", "description": "Login, sessions, 2FA, roles, ACL"},
         {"name": "Cameras", "description": "Cameras, ONVIF, PTZ, motion zones, privacy masks"},
@@ -375,6 +378,82 @@ app.include_router(schedule_templates_router, prefix="/api")
 
 # ONVIF device endpoints are NOT under /api (VMS expects root-level paths)
 app.include_router(onvif_device_router)
+
+
+# ── Admin-gated branded API docs ─────────────────────────────────────
+# These replace the default /docs /redoc /openapi.json with authenticated,
+# branded equivalents restricted to the admin role.
+
+from app.core.dependencies import get_admin_user as _get_admin_user
+from fastapi import Depends as _Depends
+
+@app.get("/api/openapi.json", include_in_schema=False)
+async def get_openapi_schema(admin=_Depends(_get_admin_user)):
+    """Return the full OpenAPI spec. Admin only."""
+    return JSONResponse(app.openapi())
+
+
+@app.get("/api/docs", response_class=HTMLResponse, include_in_schema=False)
+async def get_swagger_ui(admin=_Depends(_get_admin_user)):
+    """Branded Swagger UI — admin only."""
+    html = """<!DOCTYPE html>
+<html>
+<head>
+  <title>GVD NVR API &middot; Swagger</title>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" type="text/css" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" >
+  <style>
+    body { margin: 0; background: #0f172a; }
+    .swagger-ui .topbar { background: #0f172a; border-bottom: 1px solid #1e293b; }
+    .swagger-ui .topbar .download-url-wrapper { display: none; }
+    .swagger-ui .topbar-wrapper img { content: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%2314b8a6" width="32" height="32"><circle cx="12" cy="12" r="10"/></svg>'); }
+    .swagger-ui .topbar-wrapper a::after { content: " GVD NVR"; color: #14b8a6; font-weight: 700; font-size: 1.1rem; margin-left: 8px; }
+  </style>
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"> </script>
+  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-standalone-preset.js"> </script>
+  <script>
+    window.onload = function() {
+      SwaggerUIBundle({
+        url: "/api/openapi.json",
+        dom_id: '#swagger-ui',
+        presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
+        plugins: [SwaggerUIBundle.plugins.DownloadUrl],
+        layout: "StandaloneLayout",
+        requestInterceptor: (req) => {
+          const token = localStorage.getItem('nvr_access_token');
+          if (token) req.headers['Authorization'] = 'Bearer ' + token;
+          return req;
+        },
+      });
+    };
+  </script>
+</body>
+</html>"""
+    return HTMLResponse(content=html)
+
+
+@app.get("/api/redoc", response_class=HTMLResponse, include_in_schema=False)
+async def get_redoc_ui(admin=_Depends(_get_admin_user)):
+    """Branded ReDoc — admin only."""
+    html = """<!DOCTYPE html>
+<html>
+<head>
+  <title>GVD NVR API &middot; ReDoc</title>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="https://fonts.googleapis.com/css?family=Montserrat:300,400,700|Roboto:300,400,700" rel="stylesheet">
+  <style>body { margin: 0; padding: 0; background: #0f172a; }</style>
+</head>
+<body>
+  <redoc spec-url='/api/openapi.json' theme='{"colors":{"primary":{"main":"#14b8a6"}},"typography":{"fontFamily":"Roboto, sans-serif"}}'></redoc>
+  <script src="https://cdn.jsdelivr.net/npm/redoc/bundles/redoc.standalone.js"></script>
+</body>
+</html>"""
+    return HTMLResponse(content=html)
 
 
 # ── Health check ─────────────────────────────────────────────────────

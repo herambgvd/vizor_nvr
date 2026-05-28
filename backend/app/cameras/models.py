@@ -168,6 +168,16 @@ class Camera(Base):
     pre_buffer_seconds = Column(Integer, default=10, nullable=True)
     post_buffer_seconds = Column(Integer, default=30, nullable=True)
 
+    # ── Credential health probe ────────────────────────────────────────
+    # Values: None (not yet probed) | "ok" | "unauthorized" | "unreachable"
+    credentials_status = Column(String(20), nullable=True)
+    credentials_checked_at = Column(DateTime, nullable=True)
+
+    # ── Two-Way Audio Backchannel ──────────────────────────────────────
+    # NULL = untested, True = supported, False = not supported.
+    # Cached on first Talk press; reset by POST /audio/backchannel/recheck.
+    backchannel_capable = Column(Boolean, nullable=True)
+
     # ── Metadata ───────────────────────────────────────────────────────
     location = Column(String(200), nullable=True)
     description = Column(Text, nullable=True)
@@ -292,6 +302,8 @@ class CameraResponse(BaseModel):
     onvif_profile_token: Optional[str] = None
     ptz_tour_config: Optional[Dict[str, Any]] = None
     ptz_tour_enabled: bool = False
+    credentials_status: Optional[str] = None
+    credentials_checked_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 

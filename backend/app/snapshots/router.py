@@ -4,10 +4,10 @@
 
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -119,6 +119,119 @@ async def list_snapshots(
 # ---------------------------------------------------------------------------
 # File streaming
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Annotation
+# ---------------------------------------------------------------------------
+
+class AnnotationOperation(BaseModel):
+    type: str                            # blur | rect | text | arrow
+    x: float = 0.0
+    y: float = 0.0
+    w: Optional[float] = None
+    h: Optional[float] = None
+    x1: Optional[float] = None
+    y1: Optional[float] = None
+    x2: Optional[float] = None
+    y2: Optional[float] = None
+    radius: Optional[int] = None
+    color: Optional[str] = None
+    width: Optional[int] = None
+    text: Optional[str] = None
+    size: Optional[int] = None
+
+
+class AnnotateRequest(BaseModel):
+    source_url: str = Field(..., description="URL or path of the source snapshot JPEG")
+    operations: List[AnnotationOperation] = Field(default_factory=list)
+
+
+async def _fetch_source_image(source_url: str) -> bytes:
+    """Fetch the source image from a local path or HTTP URL."""
+    import httpx
+    from app.config import settings
+
+    # Local snapshot path — strip leading /api or /snapshots prefix
+    if source_url.startswith("/cameras/") or source_url.startswith("/api/cameras/"):
+        # Strip /api prefix if present
+        rel = source_url.removeprefix("/api")
+        # Expected pattern: /cameras/{id}/snapshots/files/{date}/{filename}
+        parts = Path(rel).parts
+        if len(parts) >= 6:
+            date_str = parts[4]
+            filename = parts[5]
+            cam_id = parts[2]
+            from app.services.snapshot_service import snapshot_service
+            p = snapshot_service.get_snapshot_path(cam_id, date_str, filename)
+            if p and Path(p).exists():
+                return Path(p).read_bytes()
+
+    # Fall back to HTTP fetch (same host, or external URL)
+    if source_url.startswith("http"):
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(source_url)
+            resp.raise_for_status()
+            return resp.content
+
+    raise HTTPException(status_code=400, detail=f"Cannot resolve source_url: {source_url}")
+
+
+@router.post("/{camera_id}/snapshots/annotate", response_class=Response)
+async def annotate_snapshot(
+    camera_id: str,
+    body: AnnotateRequest,
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    """Apply blur/rect/text/arrow annotations and return the modified JPEG."""
+    await _get_camera(db, camera_id)
+
+    image_bytes = await _fetch_source_image(body.source_url)
+    ops = [op.model_dump(exclude_none=True) for op in body.operations]
+
+    from app.snapshots.annotator import apply_operations
+    try:
+        result = apply_operations(image_bytes, ops)
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return Response(content=result, media_type="image/jpeg")
+
+
+@router.post("/{camera_id}/snapshots/annotate/save")
+async def annotate_and_save_snapshot(
+    camera_id: str,
+    body: AnnotateRequest,
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    """Apply annotations, persist to disk, return saved snapshot URL."""
+    await _get_camera(db, camera_id)
+
+    image_bytes = await _fetch_source_image(body.source_url)
+    ops = [op.model_dump(exclude_none=True) for op in body.operations]
+
+    from app.snapshots.annotator import apply_operations
+    try:
+        result = apply_operations(image_bytes, ops)
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    # Persist alongside regular snapshots
+    from app.services.snapshot_service import _snapshot_base_path
+    import uuid as _uuid
+
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    filename = f"annotated_{_uuid.uuid4().hex[:8]}.jpg"
+
+    snap_dir = _snapshot_base_path() / camera_id / today
+    snap_dir.mkdir(parents=True, exist_ok=True)
+    dest = snap_dir / filename
+    dest.write_bytes(result)
+
+    url = f"/cameras/{camera_id}/snapshots/files/{today}/{filename}"
+    return {"url": url, "saved": True}
+
 
 @router.get("/{camera_id}/snapshots/files/{date}/{filename}")
 async def get_snapshot_file(
