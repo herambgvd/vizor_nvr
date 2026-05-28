@@ -361,16 +361,8 @@ class FFmpegManager:
 
         if vf_parts:
             cmd.extend(["-vf", ",".join(vf_parts)])
-            hw = FFmpegManager._detect_hwaccel()
-            if hw == "h264_nvenc":
-                cmd.extend(["-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr", "-cq", "23"])
-            elif hw == "h264_vaapi":
-                # VAAPI needs hwupload for software-decoded frames
-                cmd.extend(["-c:v", "h264_vaapi", "-qp", "23"])
-            elif hw == "h264_videotoolbox":
-                cmd.extend(["-c:v", "h264_videotoolbox", "-b:v", "4M"])
-            else:
-                cmd.extend(["-c:v", "libx264", "-preset", "ultrafast", "-crf", "23"])
+            from app.services.hwaccel_probe import pick_encoder
+            cmd.extend(pick_encoder("h264"))
         else:
             cmd.extend(["-c:v", "copy"])
 
