@@ -5,8 +5,13 @@
 # Windows users: use install.ps1 instead (PowerShell equivalent of this file).
 # See docs/INSTALL_WINDOWS.md for step-by-step instructions.
 # Usage:
-#   sudo ./install.sh           # interactive
-#   sudo ./install.sh --quiet   # non-interactive (reads env vars)
+#   sudo ./install.sh                        # interactive (self-signed cert)
+#   sudo ./install.sh --quiet                # non-interactive (reads env vars)
+#   sudo ./install.sh --letsencrypt          # interactive + obtain LE cert
+#   sudo ./install.sh --quiet --letsencrypt  # fully non-interactive + LE cert
+#
+# Additional env var for --letsencrypt:
+#   NVR_LE_HOSTNAME   # public DNS hostname, e.g. nvr.example.com (required)
 #
 # Reads from environment if --quiet:
 #   NVR_ADMIN_EMAIL
@@ -29,7 +34,14 @@
 set -euo pipefail
 
 QUIET=0
-[[ "${1:-}" == "--quiet" ]] && QUIET=1
+LETSENCRYPT=0
+
+for arg in "$@"; do
+    case "$arg" in
+        --quiet)       QUIET=1 ;;
+        --letsencrypt) LETSENCRYPT=1 ;;
+    esac
+done
 
 log()   { printf '\033[1;34m[install]\033[0m %s\n' "$*"; }
 warn()  { printf '\033[1;33m[warn]\033[0m %s\n' "$*"; }
@@ -88,6 +100,12 @@ _detect_host_ip() {
     echo "${ip:-127.0.0.1}"
 }
 prompt NVR_PUBLIC_HOST   "Public host/IP (for WebRTC)"  "$(_detect_host_ip)"
+
+# Let's Encrypt: if --letsencrypt flag is set, prompt for the public hostname
+if (( LETSENCRYPT )); then
+    prompt NVR_LE_HOSTNAME "Public hostname for Let's Encrypt cert (e.g. nvr.example.com)" ""
+    [[ -z "${NVR_LE_HOSTNAME:-}" ]] && fatal "NVR_LE_HOSTNAME is required for --letsencrypt"
+fi
 
 [[ ${#NVR_ADMIN_PASSWORD} -lt 12 ]] && fatal "Admin password must be >=12 chars"
 
@@ -168,6 +186,62 @@ WantedBy=multi-user.target
 EOF
     systemctl daemon-reload
     systemctl enable gvd-nvr.service
+fi
+
+# ── 5b. Let's Encrypt TLS certificate ──────────────────────────────────────
+if (( LETSENCRYPT )); then
+    log "Obtaining Let's Encrypt certificate for $NVR_LE_HOSTNAME"
+
+    # Ensure certbot is installed
+    if ! command -v certbot >/dev/null 2>&1; then
+        fatal "certbot is not installed. Install it first:
+  Ubuntu/Debian:  sudo apt-get install -y certbot
+  CentOS/RHEL:    sudo yum install -y certbot
+  Then re-run:    sudo ./install.sh --letsencrypt"
+    fi
+
+    # Port 80 must be free briefly for standalone challenge.
+    # Stop nginx if it's running on port 80.
+    if docker compose ps nginx 2>/dev/null | grep -q "Up"; then
+        log "Stopping nginx temporarily for ACME challenge..."
+        docker compose stop nginx
+        _NGINX_WAS_RUNNING=1
+    fi
+
+    certbot certonly --standalone \
+        --non-interactive \
+        --agree-tos \
+        --email "${NVR_ADMIN_EMAIL}" \
+        -d "${NVR_LE_HOSTNAME}" \
+        || fatal "certbot failed. Ensure port 80 is open and ${NVR_LE_HOSTNAME} resolves to this server's public IP."
+
+    # Copy cert + key into the certs Docker volume (mounted at /certs in nginx)
+    CERT_SRC="/etc/letsencrypt/live/${NVR_LE_HOSTNAME}"
+    NGINX_CERT_DIR="$SCRIPT_DIR/nginx/certs"
+    mkdir -p "$NGINX_CERT_DIR"
+    cp -f "${CERT_SRC}/fullchain.pem" "$NGINX_CERT_DIR/server.crt"
+    cp -f "${CERT_SRC}/privkey.pem"   "$NGINX_CERT_DIR/server.key"
+    chmod 600 "$NGINX_CERT_DIR/server.key"
+    log "Let's Encrypt cert written to $NGINX_CERT_DIR"
+
+    # Update .env with public hostname
+    sed -i "s|^CORS_ORIGINS=.*|CORS_ORIGINS=https://${NVR_LE_HOSTNAME},https://localhost|" "$ENV_FILE"
+    sed -i "s|^NVR_PUBLIC_HOST=.*|NVR_PUBLIC_HOST=${NVR_LE_HOSTNAME}|" "$ENV_FILE"
+    log "Updated CORS_ORIGINS and NVR_PUBLIC_HOST in $ENV_FILE to $NVR_LE_HOSTNAME"
+
+    # Restart nginx if we stopped it
+    if [[ "${_NGINX_WAS_RUNNING:-0}" == "1" ]]; then
+        docker compose start nginx
+    fi
+
+    # Install auto-renewal cron entry
+    RENEW_HOOK="docker compose -f $SCRIPT_DIR/docker-compose.yml exec nginx nginx -s reload"
+    CRON_LINE="0 3 * * * certbot renew --quiet --post-hook \"$RENEW_HOOK\""
+    CRON_FILE="/etc/cron.d/gvd-nvr-certbot"
+    echo "$CRON_LINE" > "$CRON_FILE"
+    chmod 644 "$CRON_FILE"
+    log "Auto-renewal cron installed at $CRON_FILE"
+    log "Cert will renew daily at 03:00 and nginx will reload automatically."
 fi
 
 # ── 6. Optional license install ─────────────────────────────────────────────

@@ -21,7 +21,8 @@
 # =============================================================================
 
 param(
-    [switch]$Quiet
+    [switch]$Quiet,
+    [switch]$LetsEncrypt
 )
 
 $ErrorActionPreference = 'Stop'
@@ -146,7 +147,37 @@ Set-Acl $EnvFile $acl
 Log "Seeding go2rtc.yaml from template"
 & "$ScriptDir\scripts\seed-go2rtc-config.ps1"
 
-# ── 3c. TLS certificate (self-signed) ─────────────────────────────────────────
+# ── 3c. Let's Encrypt (Windows — external cert path) ─────────────────────────
+if ($LetsEncrypt) {
+    Log ""
+    Log "=== Let's Encrypt on Windows ==="
+    Log ""
+    Warn ("Windows does not ship with certbot. There are two supported options:`n" +
+          "`n" +
+          "Option A — win-acme (recommended):`n" +
+          "  1. Download win-acme from https://www.win-acme.com/`n" +
+          "  2. Run: wacs.exe --target manual --host nvr.example.com --installation none`n" +
+          "  3. Copy the generated PEM files to: $ScriptDir\nginx\certs\`n" +
+          "     server.crt = fullchain PEM, server.key = private key PEM`n" +
+          "  4. Re-run install.ps1 (without --LetsEncrypt) to continue setup.`n" +
+          "`n" +
+          "Option B — obtain cert on a Linux machine and copy PEM files:`n" +
+          "  certbot certonly --standalone -d nvr.example.com`n" +
+          "  Copy /etc/letsencrypt/live/nvr.example.com/{fullchain,privkey}.pem`n" +
+          "  to $ScriptDir\nginx\certs\server.crt and server.key`n" +
+          "`n" +
+          "After placing certs, update .env:`n" +
+          "  CORS_ORIGINS=https://nvr.example.com,https://localhost`n" +
+          "  NVR_PUBLIC_HOST=nvr.example.com`n" +
+          "`n" +
+          "For auto-renewal on Windows, schedule win-acme's renewal task in Task Scheduler`n" +
+          "with a post-action: docker compose exec nginx nginx -s reload")
+    Log ""
+    Log "Continuing with self-signed cert for now. Replace certs when ready."
+    Log ""
+}
+
+# ── 3d. TLS certificate (self-signed) ─────────────────────────────────────────
 # We generate a self-signed cert in the Windows cert store and export PEM
 # files so nginx can use them.  If export fails (requires elevated session),
 # we skip and warn the user.
