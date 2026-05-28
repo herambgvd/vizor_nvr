@@ -47,8 +47,11 @@
       To create a production bundle, use `npm run build` or `yarn build`.
     -->
 
+    <script>window.__GVD_TELEMETRY__ = false;</script>
+    <script src="/runtime-config.js"></script>
     <script>
-        !(function (t, e) {
+    if (window.__GVD_TELEMETRY__ === true) {
+    !(function (t, e) {
             var o, n, p, r;
             e.__SV ||
                 ((window.posthog = e),
@@ -117,6 +120,7 @@
                 capturePerformance: false,
             },
         });
+    }
     </script>
 </body>
 

@@ -143,3 +143,24 @@ sudo systemctl disable gvd-nvr
 sudo rm /etc/systemd/system/gvd-nvr.service
 rm .env
 ```
+
+---
+
+## Telemetry
+
+GVD NVR ships with anonymous usage analytics (PostHog) **disabled by default**. No data leaves your server unless you explicitly opt in.
+
+To enable telemetry, edit `frontend/public/runtime-config.js` and uncomment the opt-in line:
+
+```js
+window.__GVD_TELEMETRY__ = true;
+```
+
+Then rebuild the frontend container:
+
+```bash
+docker compose build frontend
+docker compose up -d frontend
+```
+
+To confirm the setting, open your browser's developer console on the GVD Pro UI and run `window.__GVD_TELEMETRY__`. It should return `true`.
