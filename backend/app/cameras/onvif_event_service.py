@@ -362,6 +362,12 @@ class _CameraPullWorker:
                         q.put_nowait(evt_payload)
                     except Exception:
                         pass  # Queue full — drop event
+                # Fan-out to BaseNotification push subscribers
+                try:
+                    from app.onvif_device.service import _enqueue_push_event
+                    _enqueue_push_event(evt_payload)
+                except Exception:
+                    pass
         except Exception:
             pass
 

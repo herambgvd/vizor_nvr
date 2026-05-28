@@ -193,8 +193,9 @@ async def lifespan(application: FastAPI):
     await onvif_discovery_publisher.start()
 
     # Start background task to sweep expired PullPoint subscriptions
-    from app.onvif_device.service import sweep_expired_subscriptions
+    from app.onvif_device.service import sweep_expired_subscriptions, push_delivery_worker
     _sweep_task = asyncio.create_task(sweep_expired_subscriptions(), name="onvif_subscription_sweep")
+    _push_task = asyncio.create_task(push_delivery_worker(), name="onvif_push_delivery")
 
     # Auto-mount NAS storage pools
     try:
@@ -214,7 +215,7 @@ async def lifespan(application: FastAPI):
     # Start POS overlay TCP listener (if any cameras have TCP source configured)
     try:
         from app.services.pos_overlay_service import pos_overlay_service
-        await pos_overlay_service.start_tcp_listener(host="0.0.0.0", port=9100)
+        await pos_overlay_service.start_tcp_listener()  # host/port from settings
     except Exception as _e:
         logger.warning(f"POS TCP listener skipped: {_e}")
 
@@ -249,7 +250,8 @@ async def lifespan(application: FastAPI):
     await onvif_discovery_publisher.stop()
     try:
         _sweep_task.cancel()
-        await asyncio.gather(_sweep_task, return_exceptions=True)
+        _push_task.cancel()
+        await asyncio.gather(_sweep_task, _push_task, return_exceptions=True)
     except Exception:
         pass
 
@@ -282,6 +284,20 @@ async def lifespan(application: FastAPI):
     try:
         from app.onvif_device.replay_manager import replay_manager as _replay_mgr
         await _replay_mgr.stop_eviction_loop()
+    except Exception:
+        pass
+
+    # Stop cluster service (releases advisory lock so standby can promote)
+    try:
+        from app.cluster.service import cluster_service
+        await cluster_service.stop()
+    except Exception:
+        pass
+
+    # Stop archive service
+    try:
+        from app.storage.archive_service import archive_service
+        await archive_service.stop()
     except Exception:
         pass
 
@@ -508,10 +524,13 @@ async def get_redoc_ui(admin=_Depends(_get_admin_user)):
 async def health():
     from app.services.go2rtc_manager import go2rtc_manager
     from app.services.ffmpeg_manager import ffmpeg_manager
+    from app.cluster.service import cluster_service
     go2rtc_ok = await go2rtc_manager.is_healthy()
     return {
         "status": "ok",
         "version": __version__,
         "go2rtc": "connected" if go2rtc_ok else "disconnected",
         "active_recordings": ffmpeg_manager.active_count,
+        "cluster_role": cluster_service.role,
+        "cluster_node": cluster_service.node_id,
     }

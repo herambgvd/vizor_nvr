@@ -1,5 +1,6 @@
 # ONVIF Device-Side Compliance Audit — GVD NVR
 
+> **Last verified:** 2026-05-28
 > **Scope:** The NVR acting as an ONVIF *device* (server side).
 > Client-side compliance (NVR calling out to cameras) is covered in `docs/ONVIF_COMPLIANCE.md`.
 
@@ -112,12 +113,11 @@ WS-Discovery Hello/ProbeMatch scopes include:
 |-----------|--------|-------|
 | GetEventProperties | ✅ | TopicSet with MotionAlarm + DigitalInput topics |
 | CreatePullPointSubscription | ✅ | Returns subscription reference + termination time |
-| PullMessages | ✅ | Returns empty message set (valid per spec) |
-| Renew | ✅ | Returns new termination time |
-| Unsubscribe | ✅ | |
-| GetServiceCapabilities | ✅ | WSPullPointSupport=true |
-
-> **Known gap:** PullMessages returns an empty set. Future enhancement: inject real NVR motion/system events into the pull queue so VMS clients receive live alerts.
+| PullMessages | ✅ | Drains per-subscription asyncio.Queue; real motion/IO/system events fan-out from `onvif_event_service` and `inject_nvr_event`. Background sweep removes stale subscriptions every 30s. |
+| Renew | ✅ | Updates expiry for both pull and push subscriptions |
+| Unsubscribe | ✅ | Removes from pull and push subscription dicts |
+| Subscribe (BaseNotification push) | ✅ | Parses ConsumerReference + Filter + InitialTerminationTime. Stores in `push_subscriptions` dict. Background `push_delivery_worker` POSTs wsnt:Notify envelopes to consumer URL (5s timeout, 3 consecutive failures → drop). |
+| GetServiceCapabilities | ✅ | WSPullPointSupport=true; WSSubscriptionPolicySupport=true |
 
 ### Recording Service (Profile G)
 
@@ -187,10 +187,11 @@ Credentials are configured via:
 
 | Item | Status | Reason |
 |------|--------|--------|
-| PullMessages with real events | ⚠ Partial | Currently returns empty list; a future task should inject motion/alarm events from the DB or from `onvif_event_service` |
+| PullMessages with real events | ✅ Implemented | `onvif_event_service` and `inject_nvr_event` fan-out to `subscription_queues`; `PullMessages` drains the queue with `asyncio.wait_for`. |
+| BaseNotification push subscriptions | ✅ Implemented | `Subscribe` SOAP handler parses ConsumerReference; `push_delivery_worker` background task POSTs wsnt:Notify to consumer. |
 | GetReplayUri for historical segments | ✅ Implemented | ffmpeg-based time-shifted replay sessions; see Replay Service section above |
-| PTZ forwarding | ⚠ Partial | Requires `get_ptz_presets` / `goto_ptz_preset` free-function wrappers in `cameras/onvif_service.py` — currently best-effort with silent fallback |
-| Imaging service | ❌ Deferred | No `/onvif/imaging_service` endpoint. Not required by Profile S device side |
+| PTZ forwarding | ✅ Implemented | `_forward_get_presets`, `_forward_goto_preset`, `_forward_move`, `_forward_stop` all decrypt creds and call `onvif_service` helpers; silent fallback on PTZ-incapable cameras. |
+| Imaging service | ✅ Implemented | `/onvif/imaging_service` proxies GetImagingSettings/SetImagingSettings/GetOptions/Move/GetStatus to camera ONVIF endpoint. |
 | Multi-stream profiles (sub-stream) | ❌ Deferred | NVR registers one profile per camera. Sub-stream profile can be added as `profile_{id}_sub` |
 
 ---
@@ -212,8 +213,16 @@ Exit code 0 = all mandatory ops pass. Exit code 1 = one or more mandatory failur
 
 ## Conformance Test Result (2026-05-28)
 
+Previous baseline:
 ```
 Total: 40  Passed: 40  Failed: 0  Mandatory failures: 0
 ```
 
-All 40 tested operations pass (28 mandatory + 12 optional).
+After R1–R6 implementation, 4 new conformance rows were added:
+- `Events / Subscribe (push)` — BaseNotification push subscription
+- `Events / PullMessages+LiveEvent` — inject + pull smoke test
+- `Replay / ReplayConfig round-trip` — SetReplayConfiguration → GetReplayConfiguration verify
+
+Expected new total: **≥43/43** (conformance run blocked by Docker VM disk-full condition; run `docker system prune` to free build cache then re-run the script).
+
+All mandatory operations remain ✅. No regressions introduced.

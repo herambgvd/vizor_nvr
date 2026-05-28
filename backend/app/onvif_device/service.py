@@ -76,6 +76,12 @@ subscription_expires: Dict[str, datetime] = {}
 _QUEUE_MAX_SIZE = 200
 _SUBSCRIPTION_TTL_SECONDS = 300  # 5 minutes default
 
+# ── BaseNotification push subscription state ─────────────────────────────────
+# keyed by subscription token (UUID hex string)
+# Each value: {"consumer_url": str, "filter_topics": list, "expires_at": datetime,
+#              "fail_count": int, "created_at": datetime}
+push_subscriptions: Dict[str, Dict[str, Any]] = {}
+
 # ── Audio encoder configuration cache ────────────────────────────────────────
 # keyed by camera_id → (list_of_configs, cached_at)
 _audio_encoder_cache: Dict[str, Tuple[list, datetime]] = {}
@@ -1611,6 +1617,12 @@ class ONVIFDeviceService:
             new_expires = now + timedelta(seconds=_SUBSCRIPTION_TTL_SECONDS)
             if sub_token and sub_token in subscription_expires:
                 subscription_expires[sub_token] = new_expires
+            elif sub_token and sub_token in push_subscriptions:
+                term_time_str = self._extract_text_field(req_bytes, "TerminationTime") or f"PT{_SUBSCRIPTION_TTL_SECONDS}S"
+                ttl_secs = self._parse_iso_duration(term_time_str, default=_SUBSCRIPTION_TTL_SECONDS)
+                ttl_secs = max(60, min(3600, ttl_secs))
+                new_expires = now + timedelta(seconds=ttl_secs)
+                push_subscriptions[sub_token]["expires_at"] = new_expires
             resp = etree.SubElement(body, _qn(NS_TEV, "RenewResponse"))
             _add_text(resp, NS_WSNT, "TerminationTime",
                       new_expires.strftime("%Y-%m-%dT%H:%M:%SZ"))
@@ -1623,13 +1635,48 @@ class ONVIFDeviceService:
             if sub_token:
                 subscription_queues.pop(sub_token, None)
                 subscription_expires.pop(sub_token, None)
+                push_subscriptions.pop(sub_token, None)
                 logger.debug(f"ONVIF Unsubscribe: removed token={sub_token}")
             etree.SubElement(body, _qn(NS_TEV, "UnsubscribeResponse"))
+
+        elif "Subscribe" in action and "CreatePullPointSubscription" not in action and "Unsubscribe" not in action:
+            # WS-BaseNotification Subscribe (push delivery mode)
+            req_bytes = await request.body()
+            consumer_url = self._extract_consumer_reference(req_bytes)
+            filter_topics = self._extract_topic_filter(req_bytes)
+            term_time_str = self._extract_text_field(req_bytes, "InitialTerminationTime") or "PT5M"
+            ttl_secs = self._parse_iso_duration(term_time_str, default=300)
+            ttl_secs = max(60, min(3600, ttl_secs))
+
+            if not consumer_url:
+                raise _SOAPFault("ter:InvalidArgVal", "ConsumerReference Address missing or empty")
+
+            push_token = uuid.uuid4().hex
+            now = datetime.now(timezone.utc)
+            push_subscriptions[push_token] = {
+                "consumer_url": consumer_url,
+                "filter_topics": filter_topics,
+                "expires_at": now + timedelta(seconds=ttl_secs),
+                "fail_count": 0,
+                "created_at": now,
+            }
+            logger.debug(f"ONVIF Subscribe (push): token={push_token} consumer={consumer_url}")
+
+            resp = etree.SubElement(body, _qn(NS_WSNT, "SubscribeResponse"))
+            ref = etree.SubElement(resp, _qn(NS_WSNT, "SubscriptionReference"))
+            addr_el = etree.SubElement(ref, _qn(NS_WSA, "Address"))
+            addr_el.text = f"{_base_xaddr(request)}/onvif/event_service"
+            ref_params = etree.SubElement(ref, _qn(NS_WSA, "ReferenceParameters"))
+            token_el = etree.SubElement(ref_params, _qn(NS_TEV, "SubscriptionId"))
+            token_el.text = push_token
+            _add_text(resp, NS_WSNT, "CurrentTime", now.strftime("%Y-%m-%dT%H:%M:%SZ"))
+            _add_text(resp, NS_WSNT, "TerminationTime",
+                      (now + timedelta(seconds=ttl_secs)).strftime("%Y-%m-%dT%H:%M:%SZ"))
 
         elif "GetServiceCapabilities" in action:
             resp = etree.SubElement(body, _qn(NS_TEV, "GetServiceCapabilitiesResponse"))
             caps = etree.SubElement(resp, _qn(NS_TEV, "Capabilities"))
-            caps.set("WSSubscriptionPolicySupport", "false")
+            caps.set("WSSubscriptionPolicySupport", "true")
             caps.set("WSPullPointSupport", "true")
             caps.set("WSPausableSubscriptionManagerInterfaceSupport", "false")
             caps.set("MaxNotificationProducers", "1")
@@ -1769,6 +1816,58 @@ class ONVIFDeviceService:
             pass
         return None
 
+    def _extract_consumer_reference(self, xml_bytes: bytes) -> Optional[str]:
+        """Extract ConsumerReference/Address from a WS-BaseNotification Subscribe request."""
+        try:
+            root = etree.fromstring(xml_bytes)
+            for tag in (
+                "{%s}ConsumerReference" % NS_WSNT,
+                "ConsumerReference",
+            ):
+                cr = root.find(".//" + tag)
+                if cr is not None:
+                    for addr_tag in ("{%s}Address" % NS_WSA, "Address"):
+                        addr_el = cr.find(".//" + addr_tag)
+                        if addr_el is not None and addr_el.text:
+                            return addr_el.text.strip()
+        except Exception:
+            pass
+        return None
+
+    def _extract_topic_filter(self, xml_bytes: bytes) -> list:
+        """Extract topic expressions from WS-BaseNotification Filter element."""
+        topics = []
+        try:
+            root = etree.fromstring(xml_bytes)
+            for tag in ("{%s}Filter" % NS_WSNT, "Filter"):
+                flt = root.find(".//" + tag)
+                if flt is not None:
+                    for child in flt:
+                        if child.text:
+                            topics.extend(
+                                t.strip().strip('"') for t in child.text.split("|") if t.strip()
+                            )
+        except Exception:
+            pass
+        return topics
+
+    def _parse_iso_duration(self, dur: str, default: int = 300) -> int:
+        """Parse ISO 8601 duration string (PT<n>S or PT<n>M or PT<n>H) → seconds."""
+        import re
+        try:
+            m = re.search(r"PT(\d+(?:\.\d+)?)H", dur)
+            if m:
+                return int(float(m.group(1)) * 3600)
+            m = re.search(r"PT(\d+(?:\.\d+)?)M", dur)
+            if m:
+                return int(float(m.group(1)) * 60)
+            m = re.search(r"PT(\d+(?:\.\d+)?)S", dur)
+            if m:
+                return int(float(m.group(1)))
+        except Exception:
+            pass
+        return default
+
     def _build_notification_message(self, parent: etree.Element, evt: dict):
         """Build a WS-Notification NotificationMessage element from an event dict."""
         NS_WSTOP = "http://docs.oasis-open.org/wsn/t-1"
@@ -1872,23 +1971,128 @@ class ONVIFDeviceService:
 
 
 async def sweep_expired_subscriptions():
-    """Background task: remove expired PullPoint subscriptions every 30s."""
+    """Background task: remove expired PullPoint and push subscriptions every 30s."""
     while True:
         try:
             await asyncio.sleep(30)
             now = datetime.now(timezone.utc)
-            expired = [
+            expired_pull = [
                 token for token, exp in list(subscription_expires.items())
                 if exp <= now
             ]
-            for token in expired:
+            for token in expired_pull:
                 subscription_queues.pop(token, None)
                 subscription_expires.pop(token, None)
-                logger.debug(f"ONVIF: swept expired subscription token={token}")
+                logger.debug(f"ONVIF: swept expired pull subscription token={token}")
+            expired_push = [
+                token for token, sub in list(push_subscriptions.items())
+                if sub["expires_at"] <= now
+            ]
+            for token in expired_push:
+                push_subscriptions.pop(token, None)
+                logger.debug(f"ONVIF: swept expired push subscription token={token}")
         except asyncio.CancelledError:
             raise
         except Exception as e:
             logger.debug(f"sweep_expired_subscriptions error: {e}")
+
+
+# ── Push delivery queue ───────────────────────────────────────────────────────
+# Events are placed here by inject_nvr_event / onvif_event_service fan-out.
+# The push_delivery_worker drains this queue and POSTs to consumer endpoints.
+_push_event_queue: asyncio.Queue = asyncio.Queue(maxsize=500)
+
+
+def _enqueue_push_event(evt: dict):
+    """Non-blocking enqueue for the push delivery worker."""
+    try:
+        _push_event_queue.put_nowait(evt)
+    except Exception:
+        pass  # Queue full — drop
+
+
+async def push_delivery_worker():
+    """Background task: deliver events to BaseNotification push subscribers via HTTP POST."""
+    import httpx
+    while True:
+        try:
+            evt = await _push_event_queue.get()
+            if not push_subscriptions:
+                continue
+            now = datetime.now(timezone.utc)
+            dead_tokens = []
+            for token, sub in list(push_subscriptions.items()):
+                if sub["expires_at"] <= now:
+                    dead_tokens.append(token)
+                    continue
+                # Topic filter — if set, only deliver matching topics
+                if sub["filter_topics"]:
+                    topic = evt.get("topic", "")
+                    if not any(topic.startswith(ft) for ft in sub["filter_topics"]):
+                        continue
+                # Build wsnt:Notify SOAP envelope
+                notify_xml = _build_notify_envelope(evt)
+                consumer_url = sub["consumer_url"]
+                try:
+                    async with httpx.AsyncClient(timeout=5.0) as client:
+                        resp = await client.post(
+                            consumer_url,
+                            content=notify_xml,
+                            headers={"Content-Type": "application/soap+xml; charset=utf-8"},
+                        )
+                    if resp.status_code < 400:
+                        sub["fail_count"] = 0
+                        logger.debug(f"ONVIF push delivered to {consumer_url} status={resp.status_code}")
+                    else:
+                        sub["fail_count"] = sub.get("fail_count", 0) + 1
+                        logger.warning(f"ONVIF push: consumer {consumer_url} returned {resp.status_code} (fail #{sub['fail_count']})")
+                        if sub["fail_count"] >= 3:
+                            dead_tokens.append(token)
+                except Exception as e:
+                    sub["fail_count"] = sub.get("fail_count", 0) + 1
+                    logger.warning(f"ONVIF push: delivery to {consumer_url} failed: {e} (fail #{sub['fail_count']})")
+                    if sub["fail_count"] >= 3:
+                        dead_tokens.append(token)
+            for token in dead_tokens:
+                push_subscriptions.pop(token, None)
+                logger.info(f"ONVIF: removed dead push subscription token={token}")
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.debug(f"push_delivery_worker error: {e}")
+
+
+def _build_notify_envelope(evt: dict) -> bytes:
+    """Build a wsnt:Notify SOAP envelope for push delivery."""
+    env = _soap_envelope()
+    body = _body(env)
+    notify = etree.SubElement(body, _qn(NS_WSNT, "Notify"))
+    msg_el = etree.SubElement(notify, _qn(NS_WSNT, "NotificationMessage"))
+    topic_el = etree.SubElement(msg_el, _qn(NS_WSNT, "Topic"))
+    topic_el.set("Dialect", "http://www.onvif.org/ver10/tev/topicExpression/ConcreteSet")
+    topic_el.text = evt.get("topic", "tns1:VideoSource/MotionAlarm")
+    prod_ref = etree.SubElement(msg_el, _qn(NS_WSNT, "ProducerReference"))
+    addr_el = etree.SubElement(prod_ref, _qn(NS_WSA, "Address"))
+    addr_el.text = evt.get("source", "")
+    msg_inner = etree.SubElement(msg_el, _qn(NS_WSNT, "Message"))
+    tt_msg = etree.SubElement(msg_inner, _qn(NS_TT, "Message"))
+    ts = evt.get("timestamp", datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+    tt_msg.set("UtcTime", ts)
+    tt_msg.set("PropertyOperation", "Changed")
+    src_el = etree.SubElement(tt_msg, _qn(NS_TT, "Source"))
+    si = etree.SubElement(src_el, _qn(NS_TT, "SimpleItem"))
+    si.set("Name", "VideoSourceConfigurationToken")
+    si.set("Value", evt.get("camera_id", ""))
+    data_el = etree.SubElement(tt_msg, _qn(NS_TT, "Data"))
+    di = etree.SubElement(data_el, _qn(NS_TT, "SimpleItem"))
+    di.set("Name", "IsMotion")
+    di.set("Value", str(evt.get("value", "true")).lower())
+    for k, v in evt.get("metadata", {}).items():
+        if k not in ("onvif_topic", "source"):
+            extra = etree.SubElement(data_el, _qn(NS_TT, "SimpleItem"))
+            extra.set("Name", str(k))
+            extra.set("Value", str(v))
+    return etree.tostring(env, xml_declaration=True, encoding="UTF-8")
 
 
 # ── NVR event injection helper ───────────────────────────────────────────────
@@ -1928,6 +2132,8 @@ async def inject_nvr_event(
             q.put_nowait(evt)
         except Exception:
             pass  # Queue full — drop event
+    # Also fan-out to push subscribers
+    _enqueue_push_event(evt)
 
 
 # Module singleton

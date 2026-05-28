@@ -556,6 +556,92 @@ def run_all():
           "<trp:GetServiceCapabilities/>",
           "GetServiceCapabilitiesResponse")
 
+    # ── BaseNotification push subscriptions ──────────────────────────────────
+    NS_WSNT = "http://docs.oasis-open.org/wsn/b-2"
+    NS_WSA  = "http://www.w3.org/2005/08/addressing"
+
+    check("S", "Events", "Subscribe (push)", False,
+          EVENT_SERVICE, NS_TEV,
+          "Subscribe",
+          f"""<wsnt:Subscribe xmlns:wsnt="{NS_WSNT}" xmlns:wsa="{NS_WSA}">
+                <wsnt:ConsumerReference>
+                  <wsa:Address>http://127.0.0.1:59999/notify</wsa:Address>
+                </wsnt:ConsumerReference>
+                <wsnt:InitialTerminationTime>PT10M</wsnt:InitialTerminationTime>
+              </wsnt:Subscribe>""",
+          response_tag="SubscribeResponse",
+          custom_check=lambda root: (
+              _has_response(root, "SubscribeResponse"),
+              "SubscribeResponse returned" if _has_response(root, "SubscribeResponse") else "No response or fault"
+          ))
+
+    # ── PullMessages with injected event (live event smoke test) ─────────────
+    def _pull_with_inject(root_unused):
+        """Create subscription, inject event, pull — verify event arrives."""
+        try:
+            # Step 1: create subscription
+            pull_root = _call(EVENT_SERVICE,
+                              f"{NS_TEV}/CreatePullPointSubscription",
+                              "<tev:CreatePullPointSubscription/>")
+            if pull_root is None or _has_fault(pull_root):
+                return False, "CreatePullPointSubscription failed"
+            # Step 2: inject event via test endpoint
+            inject_url = f"{SCHEME}://{HOST}/onvif/test/inject_event?camera_id=conformance_test"
+            r = requests.post(inject_url, timeout=TIMEOUT)
+            if r.status_code not in (200, 201, 204):
+                return False, f"inject_event returned {r.status_code}"
+            # Step 3: pull — should see event immediately (queue has it)
+            pull_resp = _call(EVENT_SERVICE,
+                              f"{NS_TEV}/PullMessages",
+                              """<tev:PullMessages>
+                                   <tev:Timeout>PT5S</tev:Timeout>
+                                   <tev:MessageLimit>10</tev:MessageLimit>
+                                 </tev:PullMessages>""")
+            if pull_resp is None or _has_fault(pull_resp):
+                return False, "PullMessages failed after inject"
+            xml_bytes = etree.tostring(pull_resp) if pull_resp is not None else b""
+            has_msg = b"NotificationMessage" in xml_bytes
+            return has_msg, "NotificationMessage in response" if has_msg else "No NotificationMessage — event not delivered"
+        except Exception as e:
+            return False, str(e)
+
+    check("S", "Events", "PullMessages+LiveEvent", False,
+          EVENT_SERVICE, NS_TEV,
+          "PullMessages",
+          "",
+          custom_check=lambda _: _pull_with_inject(_))
+
+    # ── Replay GetReplayConfiguration round-trip ──────────────────────────────
+    def _replay_config_roundtrip(root_unused):
+        """Set + Get replay config — verify value persists."""
+        try:
+            set_resp = _call(REPLAY_SERVICE,
+                             f"{NS_TRP}/SetReplayConfiguration",
+                             """<trp:SetReplayConfiguration>
+                                  <trp:Configuration>
+                                    <tt:SessionTimeout>PT3M</tt:SessionTimeout>
+                                  </trp:Configuration>
+                                </trp:SetReplayConfiguration>""")
+            if set_resp is None or _has_fault(set_resp):
+                return False, "SetReplayConfiguration fault"
+            get_resp = _call(REPLAY_SERVICE,
+                             f"{NS_TRP}/GetReplayConfiguration",
+                             "<trp:GetReplayConfiguration/>")
+            if get_resp is None or _has_fault(get_resp):
+                return False, "GetReplayConfiguration fault after set"
+            xml_bytes = etree.tostring(get_resp)
+            # Expect PT3M (180s) in response
+            ok = b"PT3M" in xml_bytes or b"PT180S" in xml_bytes
+            return ok, "Timeout PT3M persisted" if ok else f"Unexpected value: {xml_bytes[200:300]}"
+        except Exception as e:
+            return False, str(e)
+
+    check("G", "Replay", "ReplayConfig round-trip", False,
+          REPLAY_SERVICE, NS_TRP,
+          "SetReplayConfiguration",
+          "",
+          custom_check=lambda _: _replay_config_roundtrip(_))
+
 
 # ── Print table ──────────────────────────────────────────────────────────────
 
