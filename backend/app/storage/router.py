@@ -67,29 +67,29 @@ async def storage_analytics(
     rows7 = (await db.execute(text("""
         SELECT camera_id, COALESCE(SUM(file_size), 0) AS total
         FROM recordings
-        WHERE start_time >= datetime('now', '-7 days')
+        WHERE start_time >= NOW() - INTERVAL '7 days'
         GROUP BY camera_id
     """))).fetchall()
     rows30 = (await db.execute(text("""
         SELECT camera_id, COALESCE(SUM(file_size), 0) AS total
         FROM recordings
-        WHERE start_time >= datetime('now', '-30 days')
+        WHERE start_time >= NOW() - INTERVAL '30 days'
         GROUP BY camera_id
     """))).fetchall()
     rows90 = (await db.execute(text("""
         SELECT camera_id, COALESCE(SUM(file_size), 0) AS total
         FROM recordings
-        WHERE start_time >= datetime('now', '-90 days')
+        WHERE start_time >= NOW() - INTERVAL '90 days'
         GROUP BY camera_id
     """))).fetchall()
 
     per_camera = {}
     for cid, total in rows7:
-        per_camera.setdefault(cid, {})["bytes_per_day_7d"] = total / 7.0
+        per_camera.setdefault(cid, {})["bytes_per_day_7d"] = float(total) / 7.0
     for cid, total in rows30:
-        per_camera.setdefault(cid, {})["bytes_per_day_30d"] = total / 30.0
+        per_camera.setdefault(cid, {})["bytes_per_day_30d"] = float(total) / 30.0
     for cid, total in rows90:
-        per_camera.setdefault(cid, {})["bytes_per_day_90d"] = total / 90.0
+        per_camera.setdefault(cid, {})["bytes_per_day_90d"] = float(total) / 90.0
 
     # Per-pool days-until-full
     summary = await svc.get_summary(db)
