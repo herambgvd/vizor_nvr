@@ -17,6 +17,7 @@ import {
   Clock,
   Network,
   BookOpen,
+  Plug,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { useAuth } from "../../context/AuthContext";
@@ -36,6 +37,7 @@ const SettingsLayout = () => {
         ...BASE_NAV,
         { path: "time", label: "Time & NTP", icon: Clock },
         { path: "network", label: "Network", icon: Network },
+        { path: "integrations", label: "Integrations", icon: Plug },
         { path: "license", label: "License", icon: KeyRound },
         { path: "audit", label: "Audit Log", icon: Shield },
         { path: "__api_docs__", label: "API Docs", icon: BookOpen, external: "/api/docs" },

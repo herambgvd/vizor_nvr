@@ -43,6 +43,9 @@ const SettingsConfiguration = lazy(() => import("./pages/Settings"));
 const SettingsLicense = lazy(() => import("./pages/settings/LicensePage"));
 const SettingsTime = lazy(() => import("./pages/settings/TimeSettingsPage"));
 const SettingsNetwork = lazy(() => import("./pages/settings/NetworkSettingsPage"));
+const SettingsIntegrations = lazy(() =>
+  import("./pages/settings/IntegrationsPage"),
+);
 const SettingsResources = lazy(() =>
   import("./pages/monitoring/ResourcesPage"),
 );
@@ -153,6 +156,7 @@ const AppRoutes = () => (
           <Route path="license" element={<AdminRoute><SettingsLicense /></AdminRoute>} />
           <Route path="time" element={<AdminRoute><SettingsTime /></AdminRoute>} />
           <Route path="network" element={<AdminRoute><SettingsNetwork /></AdminRoute>} />
+          <Route path="integrations" element={<AdminRoute><SettingsIntegrations /></AdminRoute>} />
           <Route
             path="audit"
             element={
