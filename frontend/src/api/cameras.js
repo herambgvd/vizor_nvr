@@ -289,33 +289,33 @@ export const removeUserFromGroup = async (groupId, userId) => {
 // ---------- ONVIF advanced ----------
 
 export const getONVIFCapabilities = async (cameraId) => {
-  const response = await apiClient.get(`/cameras/${cameraId}/onvif/capabilities`, { timeout: 20000 });
+  const response = await apiClient.get(`/cameras/${cameraId}/onvif-capabilities`, { timeout: 20000 });
   return response.data;
 };
 
 export const getONVIFDeviceInfo = async (cameraId) => {
-  const response = await apiClient.get(`/cameras/${cameraId}/onvif/device-info`, { timeout: 15000 });
+  const response = await apiClient.get(`/cameras/${cameraId}/system-info`, { timeout: 15000 });
   return response.data;
 };
 
 export const getONVIFTime = async (cameraId) => {
-  const response = await apiClient.get(`/cameras/${cameraId}/onvif/time`, { timeout: 10000 });
+  const response = await apiClient.get(`/cameras/${cameraId}/system-time`, { timeout: 10000 });
   return response.data;
 };
 
 export const syncONVIFTime = async (cameraId) => {
-  const response = await apiClient.post(`/cameras/${cameraId}/onvif/sync-time`, {}, { timeout: 15000 });
+  const response = await apiClient.post(`/cameras/${cameraId}/system-time/sync`, {}, { timeout: 15000 });
   return response.data;
 };
 
 export const rebootCamera = async (cameraId) => {
-  const response = await apiClient.post(`/cameras/${cameraId}/onvif/reboot`, {}, { timeout: 30000 });
+  const response = await apiClient.post(`/cameras/${cameraId}/reboot`, {}, { timeout: 30000 });
   return response.data;
 };
 
 export const factoryDefaultCamera = async (cameraId, hard = false) => {
   const response = await apiClient.post(
-    `/cameras/${cameraId}/onvif/factory-default`,
+    `/cameras/${cameraId}/factory-default`,
     { hard },
     { timeout: 30000 },
   );
@@ -323,28 +323,28 @@ export const factoryDefaultCamera = async (cameraId, hard = false) => {
 };
 
 export const getImagingSettings = async (cameraId) => {
-  const response = await apiClient.get(`/cameras/${cameraId}/onvif/imaging`, { timeout: 15000 });
+  const response = await apiClient.get(`/cameras/${cameraId}/imaging`, { timeout: 15000 });
   return response.data;
 };
 
 export const setImagingSettings = async (cameraId, data) => {
-  const response = await apiClient.put(`/cameras/${cameraId}/onvif/imaging`, data, { timeout: 15000 });
+  const response = await apiClient.put(`/cameras/${cameraId}/imaging`, data, { timeout: 15000 });
   return response.data;
 };
 
 export const moveFocus = async (cameraId, data) => {
-  const response = await apiClient.post(`/cameras/${cameraId}/onvif/imaging/focus`, data, { timeout: 10000 });
+  const response = await apiClient.post(`/cameras/${cameraId}/imaging/focus`, data, { timeout: 10000 });
   return response.data;
 };
 
 export const getRelayOutputs = async (cameraId) => {
-  const response = await apiClient.get(`/cameras/${cameraId}/onvif/relay-outputs`, { timeout: 15000 });
+  const response = await apiClient.get(`/cameras/${cameraId}/io/outputs`, { timeout: 15000 });
   return response.data;
 };
 
 export const triggerRelayOutput = async (cameraId, token, state) => {
   const response = await apiClient.post(
-    `/cameras/${cameraId}/onvif/relay-outputs/${token}/trigger`,
+    `/cameras/${cameraId}/io/outputs/${token}/trigger`,
     { state },
     { timeout: 10000 },
   );
@@ -352,7 +352,7 @@ export const triggerRelayOutput = async (cameraId, token, state) => {
 };
 
 export const getDigitalInputs = async (cameraId) => {
-  const response = await apiClient.get(`/cameras/${cameraId}/onvif/digital-inputs`, { timeout: 15000 });
+  const response = await apiClient.get(`/cameras/${cameraId}/io/inputs`, { timeout: 15000 });
   return response.data;
 };
 

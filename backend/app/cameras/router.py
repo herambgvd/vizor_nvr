@@ -1692,6 +1692,42 @@ async def reboot_camera(
     return {"camera_id": camera_id, "message": msg}
 
 
+@router.post("/{camera_id}/factory-default")
+async def factory_default_camera(
+    camera_id: str,
+    body: dict,
+    request: Request,
+    user: dict = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Reset camera via ONVIF SetSystemFactoryDefault (admin only).
+
+    Body: {"hard": false}  — Soft preserves IP config, Hard resets everything.
+    """
+    camera = await svc.get_by_id(db, camera_id)
+    if not camera or not camera.onvif_host:
+        raise HTTPException(404, "Camera not found or no ONVIF configured")
+    hard = bool(body.get("hard", False))
+    try:
+        msg = await onvif_service.factory_default(
+            camera.onvif_host, camera.onvif_port,
+            decrypt_value(camera.onvif_username) or "admin",
+            decrypt_value(camera.onvif_password or ""),
+            hard=hard,
+        )
+    except RuntimeError as e:
+        raise HTTPException(500, str(e))
+    await write_audit(
+        db, action="camera_factory_default",
+        user_id=user["id"], username=user["username"],
+        ip_address=client_ip(request), resource_type="camera", resource_id=camera_id,
+        severity="warning",
+        description=f"hard={hard}",
+    )
+    await db.commit()
+    return {"camera_id": camera_id, "message": msg, "hard": hard}
+
+
 # ══════════════════════════════════════════════════════════════════════
 # ONVIF Imaging Service
 # ══════════════════════════════════════════════════════════════════════
