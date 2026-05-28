@@ -435,3 +435,20 @@ async def updates_apply(user: dict = Depends(get_admin_user)):
     -d` on the host. The endpoint exists so the UI button has a target."""
     raise HTTPException(501, "Auto-apply requires a vendor update server — "
                              "pull the latest image with `docker compose pull` instead")
+
+
+# ─── Hardware Acceleration Probe (L1) ─────────────────────────────────────────
+
+@router.get("/hwaccel")
+async def get_hwaccel(user: dict = Depends(get_admin_user)):
+    """
+    Return the cached hardware-acceleration probe result.
+    Probes ffmpeg for available HW encoders/decoders (NVENC, VAAPI,
+    VideoToolbox, QSV) on first call; subsequent calls return the cache.
+
+    On macOS Docker Desktop, containers run in a Linux VM without GPU
+    passthrough so videotoolbox will NOT appear here even on Mac hosts.
+    On a Linux host with an NVIDIA GPU, nvenc should appear.
+    """
+    from app.services.hwaccel_probe import probe
+    return probe()
