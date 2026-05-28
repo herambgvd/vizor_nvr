@@ -273,14 +273,24 @@ class SMSTestRequest(BaseModel):
 
 @router.post("/sms/test")
 async def test_sms(
+    request: Request,
     body: SMSTestRequest,
     user: dict = Depends(get_admin_user),
 ):
-    """Send a test SMS via Twilio."""
+    """Send a test SMS via Twilio (admin only).  Audited."""
     from app.notifications.sms_service import sms_service
-    result = await sms_service.send(body.to, body.message)
+    result = await sms_service.send(body.to, body.message or "GVD NVR SMS test")
+    await write_audit(
+        action="sms_test",
+        actor=user.get("username", "admin"),
+        detail={"to": body.to, "ok": result.get("ok"), "error": result.get("error")},
+        ip=client_ip(request),
+    )
     if not result["ok"]:
-        raise HTTPException(400, result.get("error", "SMS failed"))
+        raise HTTPException(
+            status_code=400,
+            detail=result.get("error", "SMS send failed"),
+        )
     return result
 
 
@@ -291,13 +301,22 @@ class WhatsAppTestRequest(BaseModel):
 
 @router.post("/whatsapp/test")
 async def test_whatsapp(
+    request: Request,
     body: WhatsAppTestRequest,
     user: dict = Depends(get_admin_user),
 ):
-    """Send a test WhatsApp message via Twilio."""
+    """Send a test WhatsApp message via Twilio (admin only).  Audited."""
     from app.notifications.whatsapp_service import whatsapp_service
-    result = await whatsapp_service.send(body.to, body.message)
+    result = await whatsapp_service.send(body.to, body.message or "GVD NVR WhatsApp test")
+    await write_audit(
+        action="whatsapp_test",
+        actor=user.get("username", "admin"),
+        detail={"to": body.to, "ok": result.get("ok"), "error": result.get("error")},
+        ip=client_ip(request),
+    )
     if not result["ok"]:
-        raise HTTPException(400, result.get("error", "WhatsApp failed"))
+        raise HTTPException(
+            status_code=400,
+            detail=result.get("error", "WhatsApp send failed"),
+        )
     return result
-    return {"success": ok}

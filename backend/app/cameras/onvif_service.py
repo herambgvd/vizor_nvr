@@ -510,234 +510,45 @@ class ONVIFService:
         return await asyncio.to_thread(_get_uris)
 
     # ------------------------------------------------------------------
-    # PTZ Control
+    # PTZ Control  (implementations in cameras/onvif/ptz.py)
     # ------------------------------------------------------------------
 
-    async def continuous_move(
-        self, host: str, port: int, username: str, password: str,
-        pan: float = 0.0, tilt: float = 0.0, zoom: float = 0.0, speed: float = 0.5,
-        profile_token: Optional[str] = None,
-    ) -> bool:
-        """Start continuous PTZ movement. Call stop() to halt."""
-        if not _HAS_ONVIF:
-            raise RuntimeError("python-onvif-zeep not installed")
+    async def continuous_move(self, host, port, username, password,
+                              pan=0.0, tilt=0.0, zoom=0.0, speed=0.5, profile_token=None):
+        from app.cameras.onvif.ptz import continuous_move as _impl
+        return await _impl(host, port, username, password, pan, tilt, zoom, speed, profile_token)
 
-        def _move():
-            try:
-                cam = ONVIFCamera(host, port, username, password)
-                media = cam.create_media_service()
-                ptz = cam.create_ptz_service()
-                _profile_token = profile_token or media.GetProfiles()[0].token
+    async def relative_move(self, host, port, username, password, translation, profile_token=None):
+        from app.cameras.onvif.ptz import relative_move as _impl
+        return await _impl(host, port, username, password, translation, profile_token)
 
-                request = ptz.create_type("ContinuousMove")
-                request.ProfileToken = _profile_token
-                request.Velocity = {
-                    "PanTilt": {"x": pan * speed, "y": tilt * speed},
-                    "Zoom": {"x": zoom * speed},
-                }
-                ptz.ContinuousMove(request)
-                return True
-            except Exception as e:
-                logger.error(f"PTZ move failed: {e}")
-                return False
+    async def absolute_move(self, host, port, username, password, position, profile_token=None):
+        from app.cameras.onvif.ptz import absolute_move as _impl
+        return await _impl(host, port, username, password, position, profile_token)
 
-        return await asyncio.to_thread(_move)
+    async def stop(self, host, port, username, password, profile_token=None):
+        from app.cameras.onvif.ptz import stop as _impl
+        return await _impl(host, port, username, password, profile_token)
 
-    async def relative_move(
-        self, host: str, port: int, username: str, password: str,
-        translation: dict, profile_token: Optional[str] = None,
-    ) -> bool:
-        """Start relative PTZ movement."""
-        if not _HAS_ONVIF:
-            raise RuntimeError("python-onvif-zeep not installed")
+    async def get_presets(self, host, port, username, password, profile_token=None):
+        from app.cameras.onvif.ptz import get_presets as _impl
+        return await _impl(host, port, username, password, profile_token)
 
-        def _move():
-            try:
-                cam = ONVIFCamera(host, port, username, password)
-                media = cam.create_media_service()
-                ptz = cam.create_ptz_service()
-                _profile_token = profile_token or media.GetProfiles()[0].token
-                request = ptz.create_type("RelativeMove")
-                request.ProfileToken = _profile_token
-                request.Translation = {
-                    "PanTilt": {"x": translation.get("x", 0), "y": translation.get("y", 0)},
-                    "Zoom": {"x": translation.get("z", 0)},
-                }
-                ptz.RelativeMove(request)
-                return True
-            except Exception as e:
-                logger.error(f"PTZ relative move failed: {e}")
-                return False
+    async def goto_preset(self, host, port, username, password, preset_token, profile_token=None):
+        from app.cameras.onvif.ptz import goto_preset as _impl
+        return await _impl(host, port, username, password, preset_token, profile_token)
 
-        return await asyncio.to_thread(_move)
+    async def set_preset(self, host, port, username, password, preset_name, profile_token=None):
+        from app.cameras.onvif.ptz import set_preset as _impl
+        return await _impl(host, port, username, password, preset_name, profile_token)
 
-    async def absolute_move(
-        self, host: str, port: int, username: str, password: str,
-        position: dict, profile_token: Optional[str] = None,
-    ) -> bool:
-        """Move PTZ to absolute position."""
-        if not _HAS_ONVIF:
-            raise RuntimeError("python-onvif-zeep not installed")
+    async def delete_preset(self, host, port, username, password, preset_token, profile_token=None):
+        from app.cameras.onvif.ptz import delete_preset as _impl
+        return await _impl(host, port, username, password, preset_token, profile_token)
 
-        def _move():
-            try:
-                cam = ONVIFCamera(host, port, username, password)
-                media = cam.create_media_service()
-                ptz = cam.create_ptz_service()
-                _profile_token = profile_token or media.GetProfiles()[0].token
-                request = ptz.create_type("AbsoluteMove")
-                request.ProfileToken = _profile_token
-                request.Position = {
-                    "PanTilt": {"x": position.get("x", 0), "y": position.get("y", 0)},
-                    "Zoom": {"x": position.get("z", 0)},
-                }
-                ptz.AbsoluteMove(request)
-                return True
-            except Exception as e:
-                logger.error(f"PTZ absolute move failed: {e}")
-                return False
-
-        return await asyncio.to_thread(_move)
-
-    async def stop(
-        self, host: str, port: int, username: str, password: str,
-        profile_token: Optional[str] = None,
-    ) -> bool:
-        """Stop all PTZ movement."""
-        if not _HAS_ONVIF:
-            return False
-
-        def _stop():
-            try:
-                cam = ONVIFCamera(host, port, username, password)
-                media = cam.create_media_service()
-                ptz = cam.create_ptz_service()
-                _profile_token = profile_token or media.GetProfiles()[0].token
-                ptz.Stop({"ProfileToken": _profile_token, "PanTilt": True, "Zoom": True})
-                return True
-            except Exception as e:
-                logger.error(f"PTZ stop failed: {e}")
-                return False
-
-        return await asyncio.to_thread(_stop)
-
-    async def get_presets(
-        self, host: str, port: int, username: str, password: str,
-        profile_token: Optional[str] = None,
-    ) -> List[Dict[str, str]]:
-        if not _HAS_ONVIF:
-            return []
-
-        def _presets():
-            try:
-                cam = ONVIFCamera(host, port, username, password)
-                media = cam.create_media_service()
-                ptz = cam.create_ptz_service()
-                _profile_token = profile_token or media.GetProfiles()[0].token
-                presets = ptz.GetPresets({"ProfileToken": _profile_token})
-                return [{"token": str(p.token), "name": str(p.Name)} for p in presets]
-            except Exception as e:
-                logger.error(f"Get presets failed: {e}")
-                return []
-
-        return await asyncio.to_thread(_presets)
-
-    async def goto_preset(
-        self, host: str, port: int, username: str, password: str,
-        preset_token: str,
-        profile_token: Optional[str] = None,
-    ) -> bool:
-        if not _HAS_ONVIF:
-            return False
-
-        def _goto():
-            try:
-                cam = ONVIFCamera(host, port, username, password)
-                media = cam.create_media_service()
-                ptz = cam.create_ptz_service()
-                _profile_token = profile_token or media.GetProfiles()[0].token
-                ptz.GotoPreset({
-                    "ProfileToken": _profile_token,
-                    "PresetToken": preset_token,
-                })
-                return True
-            except Exception as e:
-                logger.error(f"Goto preset failed: {e}")
-                return False
-
-        return await asyncio.to_thread(_goto)
-
-    async def set_preset(
-        self, host: str, port: int, username: str, password: str,
-        preset_name: str,
-        profile_token: Optional[str] = None,
-    ) -> Optional[str]:
-        """Save current position as a named preset. Returns preset token."""
-        if not _HAS_ONVIF:
-            return None
-
-        def _set():
-            try:
-                cam = ONVIFCamera(host, port, username, password)
-                media = cam.create_media_service()
-                ptz = cam.create_ptz_service()
-                _profile_token = profile_token or media.GetProfiles()[0].token
-                result = ptz.SetPreset({
-                    "ProfileToken": _profile_token,
-                    "PresetName": preset_name,
-                })
-                # zeep returns a SetPresetResponse object; extract the actual token
-                token = getattr(result, "PresetToken", None) or getattr(result, "token", None)
-                return str(token) if token else None
-            except Exception as e:
-                logger.error(f"Set preset failed: {e}")
-                return None
-
-        return await asyncio.to_thread(_set)
-
-    async def delete_preset(
-        self, host: str, port: int, username: str, password: str,
-        preset_token: str,
-        profile_token: Optional[str] = None,
-    ) -> bool:
-        """Delete a PTZ preset by its token."""
-        if not _HAS_ONVIF:
-            return False
-
-        def _delete():
-            try:
-                cam = ONVIFCamera(host, port, username, password)
-                media = cam.create_media_service()
-                ptz = cam.create_ptz_service()
-                _profile_token = profile_token or media.GetProfiles()[0].token
-                ptz.RemovePreset({
-                    "ProfileToken": _profile_token,
-                    "PresetToken": preset_token,
-                })
-                return True
-            except Exception as e:
-                logger.error(f"Delete preset failed: {e}")
-                return False
-
-        return await asyncio.to_thread(_delete)
-
-    async def check_ptz_capable(
-        self, host: str, port: int, username: str, password: str,
-    ) -> bool:
-        """Check if camera supports PTZ."""
-        if not _HAS_ONVIF:
-            return False
-
-        def _check():
-            try:
-                cam = ONVIFCamera(host, port, username, password)
-                media = cam.create_media_service()
-                profiles = media.GetProfiles()
-                return any(hasattr(p, "PTZConfiguration") and p.PTZConfiguration for p in profiles)
-            except Exception:
-                return False
-
-        return await asyncio.to_thread(_check)
+    async def check_ptz_capable(self, host, port, username, password):
+        from app.cameras.onvif.ptz import check_ptz_capable as _impl
+        return await _impl(host, port, username, password)
 
     # ------------------------------------------------------------------
     # Media2 / Profile T (H.265, newer cameras)
