@@ -16,8 +16,9 @@ import {
   ChevronLeft,
   ChevronRight,
   Filter,
+  Download,
 } from "lucide-react";
-import { getAuditLogs, getAuditActions, cleanupAuditLogs } from "../api/audit";
+import { getAuditLogs, getAuditActions, cleanupAuditLogs, exportAuditLogs } from "../api/audit";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import {
@@ -114,6 +115,25 @@ const AuditLog = () => {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
 
+  const [exportFmt, setExportFmt] = useState("csv");
+  const [exporting, setExporting] = useState(false);
+
+  const handleExport = async (fmt) => {
+    setExporting(true);
+    try {
+      const p = { format: fmt };
+      if (action && action !== "all") p.action = action;
+      if (userFilter.trim()) p.user_id = userFilter.trim();
+      if (startDate) p.from = startDate;
+      if (endDate) p.to = endDate;
+      await exportAuditLogs(p);
+    } catch (e) {
+      toast.error("Export failed");
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const cleanupMut = useMutation({
     mutationFn: cleanupAuditLogs,
     onSuccess: (res) => {
@@ -139,6 +159,24 @@ const AuditLog = () => {
         </div>
 
         <div className="ml-auto flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handleExport("csv")}
+            disabled={exporting}
+          >
+            <Download className="h-4 w-4 mr-1" />
+            CSV
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handleExport("json")}
+            disabled={exporting}
+          >
+            <Download className="h-4 w-4 mr-1" />
+            JSON
+          </Button>
           <Button
             variant="outline"
             size="sm"

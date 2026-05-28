@@ -67,6 +67,89 @@ import io
 from datetime import datetime
 
 
+@router.get("/logs/export")
+async def export_audit_logs(
+    format: str = Query("csv", regex="^(csv|json)$"),
+    from_date: Optional[str] = Query(None, alias="from"),
+    to_date: Optional[str] = Query(None, alias="to"),
+    user_id: Optional[str] = None,
+    action: Optional[str] = None,
+    admin: dict = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Stream a full audit log export as CSV or JSON (admin only).
+    Query params: format=csv|json, from=<iso>, to=<iso>, user_id=, action=
+    Suitable for compliance audits; uses StreamingResponse to avoid OOM on large sets."""
+    from sqlalchemy import text
+
+    where_clauses = []
+    params: dict = {}
+    if from_date:
+        where_clauses.append("created_at >= :from_date")
+        params["from_date"] = from_date
+    if to_date:
+        where_clauses.append("created_at <= :to_date")
+        params["to_date"] = to_date
+    if user_id:
+        where_clauses.append("user_id = :user_id")
+        params["user_id"] = user_id
+    if action:
+        where_clauses.append("action = :action")
+        params["action"] = action
+
+    sql = (
+        "SELECT created_at, user_id, username, action, resource_type, "
+        "resource_id, ip_address, severity, description FROM audit_logs"
+    )
+    if where_clauses:
+        sql += " WHERE " + " AND ".join(where_clauses)
+    sql += " ORDER BY created_at DESC"
+
+    rows = (await db.execute(text(sql), params)).fetchall()
+    timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+
+    if format == "json":
+        import json
+
+        def _iter_json():
+            yield '{"count":' + str(len(rows)) + ',"rows":['
+            cols = ["created_at", "user_id", "username", "action",
+                    "resource_type", "resource_id", "ip_address", "severity", "description"]
+            for i, row in enumerate(rows):
+                rec = {}
+                for col, val in zip(cols, row):
+                    rec[col] = str(val) if val is not None else None
+                yield ("," if i else "") + json.dumps(rec)
+            yield "]}"
+
+        return StreamingResponse(
+            _iter_json(),
+            media_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="audit-{timestamp}.json"'},
+        )
+
+    # CSV streaming — yield header then rows in chunks to avoid memory pressure
+    COLS = ["timestamp", "user_id", "username", "action", "resource_type",
+            "resource_id", "ip_address", "severity", "description"]
+
+    def _iter_csv():
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(COLS)
+        yield buf.getvalue()
+        for row in rows:
+            buf = io.StringIO()
+            w = csv.writer(buf)
+            w.writerow([str(v) if v is not None else "" for v in row])
+            yield buf.getvalue()
+
+    return StreamingResponse(
+        _iter_csv(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="audit-{timestamp}.csv"'},
+    )
+
+
 @router.get("/report")
 async def audit_report(
     from_date: Optional[str] = Query(None, alias="from"),
