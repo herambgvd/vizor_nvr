@@ -131,6 +131,11 @@ class Settings:
         os.getenv("CLUSTER_HEARTBEAT_INTERVAL", "5")
     )
     CLUSTER_LEASE_TTL: int = int(os.getenv("CLUSTER_LEASE_TTL", "15"))
+    # Minimum seconds between repeated cluster role-change events; guards
+    # against restart loops spamming the alarms panel.
+    CLUSTER_EVENT_COOLDOWN_SECS: int = int(
+        os.getenv("CLUSTER_EVENT_COOLDOWN_SECS", "60")
+    )
 
     # ── POS / ATM Overlay ───────────────────────────────────────────────
     # POS_OVERLAY_PORT: TCP port for receipt-printer serial-over-IP devices

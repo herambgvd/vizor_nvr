@@ -205,10 +205,38 @@ class ClusterService:
     # ── Role transitions ───────────────────────────────────────────────
 
     async def _promote(self, db):
-        """Promote this node to active leader."""
+        """Promote this node to active leader.
+
+        Severity rules:
+          - "critical" only when a previously-healthy peer leader went stale
+            (genuine failover the operator should be paged for).
+          - "info" on cold start / single-node install / no recent peer.
+          - Cooldown: don't re-fire the same event within
+            CLUSTER_EVENT_COOLDOWN_SECS so a backend restart loop can't
+            spam the alarms panel.
+        """
         logger.warning(f"[cluster] Node {self._node_id} PROMOTED to active leader")
         self._is_leader = True
         self._last_role_change = datetime.now(timezone.utc).replace(tzinfo=None)
+
+        # Decide severity BEFORE we touch the DB, so the heartbeat freshness
+        # reflects the state at the moment of takeover.
+        is_real_failover = False
+        try:
+            from sqlalchemy import text
+            row = (await db.execute(
+                text(
+                    "SELECT COUNT(*) FROM cluster_nodes "
+                    "WHERE node_id != :nid "
+                    "AND is_leader = true "
+                    "AND last_heartbeat_at IS NOT NULL "
+                    "AND last_heartbeat_at > (NOW() - INTERVAL '30 seconds')"
+                ),
+                {"nid": self._node_id},
+            )).scalar() or 0
+            is_real_failover = row > 0
+        except Exception as exc:
+            logger.debug(f"[cluster] Could not assess prior-leader health: {exc}")
 
         try:
             from app.cluster.models import ClusterNode
@@ -245,16 +273,39 @@ class ClusterService:
         except Exception as exc:
             logger.error(f"[cluster] Failed to start camera monitor after promotion: {exc}")
 
-        # Emit failover event
+        # Cooldown: skip emit if we fired the same event in the last N seconds.
+        now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+        cooldown_secs = getattr(settings, "CLUSTER_EVENT_COOLDOWN_SECS", 60)
+        last_emit = getattr(self, "_last_promotion_event_at", None)
+        if last_emit and (now_naive - last_emit).total_seconds() < cooldown_secs:
+            logger.debug("[cluster] Promotion event suppressed by cooldown")
+            return
+        self._last_promotion_event_at = now_naive
+
         try:
             from app.events.linkage_service import linkage_engine
-            await linkage_engine.fire_event(
-                camera_id=None,
-                event_type="cluster_failover",
-                severity="critical",
-                title="NVR failover — node promoted to active",
-                description=f"Node {self._node_id} became active leader",
-            )
+            if is_real_failover:
+                await linkage_engine.fire_event(
+                    camera_id=None,
+                    event_type="cluster_failover",
+                    severity="critical",
+                    title="NVR failover — node promoted to active",
+                    description=(
+                        f"Node {self._node_id} took over from a previously-"
+                        f"healthy peer that stopped sending heartbeats."
+                    ),
+                )
+            else:
+                await linkage_engine.fire_event(
+                    camera_id=None,
+                    event_type="cluster_startup",
+                    severity="info",
+                    title="NVR started as active leader",
+                    description=(
+                        f"Node {self._node_id} claimed leadership on cold start "
+                        f"(no recent peer heartbeat)."
+                    ),
+                )
         except Exception:
             pass
 
@@ -284,7 +335,7 @@ class ClusterService:
         # Stop recordings to avoid split-brain
         try:
             from app.services.ffmpeg_manager import ffmpeg_manager
-            await ffmpeg_manager.cleanup_all()
+            await ffmpeg_manager.cleanup()
             logger.info("[cluster] All FFmpeg processes stopped after demotion")
         except Exception as exc:
             logger.error(f"[cluster] Failed to stop recordings after demotion: {exc}")
