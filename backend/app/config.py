@@ -123,6 +123,61 @@ class Settings:
     ENV: str = os.getenv("ENV", "development")
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
 
+    # ── Cluster ─────────────────────────────────────────────────────────
+    # NVR_NODE_ID: unique identifier for this node; defaults to hostname
+    NVR_NODE_ID: str = os.getenv("NVR_NODE_ID", "")
+    NVR_NODE_IP: str = os.getenv("NVR_NODE_IP", "")
+    CLUSTER_HEARTBEAT_INTERVAL: int = int(
+        os.getenv("CLUSTER_HEARTBEAT_INTERVAL", "5")
+    )
+    CLUSTER_LEASE_TTL: int = int(os.getenv("CLUSTER_LEASE_TTL", "15"))
+
+    # ── POS / ATM Overlay ───────────────────────────────────────────────
+    # POS_OVERLAY_PORT: TCP port for receipt-printer serial-over-IP devices
+    # (default 9100 = raw-print protocol; change to avoid conflict if needed)
+    POS_OVERLAY_PORT: int = int(os.getenv("POS_OVERLAY_PORT", "9100"))
+    POS_OVERLAY_HOST: str = os.getenv("POS_OVERLAY_HOST", "0.0.0.0")
+    # POS_MAX_MESSAGE_BYTES: close connection if a single message exceeds this
+    POS_MAX_MESSAGE_BYTES: int = int(os.getenv("POS_MAX_MESSAGE_BYTES", "4096"))
+    # POS_BUFFER_LAST_N: messages buffered per-IP when no camera is assigned yet
+    POS_BUFFER_LAST_N: int = int(os.getenv("POS_BUFFER_LAST_N", "20"))
+
+    # ── ANR (Automatic Network Replenishment) ───────────────────────────
+    # ANR_DEBOUNCE_SECONDS: camera must be stable online for this long before
+    # ANR is triggered (avoids false-fires on transient blips)
+    ANR_DEBOUNCE_SECONDS: int = int(os.getenv("ANR_DEBOUNCE_SECONDS", "60"))
+    # ANR_SEGMENT_DURATION: seconds per download chunk
+    ANR_SEGMENT_DURATION: int = int(os.getenv("ANR_SEGMENT_DURATION", "600"))
+
+    # ── Dewarp ──────────────────────────────────────────────────────────
+    # DEWARP_MAX_CONCURRENT: max simultaneous dewarp FFmpeg jobs (CPU guard)
+    DEWARP_MAX_CONCURRENT: int = int(os.getenv("DEWARP_MAX_CONCURRENT", "4"))
+    # DEWARP_FALLBACK_WIDTH/HEIGHT: used when no GPU encoder available
+    DEWARP_FALLBACK_WIDTH: int = int(os.getenv("DEWARP_FALLBACK_WIDTH", "1280"))
+    DEWARP_FALLBACK_HEIGHT: int = int(os.getenv("DEWARP_FALLBACK_HEIGHT", "720"))
+
+    # ── RAID ────────────────────────────────────────────────────────────
+    # RAID_POLL_INTERVAL: seconds between degraded-state checks
+    RAID_POLL_INTERVAL: int = int(os.getenv("RAID_POLL_INTERVAL", "60"))
+
+    # ── Archive / Scheduled Backup ──────────────────────────────────────
+    # ARCHIVE_CHECK_INTERVAL: seconds between cron schedule evaluations
+    ARCHIVE_CHECK_INTERVAL: int = int(os.getenv("ARCHIVE_CHECK_INTERVAL", "60"))
+    # ARCHIVE_NAS_MAX_BACKOFF: maximum retry backoff in seconds when NAS down
+    ARCHIVE_NAS_MAX_BACKOFF: int = int(
+        os.getenv("ARCHIVE_NAS_MAX_BACKOFF", "960")
+    )  # 16 minutes
+
+    # ── Twilio (SMS + WhatsApp) ─────────────────────────────────────────
+    TWILIO_ACCOUNT_SID: str = os.getenv("TWILIO_ACCOUNT_SID", "")
+    TWILIO_AUTH_TOKEN: str = os.getenv("TWILIO_AUTH_TOKEN", "")
+    TWILIO_FROM_NUMBER: str = os.getenv("TWILIO_FROM_NUMBER", "")
+    TWILIO_WHATSAPP_FROM: str = os.getenv("TWILIO_WHATSAPP_FROM", "")
+    # SMS_RATE_LIMIT_PER_HOUR: max SMS per recipient per hour (billing guard)
+    SMS_RATE_LIMIT_PER_HOUR: int = int(os.getenv("SMS_RATE_LIMIT_PER_HOUR", "5"))
+    # WA_RATE_LIMIT_PER_HOUR: same guard for WhatsApp
+    WA_RATE_LIMIT_PER_HOUR: int = int(os.getenv("WA_RATE_LIMIT_PER_HOUR", "5"))
+
     # ── Helpers ─────────────────────────────────────────────────────────
 
     def ensure_directories(self):
