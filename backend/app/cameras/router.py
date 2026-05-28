@@ -2314,31 +2314,61 @@ async def start_backchannel(
 ):
     """
     Register a two-way audio backchannel session for this camera.
-    go2rtc two-way audio (publish direction) is not yet wired end-to-end;
-    this endpoint starts the FFmpeg-based fallback session and returns the
-    backchannel RTSP URL so the frontend knows whether the camera supports it.
-    Gap: full WebRTC publish path requires go2rtc backchannel source — see
-    docs/ONVIF_COMPLIANCE.md for status.
+
+    Uses a per-camera capability cache (backchannel_capable column):
+    - NULL  = untested → attempt, then persist result
+    - True  = supported → skip re-registration, reuse
+    - False = not supported → immediately 503
+
+    Reset the cache with POST /cameras/{id}/audio/backchannel/recheck.
     """
     camera = await svc.get_by_id(db, camera_id)
     if not camera:
         raise HTTPException(404, "Camera not found")
 
-    backchannel_url = None
-    if camera.onvif_host:
-        try:
-            backchannel_url = await onvif_service.get_audio_output_uri(
-                camera.onvif_host, camera.onvif_port,
-                decrypt_value(camera.onvif_username) or "admin",
-                decrypt_value(camera.onvif_password or ""),
-            )
-        except Exception:
-            pass
+    # Fast-path: already known unsupported
+    if getattr(camera, "backchannel_capable", None) is False:
+        raise HTTPException(503, "Two-way audio not supported by this camera (cached result). "
+                                 "Use /audio/backchannel/recheck to re-probe.")
 
-    if not backchannel_url and camera.main_stream_url:
-        from urllib.parse import urlparse
-        parsed = urlparse(camera.main_stream_url)
-        backchannel_url = f"rtsp://{parsed.hostname}:554/backchannel"
+    backchannel_url = None
+
+    # Fast-path: already known supported — skip re-probing, just start session
+    if getattr(camera, "backchannel_capable", None) is True:
+        if camera.onvif_host:
+            try:
+                backchannel_url = await onvif_service.get_audio_output_uri(
+                    camera.onvif_host, camera.onvif_port,
+                    decrypt_value(camera.onvif_username) or "admin",
+                    decrypt_value(camera.onvif_password or ""),
+                )
+            except Exception:
+                pass
+        if not backchannel_url and camera.main_stream_url:
+            from urllib.parse import urlparse
+            parsed = urlparse(camera.main_stream_url)
+            backchannel_url = f"rtsp://{parsed.hostname}:554/backchannel"
+    else:
+        # NULL = untested — probe and persist
+        if camera.onvif_host:
+            try:
+                backchannel_url = await onvif_service.get_audio_output_uri(
+                    camera.onvif_host, camera.onvif_port,
+                    decrypt_value(camera.onvif_username) or "admin",
+                    decrypt_value(camera.onvif_password or ""),
+                )
+            except Exception:
+                pass
+
+        if not backchannel_url and camera.main_stream_url:
+            from urllib.parse import urlparse
+            parsed = urlparse(camera.main_stream_url)
+            backchannel_url = f"rtsp://{parsed.hostname}:554/backchannel"
+
+        # Persist the capability result
+        capable = backchannel_url is not None
+        camera.backchannel_capable = capable
+        await db.commit()
 
     if not backchannel_url:
         raise HTTPException(503, "Two-way audio not configured on this camera")
@@ -2351,6 +2381,7 @@ async def start_backchannel(
         "camera_id": camera_id,
         "status": "active",
         "backchannel_url": backchannel_url,
+        "backchannel_capable_cached": camera.backchannel_capable,
         "note": "WebRTC publish path not yet wired; FFmpeg fallback active",
     }
 
@@ -2363,6 +2394,31 @@ async def stop_backchannel(
     """Stop two-way audio backchannel session."""
     await twoway_audio_service.stop_session(camera_id)
     return {"camera_id": camera_id, "status": "stopped"}
+
+
+@router.post("/{camera_id}/audio/backchannel/recheck")
+async def recheck_backchannel(
+    camera_id: str,
+    user: dict = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Reset the backchannel capability cache to NULL so the next Talk press
+    re-tests whether the camera supports two-way audio.
+
+    Useful when a camera's firmware updates and gains or loses backchannel
+    support without the NVR being restarted.
+    """
+    camera = await svc.get_by_id(db, camera_id)
+    if not camera:
+        raise HTTPException(404, "Camera not found")
+    camera.backchannel_capable = None
+    await db.commit()
+    return {
+        "camera_id": camera_id,
+        "backchannel_capable": None,
+        "message": "Backchannel capability cache reset. Next Talk press will re-probe.",
+    }
 
 
 # ── WebRTC publish path (preferred) ────────────────────────────────────────
@@ -2403,19 +2459,38 @@ async def backchannel_webrtc_signal(
     if not camera:
         raise HTTPException(404, "Camera not found")
 
+    # Fast-path: known unsupported — skip go2rtc round-trip entirely
+    if getattr(camera, "backchannel_capable", None) is False:
+        raise HTTPException(503, "Two-way audio not supported by this camera (cached). "
+                                 "Use /audio/backchannel/recheck to re-probe.")
+
     source_url = camera.main_stream_url
     if not source_url:
         raise HTTPException(503, "Camera does not support two-way audio")
 
-    # Re-register stream with backchannel=1 so go2rtc can open the write path
     stream_id = camera_id
-    ok = await go2rtc_manager.add_stream_with_backchannel(stream_id, source_url)
-    if not ok:
-        logger.warning(f"go2rtc backchannel re-register failed for {camera_id}; proceeding anyway")
+
+    # Only re-register with go2rtc backchannel if capability is unknown or known-good.
+    # If capability is True we've already registered; skip wasteful re-registration.
+    if getattr(camera, "backchannel_capable", None) is not True:
+        ok = await go2rtc_manager.add_stream_with_backchannel(stream_id, source_url)
+        if not ok:
+            logger.warning(f"go2rtc backchannel re-register failed for {camera_id}; proceeding anyway")
+    else:
+        logger.debug(f"backchannel_webrtc_signal: skipping re-registration for {camera_id} (cached capable=True)")
 
     answer_sdp = await go2rtc_manager.webrtc_signal_publish(stream_id, body.sdp)
     if not answer_sdp:
+        # Persist failure for next call
+        if getattr(camera, "backchannel_capable", None) is None:
+            camera.backchannel_capable = False
+            await db.commit()
         raise HTTPException(502, "go2rtc WebRTC publish signaling failed — camera may not support two-way audio")
+
+    # Persist success
+    if getattr(camera, "backchannel_capable", None) is None:
+        camera.backchannel_capable = True
+        await db.commit()
 
     logger.info(f"WebRTC backchannel signal OK camera={camera_id}")
     return {"sdp": answer_sdp}
