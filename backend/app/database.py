@@ -22,18 +22,30 @@ if not settings.DATABASE_URL:
     )
 
 # ---------------------------------------------------------------------------
-# Async engine (asyncpg)
+# Async engine (asyncpg for production, aiosqlite for tests)
 # ---------------------------------------------------------------------------
-engine = create_async_engine(
-    settings.DATABASE_URL,
-    echo=False,
-    future=True,
-    pool_pre_ping=True,
-    pool_size=20,
-    max_overflow=30,
-    pool_timeout=30,
-    pool_recycle=1800,
-)
+# Pool-tuning kwargs (pool_size, max_overflow, etc.) are only valid for
+# server-side pooling dialects such as asyncpg/psycopg.  SQLite uses
+# StaticPool and rejects those kwargs, so we only pass them for non-SQLite
+# URLs (detected by the scheme prefix).
+_is_sqlite = settings.DATABASE_URL.startswith("sqlite")
+
+_engine_kwargs: dict = {
+    "echo": False,
+    "future": True,
+}
+if not _is_sqlite:
+    _engine_kwargs.update(
+        {
+            "pool_pre_ping": True,
+            "pool_size": 20,
+            "max_overflow": 30,
+            "pool_timeout": 30,
+            "pool_recycle": 1800,
+        }
+    )
+
+engine = create_async_engine(settings.DATABASE_URL, **_engine_kwargs)
 
 # ---------------------------------------------------------------------------
 # Session factory
