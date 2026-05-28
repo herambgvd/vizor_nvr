@@ -161,6 +161,11 @@ class Camera(Base):
     # { "enabled": bool, "interval_seconds": int, "retention_days": int|null }
     snapshot_config = Column(JSON, nullable=True)
 
+    # ── Sub-stream recording ───────────────────────────────────────────
+    # When True and sub_stream_url is set, FFmpeg records from the sub-stream
+    # instead of the main stream (~80% less storage at the cost of resolution).
+    record_substream = Column(Boolean, default=False, nullable=False, server_default="0")
+
     # ── Retention override ─────────────────────────────────────────────
     retention_days = Column(Integer, nullable=True)   # NULL = use global
 
@@ -217,6 +222,7 @@ class CameraCreate(BaseModel):
     storage_pool_id: Optional[str] = None
     bandwidth_limit_kbps: int = 0
     retention_days: Optional[int] = None
+    record_substream: bool = False
     pre_buffer_seconds: int = 10
     post_buffer_seconds: int = 30
     group_ids: List[str] = []
@@ -247,6 +253,7 @@ class CameraUpdate(BaseModel):
     storage_pool_id: Optional[str] = None
     bandwidth_limit_kbps: Optional[int] = None
     retention_days: Optional[int] = None
+    record_substream: Optional[bool] = None
     pre_buffer_seconds: Optional[int] = None
     post_buffer_seconds: Optional[int] = None
     group_ids: Optional[List[str]] = None
@@ -288,6 +295,7 @@ class CameraResponse(BaseModel):
     privacy_masks: Optional[List[Dict[str, Any]]]
     storage_pool_id: Optional[str]
     retention_days: Optional[int] = None
+    record_substream: bool = False
     bandwidth_limit_kbps: int
     pre_buffer_seconds: int
     post_buffer_seconds: int

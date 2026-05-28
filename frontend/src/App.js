@@ -50,6 +50,8 @@ const SettingsStorage = lazy(() => import("./pages/Storage"));
 const Events = lazy(() => import("./pages/Events"));
 const AuditLog = lazy(() => import("./pages/AuditLog"));
 const Notifications = lazy(() => import("./pages/Notifications"));
+const Users = lazy(() => import("./pages/Users"));
+const Bookmarks = lazy(() => import("./pages/Bookmarks"));
 const MultiPlayback = lazy(() => import("./pages/MultiPlayback"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
@@ -161,6 +163,8 @@ const AppRoutes = () => (
           />
         </Route>
         <Route path="playback/multi" element={<MultiPlayback />} />
+        <Route path="bookmarks" element={<Bookmarks />} />
+        <Route path="users" element={<AdminRoute><Users /></AdminRoute>} />
         {/* Legacy aliases */}
         <Route path="notifications" element={<Navigate to="/settings/notifications" replace />} />
         <Route path="monitoring" element={<Navigate to="/settings/resources" replace />} />

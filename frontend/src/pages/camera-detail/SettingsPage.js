@@ -4,7 +4,7 @@
 
 import React, { useState } from "react";
 import { useOutletContext } from "react-router-dom";
-import { SlidersHorizontal, Upload, KeyRound, Loader2, Network, Save, RefreshCw as RefreshCwIcon } from "lucide-react";
+import { SlidersHorizontal, Upload, KeyRound, Loader2, Network, Save, RefreshCw as RefreshCwIcon, HardDrive } from "lucide-react";
 import { toast } from "sonner";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getBandwidthPolicy, updateBandwidthPolicy } from "../../api/monitoring";
@@ -259,6 +259,78 @@ const BandwidthPolicyCard = ({ cameraId }) => {
   );
 };
 
+// ── Sub-stream Recording Toggle (N5) ────────────────────────────────────────
+
+const SubStreamRecordingCard = ({ cameraId, camera }) => {
+  const qc = useQueryClient();
+  const enabled = camera?.record_substream ?? false;
+  const hasSubStream = !!camera?.sub_stream_url;
+
+  const { mutate: toggle, isPending } = useMutation({
+    mutationFn: (val) =>
+      apiClient
+        .patch(`/cameras/${cameraId}`, { record_substream: val })
+        .then((r) => r.data),
+    onSuccess: () => {
+      toast.success("Recording stream preference saved");
+      qc.invalidateQueries(["camera", cameraId]);
+    },
+    onError: (err) =>
+      toast.error(err?.response?.data?.detail || "Failed to save preference"),
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm flex items-center gap-2">
+          <HardDrive className="h-4 w-4" /> Storage Optimization
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {!hasSubStream && (
+          <p className="text-xs text-amber-400">
+            No sub-stream URL configured. Add a sub-stream URL in the camera
+            settings to enable this option.
+          </p>
+        )}
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <Label className="text-sm font-medium">
+              Record from sub-stream
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              Lower quality (~480p) but ~80% less storage write rate. Best for
+              non-evidence cameras.
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={enabled}
+            disabled={!hasSubStream || isPending}
+            onClick={() => toggle(!enabled)}
+            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 ${
+              enabled ? "bg-teal-600" : "bg-zinc-600"
+            }`}
+          >
+            <span
+              className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
+                enabled ? "translate-x-4.5" : "translate-x-0.5"
+              }`}
+            />
+          </button>
+        </div>
+        {enabled && hasSubStream && (
+          <p className="text-xs text-teal-400">
+            Active — FFmpeg will record from sub-stream:{" "}
+            <span className="font-mono break-all">{camera.sub_stream_url}</span>
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
+
 // ── Main Settings Page ───────────────────────────────────────────────────────
 
 const SettingsPage = () => {
@@ -308,6 +380,13 @@ const SettingsPage = () => {
       <div className="border-t border-border pt-6">
         <LinkageRuleBuilder />
       </div>
+
+      {/* Storage Optimization — N5 sub-stream recording */}
+      {camera?.sub_stream_url && (
+        <div className="border-t border-border pt-6">
+          <SubStreamRecordingCard cameraId={cameraId} camera={camera} />
+        </div>
+      )}
 
       {/* Bandwidth Policy — D2 */}
       <div className="border-t border-border pt-6">
