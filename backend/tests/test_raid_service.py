@@ -7,6 +7,14 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 
+@pytest.fixture(autouse=True)
+def force_linux(monkeypatch):
+    import app.storage.raid_service as mod
+    monkeypatch.setattr(mod, "_is_linux", lambda: True)
+    monkeypatch.setattr(mod, "_mdadm_available", lambda: True)
+    monkeypatch.setattr(mod, "_lsblk_available", lambda: True)
+
+
 @pytest.fixture
 def service():
     from app.storage.raid_service import RAIDService

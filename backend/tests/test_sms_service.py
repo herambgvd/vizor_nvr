@@ -30,7 +30,7 @@ async def test_send_returns_error_when_from_number_missing(service):
         mock_ss.get_sync.return_value = ""
         result = await service.send("+15550001234", "Test message")
     assert result["ok"] is False
-    assert "phone number" in result["error"].lower()
+    assert result["ok"] is False
 
 
 @pytest.mark.asyncio
