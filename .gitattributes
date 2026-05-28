@@ -1,0 +1,25 @@
+# =============================================================================
+# .gitattributes — enforce LF line endings for cross-platform compatibility
+# =============================================================================
+# Prevents Windows Git from converting LF → CRLF for files that are executed
+# inside Linux containers (shell scripts, Dockerfiles, YAML configs).
+# PowerShell scripts use CRLF as Windows default, so they are left to auto.
+
+*.sh        text eol=lf
+*.py        text eol=lf
+Dockerfile  text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.conf      text eol=lf
+*.ini       text eol=lf
+*.toml      text eol=lf
+*.json      text eol=lf
+*.md        text eol=lf
+*.txt       text eol=lf
+*.env       text eol=lf
+*.env.*     text eol=lf
+
+# Windows scripts — keep CRLF on Windows checkout (PowerShell default)
+*.ps1       text eol=crlf
+*.cmd       text eol=crlf
+*.bat       text eol=crlf
