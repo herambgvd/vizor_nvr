@@ -34,7 +34,7 @@ const CameraDetailSettings = lazy(() =>
 const CameraDetailSnapshots = lazy(() =>
   import("./pages/camera-detail/SnapshotsPage"),
 );
-// Playback page replaced by unified MultiPlayback. Kept removed.
+// Playback is the timeline-centric PlaybackConsole (see below).
 const LiveStream = lazy(() => import("./pages/LiveStream"));
 const SettingsLayout = lazy(() =>
   import("./pages/settings/SettingsLayout"),
