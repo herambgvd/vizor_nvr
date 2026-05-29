@@ -39,6 +39,8 @@ class FFmpegProcess:
         "main_stream_url", "sub_stream_url", "failover_active",
         # Privacy masks for re-encoding
         "privacy_masks",
+        # POS/text overlay configuration
+        "pos_overlay_config",
         # Track the segment currently being written
         "current_segment",
     )

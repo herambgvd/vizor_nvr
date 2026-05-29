@@ -587,7 +587,14 @@ export const ONVIFDiscovery = ({ open, onOpenChange, onAdded }) => {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-5xl max-h-[92vh] flex flex-col">
+      <DialogContent
+        className="sm:max-w-5xl max-h-[92vh] flex flex-col"
+        style={{
+          background: "var(--console-panel)",
+          borderColor: "var(--console-border)",
+          boxShadow: "0 20px 80px rgba(0,0,0,0.85)",
+        }}
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Wifi className="h-5 w-5" />
@@ -652,6 +659,11 @@ export const ONVIFDiscovery = ({ open, onOpenChange, onAdded }) => {
           onClick={handleDiscover}
           disabled={discoverMut.isPending}
           className="w-full"
+          style={{
+            background: "var(--console-accent)",
+            color: "#06231f",
+            boxShadow: "0 0 18px rgba(20,184,166,0.22)",
+          }}
         >
           {discoverMut.isPending ? (
             <>
@@ -670,7 +682,10 @@ export const ONVIFDiscovery = ({ open, onOpenChange, onAdded }) => {
         <div className="flex-1 overflow-y-auto -mx-2 px-2">
           {devices.length > 0 ? (
             <>
-              <div className="flex items-center justify-between sticky top-0 bg-background py-2 z-10">
+              <div
+                className="flex items-center justify-between sticky top-0 py-2 z-10"
+                style={{ background: "var(--console-panel)" }}
+              >
                 <div className="flex items-center gap-2">
                   <Checkbox
                     checked={allSelected}
@@ -700,8 +715,8 @@ export const ONVIFDiscovery = ({ open, onOpenChange, onAdded }) => {
                       className={cn(
                         "p-3 rounded-lg border transition-colors",
                         row.selected
-                          ? "border-blue-500/50 bg-blue-500/[0.06]"
-                          : "border-border bg-card/40",
+                          ? "border-teal-500/50 bg-teal-500/[0.06]"
+                          : "border-[#1f1f1f] bg-[#141414]",
                       )}
                     >
                       <div className="flex items-start gap-3">
@@ -771,7 +786,7 @@ export const ONVIFDiscovery = ({ open, onOpenChange, onAdded }) => {
                                   type="button"
                                   onClick={() => handleReconnect(dev)}
                                   disabled={row.status === "probing"}
-                                  className="text-blue-400 hover:text-blue-300 normal-case text-[10px] flex items-center gap-1 disabled:opacity-50"
+                                  className="text-teal-400 hover:text-teal-300 normal-case text-[10px] flex items-center gap-1 disabled:opacity-50"
                                   title="Reconnect with these credentials"
                                 >
                                   <RefreshCw
@@ -1074,6 +1089,11 @@ export const ONVIFDiscovery = ({ open, onOpenChange, onAdded }) => {
           <Button
             onClick={handleBulkAdd}
             disabled={adding || totalToAdd === 0}
+            style={{
+              background: "var(--console-accent)",
+              color: "#06231f",
+              boxShadow: "0 0 18px rgba(20,184,166,0.22)",
+            }}
           >
             {adding ? (
               <>
