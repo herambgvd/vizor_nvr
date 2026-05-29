@@ -459,8 +459,13 @@ class CameraMonitor:
                                                         camera.onvif_password)
                             )
 
-                    # ── Schedule enforcement ─────────────────────────────────────
-                    if camera.recording_schedule:
+                    # ── Schedule enforcement (only in 'schedule' mode) ───────────
+                    # A camera in manual/motion/continuous mode may still carry a
+                    # saved schedule grid from a previous mode. Enforcing it here
+                    # would auto-restart recording the operator just stopped (e.g.
+                    # a manual camera that bounces back ON seconds after Stop).
+                    # The schedule must only drive cameras whose mode IS schedule.
+                    if _mode == "schedule" and camera.recording_schedule:
                         should_record = self._should_record_now(camera.recording_schedule)
                         
                         # Schedule says record, but not recording → start
