@@ -139,6 +139,14 @@ const useLiveEvent = () => {
   return ctx;
 };
 
+// Safe read-only accessor for consumers that only need the event buffer
+// (e.g. AlarmDock). Falls back to an empty list outside the provider so it
+// never throws.
+export const useLiveEvents = () => {
+  const ctx = useContext(LiveEventCtx);
+  return ctx || { events: [] };
+};
+
 export const LiveEventProvider = ({ children }) => {
   const location = useLocation();
   const qc = useQueryClient();

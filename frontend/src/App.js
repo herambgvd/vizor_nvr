@@ -9,12 +9,12 @@ import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ThemeProvider } from "./context/ThemeContext";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { Toaster } from "./components/ui/sonner";
-import Layout from "./pages/Layout";
+import ControlRoomLayout from "./components/shell/ControlRoomLayout";
 import "./App.css";
 
 // Lazy-loaded pages
 const Login = lazy(() => import("./pages/Login"));
-const Dashboard = lazy(() => import("./pages/Dashboard"));
+const LiveWall = lazy(() => import("./pages/LiveWall"));
 const Cameras = lazy(() => import("./pages/Cameras"));
 const CameraDetailLayout = lazy(() =>
   import("./pages/camera-detail/CameraDetailLayout"),
@@ -124,16 +124,18 @@ const AppRoutes = () => (
         }
       />
 
-      {/* Protected — with Layout */}
+      {/* Protected — control-room shell */}
       <Route
         path="/"
         element={
           <ProtectedRoute>
-            <Layout />
+            <ControlRoomLayout />
           </ProtectedRoute>
         }
       >
-        <Route index element={<Dashboard />} />
+        <Route index element={<LiveWall />} />
+        {/* Legacy dashboard route now redirects to the live wall */}
+        <Route path="dashboard" element={<Navigate to="/" replace />} />
         <Route path="cameras" element={<Cameras />} />
         <Route path="cameras/:cameraId" element={<CameraDetailLayout />}>
           <Route index element={<Navigate to="live" replace />} />
@@ -157,6 +159,7 @@ const AppRoutes = () => (
           <Route path="time" element={<AdminRoute><SettingsTime /></AdminRoute>} />
           <Route path="network" element={<AdminRoute><SettingsNetwork /></AdminRoute>} />
           <Route path="integrations" element={<AdminRoute><SettingsIntegrations /></AdminRoute>} />
+          <Route path="users" element={<AdminRoute><Users /></AdminRoute>} />
           <Route
             path="audit"
             element={
@@ -168,8 +171,8 @@ const AppRoutes = () => (
         </Route>
         <Route path="playback/multi" element={<MultiPlayback />} />
         <Route path="bookmarks" element={<Bookmarks />} />
-        <Route path="users" element={<AdminRoute><Users /></AdminRoute>} />
         {/* Legacy aliases */}
+        <Route path="users" element={<Navigate to="/settings/users" replace />} />
         <Route path="notifications" element={<Navigate to="/settings/notifications" replace />} />
         <Route path="monitoring" element={<Navigate to="/settings/resources" replace />} />
         <Route path="monitoring/resources" element={<Navigate to="/settings/resources" replace />} />
