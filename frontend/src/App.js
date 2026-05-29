@@ -55,7 +55,7 @@ const AuditLog = lazy(() => import("./pages/AuditLog"));
 const Notifications = lazy(() => import("./pages/Notifications"));
 const Users = lazy(() => import("./pages/Users"));
 const Bookmarks = lazy(() => import("./pages/Bookmarks"));
-const MultiPlayback = lazy(() => import("./pages/MultiPlayback"));
+const PlaybackConsole = lazy(() => import("./pages/PlaybackConsole"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 // React Query client
@@ -145,9 +145,9 @@ const AppRoutes = () => (
           <Route path="settings" element={<CameraDetailSettings />} />
           <Route path="snapshots" element={<CameraDetailSnapshots />} />
         </Route>
-        {/* Playback is now a single unified page (MultiPlayback). Old
+        {/* Playback is now the timeline-centric PlaybackConsole. Old
             single-cam Playback retired. /playback/multi kept as alias. */}
-        <Route path="playback" element={<MultiPlayback />} />
+        <Route path="playback" element={<PlaybackConsole />} />
         <Route path="events" element={<Events />} />
         <Route path="settings" element={<SettingsLayout />}>
           <Route index element={<Navigate to="configuration" replace />} />
@@ -169,7 +169,7 @@ const AppRoutes = () => (
             }
           />
         </Route>
-        <Route path="playback/multi" element={<MultiPlayback />} />
+        <Route path="playback/multi" element={<PlaybackConsole />} />
         <Route path="bookmarks" element={<Bookmarks />} />
         {/* Legacy aliases */}
         <Route path="users" element={<Navigate to="/settings/users" replace />} />
