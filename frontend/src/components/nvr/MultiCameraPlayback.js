@@ -295,7 +295,7 @@ export const MultiCameraPlayback = ({ className }) => {
                 <div
                   key={cameraId}
                   className={cn(
-                    "relative bg-primary rounded-lg aspect-video overflow-hidden",
+                    "relative bg-black rounded-lg aspect-video overflow-hidden",
                     fullscreenCamera === cameraId && "fixed inset-4 z-50 aspect-auto"
                   )}
                 >
@@ -308,7 +308,7 @@ export const MultiCameraPlayback = ({ className }) => {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-6 w-6 text-white hover:bg-card/20"
+                        className="h-6 w-6 text-white hover:bg-white/10"
                         onClick={() => setFullscreenCamera(
                           fullscreenCamera === cameraId ? null : cameraId
                         )}
@@ -322,7 +322,7 @@ export const MultiCameraPlayback = ({ className }) => {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-6 w-6 text-white hover:bg-card/20"
+                        className="h-6 w-6 text-white hover:bg-white/10"
                         onClick={() => removeCamera(cameraId)}
                       >
                         <X className="h-3 w-3" />

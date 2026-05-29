@@ -355,7 +355,7 @@ export const CameraFormDialog = ({
                       className="border border-border rounded-lg p-3 space-y-3"
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium text-zinc-200">
+                        <span className="text-sm font-medium text-[var(--console-text)]">
                           Period {idx + 1}
                         </span>
                         {periods.length > 1 && (
@@ -378,8 +378,8 @@ export const CameraFormDialog = ({
                             key={dayIdx}
                             className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium cursor-pointer transition-colors ${
                               period.days.includes(dayIdx)
-                                ? "bg-primary text-white"
-                                : "bg-card/60 text-muted-foreground hover:bg-card/70"
+                                ? "bg-[var(--console-accent)] text-white"
+                                : "bg-[var(--console-raised)] text-muted-foreground hover:bg-[var(--console-border)]"
                             }`}
                           >
                             <Checkbox
@@ -461,7 +461,7 @@ export const CameraFormDialog = ({
             {/* ONVIF Configuration */}
             <div className="space-y-3 border-t border-border pt-4">
               <div>
-                <Label className="text-sm font-medium text-zinc-200">
+                <Label className="text-sm font-medium text-[var(--console-text)]">
                   ONVIF Configuration
                 </Label>
                 <p className="text-xs text-muted-foreground mt-0.5">
@@ -545,7 +545,8 @@ export const CameraFormDialog = ({
             <Button
               data-testid="save-camera-btn"
               type="submit"
-              className="bg-primary hover:bg-primary/60"
+              className="text-white hover:opacity-90"
+              style={{ backgroundColor: 'var(--console-accent)' }}
               disabled={isPending}
             >
               {isPending ? "Saving..." : isEdit ? "Update" : "Add Camera"}

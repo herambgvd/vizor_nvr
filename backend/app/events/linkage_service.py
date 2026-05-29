@@ -25,6 +25,28 @@ class LinkageEngine:
     def __init__(self):
         # rule_id → last fire timestamp (for cooldown)
         self._last_fired: Dict[str, float] = {}
+        # Strong refs to fire-and-forget tasks so they aren't GC'd mid-flight
+        # and their exceptions are surfaced rather than swallowed.
+        self._bg_tasks: set = set()
+
+    def _spawn(self, coro, *, name: str = "") -> asyncio.Task:
+        """Schedule a tracked background task (prevents GC, logs failures)."""
+        task = asyncio.create_task(coro)
+        self._bg_tasks.add(task)
+
+        def _done(t: asyncio.Task):
+            self._bg_tasks.discard(t)
+            if t.cancelled():
+                return
+            exc = t.exception()
+            if exc is not None:
+                logger.error(
+                    f"Linkage background task '{name or 'linkage'}' failed: {exc}",
+                    exc_info=exc,
+                )
+
+        task.add_done_callback(_done)
+        return task
 
     async def fire_event(
         self,
@@ -237,6 +259,17 @@ class LinkageEngine:
         url = config.get("url")
         if not url:
             return
+
+        # SSRF guard: reject internal/loopback/metadata targets before fetching.
+        # DNS resolution is blocking, so run the check off the event loop.
+        from app.core.ssrf import validate_outbound_url, OutboundURLError
+        allowed_hosts = config.get("allowed_hosts")
+        try:
+            await asyncio.to_thread(validate_outbound_url, url, allowed_hosts)
+        except OutboundURLError as e:
+            logger.warning(f"Webhook action blocked by SSRF guard: {e}")
+            return
+
         import httpx
         payload = {
             "event_id": event.id,
@@ -285,9 +318,10 @@ class LinkageEngine:
                 relay_token = "RelayOut1"
 
             password = decrypt_value(camera.onvif_password) if camera.onvif_password else "admin"
+            username = decrypt_value(camera.onvif_username) if camera.onvif_username else "admin"
             ok = await onvif_service.set_relay_output_state(
                 camera.onvif_host, camera.onvif_port,
-                camera.onvif_username or "admin", password,
+                username, password,
                 relay_token=relay_token,
                 logical_state=state,
             )
@@ -296,16 +330,14 @@ class LinkageEngine:
                 # Auto-release after delay
                 if release_after > 0 and state == "active":
                     async def _release():
-                        import asyncio as _aio
-                        await _aio.sleep(release_after)
+                        await asyncio.sleep(release_after)
                         await onvif_service.set_relay_output_state(
                             camera.onvif_host, camera.onvif_port,
-                            camera.onvif_username or "admin", password,
+                            username, password,
                             relay_token=relay_token,
                             logical_state="inactive",
                         )
-                    import asyncio as _aio
-                    _aio.create_task(_release())
+                    self._spawn(_release(), name=f"relay_release:{camera_id}")
             else:
                 logger.error(f"trigger_alarm_output: SetRelayOutputState failed for {camera_id}")
 

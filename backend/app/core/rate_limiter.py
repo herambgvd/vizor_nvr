@@ -6,16 +6,61 @@
 # the in-memory fallback works fine.
 # =============================================================================
 
+import ipaddress
+import os
 import time
 import asyncio
 import logging
 from collections import defaultdict
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 from functools import wraps
 
 from fastapi import Request, HTTPException, status
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_trusted_proxies() -> list:
+    """CIDRs whose X-Forwarded-For / X-Real-IP headers we trust.
+
+    Configured via the TRUSTED_PROXIES env var (comma-separated CIDRs). Defaults
+    to loopback + RFC1918 private ranges, since the reverse proxy (nginx) is
+    co-located on the private container network. An attacker connecting from a
+    public IP cannot spoof XFF because their peer address is not trusted.
+    """
+    raw = os.getenv("TRUSTED_PROXIES", "")
+    nets = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            nets.append(ipaddress.ip_network(part, strict=False))
+        except ValueError:
+            logger.warning(f"TRUSTED_PROXIES: ignoring invalid CIDR {part!r}")
+    if not nets:
+        nets = [
+            ipaddress.ip_network("127.0.0.0/8"),
+            ipaddress.ip_network("::1/128"),
+            ipaddress.ip_network("10.0.0.0/8"),
+            ipaddress.ip_network("172.16.0.0/12"),
+            ipaddress.ip_network("192.168.0.0/16"),
+            ipaddress.ip_network("fc00::/7"),
+        ]
+    return nets
+
+
+_TRUSTED_PROXIES = _parse_trusted_proxies()
+
+
+def _is_trusted_proxy(ip: Optional[str]) -> bool:
+    if not ip:
+        return False
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return any(addr in net for net in _TRUSTED_PROXIES)
 
 
 class RateLimiter:
@@ -42,14 +87,23 @@ class RateLimiter:
         self._redis_init_attempted: bool = False
 
     def _default_key(self, request: Request) -> str:
-        """Extract client IP for rate limiting key."""
-        forwarded = request.headers.get("x-forwarded-for")
-        if forwarded:
-            return forwarded.split(",")[0].strip()
-        real_ip = request.headers.get("x-real-ip")
-        if real_ip:
-            return real_ip
-        return request.client.host if request.client else "unknown"
+        """Extract client IP for rate limiting key.
+
+        Forwarded headers are only honored when the direct peer is a trusted
+        proxy; otherwise they're attacker-controlled and would let a single
+        client mint unlimited rate-limit buckets by varying the header.
+        """
+        peer = request.client.host if request.client else None
+        if _is_trusted_proxy(peer):
+            forwarded = request.headers.get("x-forwarded-for")
+            if forwarded:
+                # Left-most entry is the original client as recorded by the
+                # outermost trusted proxy in our own infrastructure.
+                return forwarded.split(",")[0].strip()
+            real_ip = request.headers.get("x-real-ip")
+            if real_ip:
+                return real_ip.strip()
+        return peer or "unknown"
 
     async def _get_redis(self):
         """Lazy-initialize Redis once. Returns None if not configured or unreachable."""
@@ -156,8 +210,6 @@ class RateLimiter:
 # Defaults are production-safe. In development (ENV=development) limits
 # are bumped 20x so the dashboard, hot-reload, and test scripts don't
 # trip the limiter. Override at runtime via env vars when needed.
-
-import os
 
 _DEV = os.getenv("ENV", "production").lower() in ("development", "dev", "local")
 

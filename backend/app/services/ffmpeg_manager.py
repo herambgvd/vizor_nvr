@@ -91,6 +91,33 @@ class FFmpegManager:
         self._stall_factor: float = 4.0
         self._restart_window: float = 60.0
         self._restart_storm_limit: int = 3
+        # Strong references to fire-and-forget background tasks. asyncio only
+        # keeps weak refs to tasks, so without this they can be garbage-collected
+        # mid-flight. The done-callback also surfaces otherwise-swallowed errors.
+        self._bg_tasks: set = set()
+
+    def _spawn(self, coro, *, name: str = "") -> asyncio.Task:
+        """Schedule a tracked background task.
+
+        Keeps a strong reference until completion (prevents premature GC) and
+        logs any exception so background failures are not silently swallowed.
+        """
+        task = asyncio.create_task(coro)
+        self._bg_tasks.add(task)
+
+        def _done(t: asyncio.Task):
+            self._bg_tasks.discard(t)
+            if t.cancelled():
+                return
+            exc = t.exception()
+            if exc is not None:
+                logger.error(
+                    f"Background task '{name or 'ffmpeg_manager'}' failed: {exc}",
+                    exc_info=exc,
+                )
+
+        task.add_done_callback(_done)
+        return task
 
     @property
     def active_count(self) -> int:
@@ -134,14 +161,14 @@ class FFmpegManager:
                 # Dead process → clean up
                 del self._processes[camera_id]
 
-            os.makedirs(storage_path, exist_ok=True)
+            await asyncio.to_thread(os.makedirs, storage_path, exist_ok=True)
 
             # Pre-flight disk space check: ensure at least 2 segments can fit
             # (estimates 8 Mbps = 1 MB/s as a safe conservative bitrate)
             seg_dur = segment_duration or self._segment_duration
             try:
                 required_bytes = seg_dur * 2 * 1_000_000  # ~2 segments @ 1 MB/s
-                disk = shutil.disk_usage(storage_path)
+                disk = await asyncio.to_thread(shutil.disk_usage, storage_path)
                 if disk.free < required_bytes:
                     logger.error(
                         f"[{camera_id}] Insufficient disk space: {disk.free} bytes free, "
@@ -412,13 +439,15 @@ class FFmpegManager:
                     m = re.search(r"Opening '(.+\.mp4)'", text)
                     if m:
                         new_segment = m.group(1)
-                        # Register the PREVIOUS segment (now finalized)
+                        # Register the PREVIOUS segment (now finalized).
+                        # Tracked task: independent of this stderr reader's
+                        # lifetime, so the DB write completes even if the reader
+                        # is cancelled, and is not GC'd before it finishes.
                         if ff.current_segment:
-                            task = asyncio.create_task(
-                                self._on_segment_complete(ff.camera_id, ff.current_segment)
+                            self._spawn(
+                                self._on_segment_complete(ff.camera_id, ff.current_segment),
+                                name=f"segment_complete:{ff.camera_id}",
                             )
-                            # Shield from cancellation so DB write completes
-                            asyncio.shield(task)
                         ff.current_segment = new_segment
                     ff.last_health = time.time()
 
@@ -435,7 +464,8 @@ class FFmpegManager:
         # Only register if the file is non-empty (SIGKILL mid-segment = corrupt)
         if ff.current_segment:
             try:
-                if os.path.exists(ff.current_segment) and os.path.getsize(ff.current_segment) >= 10240:
+                size = await asyncio.to_thread(self._safe_filesize, ff.current_segment)
+                if size >= 10240:
                     await self._on_segment_complete(ff.camera_id, ff.current_segment)
             except OSError:
                 pass
@@ -453,24 +483,34 @@ class FFmpegManager:
         ):
             logger.warning(f"[{ff.camera_id}] FFmpeg exited with code {rc}")
             if settings.FFMPEG_RECOVERY_ENABLED:
-                asyncio.create_task(self._auto_restart(ff))
+                self._spawn(self._auto_restart(ff), name=f"auto_restart:{ff.camera_id}")
+
+    @staticmethod
+    def _safe_filesize(path: str) -> int:
+        """Return file size in bytes, or -1 if the file does not exist.
+
+        Runs blocking stat — call via asyncio.to_thread on the event loop.
+        """
+        try:
+            return os.path.getsize(path)
+        except OSError:
+            return -1
 
     async def _on_segment_complete(self, camera_id: str, segment_path: str):
         """Register a completed segment in the database."""
         try:
             # Give FFmpeg a moment to fully flush the file to disk
             await asyncio.sleep(0.2)
-            
-            if not os.path.exists(segment_path):
-                return
 
-            file_size = os.path.getsize(segment_path)
+            file_size = await asyncio.to_thread(self._safe_filesize, segment_path)
+            if file_size < 0:
+                return
 
             # Skip and delete empty/corrupt segments (< 10KB means no real video)
             if file_size < 10240:
                 logger.debug(f"[{camera_id}] Discarding empty segment: {os.path.basename(segment_path)} ({file_size} bytes)")
                 try:
-                    os.remove(segment_path)
+                    await asyncio.to_thread(os.remove, segment_path)
                 except OSError:
                     pass
                 return
@@ -623,25 +663,25 @@ class FFmpegManager:
         self._failed_cameras.add(camera_id)
         self._processes.pop(camera_id, None)
         logger.error(f"[{camera_id}] FFmpeg restart storm — marking camera FAILED ({reason})")
-        asyncio.create_task(self._mark_recording_stopped(camera_id))
+        self._spawn(self._mark_recording_stopped(camera_id), name=f"mark_stopped:{camera_id}")
         # Fire video_loss event + notification so operator sees it immediately
         try:
             from app.events.linkage_service import linkage_engine
             from app.notifications.service import notification_service
             from app.notifications.models import NotificationEvent
-            asyncio.create_task(linkage_engine.fire_event(
+            self._spawn(linkage_engine.fire_event(
                 camera_id=camera_id,
                 event_type="video_loss",
                 severity="critical",
                 title=f"Camera failed — {camera_id}",
                 description=reason,
                 metadata={"reason": reason},
-            ))
-            asyncio.create_task(notification_service.notify(
+            ), name=f"fire_video_loss:{camera_id}")
+            self._spawn(notification_service.notify(
                 NotificationEvent.CAMERA_ERROR,
                 {"camera_id": camera_id, "message": reason},
                 camera_id=camera_id,
-            ))
+            ), name=f"notify_camera_error:{camera_id}")
         except Exception as e:
             logger.debug(f"[{camera_id}] failed-state alert dispatch error: {e}")
 
@@ -696,7 +736,7 @@ class FFmpegManager:
                 f"switching to sub-stream failover: {ff.sub_stream_url}"
             )
             # Broadcast failover event via WebSocket
-            asyncio.create_task(self._broadcast_failover(ff.camera_id, True))
+            self._spawn(self._broadcast_failover(ff.camera_id, True), name=f"failover_on:{ff.camera_id}")
         elif ff.failover_active:
             use_url = ff.sub_stream_url  # stay on sub
 
@@ -719,7 +759,7 @@ class FFmpegManager:
 
             # Schedule recovery attempt back to main after 30 min on sub
             if new_ff.failover_active and ff.main_stream_url:
-                asyncio.create_task(self._try_recover_main(ff.camera_id, delay=1800))
+                self._spawn(self._try_recover_main(ff.camera_id, delay=1800), name=f"recover_main:{ff.camera_id}")
 
     # ------------------------------------------------------------------
     # Mark recording stopped in DB
@@ -796,11 +836,11 @@ class FFmpegManager:
                 self._processes[camera_id].sub_stream_url = ff.sub_stream_url
                 self._processes[camera_id].failover_active = False
                 # Broadcast recovery event via WebSocket
-                asyncio.create_task(self._broadcast_failover(camera_id, False))
+                self._spawn(self._broadcast_failover(camera_id, False), name=f"failover_off:{camera_id}")
         else:
             logger.warning(f"[{camera_id}] Main stream still down — staying on sub-stream")
             # Try again later
-            asyncio.create_task(self._try_recover_main(camera_id, delay=1800))
+            self._spawn(self._try_recover_main(camera_id, delay=1800), name=f"recover_main:{camera_id}")
 
     async def _broadcast_failover(self, camera_id: str, failover_active: bool):
         """Broadcast stream failover status change via WebSocket."""
@@ -958,7 +998,7 @@ class FFmpegManager:
         self._processes[buf_key] = ff
 
         # Schedule auto-stop after total_seconds
-        asyncio.create_task(self._stop_buffer_after(buf_key, total_seconds))
+        self._spawn(self._stop_buffer_after(buf_key, total_seconds), name=f"stop_buffer:{buf_key}")
 
         return True, buf_dir
 

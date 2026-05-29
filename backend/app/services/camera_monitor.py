@@ -489,7 +489,10 @@ class CameraMonitor:
         if not schedule:
             return True
 
-        now = datetime.now()
+        # Evaluate against UTC so behavior is independent of the server's local
+        # timezone and consistent with UTC-stored events/segments. Schedule
+        # window times are interpreted as UTC.
+        now = datetime.now(timezone.utc)
         day_name = now.strftime("%A").lower()
         day_rules = schedule.get(day_name, schedule.get("everyday", []))
 

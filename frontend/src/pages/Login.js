@@ -113,7 +113,7 @@ const Login = () => {
   };
 
   return (
-    <div className="relative min-h-screen bg-background text-foreground flex overflow-hidden">
+    <div className="relative min-h-screen bg-[var(--console-bg)] text-foreground flex overflow-hidden">
       {/* Aurora glow — top-right blue/cyan bloom */}
       <div className="aurora" />
 
@@ -131,7 +131,7 @@ const Login = () => {
       <div className="hidden lg:flex lg:w-1/2 relative z-10">
         <div className="relative z-10 flex flex-col justify-center w-full p-16 text-white">
           <div className="flex items-center gap-3 mb-12">
-            <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center shadow-[0_0_40px_rgba(59,130,246,0.45)]">
+            <div className="h-12 w-12 rounded-xl flex items-center justify-center shadow-[0_0_40px_rgba(20,184,166,0.45)]" style={{ backgroundColor: 'var(--console-accent)' }}>
               <Video className="h-6 w-6 text-white" />
             </div>
             <div>
@@ -146,7 +146,7 @@ const Login = () => {
               <br />
               rebuilt for operators.
             </h2>
-            <p className="text-zinc-400 leading-relaxed text-[15px]">
+            <p className="leading-relaxed text-[15px]" style={{ color: 'var(--console-muted)' }}>
               ONVIF-native recording with privacy masking, signed evidence
               export, two-factor auth, and per-camera RBAC — all in a single
               dark dashboard.
@@ -164,9 +164,10 @@ const Login = () => {
             ].map((feature) => (
               <div
                 key={feature}
-                className="flex items-center gap-2 text-zinc-400 text-[13px]"
+                className="flex items-center gap-2 text-[13px]"
+                style={{ color: 'var(--console-muted)' }}
               >
-                <div className="h-1.5 w-1.5 rounded-full bg-gradient-to-br from-blue-400 to-cyan-400 shadow-[0_0_6px_rgba(59,130,246,0.7)]" />
+                <div className="h-1.5 w-1.5 rounded-full shadow-[0_0_6px_rgba(20,184,166,0.7)]" style={{ backgroundColor: 'var(--console-accent)' }} />
                 {feature}
               </div>
             ))}
@@ -179,7 +180,7 @@ const Login = () => {
         <div className="w-full max-w-md">
           {/* Mobile Logo */}
           <div className="lg:hidden flex items-center justify-center gap-3 mb-8">
-            <div className="p-2 bg-primary rounded-lg">
+            <div className="p-2 rounded-lg" style={{ backgroundColor: 'var(--console-accent)' }}>
               <Video className="h-6 w-6 text-white" />
             </div>
             <span
@@ -201,7 +202,7 @@ const Login = () => {
 
           {/* Normal login — no register tab */}
           {setupRequired === false && (
-            <Card className="border-border bg-card/60 backdrop-blur-xl shadow-[0_0_60px_rgba(59,130,246,0.10)]">
+            <Card className="border-[var(--console-border)] backdrop-blur-xl shadow-[0_0_60px_rgba(20,184,166,0.10)]" style={{ backgroundColor: 'var(--console-panel)' }}>
               <CardHeader className="space-y-1">
                 <CardTitle
                   className="text-2xl"
@@ -249,7 +250,7 @@ const Login = () => {
                       />
                       <button
                         type="button"
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-zinc-400"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-[var(--console-text)]"
                         onClick={() => setShowPassword(!showPassword)}
                       >
                         {showPassword ? (
@@ -265,7 +266,8 @@ const Login = () => {
                   <Button
                     data-testid="login-submit-btn"
                     type="submit"
-                    className="w-full bg-gradient-to-r from-blue-500 to-cyan-400 hover:from-blue-400 hover:to-cyan-300 text-white border-0 shadow-[0_0_30px_rgba(59,130,246,0.35)]"
+                    className="w-full text-white border-0 hover:opacity-90 shadow-[0_0_30px_rgba(20,184,166,0.35)]"
+                    style={{ backgroundColor: 'var(--console-accent)' }}
                     disabled={isLoading}
                   >
                     {isLoading ? "Signing in..." : "Sign In"}
@@ -299,7 +301,7 @@ const Login = () => {
 
               {/* Login Tab */}
               <TabsContent value="login">
-                <Card className="border-border bg-card/60 backdrop-blur-xl shadow-[0_0_60px_rgba(59,130,246,0.10)]">
+                <Card className="border-[var(--console-border)] backdrop-blur-xl shadow-[0_0_60px_rgba(20,184,166,0.10)]" style={{ backgroundColor: 'var(--console-panel)' }}>
                   <CardHeader className="space-y-1">
                     <CardTitle
                       className="text-2xl"
@@ -350,7 +352,7 @@ const Login = () => {
                           />
                           <button
                             type="button"
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-zinc-400"
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-[var(--console-text)]"
                             onClick={() => setShowPassword(!showPassword)}
                           >
                             {showPassword ? (
@@ -366,7 +368,8 @@ const Login = () => {
                       <Button
                         data-testid="login-submit-btn"
                         type="submit"
-                        className="w-full bg-gradient-to-r from-blue-500 to-cyan-400 hover:from-blue-400 hover:to-cyan-300 text-white border-0 shadow-[0_0_30px_rgba(59,130,246,0.35)]"
+                        className="w-full text-white border-0 hover:opacity-90 shadow-[0_0_30px_rgba(20,184,166,0.35)]"
+                    style={{ backgroundColor: 'var(--console-accent)' }}
                         disabled={isLoading}
                       >
                         {isLoading ? "Signing in..." : "Sign In"}
@@ -378,7 +381,7 @@ const Login = () => {
 
               {/* Register Tab */}
               <TabsContent value="register">
-                <Card className="border-border bg-card/60 backdrop-blur-xl shadow-[0_0_60px_rgba(59,130,246,0.10)]">
+                <Card className="border-[var(--console-border)] backdrop-blur-xl shadow-[0_0_60px_rgba(20,184,166,0.10)]" style={{ backgroundColor: 'var(--console-panel)' }}>
                   <CardHeader className="space-y-1">
                     <CardTitle
                       className="text-2xl"
@@ -470,7 +473,8 @@ const Login = () => {
                       <Button
                         data-testid="register-submit-btn"
                         type="submit"
-                        className="w-full bg-gradient-to-r from-blue-500 to-cyan-400 hover:from-blue-400 hover:to-cyan-300 text-white border-0 shadow-[0_0_30px_rgba(59,130,246,0.35)]"
+                        className="w-full text-white border-0 hover:opacity-90 shadow-[0_0_30px_rgba(20,184,166,0.35)]"
+                    style={{ backgroundColor: 'var(--console-accent)' }}
                         disabled={isLoading}
                       >
                         {isLoading

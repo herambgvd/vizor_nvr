@@ -35,6 +35,14 @@ class Settings:
     _env_secret = os.getenv("JWT_SECRET_KEY", "")
     if _env_secret:
         JWT_SECRET_KEY: str = _env_secret
+    elif os.getenv("ENV", "development") == "production":
+        # Never silently fall back to an ephemeral secret in production: it
+        # invalidates every token on restart and makes the deployment's auth
+        # state non-reproducible. Refuse to start instead.
+        raise RuntimeError(
+            "JWT_SECRET_KEY must be set in production. Refusing to start with "
+            "an ephemeral random key. Set the JWT_SECRET_KEY environment variable."
+        )
     else:
         JWT_SECRET_KEY: str = secrets.token_urlsafe(64)
         logger.warning(

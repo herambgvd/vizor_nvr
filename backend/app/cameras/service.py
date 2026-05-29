@@ -3,6 +3,7 @@
 # =============================================================================
 
 import logging
+import re
 from typing import Optional, List
 from datetime import datetime, timezone
 
@@ -19,6 +20,31 @@ from app.cameras.models import (
 from app.core.crypto import encrypt_value, decrypt_value
 
 logger = logging.getLogger(__name__)
+
+# Stream URL fields that may embed credentials (rtsp://user:pass@host/...)
+_STREAM_URL_FIELDS = ("main_stream_url", "sub_stream_url", "detect_stream_url")
+
+# Sentinel inserted in place of embedded credentials when returning URLs to
+# clients. If an incoming update still contains this marker we treat the URL as
+# unchanged and preserve the stored value (mirrors the ONVIF-password pattern).
+_CRED_MASK = "••••"  # ••••
+_USERINFO_RE = re.compile(r"^([a-zA-Z][a-zA-Z0-9+.-]*://)([^/\s]+)@")
+
+
+def mask_stream_url(url: Optional[str]) -> Optional[str]:
+    """Mask credentials embedded in a stream URL before returning to clients.
+
+    rtsp://user:pass@host:554/path -> rtsp://••••:••••@host:554/path
+    URLs without embedded credentials are returned unchanged.
+    """
+    if not url or not isinstance(url, str):
+        return url
+    return _USERINFO_RE.sub(lambda m: f"{m.group(1)}{_CRED_MASK}:{_CRED_MASK}@", url)
+
+
+def _is_masked_stream_url(value) -> bool:
+    """True if the value still contains the credential mask sentinel."""
+    return isinstance(value, str) and _CRED_MASK in value
 
 
 class CameraService:
@@ -105,7 +131,14 @@ class CameraService:
         if not camera:
             return None
         update_dict = data.model_dump(exclude_unset=True, exclude={"group_ids"})
-        
+
+        # Preserve stored stream URLs when the client submits a value that is
+        # still masked (unchanged) — avoids overwriting real credentials with
+        # the mask returned by to_response().
+        for field in _STREAM_URL_FIELDS:
+            if field in update_dict and _is_masked_stream_url(update_dict[field]):
+                del update_dict[field]
+
         # Encrypt ONVIF credentials if being updated
         if update_dict.get("onvif_password"):
             update_dict["onvif_password"] = encrypt_value(update_dict["onvif_password"])
@@ -256,7 +289,12 @@ class CameraService:
 
     @staticmethod
     def to_response(camera: Camera) -> dict:
-        return {
+        data = {
             **{c.name: getattr(camera, c.name) for c in Camera.__table__.columns},
             "group_ids": [g.id for g in camera.groups] if camera.groups else [],
         }
+        # Never expose credentials embedded in stream URLs to clients.
+        for field in _STREAM_URL_FIELDS:
+            if field in data:
+                data[field] = mask_stream_url(data[field])
+        return data

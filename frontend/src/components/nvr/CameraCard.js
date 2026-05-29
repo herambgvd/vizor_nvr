@@ -120,7 +120,7 @@ export const CameraCard = ({
       data-testid={`camera-card-${camera.id}`}
       className={cn(
         "relative overflow-hidden rounded-lg border border-border bg-black group",
-        "hover:ring-2 hover:ring-slate-900 transition-all duration-200",
+        "hover:ring-2 hover:ring-[var(--console-accent)] transition-all duration-200",
         !isEnabled && "opacity-60",
         // When fitParent the card stretches to its grid cell; otherwise
         // it keeps a 16:9 aspect so tile flows naturally in column layouts.
@@ -166,8 +166,9 @@ export const CameraCard = ({
           />
         ) : null}
         <div
-          className="w-full h-full flex items-center justify-center bg-primary"
+          className="w-full h-full flex items-center justify-center"
           style={{
+            backgroundColor: "var(--console-panel)",
             display:
               isOnline &&
               ((thumbnailUrl && !showLive) ||
@@ -243,7 +244,7 @@ export const CameraCard = ({
                       data-testid={`camera-${camera.id}-view-toggle`}
                       size="icon"
                       variant="ghost"
-                      className="h-10 w-10 bg-card/20 hover:bg-card/30 text-white"
+                      className="h-10 w-10 bg-white/10 hover:bg-white/20 text-white"
                       onClick={handleToggleLive}
                       disabled={isLoading}
                     >
@@ -267,7 +268,7 @@ export const CameraCard = ({
                     data-testid={`camera-${camera.id}-recording-toggle`}
                     size="icon"
                     variant="ghost"
-                    className="h-10 w-10 bg-card/20 hover:bg-card/30 text-white"
+                    className="h-10 w-10 bg-white/10 hover:bg-white/20 text-white"
                     onClick={(e) => {
                       e.stopPropagation();
                       isRecording
@@ -295,7 +296,7 @@ export const CameraCard = ({
                     data-testid={`camera-${camera.id}-test-connection`}
                     size="icon"
                     variant="ghost"
-                    className="h-10 w-10 bg-card/20 hover:bg-card/30 text-white"
+                    className="h-10 w-10 bg-white/10 hover:bg-white/20 text-white"
                     onClick={(e) => {
                       e.stopPropagation();
                       onTestConnection?.(camera);
@@ -318,7 +319,7 @@ export const CameraCard = ({
                       data-testid={`camera-${camera.id}-instant-playback`}
                       size="icon"
                       variant="ghost"
-                      className="h-10 w-10 bg-card/20 hover:bg-card/30 text-white"
+                      className="h-10 w-10 bg-white/10 hover:bg-white/20 text-white"
                       onClick={(e) => {
                         e.stopPropagation();
                         onInstantPlayback?.(camera);
@@ -338,7 +339,7 @@ export const CameraCard = ({
                     data-testid={`camera-${camera.id}-fullscreen`}
                     size="icon"
                     variant="ghost"
-                    className="h-10 w-10 bg-card/20 hover:bg-card/30 text-white"
+                    className="h-10 w-10 bg-white/10 hover:bg-white/20 text-white"
                     onClick={(e) => {
                       e.stopPropagation();
                       onFullscreen?.(camera);
@@ -358,7 +359,7 @@ export const CameraCard = ({
                     data-testid={`camera-${camera.id}-settings`}
                     size="icon"
                     variant="ghost"
-                    className="h-10 w-10 bg-card/20 hover:bg-card/30 text-white"
+                    className="h-10 w-10 bg-white/10 hover:bg-white/20 text-white"
                     onClick={(e) => {
                       e.stopPropagation();
                       onSettings?.(camera);

@@ -173,14 +173,17 @@ class LicenseService:
         except Exception as e:
             return LicenseStatus(False, False, False, 0, f"parse_failed:{e}", None)
 
-        # Expiration
-        exp = _parse_iso(payload.expires_at)
+        # Expiration. An empty expires_at means a perpetual license — valid
+        # forever (subject to the fingerprint check below).
         now = datetime.now(timezone.utc)
         days_remaining = 0
         in_grace = False
         valid = False
         reason: Optional[str] = None
-        if not exp:
+        if not (payload.expires_at or "").strip():
+            valid = True
+            days_remaining = -1  # sentinel: perpetual
+        elif not (exp := _parse_iso(payload.expires_at)):
             reason = "missing_expires_at"
         else:
             if exp.tzinfo is None:

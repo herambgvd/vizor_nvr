@@ -8,6 +8,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Clock, RefreshCw, Radio, Wifi } from "lucide-react";
 import { toast } from "sonner";
 import { getSystemTime, setSystemTime, pushTimeToCameras } from "../../api/system";
+import SearchableSelect from "../../components/ui/searchable-select";
 
 // ─── Timezone list ────────────────────────────────────────────────────────────
 
@@ -212,7 +213,7 @@ const TimeSettingsPage = () => {
         </button>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 space-y-4 max-w-2xl">
+      <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 space-y-4">
 
         {/* Live clock card */}
         <ConsoleCard>
@@ -247,6 +248,7 @@ const TimeSettingsPage = () => {
           </div>
         </ConsoleCard>
 
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
         {/* Timezone */}
         <ConsoleCard>
           <CardHeader>
@@ -259,25 +261,17 @@ const TimeSettingsPage = () => {
           </CardHeader>
           <div className="p-4">
             <FieldLabel>Display timezone (NVR logs + UI)</FieldLabel>
-            <select
-              className="w-full rounded font-telemetry text-xs h-[30px] px-2 border outline-none focus:ring-1"
-              style={{
-                background: "var(--console-raised)",
-                border: "1px solid var(--console-border)",
-                color: "var(--console-text)",
-              }}
+            <SearchableSelect
               value={timezone}
-              onChange={(e) => {
-                setTimezone(e.target.value);
+              onChange={(v) => {
+                setTimezone(v);
                 mark();
               }}
-            >
-              {TZ_LIST.map((tz) => (
-                <option key={tz} value={tz}>
-                  {tz}
-                </option>
-              ))}
-            </select>
+              options={TZ_LIST}
+              placeholder="Select timezone…"
+              searchPlaceholder="Search timezone…"
+              emptyText="No matching timezone"
+            />
           </div>
         </ConsoleCard>
 
@@ -377,9 +371,10 @@ const TimeSettingsPage = () => {
             )}
           </div>
         </ConsoleCard>
+        </div>
 
         {/* Actions */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center justify-end gap-3">
           <PrimaryBtn
             onClick={() => saveMutation.mutate()}
             disabled={saveMutation.isPending || !dirty}

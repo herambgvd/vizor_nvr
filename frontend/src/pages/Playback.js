@@ -242,14 +242,14 @@ const Playback = () => {
           <TabsList className="h-auto bg-transparent gap-0 p-0">
             <TabsTrigger
               value="timeline"
-              className="gap-2 rounded-none border-b-2 border-transparent data-[state=active]:border-slate-900 data-[state=active]:bg-transparent data-[state=active]:shadow-none px-4 py-3"
+              className="gap-2 rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--console-accent)] data-[state=active]:bg-transparent data-[state=active]:shadow-none px-4 py-3"
             >
               <Play className="h-4 w-4" />
               Timeline
             </TabsTrigger>
             <TabsTrigger
               value="bookmarks"
-              className="gap-2 rounded-none border-b-2 border-transparent data-[state=active]:border-slate-900 data-[state=active]:bg-transparent data-[state=active]:shadow-none px-4 py-3"
+              className="gap-2 rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--console-accent)] data-[state=active]:bg-transparent data-[state=active]:shadow-none px-4 py-3"
             >
               <Bookmark className="h-4 w-4" />
               Bookmarks
@@ -262,7 +262,7 @@ const Playback = () => {
           className="flex-1 flex flex-col overflow-hidden m-0"
         >
           {/* Controls */}
-          <div className="flex-shrink-0 px-4 md:px-8 py-3 md:py-4 border-b border-slate-100  flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-3 md:gap-4">
+          <div className="flex-shrink-0 px-4 md:px-8 py-3 md:py-4 border-b border-[var(--console-border)]  flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-3 md:gap-4">
             {/* Camera select */}
             <div className="flex items-center gap-2 w-full sm:w-auto">
               <Camera className="h-5 w-5 text-muted-foreground hidden sm:block" />
@@ -281,8 +281,8 @@ const Playback = () => {
                           className={cn(
                             "h-2 w-2 rounded-full",
                             cam.status === "online"
-                              ? "bg-emerald-500"
-                              : "bg-slate-400",
+                              ? "bg-[var(--console-online)]"
+                              : "bg-[var(--console-offline)]",
                           )}
                         />
                         {cam.name}
@@ -318,8 +318,8 @@ const Playback = () => {
                     modifiersStyles={{
                       hasRecording: {
                         fontWeight: "bold",
-                        backgroundColor: "rgb(236, 253, 245)",
-                        color: "rgb(5, 150, 105)",
+                        backgroundColor: "rgba(20, 184, 166, 0.15)",
+                        color: "var(--console-accent)",
                       },
                     }}
                     initialFocus
@@ -385,7 +385,7 @@ const Playback = () => {
                 </div>
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center py-16 px-4 bg-card/40 rounded-lg border border-dashed border-border">
+              <div className="flex flex-col items-center justify-center py-16 px-4 rounded-lg border border-dashed border-[var(--console-border)]" style={{ backgroundColor: 'var(--console-panel)' }}>
                 <Play className="h-12 w-12 text-muted-foreground mb-4" />
                 <h3 className="text-lg font-medium text-white mb-2">
                   Select a Camera
@@ -524,7 +524,7 @@ const BookmarksPanel = ({ cameras }) => {
         </div>
       ) : bookmarkList.length === 0 ? (
         <div className="text-center py-12">
-          <Bookmark className="h-10 w-10 text-slate-300 mx-auto mb-3" />
+          <Bookmark className="h-10 w-10 text-[var(--console-muted)] mx-auto mb-3" />
           <p className="text-muted-foreground">No bookmarks found</p>
           <p className="text-muted-foreground text-sm mt-1">
             Create bookmarks during playback to save important moments
@@ -537,7 +537,8 @@ const BookmarksPanel = ({ cameras }) => {
             return (
               <div
                 key={bm.id}
-                className="bg-card dark:bg-primary/60 border border-border  rounded-lg p-4 flex items-start gap-4 hover:border-border transition-colors"
+                className="border border-[var(--console-border)] rounded-lg p-4 flex items-start gap-4 hover:border-[var(--console-accent)] transition-colors"
+                style={{ backgroundColor: 'var(--console-panel)' }}
               >
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
@@ -552,7 +553,7 @@ const BookmarksPanel = ({ cameras }) => {
                         : "-"}
                     </span>
                   </div>
-                  <p className="text-sm text-zinc-200  line-clamp-2">
+                  <p className="text-sm text-[var(--console-text)]  line-clamp-2">
                     {bm.note || bm.label || "No description"}
                   </p>
                   {bm.timestamp != null && (
@@ -589,7 +590,8 @@ const BookmarksPanel = ({ cameras }) => {
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-8 w-8 text-red-500"
+                    className="h-8 w-8"
+                    style={{ color: 'var(--console-rec)' }}
                     onClick={() => setDeleteConfirm(bm)}
                     title="Delete"
                   >

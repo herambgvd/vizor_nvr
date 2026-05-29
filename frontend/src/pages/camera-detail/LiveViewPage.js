@@ -14,6 +14,11 @@ import {
   RefreshCw,
   Mic,
   MicOff,
+  Activity,
+  Monitor,
+  Gauge,
+  Move3d,
+  Radio,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -26,14 +31,38 @@ import { WebRTCPlayer } from "../../components/nvr/WebRTCPlayer";
 import { PTZControls } from "../../components/nvr/PTZControls";
 import { Button } from "../../components/ui/button";
 
-const InfoCard = ({ label, value }) => (
-  <div className="rounded-lg border border-[#1f1f1f] bg-[#141414] px-3 py-2.5">
-    <p className="text-[11px] uppercase tracking-wider text-[#8a8f98]">
-      {label}
-    </p>
-    <p className="text-sm font-medium text-white truncate mt-0.5">{value}</p>
-  </div>
-);
+// Icon-led, color-coded telemetry tile. `tone` accents the icon + value so
+// live state (online / recording) reads at a glance.
+const StatTile = ({ icon: Icon, label, value, tone, pulse }) => {
+  const accent = tone || "var(--console-text)";
+  return (
+    <div
+      className="group flex items-center gap-3 rounded-lg border bg-[#141414] px-3 py-2.5 transition-colors hover:border-[var(--console-accent)]"
+      style={{ borderColor: "var(--console-border)" }}
+    >
+      <div
+        className="flex items-center justify-center h-8 w-8 rounded-md flex-shrink-0"
+        style={{ background: "rgba(255,255,255,0.04)" }}
+      >
+        <Icon
+          className={`h-4 w-4 ${pulse ? "animate-pulse" : ""}`}
+          style={{ color: accent }}
+        />
+      </div>
+      <div className="min-w-0">
+        <p className="text-[10px] uppercase tracking-wider text-[#8a8f98]">
+          {label}
+        </p>
+        <p
+          className="text-sm font-semibold truncate mt-0.5"
+          style={{ color: accent }}
+        >
+          {value}
+        </p>
+      </div>
+    </div>
+  );
+};
 
 // ── Talk (two-way audio) button — WebRTC publish path ────────────────────────
 
@@ -88,8 +117,9 @@ const TalkButton = ({ cameraId }) => {
 
       // 4. POST offer to backend — get SDP answer
       let answerSdp;
+      let result;
       try {
-        const result = await postBackchannelWebrtcSignal(cameraId, offer.sdp);
+        result = await postBackchannelWebrtcSignal(cameraId, offer.sdp);
         answerSdp = result.sdp;
       } catch (err) {
         const status = err?.response?.status;
@@ -286,12 +316,44 @@ const LiveViewPage = () => {
           )}
         </div>
 
-        {/* Info cards — 2-col grid on mobile, single col on lg */}
+        {/* Live telemetry tiles — 2-col grid on mobile, single col on lg */}
         <div className="grid grid-cols-2 lg:grid-cols-1 gap-3">
-          <InfoCard label="Status" value={camera.status} />
-          <InfoCard label="Resolution" value={camera.resolution || "—"} />
-          <InfoCard label="FPS" value={camera.fps ? `${camera.fps}` : "—"} />
-          <InfoCard label="PTZ" value={camera.ptz_capable ? "Yes" : "No"} />
+          <StatTile
+            icon={Activity}
+            label="Status"
+            value={isOnline ? "Online" : camera.status || "Offline"}
+            tone={isOnline ? "var(--console-online)" : "var(--console-offline)"}
+            pulse={isOnline}
+          />
+          <StatTile
+            icon={camera.is_recording ? Video : Square}
+            label="Recording"
+            value={camera.is_recording ? "Recording" : "Idle"}
+            tone={camera.is_recording ? "var(--console-rec)" : "var(--console-muted)"}
+            pulse={camera.is_recording}
+          />
+          <StatTile
+            icon={Monitor}
+            label="Resolution"
+            value={camera.resolution || "—"}
+          />
+          <StatTile
+            icon={Gauge}
+            label="FPS"
+            value={camera.fps ? `${camera.fps} fps` : "—"}
+          />
+          <StatTile
+            icon={Move3d}
+            label="PTZ"
+            value={camera.ptz_capable ? "Supported" : "Not available"}
+            tone={camera.ptz_capable ? "var(--console-accent)" : "var(--console-muted)"}
+          />
+          <StatTile
+            icon={Radio}
+            label="Two-way Audio"
+            value={camera.has_backchannel ? "Supported" : "—"}
+            tone={camera.has_backchannel ? "var(--console-accent)" : "var(--console-muted)"}
+          />
         </div>
       </div>
     </div>

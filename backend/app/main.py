@@ -337,6 +337,13 @@ app = FastAPI(
 )
 
 
+# ── License gate ─────────────────────────────────────────────────────
+# Added before CORS so its 403 "license_required" responses are wrapped by
+# the CORS middleware (Starlette applies the first-added middleware as the
+# innermost layer). Blocks all data APIs until a valid license is installed.
+from app.core.license_gate import LicenseGateMiddleware
+app.add_middleware(LicenseGateMiddleware)
+
 # ── CORS ─────────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,

@@ -4,7 +4,7 @@
 
 import hashlib
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -37,7 +37,9 @@ def _within_access_schedule(schedule: dict) -> bool:
     Empty list or missing day → blocked. Empty dict / None → always allowed."""
     if not schedule:
         return True
-    now = datetime.now()
+    # Evaluate access windows against UTC for determinism across server
+    # timezones; window times are interpreted as UTC.
+    now = datetime.now(timezone.utc)
     day = now.strftime("%A").lower()
     rules = schedule.get(day, [])
     if not rules:

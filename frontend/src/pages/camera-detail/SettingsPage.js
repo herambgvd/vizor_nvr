@@ -126,7 +126,7 @@ const CredentialCard = ({ cameraId, username }) => {
       <CardContent className="space-y-3">
         <div className="space-y-1">
           <Label className="text-xs text-[#8a8f98]">Username</Label>
-          <Input value={username || "admin"} readOnly className="bg-[#141414]/30" />
+          <Input value={username || "admin"} readOnly className="bg-muted/30" />
         </div>
         <div className="space-y-1">
           <Label className="text-xs">New Password</Label>
@@ -197,65 +197,65 @@ const BandwidthPolicyCard = ({ cameraId }) => {
 
   if (isLoading) {
     return (
-      <div className="flex items-center gap-2 text-zinc-400 text-sm py-4">
-        <RefreshCwIcon className="h-4 w-4 animate-spin" /> Loading bandwidth policy…
-      </div>
+      <Card>
+        <CardContent className="flex items-center gap-2 text-muted-foreground text-sm py-4">
+          <RefreshCwIcon className="h-4 w-4 animate-spin" /> Loading bandwidth policy…
+        </CardContent>
+      </Card>
     );
   }
 
   return (
-    <div className="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-6 space-y-5">
-      <div className="flex items-center gap-2">
-        <Network className="h-5 w-5 text-zinc-400" />
-        <h2 className="text-base font-semibold text-white">Bandwidth Policy</h2>
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-        <div className="space-y-1.5">
-          <label className="block text-xs font-medium text-zinc-400 uppercase tracking-wide">
-            Limit (kbps — 0 = unlimited)
-          </label>
-          <input
-            type="number"
-            min={0}
-            value={eff_limit}
-            onChange={(e) => setLimitKbps(Number(e.target.value))}
-            className="w-full px-3 py-2 text-sm bg-zinc-900 border border-[#1f1f1f] rounded-md text-zinc-200"
-            placeholder="e.g. 4096"
-          />
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm flex items-center gap-2">
+          <Network className="h-4 w-4" /> Bandwidth Policy
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-1.5">
+            <Label className="text-xs text-[#8a8f98]">
+              Limit (kbps — 0 = unlimited)
+            </Label>
+            <Input
+              type="number"
+              min={0}
+              value={eff_limit}
+              onChange={(e) => setLimitKbps(Number(e.target.value))}
+              placeholder="e.g. 4096"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs text-[#8a8f98]">
+              Alert threshold (% of limit)
+            </Label>
+            <Input
+              type="number"
+              min={1}
+              max={100}
+              value={eff_pct}
+              onChange={(e) => setThresholdPct(Number(e.target.value))}
+              placeholder="80"
+            />
+          </div>
         </div>
-        <div className="space-y-1.5">
-          <label className="block text-xs font-medium text-zinc-400 uppercase tracking-wide">
-            Alert threshold (% of limit)
-          </label>
-          <input
-            type="number"
-            min={1}
-            max={100}
-            value={eff_pct}
-            onChange={(e) => setThresholdPct(Number(e.target.value))}
-            className="w-full px-3 py-2 text-sm bg-zinc-900 border border-[#1f1f1f] rounded-md text-zinc-200"
-            placeholder="80"
-          />
-        </div>
-      </div>
-      <p className="text-xs text-zinc-500">
-        An alert event fires when the camera exceeds{" "}
-        <span className="text-zinc-300">{eff_pct}%</span> of{" "}
-        <span className="text-zinc-300">{eff_limit ? `${eff_limit} kbps` : "no limit"}</span>{" "}
-        for 3 consecutive samples (≈ 90 s).
-      </p>
-      <Button
-        onClick={handleSave}
-        disabled={mutation.isPending}
-      >
-        {mutation.isPending ? (
-          <RefreshCwIcon className="h-4 w-4 mr-2 animate-spin" />
-        ) : (
-          <Save className="h-4 w-4 mr-2" />
-        )}
-        Save Policy
-      </Button>
-    </div>
+        <p className="text-xs text-zinc-500">
+          An alert event fires when the camera exceeds{" "}
+          <span className="text-zinc-300">{eff_pct}%</span> of{" "}
+          <span className="text-zinc-300">{eff_limit ? `${eff_limit} kbps` : "no limit"}</span>{" "}
+          for 3 consecutive samples (≈ 90 s).
+        </p>
+        <Button onClick={handleSave} disabled={mutation.isPending}>
+          {mutation.isPending ? (
+            <RefreshCwIcon className="h-4 w-4 mr-2 animate-spin" />
+          ) : (
+            <Save className="h-4 w-4 mr-2" />
+          )}
+          Save Policy
+        </Button>
+      </CardContent>
+    </Card>
   );
 };
 
@@ -387,7 +387,7 @@ const AnrSettingsCard = ({ cameraId, camera }) => {
             </div>
 
             {/* Status + Trigger */}
-            <div className="bg-[#141414] border border-[#1f1f1f] rounded-lg p-3 space-y-3">
+            <div className="bg-muted/40 border border-border rounded-lg p-3 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <StatusIcon className={`h-4 w-4 ${statusColor} ${status === "downloading" ? "animate-spin" : ""}`} />
@@ -411,7 +411,7 @@ const AnrSettingsCard = ({ cameraId, camera }) => {
               )}
 
               {anrStatus?.job && (
-                <div className="text-xs space-y-1 border-t border-[#1f1f1f] pt-2">
+                <div className="text-xs space-y-1 border-t border-border pt-2">
                   <p className="text-[#8a8f98]">Active job</p>
                   <div className="grid grid-cols-3 gap-2">
                     <div className="text-zinc-400">Found: <span className="text-zinc-200">{anrStatus.job.segments_found}</span></div>
@@ -433,7 +433,7 @@ const AnrSettingsCard = ({ cameraId, camera }) => {
                   {anrJobs.map((job) => (
                     <div
                       key={job.id}
-                      className="flex items-center justify-between text-xs px-2 py-1.5 rounded bg-[#141414] border border-[#1f1f1f]"
+                      className="flex items-center justify-between text-xs px-2 py-1.5 rounded bg-muted/40 border border-border"
                     >
                       <div className="flex items-center gap-2 min-w-0">
                         {(ANR_STATUS_ICONS[job.status] || Clock) && (
@@ -657,7 +657,7 @@ const DewarpCard = ({ cameraId, camera }) => {
             <div className="space-y-1.5">
               <Label className="text-xs text-[#8a8f98]">Mount mode</Label>
               <select
-                className="w-full h-9 px-2 text-sm bg-zinc-900 border border-[#1f1f1f] rounded-md"
+                className="w-full h-9 px-2 text-sm bg-background border border-border rounded-md text-foreground"
                 value={config.mount_mode || "ceiling"}
                 onChange={(e) => update({ ...config, mount_mode: e.target.value })}
               >
@@ -667,7 +667,7 @@ const DewarpCard = ({ cameraId, camera }) => {
             <div className="space-y-1.5">
               <Label className="text-xs text-[#8a8f98]">View mode</Label>
               <select
-                className="w-full h-9 px-2 text-sm bg-zinc-900 border border-[#1f1f1f] rounded-md"
+                className="w-full h-9 px-2 text-sm bg-background border border-border rounded-md text-foreground"
                 value={config.view_mode || "panoramic"}
                 onChange={(e) => update({ ...config, view_mode: e.target.value })}
               >
@@ -716,14 +716,14 @@ const SettingsPage = () => {
 
       {/* PTZ Tour — visible only if camera has PTZ */}
       {camera?.ptz_capable && (
-        <div className="border-t border-[#1f1f1f] pt-6">
+        <div className="border-t border-border pt-6">
           <PtzTourPanel cameraId={cameraId} ptzCapable={camera.ptz_capable} />
         </div>
       )}
 
       {/* Admin-only: Firmware + Credentials */}
       {isAdmin && camera?.onvif_host && (
-        <div className="border-t border-[#1f1f1f] pt-6 grid gap-4 md:grid-cols-2">
+        <div className="border-t border-border pt-6 grid gap-4 md:grid-cols-2">
           <FirmwareCard
             cameraId={cameraId}
             firmwareVersion={camera?.firmware}
@@ -735,34 +735,34 @@ const SettingsPage = () => {
         </div>
       )}
 
-      <div className="border-t border-[#1f1f1f] pt-6">
+      <div className="border-t border-border pt-6">
         <LinkageRuleBuilder />
       </div>
 
       {/* ANR Settings */}
-      <div className="border-t border-[#1f1f1f] pt-6">
+      <div className="border-t border-border pt-6">
         <AnrSettingsCard cameraId={cameraId} camera={camera} />
       </div>
 
       {/* Storage Optimization — N5 sub-stream recording */}
       {camera?.sub_stream_url && (
-        <div className="border-t border-[#1f1f1f] pt-6">
+        <div className="border-t border-border pt-6">
           <SubStreamRecordingCard cameraId={cameraId} camera={camera} />
         </div>
       )}
 
       {/* POS Overlay */}
-      <div className="border-t border-[#1f1f1f] pt-6">
+      <div className="border-t border-border pt-6">
         <PosOverlayCard cameraId={cameraId} camera={camera} />
       </div>
 
       {/* Fisheye Dewarp */}
-      <div className="border-t border-[#1f1f1f] pt-6">
+      <div className="border-t border-border pt-6">
         <DewarpCard cameraId={cameraId} camera={camera} />
       </div>
 
       {/* Bandwidth Policy — D2 */}
-      <div className="border-t border-[#1f1f1f] pt-6">
+      <div className="border-t border-border pt-6">
         <BandwidthPolicyCard cameraId={cameraId} />
       </div>
     </div>

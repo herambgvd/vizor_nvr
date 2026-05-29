@@ -25,10 +25,10 @@ class ErrorBoundary extends React.Component {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="min-h-screen flex items-center justify-center bg-card">
+        <div className="min-h-screen flex items-center justify-center bg-[var(--console-bg)]">
           <div className="text-center max-w-md px-6">
-            <div className="mx-auto mb-6 p-4 bg-red-50 rounded-full w-fit">
-              <AlertCircle className="h-10 w-10 text-red-500" />
+            <div className="mx-auto mb-6 p-4 rounded-full w-fit" style={{ backgroundColor: 'var(--console-raised)' }}>
+              <AlertCircle className="h-10 w-10" style={{ color: 'var(--console-rec)' }} />
             </div>
             <h1
               className="text-2xl font-bold text-white mb-2"
@@ -40,13 +40,14 @@ class ErrorBoundary extends React.Component {
               An unexpected error occurred. Please try refreshing the page.
             </p>
             {this.state.error && (
-              <pre className="text-xs text-left bg-card/40 border border-border rounded-lg p-3 mb-6 overflow-auto max-h-32 text-zinc-400">
+              <pre className="text-xs text-left border border-[var(--console-border)] rounded-lg p-3 mb-6 overflow-auto max-h-32" style={{ backgroundColor: 'var(--console-raised)', color: 'var(--console-muted)' }}>
                 {this.state.error.message}
               </pre>
             )}
             <Button
               onClick={() => window.location.reload()}
-              className="bg-primary hover:bg-primary/60"
+              className="text-white hover:opacity-90"
+              style={{ backgroundColor: 'var(--console-accent)' }}
             >
               <RefreshCw className="h-4 w-4 mr-2" />
               Reload Page

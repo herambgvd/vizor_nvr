@@ -27,6 +27,7 @@ export const Go2RTCPlayer = ({
   const videoRef = useRef(null);
   const wsRef = useRef(null);
   const msRef = useRef(null);
+  const objectUrlRef = useRef(null);
   const sbRef = useRef(null);
   const bufferQueue = useRef([]);
   const reconnectTimerRef = useRef(null);
@@ -65,6 +66,13 @@ export const Go2RTCPlayer = ({
     if (videoRef.current) {
       videoRef.current.src = "";
       videoRef.current.load();
+    }
+    // Revoke the blob URL created for the MediaSource to free memory.
+    if (objectUrlRef.current) {
+      try {
+        URL.revokeObjectURL(objectUrlRef.current);
+      } catch (_) {}
+      objectUrlRef.current = null;
     }
   }, []);
 
@@ -128,7 +136,9 @@ export const Go2RTCPlayer = ({
         // Create MediaSource and attach to video
         mediaSource = new MediaSource();
         msRef.current = mediaSource;
-        videoRef.current.src = URL.createObjectURL(mediaSource);
+        const objectUrl = URL.createObjectURL(mediaSource);
+        objectUrlRef.current = objectUrl;
+        videoRef.current.src = objectUrl;
 
         mediaSource.addEventListener("sourceopen", () => {
           if (!mountedRef.current) return;

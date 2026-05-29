@@ -20,13 +20,16 @@ export const useLicense = () => {
   });
 
   const isActive = !!data?.active;
+  // Backend uses days_remaining === -1 as a sentinel for a perpetual license.
+  const perpetual = data?.days_remaining === -1;
 
   return {
     data,
     isLoading,
     isActive,
+    perpetual,
     inGrace: !!data?.in_grace,
-    daysRemaining: data?.days_remaining ?? 0,
+    daysRemaining: perpetual ? null : data?.days_remaining ?? 0,
     tier: data?.tier || null,
     cameraCap: isActive
       ? { used: data?.usage?.cameras ?? 0, limit: data?.camera_limit ?? 0 }

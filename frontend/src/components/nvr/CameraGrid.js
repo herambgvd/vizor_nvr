@@ -41,7 +41,7 @@ const LAYOUTS = [
  * Camera Grid Layout Picker — compact toolbar shown above the grid.
  */
 const LayoutPicker = ({ current, onChange }) => (
-  <div className="flex items-center gap-1 bg-card/60 rounded-lg p-1">
+  <div className="flex items-center gap-1 bg-[var(--console-raised)] rounded-lg p-1">
     <LayoutGrid className="h-4 w-4 text-muted-foreground ml-1 mr-0.5 shrink-0" />
     {LAYOUTS.map((l) => (
       <button
@@ -50,8 +50,8 @@ const LayoutPicker = ({ current, onChange }) => (
         className={cn(
           "px-2 py-0.5 rounded text-xs font-medium transition-colors",
           current === l.id
-            ? "bg-primary text-white"
-            : "text-zinc-400 hover:bg-card/70",
+            ? "bg-[var(--console-accent)] text-white"
+            : "text-[var(--console-muted)] hover:bg-[var(--console-border)]",
         )}
       >
         {l.label}
@@ -174,11 +174,11 @@ export const CameraGrid = ({
         data-testid="camera-grid-empty"
         className={cn(
           "flex flex-col items-center justify-center py-16 px-4",
-          "bg-card/40 rounded-lg border border-dashed border-border",
+          "bg-[var(--console-panel)] rounded-lg border border-dashed border-border",
           className,
         )}
       >
-        <div className="p-4 bg-card/60 rounded-full mb-4">
+        <div className="p-4 bg-[var(--console-raised)] rounded-full mb-4">
           <Camera className="h-12 w-12 text-muted-foreground" />
         </div>
         <h3 className="text-lg font-medium text-white mb-2">
@@ -191,7 +191,8 @@ export const CameraGrid = ({
         <Button
           data-testid="add-first-camera-btn"
           onClick={onAddCamera}
-          className="bg-primary hover:bg-primary/60"
+          className="text-white hover:opacity-90"
+          style={{ backgroundColor: 'var(--console-accent)' }}
         >
           <Plus className="h-4 w-4 mr-2" />
           Add Camera
@@ -231,7 +232,7 @@ export const CameraGrid = ({
           />
 
           {/* Tour controls */}
-          <div className="flex items-center gap-1 bg-card/60 rounded-lg p-1">
+          <div className="flex items-center gap-1 bg-[var(--console-raised)] rounded-lg p-1">
             <Timer className="h-4 w-4 text-muted-foreground ml-1 mr-0.5 shrink-0" />
             {tourActive ? (
               <button
@@ -249,7 +250,7 @@ export const CameraGrid = ({
                   "flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium transition-colors",
                   tourCameras.length < 2
                     ? "text-muted-foreground cursor-not-allowed"
-                    : "text-zinc-400 hover:bg-card/70",
+                    : "text-[var(--console-muted)] hover:bg-[var(--console-border)]",
                 )}
               >
                 <Play className="h-3 w-3" />
@@ -323,7 +324,7 @@ export const CameraGrid = ({
             <button
               onClick={prevSingle}
               disabled={cameras.length < 2}
-              className="p-1.5 rounded-md border border-border bg-card/60 hover:bg-card disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="p-1.5 rounded-md border border-border bg-[var(--console-raised)] hover:bg-[var(--console-border)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               title="Previous camera"
             >
               <ChevronLeft className="h-4 w-4" />
@@ -332,7 +333,7 @@ export const CameraGrid = ({
               value={String(singleIdx)}
               onValueChange={(v) => setSingleIdx(parseInt(v, 10))}
             >
-              <SelectTrigger className="h-8 flex-1 min-w-0 bg-card/60 border-border">
+              <SelectTrigger className="h-8 flex-1 min-w-0 bg-[var(--console-raised)] border-border">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="max-h-72">
@@ -359,7 +360,7 @@ export const CameraGrid = ({
             <button
               onClick={nextSingle}
               disabled={cameras.length < 2}
-              className="p-1.5 rounded-md border border-border bg-card/60 hover:bg-card disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="p-1.5 rounded-md border border-border bg-[var(--console-raised)] hover:bg-[var(--console-border)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               title="Next camera"
             >
               <ChevronRight className="h-4 w-4" />
@@ -421,8 +422,8 @@ export const CameraGrid = ({
               className={cn(
                 "h-full min-h-0 rounded-lg border-2 border-dashed border-border",
                 "flex flex-col items-center justify-center gap-2",
-                "text-muted-foreground hover:text-zinc-400 hover:border-slate-400",
-                "transition-all duration-200 bg-card/40 hover:bg-card/60",
+                "text-muted-foreground hover:text-[var(--console-text)] hover:border-[var(--console-accent)]",
+                "transition-all duration-200 bg-[var(--console-panel)] hover:bg-[var(--console-raised)]",
               )}
             >
               <Plus className="h-8 w-8" />

@@ -134,8 +134,8 @@ const Layout = () => {
           className={cn(
             "relative inline-flex items-center gap-2 px-3 h-10 rounded-lg text-sm font-medium transition-colors",
             active
-              ? "text-white bg-card/70"
-              : "text-zinc-400 hover:text-white hover:bg-card/50",
+              ? "text-white bg-[var(--console-raised)]"
+              : "text-[var(--console-muted)] hover:text-white hover:bg-[var(--console-raised)]",
           )}
         >
           <Icon className="h-[16px] w-[16px]" />
@@ -161,8 +161,8 @@ const Layout = () => {
           className={cn(
             "relative inline-flex items-center gap-2 px-3 h-10 rounded-lg text-sm font-medium transition-colors",
             active
-              ? "text-white bg-card/70"
-              : "text-zinc-400 hover:text-white hover:bg-card/50",
+              ? "text-white bg-[var(--console-raised)]"
+              : "text-[var(--console-muted)] hover:text-white hover:bg-[var(--console-raised)]",
           )}
         >
           <Icon className="h-[16px] w-[16px]" />
@@ -174,7 +174,8 @@ const Layout = () => {
         </Link>
         {hoverOpen && (
           <div
-            className="absolute left-0 top-full mt-1 min-w-[200px] rounded-lg border border-white/10 bg-card/95 backdrop-blur-xl shadow-xl p-1 z-50"
+            className="absolute left-0 top-full mt-1 min-w-[200px] rounded-lg border border-[var(--console-border)] backdrop-blur-xl shadow-xl p-1 z-50"
+            style={{ backgroundColor: 'var(--console-panel)' }}
             onMouseEnter={cancelClose}
             onMouseLeave={scheduleClose}
           >
@@ -190,8 +191,8 @@ const Layout = () => {
                   className={cn(
                     "flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors",
                     childActive
-                      ? "bg-card text-white"
-                      : "text-zinc-400 hover:text-white hover:bg-white/5",
+                      ? "bg-[var(--console-raised)] text-white"
+                      : "text-[var(--console-muted)] hover:text-white hover:bg-white/5",
                   )}
                 >
                   <ChildIcon className="h-4 w-4" />
@@ -216,8 +217,8 @@ const Layout = () => {
           className={cn(
             "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all",
             isActive(item)
-              ? "bg-card/70 text-white"
-              : "text-zinc-400 hover:text-white hover:bg-card/60",
+              ? "bg-[var(--console-raised)] text-white"
+              : "text-[var(--console-muted)] hover:text-white hover:bg-[var(--console-raised)]",
           )}
         >
           <Icon className="h-[18px] w-[18px]" />
@@ -235,7 +236,7 @@ const Layout = () => {
                   className={cn(
                     "flex items-center gap-2 px-3 py-1.5 rounded-md text-[13px] transition-colors",
                     location.pathname.startsWith(c.path)
-                      ? "text-white bg-card/50"
+                      ? "text-white bg-[var(--console-raised)]"
                       : "text-muted-foreground hover:text-white",
                   )}
                 >
@@ -252,11 +253,11 @@ const Layout = () => {
 
   return (
     <LiveEventProvider>
-    <div className="relative min-h-screen h-screen bg-background text-foreground flex flex-col overflow-hidden">
+    <div className="relative min-h-screen h-screen bg-[var(--console-bg)] text-foreground flex flex-col overflow-hidden">
       <div className="aurora" />
 
       {/* Top bar */}
-      <header className="relative z-20 flex items-center h-14 px-4 md:px-6 border-b border-border bg-sidebar/80 backdrop-blur-xl">
+      <header className="relative z-20 flex items-center h-14 px-4 md:px-6 border-b border-[var(--console-border)] backdrop-blur-xl" style={{ backgroundColor: 'var(--console-panel)' }}>
         {/* Brand */}
         <Link to="/" className="flex items-center gap-2.5 mr-6 flex-shrink-0">
           <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-teal-500 to-blue-500 flex items-center justify-center shadow-[0_0_20px_rgba(20,184,166,0.4)]">
@@ -279,9 +280,9 @@ const Layout = () => {
         <div className="ml-auto flex items-center gap-2">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-card/70 transition-colors">
+              <button className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-[var(--console-raised)] transition-colors">
                 <Avatar className="h-8 w-8 ring-2 ring-white/10">
-                  <AvatarFallback className="bg-gradient-to-br from-blue-500 to-cyan-500 text-white text-xs font-medium">
+                  <AvatarFallback className="text-white text-xs font-medium" style={{ backgroundColor: 'var(--console-accent)' }}>
                     {getInitials(user?.username)}
                   </AvatarFallback>
                 </Avatar>
@@ -294,16 +295,16 @@ const Layout = () => {
                 <ChevronDown className="h-3.5 w-3.5 text-muted-foreground hidden md:block" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56 bg-card/95 backdrop-blur-xl border-border">
-              <DropdownMenuLabel className="text-zinc-400 text-[11px] uppercase tracking-wider">
+            <DropdownMenuContent align="end" className="w-56 backdrop-blur-xl border-[var(--console-border)]" style={{ backgroundColor: 'var(--console-panel)' }}>
+              <DropdownMenuLabel className="text-[var(--console-muted)] text-[11px] uppercase tracking-wider">
                 My Account
               </DropdownMenuLabel>
               <DropdownMenuSeparator className="bg-white/10" />
-              <DropdownMenuItem onClick={() => navigate("/settings")} className="focus:bg-card/70 focus:text-white">
+              <DropdownMenuItem onClick={() => navigate("/settings")} className="focus:bg-[var(--console-raised)] focus:text-white">
                 <User className="h-4 w-4 mr-2" />
                 Profile
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate("/settings")} className="focus:bg-card/70 focus:text-white">
+              <DropdownMenuItem onClick={() => navigate("/settings")} className="focus:bg-[var(--console-raised)] focus:text-white">
                 <Settings className="h-4 w-4 mr-2" />
                 Settings
               </DropdownMenuItem>
@@ -322,7 +323,7 @@ const Layout = () => {
           {/* Mobile menu trigger */}
           <button
             onClick={() => setMobileOpen(!mobileOpen)}
-            className="md:hidden p-2 rounded-md text-zinc-300 hover:bg-card/70 transition-colors"
+            className="md:hidden p-2 rounded-md text-[var(--console-text)] hover:bg-[var(--console-raised)] transition-colors"
           >
             {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
@@ -339,7 +340,7 @@ const Layout = () => {
       <aside
         className={cn(
           "md:hidden fixed left-0 top-14 bottom-0 z-40 w-72 flex flex-col",
-          "bg-sidebar/95 backdrop-blur-xl border-r border-border",
+          "backdrop-blur-xl border-r border-[var(--console-border)] bg-[var(--console-panel)]",
           "transition-transform duration-300 ease-in-out",
           mobileOpen ? "translate-x-0" : "-translate-x-full",
         )}

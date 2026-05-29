@@ -349,7 +349,7 @@ const NetworkSettingsPage = () => {
         </div>
 
         {/* Save */}
-        <div>
+        <div className="flex justify-end">
           <PrimaryBtn
             onClick={() => saveMutation.mutate()}
             disabled={saveMutation.isPending || !dirty}

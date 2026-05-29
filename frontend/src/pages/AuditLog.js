@@ -19,13 +19,7 @@ import {
   Download,
 } from "lucide-react";
 import { getAuditLogs, getAuditActions, cleanupAuditLogs, exportAuditLogs } from "../api/audit";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "../components/ui/select";
+import SearchableSelect from "../components/ui/searchable-select";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -107,6 +101,54 @@ const ACTION_TONES = {
   failed: { bg: "rgba(239,68,68,0.20)", color: "var(--console-rec)", border: "rgba(239,68,68,0.5)" },
 };
 
+// Map cryptic action codes to clear phrases so clients aren't confused.
+const ACTION_OVERRIDES = {
+  login_success: "Login",
+  login_failed: "Login Failed",
+  login_2fa_failed: "Login 2FA Failed",
+  login_blocked_schedule: "Login Blocked (Schedule)",
+  login_password_policy: "Login Blocked (Password Policy)",
+  logout: "Logout",
+  "2fa_enabled": "2FA Enabled",
+  "2fa_disabled": "2FA Disabled",
+  revoke_sessions: "Revoke Sessions",
+  session_revoke: "Revoke Session",
+  sessions_revoke_others: "Revoke Other Sessions",
+  password_change: "Change Password",
+  config_backup: "Back Up Configuration",
+  config_restore: "Restore Configuration",
+  credentials_rotate: "Rotate Credentials",
+  credentials_rotate_dry_run: "Rotate Credentials (Dry Run)",
+  firmware_upload: "Upload Firmware",
+  firmware_upload_dry_run: "Upload Firmware (Dry Run)",
+  tls_generate_self_signed: "Generate Self-Signed TLS Cert",
+  tls_upload: "Upload TLS Cert",
+  diagnostics_bundle_download: "Download Diagnostics Bundle",
+  camera_factory_default: "Camera Factory Reset",
+  camera_time_sync: "Sync Camera Time",
+  time_push_cameras: "Push Time to Cameras",
+};
+
+// Acronyms that should stay uppercase when title-casing an action code.
+const ACTION_ACRONYMS = new Set([
+  "onvif", "ptz", "raid", "ntp", "tls", "sms", "ip", "ddns",
+  "2fa", "id", "url", "nvr", "api", "cpu", "pos", "anr",
+]);
+
+const humanizeAction = (action) => {
+  if (!action) return "Unknown";
+  if (ACTION_OVERRIDES[action]) return ACTION_OVERRIDES[action];
+  return action
+    .split(/[_.:]+/)
+    .filter(Boolean)
+    .map((w) =>
+      ACTION_ACRONYMS.has(w.toLowerCase())
+        ? w.toUpperCase()
+        : w.charAt(0).toUpperCase() + w.slice(1),
+    )
+    .join(" ");
+};
+
 const ActionBadge = ({ action }) => {
   const lower = (action || "").toLowerCase();
   const key = Object.keys(ACTION_TONES).find((k) => lower.includes(k));
@@ -115,8 +157,9 @@ const ActionBadge = ({ action }) => {
     <span
       className="inline-flex items-center px-2 py-0.5 rounded font-telemetry text-[11px] font-medium border"
       style={{ background: tone.bg, color: tone.color, borderColor: tone.border }}
+      title={action || "unknown"}
     >
-      {action || "unknown"}
+      {humanizeAction(action)}
     </span>
   );
 };
@@ -237,31 +280,21 @@ const AuditLog = () => {
       >
         <Filter className="h-3.5 w-3.5 flex-shrink-0" style={{ color: "var(--console-muted)" }} />
 
-        <div className="w-40">
-          <Select
+        <div className="w-52">
+          <SearchableSelect
             value={action}
-            onValueChange={(v) => {
+            onChange={(v) => {
               setAction(v);
               setPage(1);
             }}
-          >
-            <SelectTrigger
-              className="h-[30px] font-telemetry text-xs rounded border"
-              style={{ background: "var(--console-raised)", borderColor: "var(--console-border)", color: "var(--console-text)" }}
-            >
-              <SelectValue placeholder="All actions" />
-            </SelectTrigger>
-            <SelectContent
-              style={{ background: "var(--console-raised)", border: "1px solid var(--console-border)", color: "var(--console-text)" }}
-            >
-              <SelectItem value="all" className="font-telemetry text-xs">All actions</SelectItem>
-              {actions.map((a) => (
-                <SelectItem key={a} value={a} className="font-telemetry text-xs">
-                  {a}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            options={[
+              { value: "all", label: "All actions" },
+              ...actions.map((a) => ({ value: a, label: humanizeAction(a) })),
+            ]}
+            placeholder="All actions"
+            searchPlaceholder="Search action…"
+            emptyText="No matching action"
+          />
         </div>
 
         <div className="relative w-48">

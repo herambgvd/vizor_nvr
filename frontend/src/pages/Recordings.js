@@ -189,7 +189,7 @@ const Recordings = () => {
       </div>
 
       {/* Filters */}
-      <div className="bg-card border border-border rounded-lg p-3 md:p-4 mb-4 md:mb-6">
+      <div className="border border-[var(--console-border)] rounded-lg p-3 md:p-4 mb-4 md:mb-6" style={{ backgroundColor: 'var(--console-panel)' }}>
         <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-5 gap-3 md:gap-4">
           <div>
             <Label className="text-xs">Camera</Label>
@@ -269,7 +269,7 @@ const Recordings = () => {
       </div>
 
       {/* Table */}
-      <div className="bg-card border border-border rounded-lg overflow-hidden">
+      <div className="border border-[var(--console-border)] rounded-lg overflow-hidden" style={{ backgroundColor: 'var(--console-panel)' }}>
         {isLoading ? (
           <div className="p-10 text-center text-muted-foreground">Loading…</div>
         ) : recordings.length === 0 ? (
@@ -279,7 +279,7 @@ const Recordings = () => {
           </div>
         ) : (
           <table className="w-full text-sm">
-            <thead className="bg-card/40 border-b border-border">
+            <thead className="border-b border-[var(--console-border)]" style={{ backgroundColor: 'var(--console-raised)' }}>
               <tr>
                 <th className="w-10 px-4 py-3">
                   <button onClick={toggleSelectAll}>
@@ -290,19 +290,19 @@ const Recordings = () => {
                     )}
                   </button>
                 </th>
-                <th className="text-left px-4 py-3 text-zinc-400 font-medium">
+                <th className="text-left px-4 py-3 text-[var(--console-muted)] font-medium">
                   Camera
                 </th>
-                <th className="text-left px-4 py-3 text-zinc-400 font-medium">
+                <th className="text-left px-4 py-3 text-[var(--console-muted)] font-medium">
                   Start Time
                 </th>
-                <th className="text-left px-4 py-3 text-zinc-400 font-medium">
+                <th className="text-left px-4 py-3 text-[var(--console-muted)] font-medium">
                   Duration
                 </th>
-                <th className="text-left px-4 py-3 text-zinc-400 font-medium">
+                <th className="text-left px-4 py-3 text-[var(--console-muted)] font-medium">
                   Size
                 </th>
-                <th className="text-right px-4 py-3 text-zinc-400 font-medium">
+                <th className="text-right px-4 py-3 text-[var(--console-muted)] font-medium">
                   Actions
                 </th>
               </tr>
@@ -311,7 +311,7 @@ const Recordings = () => {
               {recordings.map((rec) => (
                 <tr
                   key={rec.id}
-                  className="border-b border-slate-100 last:border-0 hover:bg-card/40/50"
+                  className="border-b border-[var(--console-border)] last:border-0 hover:bg-[var(--console-raised)]"
                 >
                   <td className="px-4 py-3">
                     <button onClick={() => toggleSelect(rec.id)}>
@@ -331,12 +331,12 @@ const Recordings = () => {
                       </span>
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-zinc-400">
+                  <td className="px-4 py-3 text-[var(--console-muted)]">
                     {rec.start_time
                       ? format(new Date(rec.start_time), "MMM d, yyyy HH:mm:ss")
                       : "-"}
                   </td>
-                  <td className="px-4 py-3 text-zinc-400">
+                  <td className="px-4 py-3 text-[var(--console-muted)]">
                     {rec.duration
                       ? formatDuration(rec.duration)
                       : rec.start_time && rec.end_time
@@ -347,7 +347,7 @@ const Recordings = () => {
                           )
                         : "-"}
                   </td>
-                  <td className="px-4 py-3 text-zinc-400">
+                  <td className="px-4 py-3 text-[var(--console-muted)]">
                     <div className="flex items-center gap-1">
                       <HardDrive className="h-3 w-3 text-muted-foreground" />
                       {formatBytes(rec.file_size)}
@@ -367,7 +367,8 @@ const Recordings = () => {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8 text-red-500 hover:text-red-700"
+                        className="h-8 w-8 hover:opacity-80"
+                        style={{ color: 'var(--console-rec)' }}
                         onClick={() => setDeleteTarget(rec)}
                         title="Delete"
                       >

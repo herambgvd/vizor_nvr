@@ -309,7 +309,7 @@ const IntegrationsPage = () => {
                 saveMany(["twilio_account_sid", "twilio_auth_token", "twilio_phone_number"])
               }
             >
-              Save SMS Settings
+              Save
             </PrimaryBtn>
           </div>
           <Field label="Send test SMS" hint="Enter recipient number to verify config">
@@ -351,7 +351,7 @@ const IntegrationsPage = () => {
           </Field>
           <div className="flex gap-2 pt-1">
             <PrimaryBtn onClick={() => save("twilio_whatsapp_number")}>
-              Save WhatsApp Number
+              Save
             </PrimaryBtn>
           </div>
           <Field label="Send test message" hint="WhatsApp recipient number">
@@ -405,7 +405,7 @@ const IntegrationsPage = () => {
             <PrimaryBtn
               onClick={() => saveMany(["pos_overlay_port", "pos_max_message_bytes"])}
             >
-              Save POS Settings
+              Save
             </PrimaryBtn>
           </div>
         </Section>
@@ -433,7 +433,7 @@ const IntegrationsPage = () => {
             <PrimaryBtn
               onClick={() => saveMany(["anr_debounce_seconds", "anr_max_concurrent_jobs"])}
             >
-              Save ANR Settings
+              Save
             </PrimaryBtn>
           </div>
         </Section>
@@ -478,7 +478,7 @@ const IntegrationsPage = () => {
                 ])
               }
             >
-              Save Dewarp Settings
+              Save
             </PrimaryBtn>
           </div>
         </Section>
@@ -508,7 +508,7 @@ const IntegrationsPage = () => {
           </Field>
           <div className="flex gap-2 pt-1">
             <PrimaryBtn onClick={() => save("raid_poll_interval")}>
-              Save RAID Settings
+              Save
             </PrimaryBtn>
           </div>
         </Section>
@@ -538,7 +538,7 @@ const IntegrationsPage = () => {
                 saveMany(["archive_nas_max_backoff", "archive_check_interval"])
               }
             >
-              Save Archive Settings
+              Save
             </PrimaryBtn>
           </div>
         </Section>
@@ -589,7 +589,7 @@ const IntegrationsPage = () => {
                 ])
               }
             >
-              Save Cluster Settings
+              Save
             </PrimaryBtn>
           </div>
         </Section>

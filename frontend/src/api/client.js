@@ -62,6 +62,20 @@ apiClient.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
 
+    // Backend license gate: any data API returns 403 { license_required }
+    // when no valid license is installed. Force the operator to the license
+    // screen. The license/auth/health endpoints are never gated, so this
+    // cannot loop.
+    if (
+      error.response?.status === 403 &&
+      error.response?.data?.license_required &&
+      typeof window !== "undefined" &&
+      window.location.pathname !== "/license-required"
+    ) {
+      window.location.assign("/license-required");
+      return Promise.reject(error);
+    }
+
     // Only attempt refresh on 401 and if we haven't already retried
     if (
       error.response?.status === 401 &&

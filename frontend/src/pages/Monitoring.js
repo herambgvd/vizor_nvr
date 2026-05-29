@@ -150,7 +150,7 @@ const Monitoring = () => {
           title="CPU History (60 min)"
           history={history}
           accessor={(p) => p.cpu_percent ?? 0}
-          color="#3B82F6"
+          color="#14b8a6"
         />
         <HistoryCard
           title="Memory History (60 min)"
@@ -161,9 +161,9 @@ const Monitoring = () => {
       </div>
 
       {/* Bandwidth summary */}
-      <div className="bg-card border border-border rounded-lg p-6">
+      <div className="border border-[var(--console-border)] rounded-lg p-6" style={{ backgroundColor: "var(--console-panel)" }}>
         <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-          <Activity className="h-5 w-5 text-zinc-400" />
+          <Activity className="h-5 w-5 text-[var(--console-muted)]" />
           Bandwidth per Camera
         </h2>
         {bandwidth.length > 0 ? (
@@ -173,7 +173,7 @@ const Monitoring = () => {
                 key={entry.camera_id}
                 className="flex items-center justify-between text-sm"
               >
-                <span className="text-zinc-200 font-medium font-mono text-xs">
+                <span className="text-[var(--console-text)] font-medium font-mono text-xs">
                   {entry.camera_name || entry.camera_id}
                 </span>
                 <span className="text-muted-foreground">
@@ -188,11 +188,11 @@ const Monitoring = () => {
       </div>
 
       {/* Bandwidth alerts */}
-      <div className="bg-card border border-border rounded-lg p-6">
+      <div className="border border-[var(--console-border)] rounded-lg p-6" style={{ backgroundColor: "var(--console-panel)" }}>
         <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
           <AlertTriangle className="h-5 w-5 text-amber-400" />
           Bandwidth Budget Alerts
-          <span className="ml-auto text-xs text-zinc-500 font-normal">Last 24 h</span>
+          <span className="ml-auto text-xs text-[var(--console-muted)] font-normal">Last 24 h</span>
         </h2>
         {bwAlerts.length === 0 ? (
           <p className="text-sm text-muted-foreground">No bandwidth alerts in the last 24 hours.</p>
@@ -200,7 +200,7 @@ const Monitoring = () => {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-xs text-zinc-500 border-b border-border">
+                <tr className="text-left text-xs text-[var(--console-muted)] border-b border-border">
                   <th className="pb-2 font-medium">Time</th>
                   <th className="pb-2 font-medium">Camera</th>
                   <th className="pb-2 font-medium text-right">Current</th>
@@ -210,8 +210,8 @@ const Monitoring = () => {
               </thead>
               <tbody className="divide-y divide-border">
                 {bwAlerts.map((a) => (
-                  <tr key={a.id} className="text-zinc-300">
-                    <td className="py-2 font-mono text-xs text-zinc-400">
+                  <tr key={a.id} className="text-[var(--console-text)]">
+                    <td className="py-2 font-mono text-xs text-[var(--console-muted)]">
                       {a.timestamp ? new Date(a.timestamp).toLocaleString() : "—"}
                     </td>
                     <td className="py-2">{a.camera_name || a.camera_id}</td>
@@ -240,21 +240,21 @@ const Monitoring = () => {
 const fmt = (v) => (typeof v === "number" ? v.toFixed(1) : "-");
 
 const gaugeColors = {
-  blue: { ring: "stroke-blue-500", bg: "bg-blue-50", text: "text-blue-600" },
+  blue: { ring: "stroke-teal-500", bg: "bg-teal-500/10", text: "text-teal-400" },
   purple: {
     ring: "stroke-purple-500",
-    bg: "bg-purple-50",
-    text: "text-purple-600",
+    bg: "bg-purple-500/10",
+    text: "text-purple-400",
   },
   amber: {
     ring: "stroke-amber-500",
-    bg: "bg-amber-50",
-    text: "text-amber-600",
+    bg: "bg-amber-500/10",
+    text: "text-amber-400",
   },
   emerald: {
     ring: "stroke-emerald-500",
-    bg: "bg-emerald-50",
-    text: "text-emerald-600",
+    bg: "bg-emerald-500/10",
+    text: "text-emerald-400",
   },
 };
 
@@ -265,7 +265,7 @@ const GaugeCard = ({ label, value, max, unit, icon: Icon, color, sub }) => {
   const offset = circum - (pct / 100) * circum;
 
   return (
-    <div className="bg-card border border-border rounded-lg p-6 flex flex-col items-center">
+    <div className="border border-[var(--console-border)] rounded-lg p-6 flex flex-col items-center" style={{ backgroundColor: "var(--console-panel)" }}>
       <div className="relative mb-3">
         <svg className="h-24 w-24 -rotate-90" viewBox="0 0 100 100">
           <circle
@@ -273,7 +273,7 @@ const GaugeCard = ({ label, value, max, unit, icon: Icon, color, sub }) => {
             cy="50"
             r="40"
             fill="none"
-            stroke="#e2e8f0"
+            stroke="var(--console-border)"
             strokeWidth="8"
           />
           <circle
@@ -300,7 +300,7 @@ const GaugeCard = ({ label, value, max, unit, icon: Icon, color, sub }) => {
         <div className={cn("p-1.5 rounded-md", c.bg)}>
           <Icon className={cn("h-4 w-4", c.text)} />
         </div>
-        <span className="text-sm font-medium text-zinc-200">{label}</span>
+        <span className="text-sm font-medium text-[var(--console-text)]">{label}</span>
       </div>
       {sub && <p className="text-xs text-muted-foreground mt-1">{sub}</p>}
     </div>
@@ -317,8 +317,8 @@ const HistoryCard = ({ title, history, accessor, color }) => {
 
   if (points.length === 0) {
     return (
-      <div className="bg-card border border-border rounded-lg p-6">
-        <h3 className="text-sm font-semibold text-zinc-200 mb-3">{title}</h3>
+      <div className="border border-[var(--console-border)] rounded-lg p-6" style={{ backgroundColor: "var(--console-panel)" }}>
+        <h3 className="text-sm font-semibold text-[var(--console-text)] mb-3">{title}</h3>
         <p className="text-sm text-muted-foreground">No history data</p>
       </div>
     );
@@ -336,8 +336,8 @@ const HistoryCard = ({ title, history, accessor, color }) => {
     .join(" ");
 
   return (
-    <div className="bg-card border border-border rounded-lg p-6">
-      <h3 className="text-sm font-semibold text-zinc-200 mb-3">{title}</h3>
+    <div className="border border-[var(--console-border)] rounded-lg p-6" style={{ backgroundColor: "var(--console-panel)" }}>
+      <h3 className="text-sm font-semibold text-[var(--console-text)] mb-3">{title}</h3>
       <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-24">
         <path d={pathD} fill="none" stroke={color} strokeWidth="2" />
       </svg>

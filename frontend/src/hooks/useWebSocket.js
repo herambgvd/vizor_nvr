@@ -55,7 +55,8 @@ export function useWebSocket({
   }, [reconnectCount]);
 
   /**
-   * Build WebSocket URL with authentication
+   * Build WebSocket URL. The auth token is NOT placed in the URL (it would
+   * leak into logs/history); it is sent as the first message after open.
    */
   const buildWsUrl = useCallback(() => {
     const token = getAccessToken();
@@ -66,7 +67,7 @@ export function useWebSocket({
     const wsBase = BACKEND_URL.replace(/^https?/, wsProtocol);
     const channelParam = channels.join(",");
 
-    return `${wsBase}/api/ws?token=${token}&channels=${channelParam}`;
+    return `${wsBase}/api/ws?channels=${channelParam}`;
   }, [channels]);
 
   /**
@@ -149,6 +150,13 @@ export function useWebSocket({
       wsRef.current = ws;
 
       ws.onopen = () => {
+        // Authenticate as the first message — the backend requires an auth
+        // frame before it registers channels or sends the welcome message.
+        const token = getAccessToken();
+        if (token) {
+          ws.send(JSON.stringify({ type: "auth", token }));
+        }
+
         // Start ping interval to keep connection alive
         pingIntervalRef.current = setInterval(() => {
           if (ws.readyState === WebSocket.OPEN) {

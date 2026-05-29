@@ -383,23 +383,23 @@ async def create_camera(
     user: dict = Depends(require_permission("manage_camera")),
     db: AsyncSession = Depends(get_db),
 ):
-    # Ed25519 license enforcement (.lic file). Falls back to the operator
-    # settings cap when no license is installed (dev/free tier).
+    # Ed25519 license enforcement (.lic file). A valid license is required to
+    # onboard cameras at all; the license also encodes the channel cap.
     from app.license.service import get_license_service
-    from app.settings.service import SettingsService
 
     current = await svc.count(db)
     lic = get_license_service()
-    if lic.is_active():
-        if lic.camera_limit() and current >= lic.camera_limit():
-            raise HTTPException(
-                402,
-                f"License cap reached: {current}/{lic.camera_limit()} cameras",
-            )
-    else:
-        settings_cap = await SettingsService.get_max_cameras(db)
-        if current >= settings_cap:
-            raise HTTPException(403, f"Operator cap: max {settings_cap} cameras")
+    if not lic.is_active():
+        raise HTTPException(
+            403,
+            "License required: install a valid license to onboard cameras.",
+        )
+    cap = lic.camera_limit()
+    if cap and current >= cap:
+        raise HTTPException(
+            402,
+            f"License channel limit reached: {current}/{cap} cameras.",
+        )
 
     camera = await svc.create(db, data)
 

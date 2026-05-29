@@ -146,6 +146,9 @@ class _CameraPullWorker:
 
         self._task: Optional[asyncio.Task] = None
         self._running = False
+        # Consecutive PullMessages failures — escalates from debug to warning so
+        # a silently-broken subscription doesn't drop events unnoticed.
+        self._pull_failures = 0
 
     def start(self):
         if self._running:
@@ -272,9 +275,19 @@ class _CameraPullWorker:
                 "Timeout": self.PULL_TIMEOUT,
                 "MessageLimit": self.MAX_MESSAGES,
             })
+            self._pull_failures = 0
             return result.NotificationMessage or []
         except Exception as e:
-            logger.debug(f"[{self.camera_id}] PullMessages error: {e}")
+            # A single failure is routine (timeout/transient); a sustained run
+            # of failures means events are being silently dropped — escalate.
+            self._pull_failures += 1
+            if self._pull_failures in (5, 25) or self._pull_failures % 100 == 0:
+                logger.warning(
+                    f"[{self.camera_id}] PullMessages failing "
+                    f"({self._pull_failures} consecutive): {e}"
+                )
+            else:
+                logger.debug(f"[{self.camera_id}] PullMessages error: {e}")
             return []
 
     def _renew_subscription(self, subscription_mgr_ref):

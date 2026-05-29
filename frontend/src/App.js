@@ -7,6 +7,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ThemeProvider } from "./context/ThemeContext";
+import useLicense from "./hooks/useLicense";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { Toaster } from "./components/ui/sonner";
 import ControlRoomLayout from "./components/shell/ControlRoomLayout";
@@ -56,6 +57,7 @@ const Notifications = lazy(() => import("./pages/Notifications"));
 const Users = lazy(() => import("./pages/Users"));
 const Bookmarks = lazy(() => import("./pages/Bookmarks"));
 const PlaybackConsole = lazy(() => import("./pages/PlaybackConsole"));
+const LicenseRequired = lazy(() => import("./pages/LicenseRequired"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 // React Query client
@@ -99,6 +101,15 @@ const AdminRoute = ({ children }) => {
   return children;
 };
 
+// Blocks the whole platform when no valid license is installed, redirecting
+// to the license-upload screen. Mirrors the backend license gate.
+const LicenseGate = ({ children }) => {
+  const { isActive, isLoading } = useLicense();
+  if (isLoading) return <PageSpinner />;
+  if (!isActive) return <Navigate to="/license-required" replace />;
+  return children;
+};
+
 // ---------- routes ----------
 
 const AppRoutes = () => (
@@ -114,12 +125,24 @@ const AppRoutes = () => (
         }
       />
 
+      {/* License gate — authenticated but reachable without a license */}
+      <Route
+        path="/license-required"
+        element={
+          <ProtectedRoute>
+            <LicenseRequired />
+          </ProtectedRoute>
+        }
+      />
+
       {/* Protected — no Layout (fullscreen) */}
       <Route
         path="/live/:cameraId"
         element={
           <ProtectedRoute>
-            <LiveStream />
+            <LicenseGate>
+              <LiveStream />
+            </LicenseGate>
           </ProtectedRoute>
         }
       />
@@ -129,7 +152,9 @@ const AppRoutes = () => (
         path="/"
         element={
           <ProtectedRoute>
-            <ControlRoomLayout />
+            <LicenseGate>
+              <ControlRoomLayout />
+            </LicenseGate>
           </ProtectedRoute>
         }
       >

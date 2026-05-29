@@ -5,8 +5,12 @@ WebSocket Router - Real-time updates for cameras, events, and system status
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, Depends, status
 from jose import jwt, JWTError
 from typing import Optional
+import asyncio
 import json
 import logging
+
+# Seconds to wait for the client's first-message auth frame before closing.
+WS_AUTH_TIMEOUT = 10
 
 from app.config import settings
 from app.core.websocket import ws_manager as connection_manager
@@ -42,29 +46,24 @@ async def get_current_user_ws(token: str) -> Optional[dict]:
 @router.websocket("/ws")
 async def websocket_endpoint(
     websocket: WebSocket,
-    token: str = Query(..., description="JWT authentication token"),
     channels: str = Query("all", description="Comma-separated channels: cameras,events,system,all")
 ):
     """
     WebSocket endpoint for real-time updates.
-    
-    Authentication: Pass JWT token as query parameter
+
+    Authentication: after the socket opens, the client must send an auth frame
+    as its FIRST message: {"type": "auth", "token": "<jwt>"}. The token is NOT
+    accepted as a query parameter — that would leak it into access logs, proxy
+    logs, and browser history.
+
     Channels:
       - cameras: Camera status changes (online/offline/error)
       - system: System notifications (errors, maintenance)
       - all: Subscribe to all channels
-    
-    Example: ws://localhost:8000/api/ws?token=<jwt>&channels=cameras,system
-    """
-    # Validate token
-    user = await get_current_user_ws(token)
-    if not user:
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-        return
-    
-    user_id = user["id"]
 
-    # Parse channels
+    Example: ws://localhost:8000/api/ws?channels=cameras,system
+    """
+    # Parse channels (non-sensitive — fine to pass via query)
     requested_channels = [ch.strip() for ch in channels.split(",")]
     valid_channels = {"cameras", "events", "system", "all"}
     channel_list = [ch for ch in requested_channels if ch in valid_channels]
@@ -72,10 +71,30 @@ async def websocket_endpoint(
     if not channel_list:
         channel_list = ["all"]
 
-    # Accept the WebSocket connection, then register all channels at once.
-    # NOTE: connection_manager.connect() must NOT call websocket.accept()
-    # because the accept must happen before any send.
+    # Accept the socket, then require an auth frame before doing anything else.
     await websocket.accept()
+
+    try:
+        raw = await asyncio.wait_for(websocket.receive_text(), timeout=WS_AUTH_TIMEOUT)
+        auth_msg = json.loads(raw)
+    except (asyncio.TimeoutError, json.JSONDecodeError, WebSocketDisconnect):
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    if not isinstance(auth_msg, dict) or auth_msg.get("type") != "auth":
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    user = await get_current_user_ws(auth_msg.get("token") or "")
+    if not user:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    user_id = user["id"]
+
+    # Register all channels at once.
+    # NOTE: connection_manager.connect() must NOT call websocket.accept()
+    # because the accept already happened above.
     await connection_manager.connect(websocket, channel_list, user_id)
     
     # Send welcome message

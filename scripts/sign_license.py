@@ -85,15 +85,30 @@ def _sign(args: argparse.Namespace) -> None:
         raise SystemExit("private key is not Ed25519")
 
     now = dt.datetime.now(dt.timezone.utc)
-    expires = dt.datetime.fromisoformat(args.expires + "T23:59:59+00:00")
+    # Blank --expires => perpetual license (expires_at left empty; the
+    # platform treats an empty expires_at as never-expiring).
+    if args.expires:
+        expires_at = dt.datetime.fromisoformat(args.expires + "T23:59:59+00:00").isoformat()
+    else:
+        expires_at = ""
+
+    # Channel cap is currently limited to 64 maximum. Clamp loudly so a
+    # typo can never mint a license that the platform would refuse.
+    MAX_CHANNELS = 64
+    cam_limit = args.camera_limit
+    if cam_limit > MAX_CHANNELS:
+        print(f"WARNING: --camera-limit {cam_limit} exceeds max {MAX_CHANNELS}; clamping.", file=sys.stderr)
+        cam_limit = MAX_CHANNELS
+    if cam_limit < 1:
+        raise SystemExit("--camera-limit must be at least 1")
 
     payload = {
         "customer": args.customer,
         "license_id": args.license_id,
         "issued_at": now.isoformat(),
-        "expires_at": expires.isoformat(),
+        "expires_at": expires_at,
         "hardware_fingerprint": args.hardware_fingerprint or None,
-        "camera_limit": args.camera_limit,
+        "camera_limit": cam_limit,
         "ai_camera_limit": args.ai_camera_limit,
         "scenarios": _csv(args.scenarios),
         "features": _csv(args.features),
@@ -110,7 +125,7 @@ def _sign(args: argparse.Namespace) -> None:
     print(f"Signed license written: {out_path}")
     print(f"  customer:       {payload['customer']}")
     print(f"  license_id:     {payload['license_id']}")
-    print(f"  expires:        {payload['expires_at']}")
+    print(f"  expires:        {payload['expires_at'] or '(perpetual)'}")
     print(f"  tier:           {payload['tier']}")
     print(f"  cameras:        {payload['camera_limit']}  ai: {payload['ai_camera_limit']}")
     print(f"  scenarios:      {payload['scenarios']}")
@@ -128,11 +143,13 @@ def main() -> int:
     sg.add_argument("--private-key", required=True)
     sg.add_argument("--customer", required=True)
     sg.add_argument("--license-id", required=True)
-    sg.add_argument("--expires", required=True, help="YYYY-MM-DD")
+    sg.add_argument("--expires", default="",
+                    help="YYYY-MM-DD; omit for a perpetual license")
     sg.add_argument("--tier", default="business",
                     choices=["free", "pro", "business", "enterprise"])
-    sg.add_argument("--camera-limit", type=int, required=True)
-    sg.add_argument("--ai-camera-limit", type=int, required=True)
+    sg.add_argument("--camera-limit", type=int, required=True,
+                    help="max camera channels (1-64)")
+    sg.add_argument("--ai-camera-limit", type=int, default=0)
     sg.add_argument("--scenarios", default="")
     sg.add_argument("--features", default="")
     sg.add_argument("--hardware-fingerprint", default=None)

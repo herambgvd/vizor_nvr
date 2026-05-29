@@ -36,6 +36,7 @@ const TOOL_CURSORS = {
 export default function SnapshotAnnotator({ cameraId, sourceUrl, onClose, onSaved }) {
   const canvasRef = useRef(null);
   const imgRef = useRef(null);
+  const previewUrlRef = useRef(null);
   const [activeTool, setActiveTool] = useState("blur");
   const [color, setColor] = useState("#ef4444");
   const [textInput, setTextInput] = useState("");
@@ -128,6 +129,16 @@ export default function SnapshotAnnotator({ cameraId, sourceUrl, onClose, onSave
     if (img.complete) draw();
     else img.onload = draw;
   }, [operations, redrawCanvas]);
+
+  // Revoke any outstanding preview blob URL when the annotator unmounts.
+  useEffect(() => {
+    return () => {
+      if (previewUrlRef.current) {
+        try { URL.revokeObjectURL(previewUrlRef.current); } catch (_) {}
+        previewUrlRef.current = null;
+      }
+    };
+  }, []);
 
   // ── mouse handlers ──────────────────────────────────────────────────────────
 
@@ -226,7 +237,13 @@ export default function SnapshotAnnotator({ cameraId, sourceUrl, onClose, onSave
     setPreviewing(true);
     try {
       const blob = await annotateSnapshot(cameraId, sourceUrl, operations);
-      setPreviewDataUrl(URL.createObjectURL(blob));
+      // Revoke any previous preview blob URL before replacing it.
+      if (previewUrlRef.current) {
+        try { URL.revokeObjectURL(previewUrlRef.current); } catch (_) {}
+      }
+      const url = URL.createObjectURL(blob);
+      previewUrlRef.current = url;
+      setPreviewDataUrl(url);
     } catch (e) {
       toast.error(`Preview failed: ${e?.response?.data?.detail || e.message}`);
     } finally {

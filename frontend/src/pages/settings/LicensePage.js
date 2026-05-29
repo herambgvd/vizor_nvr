@@ -132,8 +132,9 @@ const ConfirmDialog = ({ open, onConfirm, onCancel, isPending }) => {
           className="font-telemetry text-[11px] mb-5"
           style={{ color: "var(--console-muted)" }}
         >
-          The .lic file will be deleted. New cameras above the dev cap will be
-          rejected. Upload a new license file to restore functionality.
+          The .lic file will be deleted. The platform will be disabled —
+          cameras, recording, and all features stop until a valid license is
+          uploaded again.
         </p>
         <div className="flex gap-2 justify-end">
           <SecondaryBtn onClick={onCancel}>Cancel</SecondaryBtn>
@@ -300,14 +301,14 @@ const LicensePage = () => {
                   {data.customer} · {data.license_id}
                 </p>
               )}
-              {data?.expires_at && (
+              {data?.expires_at ? (
                 <p
                   className="font-telemetry text-[11px] mt-0.5 flex items-center gap-1"
                   style={{ color: "var(--console-muted)" }}
                 >
                   <Calendar className="h-3 w-3" />
                   Expires {data.expires_at.slice(0, 10)}
-                  {data.days_remaining != null && (
+                  {data.days_remaining != null && data.days_remaining >= 0 && (
                     <span
                       style={{
                         color:
@@ -320,6 +321,16 @@ const LicensePage = () => {
                     </span>
                   )}
                 </p>
+              ) : (
+                data?.active && (
+                  <p
+                    className="font-telemetry text-[11px] mt-0.5 flex items-center gap-1"
+                    style={{ color: "var(--console-muted)" }}
+                  >
+                    <Calendar className="h-3 w-3" />
+                    Perpetual license
+                  </p>
+                )
               )}
             </div>
             <div className="flex flex-col gap-2 shrink-0">
