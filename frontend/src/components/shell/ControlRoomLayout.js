@@ -36,6 +36,18 @@ export default function ControlRoomLayout() {
     setPrefs({ wallTiles: tiles });
   };
 
+  const togglePlaybackCamera = (cam) => {
+    const set = Array.isArray(prefs.playbackCameras) ? prefs.playbackCameras.slice() : [];
+    const idx = set.indexOf(cam.id);
+    if (idx === -1) set.push(cam.id);
+    else set.splice(idx, 1);
+    setPrefs({ playbackCameras: set });
+  };
+
+  const onTreeActivate = location.pathname.startsWith("/playback")
+    ? togglePlaybackCamera
+    : fillFirstEmpty;
+
   return (
     <LiveEventProvider>
       <div className="console-root h-screen w-screen flex flex-col overflow-hidden">

@@ -9,6 +9,8 @@ const DEFAULTS = {
   wallLayout: 4,
   // wallTiles: array of cameraId|null, indexed by slot
   wallTiles: [],
+  // playbackCameras: array of cameraId in the playback review set
+  playbackCameras: [],
 };
 
 function read() {
