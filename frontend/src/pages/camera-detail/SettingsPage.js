@@ -285,7 +285,7 @@ const AnrSettingsCard = ({ cameraId, camera }) => {
 
   const { mutate: updateAnr, isPending: saving } = useMutation({
     mutationFn: (data) =>
-      apiClient.patch(`/cameras/${cameraId}`, data).then((r) => r.data),
+      apiClient.put(`/cameras/${cameraId}`, data).then((r) => r.data),
     onSuccess: () => {
       toast.success("ANR settings saved");
       qc.invalidateQueries(["camera", cameraId]);
@@ -469,7 +469,7 @@ const SubStreamRecordingCard = ({ cameraId, camera }) => {
   const { mutate: toggle, isPending } = useMutation({
     mutationFn: (val) =>
       apiClient
-        .patch(`/cameras/${cameraId}`, { record_substream: val })
+        .put(`/cameras/${cameraId}`, { record_substream: val })
         .then((r) => r.data),
     onSuccess: () => {
       toast.success("Recording stream preference saved");
@@ -539,7 +539,7 @@ const PosOverlayCard = ({ cameraId, camera }) => {
   const enabled = config.enabled ?? false;
 
   const { mutate: update, isPending } = useMutation({
-    mutationFn: (data) => apiClient.patch(`/cameras/${cameraId}`, { pos_overlay_config: data }).then((r) => r.data),
+    mutationFn: (data) => apiClient.put(`/cameras/${cameraId}`, { pos_overlay_config: data }).then((r) => r.data),
     onSuccess: () => {
       toast.success("POS overlay settings saved");
       qc.invalidateQueries(["camera", cameraId]);
@@ -611,7 +611,7 @@ const DewarpCard = ({ cameraId, camera }) => {
   const enabled = config.enabled ?? false;
 
   const { mutate: update, isPending } = useMutation({
-    mutationFn: (data) => apiClient.patch(`/cameras/${cameraId}`, { dewarp_config: data }).then((r) => r.data),
+    mutationFn: (data) => apiClient.put(`/cameras/${cameraId}`, { dewarp_config: data }).then((r) => r.data),
     onSuccess: () => {
       toast.success("Dewarp settings saved");
       qc.invalidateQueries(["camera", cameraId]);
