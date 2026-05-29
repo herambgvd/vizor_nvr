@@ -7,7 +7,9 @@ import VideoTile from "./VideoTile";
 export default function VideoWall() {
   const { data: cameras = [] } = useCamerasQuery();
   const [prefs, setPrefs] = useUiPrefs();
-  const [maximized, setMaximized] = useState(null);
+  // Store the maximized camera by id (not a snapshot) so the maximized tile
+  // tracks live status/recording updates from the cameras query.
+  const [maximizedId, setMaximizedId] = useState(null);
 
   const count = slotCount(prefs.wallLayout);
   const byId = useMemo(() => {
@@ -40,17 +42,19 @@ export default function VideoWall() {
     setPrefs({ wallLayout: n, wallTiles: next });
   };
 
-  if (maximized) {
+  const maximized = maximizedId ? byId.get(maximizedId) : null;
+  if (maximizedId && maximized) {
     return (
       <div className="h-full p-1">
         <VideoTile
           camera={maximized}
-          onMaximize={() => setMaximized(null)}
-          onClear={() => setMaximized(null)}
+          onMaximize={() => setMaximizedId(null)}
+          onClear={() => setMaximizedId(null)}
         />
       </div>
     );
   }
+  // The maximized camera disappeared (deleted/removed) — fall back to the grid.
 
   return (
     <div className="h-full flex flex-col">
@@ -79,7 +83,7 @@ export default function VideoWall() {
               camera={cid ? byId.get(cid) : null}
               onAssign={(id) => assign(slot, id)}
               onClear={() => clear(slot)}
-              onMaximize={(cam) => setMaximized(cam)}
+              onMaximize={(cam) => setMaximizedId(cam.id)}
             />
           ))}
         </div>
