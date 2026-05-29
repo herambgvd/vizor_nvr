@@ -100,19 +100,29 @@ class Go2RTCManager:
                     "/api/streams",
                     params={"name": stream_id, "src": safe_url},
                 )
-                ok = resp.status_code < 400
-                if ok:
+                if resp.status_code < 400:
                     if attempt > 1:
                         logger.info(f"go2rtc stream registered on retry {attempt}: {stream_id}")
                     else:
                         logger.info(f"go2rtc stream registered: {stream_id}")
                     return True
-                else:
-                    logger.warning(f"go2rtc add_stream attempt {attempt} failed: {resp.status_code} {resp.text}")
-                    if resp.status_code >= 500 and attempt < max_retries:
-                        await asyncio.sleep(0.5 * attempt)
-                        continue
-                    return False
+
+                # go2rtc 1.9.x returns a spurious 400 ("yaml: line 1: did not
+                # find expected key") on the query-param add form even though
+                # the stream IS registered. Trust the registry state, not the
+                # misleading status code: confirm via GET before failing.
+                if await self.is_registered(stream_id):
+                    logger.info(
+                        f"go2rtc stream registered (ignoring spurious "
+                        f"{resp.status_code} from add endpoint): {stream_id}"
+                    )
+                    return True
+
+                logger.warning(f"go2rtc add_stream attempt {attempt} failed: {resp.status_code} {resp.text}")
+                if resp.status_code >= 500 and attempt < max_retries:
+                    await asyncio.sleep(0.5 * attempt)
+                    continue
+                return False
             except Exception as e:
                 last_err = e
                 logger.warning(f"go2rtc add_stream attempt {attempt} error: {e}")
@@ -120,6 +130,17 @@ class Go2RTCManager:
                     await asyncio.sleep(0.5 * attempt)
         logger.error(f"go2rtc add_stream failed after {max_retries} attempts: {last_err}")
         return False
+
+    async def is_registered(self, stream_id: str) -> bool:
+        """Return True if go2rtc currently has a stream registered under
+        ``stream_id``. Used to distinguish a genuine add failure from
+        go2rtc 1.9.x's spurious 400 on the query-param add endpoint
+        (GET /api/streams?src=ID → 200 when registered, 404 when not)."""
+        try:
+            resp = await self.client.get("/api/streams", params={"src": stream_id})
+            return resp.status_code == 200
+        except Exception:
+            return False
 
     async def remove_stream(self, stream_id: str) -> bool:
         try:

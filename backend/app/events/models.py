@@ -7,9 +7,9 @@ from sqlalchemy import (
     ForeignKey, Index,
 )
 from sqlalchemy.sql import func
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 import uuid
 
@@ -154,6 +154,22 @@ class EventResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+    @field_serializer("triggered_at", "created_at", "acknowledged_at")
+    def _serialize_utc(self, dt: Optional[datetime], _info):
+        """Emit timezone-aware UTC ISO strings.
+
+        Datetimes are stored naive in the DB but are UTC by convention.
+        Without an explicit offset, JS ``new Date()`` interprets the
+        string as *local* time, shifting every timestamp by the client's
+        UTC offset (e.g. +5:30 IST). Tagging naive values as UTC makes
+        the frontend convert correctly to local time for display.
+        """
+        if dt is None:
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.isoformat()
 
 
 class EventAcknowledge(BaseModel):

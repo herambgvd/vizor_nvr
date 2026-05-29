@@ -4,6 +4,7 @@
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import urlparse
@@ -27,6 +28,10 @@ BANDWIDTH_ALERT_COOLDOWN_SECS = 600  # 10 minutes between repeated alerts
 
 
 CRED_PROBE_INTERVAL_SEC = 300   # 5 minutes between credential probes per camera
+
+# Minimum seconds between camera_online ("recovered") events for the same
+# camera. Prevents notification/event spam when a camera flaps repeatedly.
+ONLINE_EVENT_COOLDOWN_SEC = 300
 
 
 class CameraMonitor:
@@ -59,6 +64,10 @@ class CameraMonitor:
         self._bw_alert_fired_at: dict = {}
         # camera_id → monotonic time of last credential probe
         self._cred_probed_at: dict = {}
+        # camera_id → monotonic time a camera_online event was last fired.
+        # Suppresses duplicate "recovered" events when a camera flaps
+        # (recover→online→recording-fail→error→recover) every monitor cycle.
+        self._online_event_fired_at: dict = {}
 
     async def start(self):
         if self._running:
@@ -191,11 +200,13 @@ class CameraMonitor:
                         if prev_status in ("offline", "error"):
                             camera.status = "online"
                             camera.retry_count = 0
-                            await notification_service.notify(
-                                NotificationEvent.CAMERA_ONLINE,
-                                {"camera_id": camera.id, "camera_name": camera.name},
-                                camera_id=camera.id,
-                            )
+                            # Suppress duplicate recovery alerts when a camera
+                            # flaps within the cooldown window. State always
+                            # transitions, but we only notify/fire once per
+                            # window so flapping doesn't spam the event log.
+                            now_mono = time.monotonic()
+                            last_fired = self._online_event_fired_at.get(camera.id, 0.0)
+                            recovered_recently = (now_mono - last_fired) < ONLINE_EVENT_COOLDOWN_SEC
                             await connection_manager.broadcast_camera_status(
                                 camera.id, "online", camera.is_recording
                             )
@@ -203,14 +214,27 @@ class CameraMonitor:
                             if camera.anr_enabled:
                                 from app.services.anr_service import anr_service
                                 asyncio.create_task(anr_service.on_camera_recovered(camera.id))
-                            from app.events.linkage_service import linkage_engine
-                            await linkage_engine.fire_event(
-                                camera_id=camera.id,
-                                event_type="camera_online",
-                                severity="info",
-                                title=f"Camera online — {camera.name}",
-                                description=f"Recovered from {prev_status}",
-                            )
+                            if recovered_recently:
+                                logger.debug(
+                                    f"[{camera.id}] {camera.name} recovered from "
+                                    f"{prev_status} (suppressing camera_online — "
+                                    f"within {ONLINE_EVENT_COOLDOWN_SEC}s cooldown)"
+                                )
+                            else:
+                                self._online_event_fired_at[camera.id] = now_mono
+                                await notification_service.notify(
+                                    NotificationEvent.CAMERA_ONLINE,
+                                    {"camera_id": camera.id, "camera_name": camera.name},
+                                    camera_id=camera.id,
+                                )
+                                from app.events.linkage_service import linkage_engine
+                                await linkage_engine.fire_event(
+                                    camera_id=camera.id,
+                                    event_type="camera_online",
+                                    severity="info",
+                                    title=f"Camera online — {camera.name}",
+                                    description=f"Recovered from {prev_status}",
+                                )
                         elif camera.status != "online":
                             camera.status = "online"
                     else:
