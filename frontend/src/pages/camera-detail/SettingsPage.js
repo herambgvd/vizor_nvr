@@ -694,6 +694,7 @@ const DewarpCard = ({ cameraId, camera }) => {
 const SettingsPage = () => {
   const { camera, cameraId } = useOutletContext();
   const { canManage, isAdmin } = usePermissions();
+  const [activeTab, setActiveTab] = useState("capture");
 
   const GO2RTC_URL =
     process.env.REACT_APP_GO2RTC_URL || "/go2rtc";
@@ -710,61 +711,83 @@ const SettingsPage = () => {
     );
   }
 
-  return (
-    <div className="p-4 md:p-6 space-y-8 max-w-4xl">
-      <CameraSettingsPanel cameraId={cameraId} snapshotUrl={snapshotUrl} />
+  // Admin tab only relevant for ONVIF cameras the user can administer.
+  const adminCamOk = isAdmin && camera?.onvif_host;
 
-      {/* PTZ Tour — visible only if camera has PTZ */}
-      {camera?.ptz_capable && (
-        <div className="border-t border-border pt-6">
-          <PtzTourPanel cameraId={cameraId} ptzCapable={camera.ptz_capable} />
+  // Group settings into top-level tabs so each view fits without scrolling.
+  const TAB_DEFS = [
+    { key: "capture", label: "Capture", icon: SlidersHorizontal },
+    { key: "storage", label: "Storage", icon: HardDrive },
+    { key: "advanced", label: "Advanced", icon: Network },
+    ...(adminCamOk ? [{ key: "admin", label: "Admin", icon: KeyRound }] : []),
+  ];
+
+  // Guard against a stale active tab (e.g. Admin selected then camera changes).
+  const currentTab = TAB_DEFS.some((t) => t.key === activeTab)
+    ? activeTab
+    : "capture";
+
+  return (
+    <div className="p-4 md:p-6 max-w-5xl">
+      {/* Top-level tab bar */}
+      <div className="flex gap-1 border-b border-border mb-6 overflow-x-auto">
+        {TAB_DEFS.map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setActiveTab(key)}
+            className={`flex items-center gap-1.5 px-3 py-2 text-sm border-b-2 transition-colors whitespace-nowrap ${
+              currentTab === key
+                ? "border-primary text-primary font-medium"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Icon className="h-4 w-4" />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Capture — recording mode, motion/privacy/schedule, PTZ tour */}
+      {currentTab === "capture" && (
+        <div className="space-y-6">
+          <CameraSettingsPanel cameraId={cameraId} snapshotUrl={snapshotUrl} />
+          {camera?.ptz_capable && (
+            <PtzTourPanel cameraId={cameraId} ptzCapable={camera.ptz_capable} />
+          )}
         </div>
       )}
 
-      {/* Admin-only: Firmware + Credentials */}
-      {isAdmin && camera?.onvif_host && (
-        <div className="border-t border-border pt-6 grid gap-4 md:grid-cols-2">
-          <FirmwareCard
-            cameraId={cameraId}
-            firmwareVersion={camera?.firmware}
-          />
+      {/* Storage — sub-stream, ANR backfill, bandwidth policy */}
+      {currentTab === "storage" && (
+        <div className="space-y-6">
+          {camera?.sub_stream_url && (
+            <SubStreamRecordingCard cameraId={cameraId} camera={camera} />
+          )}
+          <AnrSettingsCard cameraId={cameraId} camera={camera} />
+          <BandwidthPolicyCard cameraId={cameraId} />
+        </div>
+      )}
+
+      {/* Advanced — POS overlay, dewarp, linkage automation */}
+      {currentTab === "advanced" && (
+        <div className="space-y-6">
+          <PosOverlayCard cameraId={cameraId} camera={camera} />
+          <DewarpCard cameraId={cameraId} camera={camera} />
+          <LinkageRuleBuilder />
+        </div>
+      )}
+
+      {/* Admin — firmware + credentials (ONVIF, admin only) */}
+      {currentTab === "admin" && adminCamOk && (
+        <div className="grid gap-6 md:grid-cols-2">
+          <FirmwareCard cameraId={cameraId} firmwareVersion={camera?.firmware} />
           <CredentialCard
             cameraId={cameraId}
             username={camera?.onvif_username_display || "admin"}
           />
         </div>
       )}
-
-      <div className="border-t border-border pt-6">
-        <LinkageRuleBuilder />
-      </div>
-
-      {/* ANR Settings */}
-      <div className="border-t border-border pt-6">
-        <AnrSettingsCard cameraId={cameraId} camera={camera} />
-      </div>
-
-      {/* Storage Optimization — N5 sub-stream recording */}
-      {camera?.sub_stream_url && (
-        <div className="border-t border-border pt-6">
-          <SubStreamRecordingCard cameraId={cameraId} camera={camera} />
-        </div>
-      )}
-
-      {/* POS Overlay */}
-      <div className="border-t border-border pt-6">
-        <PosOverlayCard cameraId={cameraId} camera={camera} />
-      </div>
-
-      {/* Fisheye Dewarp */}
-      <div className="border-t border-border pt-6">
-        <DewarpCard cameraId={cameraId} camera={camera} />
-      </div>
-
-      {/* Bandwidth Policy — D2 */}
-      <div className="border-t border-border pt-6">
-        <BandwidthPolicyCard cameraId={cameraId} />
-      </div>
     </div>
   );
 };
