@@ -124,12 +124,16 @@ export default function PlaybackConsole() {
     allCells().forEach((c) => c.seekTo(clamped));
   }, []); // eslint-disable-line
 
-  // Heartbeat: keep playhead synced to the first cell.
+  // Heartbeat: keep the shared playhead synced to whichever cells actually
+  // have footage loaded. getCurrentDayOffset() returns null for idle cells, so
+  // an empty first camera no longer drags the playhead back to midnight.
   useEffect(() => {
     if (selectedCameras.length === 0) return undefined;
     syncIntervalRef.current = setInterval(() => {
-      const cells = allCells();
-      if (cells[0]) setCurrentTime(Math.floor(cells[0].getCurrentDayOffset()));
+      const offsets = allCells()
+        .map((c) => c.getCurrentDayOffset())
+        .filter((v) => v != null);
+      if (offsets.length) setCurrentTime(Math.floor(Math.max(...offsets)));
     }, 500);
     return () => clearInterval(syncIntervalRef.current);
   }, [selectedCameras.length]);

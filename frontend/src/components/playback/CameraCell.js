@@ -65,18 +65,23 @@ const CameraCell = React.forwardRef(function CameraCell(
     const seg = segmentsRef.current[currentSegIdx];
     if (!seg || !videoRef.current) return;
 
+    // load() resets playbackRate to 1×, so capture the current rate and
+    // re-apply it once the new segment's metadata is ready. Without this,
+    // fast playback drops back to 1× every time a segment boundary advances.
+    const prevRate = videoRef.current.playbackRate || 1;
+
     const token = localStorage.getItem("nvr_token") || "";
     videoRef.current.src = `${BACKEND_URL}/api/recordings/${seg.id}/download?token=${token}`;
     videoRef.current.load();
 
     const pending = pendingSeekRef.current;
-    if (pending != null) {
-      pendingSeekRef.current = null;
-      const applySeek = () => {
-        if (videoRef.current) videoRef.current.currentTime = pending;
-      };
-      videoRef.current.addEventListener("loadedmetadata", applySeek, { once: true });
-    }
+    pendingSeekRef.current = null;
+    const onMeta = () => {
+      if (!videoRef.current) return;
+      videoRef.current.playbackRate = prevRate;
+      if (pending != null) videoRef.current.currentTime = pending;
+    };
+    videoRef.current.addEventListener("loadedmetadata", onMeta, { once: true });
   }, [currentSegIdx, totalSegments]);
 
   const handleEnded = useCallback(() => {
@@ -94,9 +99,12 @@ const CameraCell = React.forwardRef(function CameraCell(
     get playbackRate() { return videoRef.current?.playbackRate || 1; },
     set playbackRate(v) { if (videoRef.current) videoRef.current.playbackRate = v; },
 
+    // Returns null when this cell has no loaded segment, so the parent can
+    // anchor the shared playhead to a camera that actually has footage instead
+    // of being dragged to midnight by an idle cell.
     getCurrentDayOffset: () => {
       const seg = segmentsRef.current[currentSegIdxRef.current];
-      if (!seg || !videoRef.current) return 0;
+      if (!seg || !videoRef.current) return null;
       return getDayOffset(seg.start_time) + (videoRef.current.currentTime || 0);
     },
 
