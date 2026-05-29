@@ -4,7 +4,8 @@
 // =============================================================================
 // Covers: Twilio SMS, Twilio WhatsApp, POS overlay TCP port, ANR,
 //         Dewarp defaults, RAID monitoring, Archive schedule, Cluster node.
-// All settings are saved to the backend via PATCH /api/settings (key/value).
+// All settings are saved to the backend via PUT /api/settings/{key}.
+// Uses the shared apiClient so auth + token refresh are handled centrally.
 // =============================================================================
 
 import React, { useState } from "react";
@@ -20,43 +21,27 @@ import {
   Archive,
   Eye,
 } from "lucide-react";
+import apiClient from "../../api/client";
 
 // ── API helpers ───────────────────────────────────────────────────────────
+// All requests go through the shared axios client, which attaches the access
+// token and transparently refreshes it on 401. A bespoke fetch wrapper here
+// previously read the wrong localStorage key and used a non-existent PATCH
+// route, so loads 401'd and saves 405'd.
 
-const api = (path, opts = {}) =>
-  fetch(`/api${path}`, {
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${localStorage.getItem("nvr_access_token")}`,
-      ...opts.headers,
-    },
-    ...opts,
-  }).then(async (r) => {
-    if (!r.ok) {
-      const body = await r.json().catch(() => ({}));
-      throw new Error(body.detail || `HTTP ${r.status}`);
-    }
-    return r.json();
-  });
-
-const fetchSettings = () => api("/settings");
+const fetchSettings = () => apiClient.get("/settings").then((r) => r.data);
 const patchSetting = ({ key, value }) =>
-  api("/settings", {
-    method: "PATCH",
-    body: JSON.stringify({ key, value }),
-  });
+  apiClient.put(`/settings/${key}`, { value: String(value) }).then((r) => r.data);
 
 const testSMS = (to) =>
-  api("/notifications/sms/test", {
-    method: "POST",
-    body: JSON.stringify({ to, message: "GVD NVR SMS test" }),
-  });
+  apiClient
+    .post("/notifications/sms/test", { to, message: "GVD NVR SMS test" })
+    .then((r) => r.data);
 
 const testWhatsApp = (to) =>
-  api("/notifications/whatsapp/test", {
-    method: "POST",
-    body: JSON.stringify({ to, message: "GVD NVR WhatsApp test" }),
-  });
+  apiClient
+    .post("/notifications/whatsapp/test", { to, message: "GVD NVR WhatsApp test" })
+    .then((r) => r.data);
 
 // ── Shared primitives ─────────────────────────────────────────────────────
 
