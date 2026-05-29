@@ -355,7 +355,7 @@ export default function SnapshotAnnotator({ cameraId, sourceUrl, onClose, onSave
             <Button size="sm" variant="outline" onClick={handlePreview} disabled={previewing} className="w-full text-xs">
               {previewing ? "…" : "Preview"}
             </Button>
-            <Button size="sm" onClick={handleSave} disabled={saving} className="w-full text-xs bg-teal-600 hover:bg-teal-500 text-white">
+            <Button size="sm" onClick={handleSave} disabled={saving} className="w-full text-xs">
               {saving ? "Saving…" : "Save"}
             </Button>
             {savedUrl && !showEvidenceDialog && (

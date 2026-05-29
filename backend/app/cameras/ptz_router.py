@@ -14,7 +14,7 @@ from app.cameras.models import PTZMoveRequest, PTZPreset
 from app.cameras.service import CameraService
 from app.cameras.onvif_service import onvif_service
 from app.core.dependencies import require_permission, get_admin_user
-from app.core.crypto import decrypt_value
+from app.cameras.onvif_creds import onvif_credentials
 from app.core.audit_logger import write_audit, client_ip
 
 logger = logging.getLogger(__name__)
@@ -35,9 +35,10 @@ async def ptz_move(
     if not camera.ptz_capable or not camera.onvif_host:
         raise HTTPException(400, "Camera does not support PTZ")
 
+    onvif_user, onvif_pass = onvif_credentials(camera, default_user="")
     ok = await onvif_service.continuous_move(
         camera.onvif_host, camera.onvif_port,
-        decrypt_value(camera.onvif_username) or "", decrypt_value(camera.onvif_password or ""),
+        onvif_user, onvif_pass,
         pan=body.pan, tilt=body.tilt, zoom=body.zoom, speed=body.speed,
         profile_token=camera.onvif_profile_token or None,
     )
@@ -56,9 +57,10 @@ async def ptz_stop(
     if not camera or not camera.onvif_host:
         raise HTTPException(404, "Camera not found or no ONVIF configured")
 
+    onvif_user, onvif_pass = onvif_credentials(camera, default_user="")
     await onvif_service.stop(
         camera.onvif_host, camera.onvif_port,
-        decrypt_value(camera.onvif_username) or "", decrypt_value(camera.onvif_password or ""),
+        onvif_user, onvif_pass,
         profile_token=camera.onvif_profile_token or None,
     )
     return {"status": "stopped"}
@@ -73,9 +75,10 @@ async def ptz_presets(
     camera = await svc.get_by_id(db, camera_id)
     if not camera or not camera.onvif_host:
         raise HTTPException(404)
+    onvif_user, onvif_pass = onvif_credentials(camera, default_user="")
     presets = await onvif_service.get_presets(
         camera.onvif_host, camera.onvif_port,
-        decrypt_value(camera.onvif_username) or "", decrypt_value(camera.onvif_password or ""),
+        onvif_user, onvif_pass,
         profile_token=camera.onvif_profile_token or None,
     )
     camera.ptz_presets = presets
@@ -97,9 +100,10 @@ async def ptz_goto_preset(
     preset_token = body.get("preset_token")
     if not preset_token:
         raise HTTPException(400, "preset_token required")
+    onvif_user, onvif_pass = onvif_credentials(camera, default_user="")
     ok = await onvif_service.goto_preset(
         camera.onvif_host, camera.onvif_port,
-        decrypt_value(camera.onvif_username) or "", decrypt_value(camera.onvif_password or ""),
+        onvif_user, onvif_pass,
         preset_token,
         profile_token=camera.onvif_profile_token or None,
     )
@@ -131,9 +135,10 @@ async def ptz_save_preset(
     if not preset_name:
         raise HTTPException(400, "name required")
 
+    onvif_user, onvif_pass = onvif_credentials(camera, default_user="")
     token = await onvif_service.set_preset(
         camera.onvif_host, camera.onvif_port,
-        decrypt_value(camera.onvif_username) or "", decrypt_value(camera.onvif_password or ""),
+        onvif_user, onvif_pass,
         preset_name,
         profile_token=camera.onvif_profile_token or None,
     )
@@ -142,7 +147,7 @@ async def ptz_save_preset(
 
     presets = await onvif_service.get_presets(
         camera.onvif_host, camera.onvif_port,
-        decrypt_value(camera.onvif_username) or "", decrypt_value(camera.onvif_password or ""),
+        onvif_user, onvif_pass,
         profile_token=camera.onvif_profile_token or None,
     )
     camera.ptz_presets = presets
@@ -169,9 +174,10 @@ async def ptz_delete_preset(
     if not camera or not camera.onvif_host:
         raise HTTPException(404, "Camera not found or no ONVIF configured")
 
+    onvif_user, onvif_pass = onvif_credentials(camera, default_user="")
     ok = await onvif_service.delete_preset(
         camera.onvif_host, camera.onvif_port,
-        decrypt_value(camera.onvif_username) or "", decrypt_value(camera.onvif_password or ""),
+        onvif_user, onvif_pass,
         preset_token,
         profile_token=camera.onvif_profile_token or None,
     )
@@ -180,7 +186,7 @@ async def ptz_delete_preset(
 
     presets = await onvif_service.get_presets(
         camera.onvif_host, camera.onvif_port,
-        decrypt_value(camera.onvif_username) or "", decrypt_value(camera.onvif_password or ""),
+        onvif_user, onvif_pass,
         profile_token=camera.onvif_profile_token or None,
     )
     camera.ptz_presets = presets

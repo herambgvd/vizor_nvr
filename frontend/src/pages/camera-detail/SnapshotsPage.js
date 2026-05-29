@@ -192,7 +192,6 @@ const SnapshotsPage = () => {
             <Button
               onClick={handleSave}
               disabled={saveMutation.isPending}
-              className="bg-teal-600 hover:bg-teal-500 text-white"
             >
               {saveMutation.isPending ? (
                 <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
@@ -322,7 +321,7 @@ const SnapshotsPage = () => {
               </p>
               <button
                 onClick={() => { setAnnotatorUrl(snaps[lightboxIdx].url); closeLightbox(); }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-teal-600/20 text-teal-300 border border-teal-600/40 hover:bg-teal-600/40 transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border border-border text-zinc-300 hover:bg-card/60 transition-colors"
               >
                 <Pencil className="h-3.5 w-3.5" />
                 Annotate

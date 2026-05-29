@@ -28,7 +28,7 @@ import {
 import { getCamera, getLatestHealth } from "../../api/cameras";
 import { Button } from "../../components/ui/button";
 import { StatusBadge } from "../../components/nvr/StatusBadge";
-import { cn } from "../../lib/utils";
+import { cn, maskStreamUrl } from "../../lib/utils";
 
 const NAV = [
   { path: "live", label: "Live View", icon: Video },
@@ -130,7 +130,7 @@ const CameraDetailLayout = () => {
           <HealthPill data={health} />
         </div>
         <span className="hidden md:inline text-xs text-muted-foreground font-mono truncate max-w-[28ch]">
-          {camera.main_stream_url}
+          {maskStreamUrl(camera.main_stream_url)}
         </span>
       </header>
 

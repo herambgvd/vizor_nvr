@@ -12,7 +12,7 @@ from app.database import get_db
 from app.cameras.service import CameraService
 from app.cameras.onvif_service import onvif_service
 from app.core.dependencies import require_permission
-from app.core.crypto import decrypt_value
+from app.cameras.onvif_creds import onvif_credentials
 from app.core.audit_logger import write_audit, client_ip
 
 logger = logging.getLogger(__name__)
@@ -30,15 +30,12 @@ async def get_imaging(
     camera = await svc.get_by_id(db, camera_id)
     if not camera or not camera.onvif_host:
         raise HTTPException(404, "Camera not found or no ONVIF configured")
+    onvif_user, onvif_pass = onvif_credentials(camera)
     settings_data = await onvif_service.get_imaging_settings(
-        camera.onvif_host, camera.onvif_port,
-        decrypt_value(camera.onvif_username) or "admin",
-        decrypt_value(camera.onvif_password or ""),
+        camera.onvif_host, camera.onvif_port, onvif_user, onvif_pass,
     )
     options = await onvif_service.get_imaging_options(
-        camera.onvif_host, camera.onvif_port,
-        decrypt_value(camera.onvif_username) or "admin",
-        decrypt_value(camera.onvif_password or ""),
+        camera.onvif_host, camera.onvif_port, onvif_user, onvif_pass,
     )
     return {"camera_id": camera_id, "settings": settings_data, "options": options}
 
@@ -58,10 +55,9 @@ async def update_imaging(
     if not camera or not camera.onvif_host:
         raise HTTPException(404, "Camera not found or no ONVIF configured")
     body = await request.json()
+    onvif_user, onvif_pass = onvif_credentials(camera)
     ok = await onvif_service.set_imaging_settings(
-        camera.onvif_host, camera.onvif_port,
-        decrypt_value(camera.onvif_username) or "admin",
-        decrypt_value(camera.onvif_password or ""),
+        camera.onvif_host, camera.onvif_port, onvif_user, onvif_pass,
         settings_patch=body,
     )
     if not ok:
@@ -85,10 +81,9 @@ async def trigger_autofocus(
     camera = await svc.get_by_id(db, camera_id)
     if not camera or not camera.onvif_host:
         raise HTTPException(404, "Camera not found or no ONVIF configured")
+    onvif_user, onvif_pass = onvif_credentials(camera)
     ok = await onvif_service.move_focus(
-        camera.onvif_host, camera.onvif_port,
-        decrypt_value(camera.onvif_username) or "admin",
-        decrypt_value(camera.onvif_password or ""),
+        camera.onvif_host, camera.onvif_port, onvif_user, onvif_pass,
         mode="Auto",
     )
     return {"camera_id": camera_id, "autofocus_triggered": ok}

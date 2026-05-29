@@ -39,7 +39,7 @@ import socket
 from datetime import datetime, timezone
 from typing import Optional, Dict
 
-from app.database import async_session_maker
+from app.database import async_session_maker, engine
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -64,6 +64,14 @@ class ClusterService:
         self._is_leader: bool = False
         self._last_role_change: Optional[datetime] = None
         self._last_heartbeat_at: Optional[datetime] = None
+        # Dedicated DB connection that *holds* the advisory lock. pg advisory
+        # locks are session-scoped, so the lock must live on one stable
+        # connection for the whole duration of leadership — never a pooled
+        # connection that gets handed back between heartbeats (see _heartbeat).
+        self._lock_conn = None
+        self._is_sqlite: bool = str(
+            getattr(settings, "DATABASE_URL", "") or ""
+        ).startswith("sqlite")
 
     # ── Public properties ──────────────────────────────────────────────
 
@@ -108,17 +116,20 @@ class ClusterService:
         # Release leadership so a standby can take over promptly
         if self._is_leader:
             await self._demote("shutdown")
-            # Also release the advisory lock so the next heartbeat by a standby
-            # can immediately acquire it (don't wait for session expiry).
-            try:
-                async with async_session_maker() as db:
+            # Release the advisory lock on the SAME connection that holds it
+            # (advisory locks are session-scoped — unlocking on any other
+            # pooled connection is a no-op), then drop the connection so a
+            # standby can grab the lock on its next heartbeat without waiting
+            # for the TCP session to expire.
+            if self._lock_conn is not None and not self._lock_conn.closed:
+                try:
                     from sqlalchemy import text
-                    await db.execute(
+                    await self._lock_conn.execute(
                         text("SELECT pg_advisory_unlock(:id)"), {"id": _LEADER_LOCK_ID}
                     )
-                    await db.commit()
-            except Exception:
-                pass
+                except Exception:
+                    pass
+        await self._reset_lock_conn()
         self._update_metrics()
         logger.info("Cluster service stopped")
 
@@ -139,22 +150,65 @@ class ClusterService:
     async def _heartbeat(self):
         from sqlalchemy import text
 
-        async with async_session_maker() as db:
-            try:
-                result = await db.execute(
-                    text("SELECT pg_try_advisory_lock(:id)"), {"id": _LEADER_LOCK_ID}
-                )
-                got_lock = result.scalar()
-            except Exception as exc:
-                # Non-Postgres (SQLite dev install) — act as single-node leader
-                logger.debug(f"[cluster] Advisory lock not available ({exc}); acting as leader")
+        # ── SQLite dev install: no advisory locks → always single-node leader ──
+        if self._is_sqlite:
+            async with async_session_maker() as db:
                 if not self._is_leader:
                     await self._promote(db)
                 else:
                     await self._update_heartbeat(db)
-                self._update_metrics()
-                return
+            self._update_metrics()
+            return
 
+        # ── Postgres: leader election via pg advisory lock ───────────────────
+        # pg_try_advisory_lock(42) is *session*-scoped: the lock belongs to the
+        # exact DB connection that acquired it and is held until that connection
+        # is released/closed.  The old code acquired it on a pooled session via
+        # `async with async_session_maker()` and let the connection return to
+        # the pool every tick.  With a 40+ connection pool, the next heartbeat
+        # would routinely check out a *different* connection, see the lock as
+        # "held by another session", and demote — then re-acquire on the tick
+        # after that.  That flapping is exactly what produced the repeated
+        # "NVR started as active leader" events.
+        #
+        # Fix: hold the lock on ONE dedicated connection that we keep open for
+        # the whole lifetime of leadership; never hand it back to the pool.
+        got_lock = False
+        try:
+            if self._lock_conn is None or self._lock_conn.closed:
+                self._lock_conn = await engine.connect()
+                # A brand-new connection can't already hold the lock.
+                if self._is_leader:
+                    logger.warning(
+                        "[cluster] Lock connection was lost; re-acquiring leadership lock"
+                    )
+                    self._is_leader = False
+
+            if self._is_leader:
+                # We already own the lock on this connection. Don't re-lock
+                # (that just bumps pg's re-entrant counter) — only confirm the
+                # session is still alive. If it isn't, the execute() raises and
+                # we treat it as lock loss below.
+                await self._lock_conn.execute(text("SELECT 1"))
+                got_lock = True
+            else:
+                result = await self._lock_conn.execute(
+                    text("SELECT pg_try_advisory_lock(:id)"), {"id": _LEADER_LOCK_ID}
+                )
+                got_lock = bool(result.scalar())
+        except Exception as exc:
+            # The dedicated connection died. Drop it so the next tick rebuilds
+            # it, and demote if we believed we were leader (the lock is gone
+            # with the connection).
+            logger.error(f"[cluster] Advisory-lock connection error: {exc}")
+            await self._reset_lock_conn()
+            if self._is_leader:
+                await self._demote("lock_conn_lost")
+            self._update_metrics()
+            return
+
+        # Row bookkeeping uses a normal pooled session (NOT the lock conn).
+        async with async_session_maker() as db:
             if got_lock:
                 if not self._is_leader:
                     await self._promote(db)
@@ -167,6 +221,15 @@ class ClusterService:
                     await self._update_heartbeat(db)
 
         self._update_metrics()
+
+    async def _reset_lock_conn(self):
+        """Close and forget the dedicated advisory-lock connection."""
+        conn, self._lock_conn = self._lock_conn, None
+        if conn is not None:
+            try:
+                await conn.close()
+            except Exception:
+                pass
 
     def _update_metrics(self):
         try:
@@ -273,13 +336,32 @@ class ClusterService:
         except Exception as exc:
             logger.error(f"[cluster] Failed to start camera monitor after promotion: {exc}")
 
-        # Cooldown: skip emit if we fired the same event in the last N seconds.
+        # Cooldown: skip emit if we fired the same event recently. The in-memory
+        # timestamp alone resets on every process restart, so a crash/restart
+        # loop would still spam the alarms panel. Back it with a DB lookup
+        # against the events table so the cooldown survives restarts.
         now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
         cooldown_secs = getattr(settings, "CLUSTER_EVENT_COOLDOWN_SECS", 60)
         last_emit = getattr(self, "_last_promotion_event_at", None)
         if last_emit and (now_naive - last_emit).total_seconds() < cooldown_secs:
-            logger.debug("[cluster] Promotion event suppressed by cooldown")
+            logger.debug("[cluster] Promotion event suppressed by in-memory cooldown")
             return
+        try:
+            from sqlalchemy import text
+            recent = (await db.execute(
+                text(
+                    "SELECT COUNT(*) FROM events "
+                    "WHERE event_type IN ('cluster_startup', 'cluster_failover') "
+                    "AND created_at > (NOW() - make_interval(secs => :secs))"
+                ),
+                {"secs": cooldown_secs},
+            )).scalar() or 0
+            if recent > 0:
+                logger.debug("[cluster] Promotion event suppressed by persisted cooldown")
+                self._last_promotion_event_at = now_naive
+                return
+        except Exception as exc:
+            logger.debug(f"[cluster] Persisted cooldown check failed: {exc}")
         self._last_promotion_event_at = now_naive
 
         try:

@@ -229,7 +229,7 @@ const ImagingTab = ({ camera, cameraId }) => {
   const [settings, setSettings] = useState(null);
   const [dirty, setDirty] = useState(false);
 
-  const { data, isLoading, isError, refetch } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["onvif-imaging", cameraId],
     queryFn: () => getImagingSettings(cameraId),
     enabled: !!camera?.onvif_host,
@@ -286,7 +286,9 @@ const ImagingTab = ({ camera, cameraId }) => {
     return (
       <div className="text-center py-12">
         <AlertTriangle className="h-10 w-10 mx-auto mb-3 text-amber-400" />
-        <p className="text-sm text-muted-foreground">Could not load imaging settings from camera.</p>
+        <p className="text-sm text-muted-foreground max-w-md mx-auto">
+          {error?.response?.data?.detail || "Could not load imaging settings from camera."}
+        </p>
         <Button variant="outline" size="sm" className="mt-3" onClick={refetch}>
           Retry
         </Button>
@@ -451,14 +453,14 @@ const ImagingTab = ({ camera, cameraId }) => {
 const DigitalIOTab = ({ camera, cameraId }) => {
   const [triggeringRelay, setTriggeringRelay] = useState(null);
 
-  const { data: relays, isLoading: relaysLoading, isError: relaysError, refetch: refetchRelays } = useQuery({
+  const { data: relays, isLoading: relaysLoading, isError: relaysError, error: relaysErr, refetch: refetchRelays } = useQuery({
     queryKey: ["onvif-relays", cameraId],
     queryFn: () => getRelayOutputs(cameraId),
     enabled: !!camera?.onvif_host,
     retry: 1,
   });
 
-  const { data: inputs, isLoading: inputsLoading, isError: inputsError, refetch: refetchInputs } = useQuery({
+  const { data: inputs, isLoading: inputsLoading, isError: inputsError, error: inputsErr, refetch: refetchInputs } = useQuery({
     queryKey: ["onvif-inputs", cameraId],
     queryFn: () => getDigitalInputs(cameraId),
     enabled: !!camera?.onvif_host,
@@ -507,7 +509,7 @@ const DigitalIOTab = ({ camera, cameraId }) => {
         ) : relaysError ? (
           <p className="text-sm text-muted-foreground py-4">
             <AlertTriangle className="h-4 w-4 inline mr-1 text-amber-400" />
-            Could not load relay outputs from camera.
+            {relaysErr?.response?.data?.detail || "Could not load relay outputs from camera."}
           </p>
         ) : !relays?.length ? (
           <p className="text-sm text-muted-foreground py-4">No relay outputs reported by camera.</p>
@@ -575,7 +577,7 @@ const DigitalIOTab = ({ camera, cameraId }) => {
         ) : inputsError ? (
           <p className="text-sm text-muted-foreground py-4">
             <AlertTriangle className="h-4 w-4 inline mr-1 text-amber-400" />
-            Could not load digital inputs from camera.
+            {inputsErr?.response?.data?.detail || "Could not load digital inputs from camera."}
           </p>
         ) : !inputs?.length ? (
           <p className="text-sm text-muted-foreground py-4">No digital inputs reported by camera.</p>
@@ -627,7 +629,7 @@ const SystemTab = ({ camera, cameraId }) => {
   const [showRebootConfirm, setShowRebootConfirm] = useState(false);
   const [showFactoryConfirm, setShowFactoryConfirm] = useState(false);
 
-  const { data: deviceInfo, isLoading: infoLoading, isError: infoError } = useQuery({
+  const { data: deviceInfo, isLoading: infoLoading, isError: infoError, error: infoErr } = useQuery({
     queryKey: ["onvif-device-info", cameraId],
     queryFn: () => getONVIFDeviceInfo(cameraId),
     enabled: !!camera?.onvif_host,
@@ -707,7 +709,7 @@ const SystemTab = ({ camera, cameraId }) => {
         ) : infoError ? (
           <p className="text-sm text-muted-foreground py-2">
             <AlertTriangle className="h-4 w-4 inline mr-1 text-amber-400" />
-            Could not retrieve device information.
+            {infoErr?.response?.data?.detail || "Could not retrieve device information."}
           </p>
         ) : deviceInfo ? (
           <div className="bg-card/40 dark:bg-primary/60 rounded-lg p-3">

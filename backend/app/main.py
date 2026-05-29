@@ -457,8 +457,11 @@ async def get_openapi_schema(admin=_Depends(_get_admin_user)):
 
 
 @app.get("/api/docs", response_class=HTMLResponse, include_in_schema=False)
-async def get_swagger_ui(admin=_Depends(_get_admin_user)):
-    """Branded Swagger UI — admin only."""
+async def get_swagger_ui():
+    """Branded Swagger UI shell. The HTML itself carries no API data — the
+    schema is fetched from the admin-gated /api/openapi.json with a bearer
+    token (see requestInterceptor below), so docs stay restricted to admins
+    while the page can still load via direct browser navigation."""
     html = """<!DOCTYPE html>
 <html>
 <head>
@@ -467,11 +470,62 @@ async def get_swagger_ui(admin=_Depends(_get_admin_user)):
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" type="text/css" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" >
   <style>
+    /* ── GVD NVR — forced dark theme (no light mode, no toggle) ───────── */
+    :root { color-scheme: dark; }
     body { margin: 0; background: #0f172a; }
-    .swagger-ui .topbar { background: #0f172a; border-bottom: 1px solid #1e293b; }
+    .swagger-ui, .swagger-ui .info, .swagger-ui .scheme-container { background: #0f172a; }
+    /* topbar / branding */
+    .swagger-ui .topbar { background: #0b1220; border-bottom: 1px solid #1e293b; }
     .swagger-ui .topbar .download-url-wrapper { display: none; }
     .swagger-ui .topbar-wrapper img { content: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%2314b8a6" width="32" height="32"><circle cx="12" cy="12" r="10"/></svg>'); }
     .swagger-ui .topbar-wrapper a::after { content: " GVD NVR"; color: #14b8a6; font-weight: 700; font-size: 1.1rem; margin-left: 8px; }
+    /* global text colour */
+    .swagger-ui, .swagger-ui .info .title, .swagger-ui .info li, .swagger-ui .info p,
+    .swagger-ui .info table, .swagger-ui label, .swagger-ui .opblock-tag,
+    .swagger-ui .opblock .opblock-summary-operation-id,
+    .swagger-ui .opblock .opblock-summary-path,
+    .swagger-ui .opblock .opblock-summary-path__deprecated,
+    .swagger-ui .opblock .opblock-summary-description,
+    .swagger-ui .opblock-description-wrapper p, .swagger-ui .opblock-external-docs-wrapper p,
+    .swagger-ui .opblock-title_normal p, .swagger-ui table thead tr td,
+    .swagger-ui table thead tr th, .swagger-ui .parameter__name, .swagger-ui .parameter__type,
+    .swagger-ui .response-col_status, .swagger-ui .response-col_description,
+    .swagger-ui .responses-inner h4, .swagger-ui .responses-inner h5,
+    .swagger-ui .tab li, .swagger-ui .markdown p, .swagger-ui .markdown li,
+    .swagger-ui .model, .swagger-ui .model-title, .swagger-ui section.models h4,
+    .swagger-ui .parameter__in, .swagger-ui .prop-type { color: #e2e8f0; }
+    .swagger-ui .opblock-tag small, .swagger-ui .info .base-url,
+    .swagger-ui .parameter__type, .swagger-ui .renderedMarkdown code { color: #94a3b8; }
+    .swagger-ui svg, .swagger-ui .opblock-tag svg, .swagger-ui .expand-operation svg,
+    .swagger-ui .model-toggle:after { fill: #94a3b8; filter: invert(0.85); }
+    /* section / tag headers */
+    .swagger-ui .opblock-tag { border-bottom: 1px solid #1e293b; }
+    /* operation blocks */
+    .swagger-ui .opblock { background: #111c30; border: 1px solid #1e293b; box-shadow: none; }
+    .swagger-ui .opblock .opblock-section-header { background: #16233b; border-bottom: 1px solid #1e293b; }
+    .swagger-ui .opblock .opblock-section-header h4, .swagger-ui .opblock .opblock-section-header label { color: #e2e8f0; }
+    .swagger-ui .opblock.opblock-get { border-color: #1d4ed8; background: rgba(37,99,235,.08); }
+    .swagger-ui .opblock.opblock-post { border-color: #15803d; background: rgba(34,197,94,.08); }
+    .swagger-ui .opblock.opblock-put { border-color: #b45309; background: rgba(217,119,6,.08); }
+    .swagger-ui .opblock.opblock-delete { border-color: #b91c1c; background: rgba(239,68,68,.08); }
+    /* tables / models / inputs */
+    .swagger-ui table thead tr td, .swagger-ui table thead tr th { border-bottom: 1px solid #1e293b; }
+    .swagger-ui .model-box, .swagger-ui section.models, .swagger-ui section.models.is-open h4 { background: #111c30; border-color: #1e293b; }
+    .swagger-ui section.models { border: 1px solid #1e293b; }
+    .swagger-ui input[type=text], .swagger-ui input[type=password], .swagger-ui input[type=email],
+    .swagger-ui textarea, .swagger-ui select {
+      background: #0b1220; color: #e2e8f0; border: 1px solid #334155;
+    }
+    .swagger-ui .microlight { background: #0b1220; color: #e2e8f0; }
+    .swagger-ui .highlight-code { background: #0b1220; }
+    /* responses / dialogs */
+    .swagger-ui .responses-inner { background: transparent; }
+    .swagger-ui .dialog-ux .modal-ux { background: #111c30; border: 1px solid #1e293b; }
+    .swagger-ui .dialog-ux .modal-ux-header h3, .swagger-ui .dialog-ux .modal-ux-content h4,
+    .swagger-ui .dialog-ux .modal-ux-content p { color: #e2e8f0; }
+    /* authorize button keeps brand accent */
+    .swagger-ui .btn.authorize { color: #14b8a6; border-color: #14b8a6; }
+    .swagger-ui .btn.authorize svg { fill: #14b8a6; filter: none; }
   </style>
 </head>
 <body>
@@ -487,7 +541,7 @@ async def get_swagger_ui(admin=_Depends(_get_admin_user)):
         plugins: [SwaggerUIBundle.plugins.DownloadUrl],
         layout: "StandaloneLayout",
         requestInterceptor: (req) => {
-          const token = localStorage.getItem('nvr_access_token');
+          const token = localStorage.getItem('nvr_token');
           if (token) req.headers['Authorization'] = 'Bearer ' + token;
           return req;
         },
@@ -500,8 +554,9 @@ async def get_swagger_ui(admin=_Depends(_get_admin_user)):
 
 
 @app.get("/api/redoc", response_class=HTMLResponse, include_in_schema=False)
-async def get_redoc_ui(admin=_Depends(_get_admin_user)):
-    """Branded ReDoc — admin only."""
+async def get_redoc_ui():
+    """Branded ReDoc shell. Schema comes from the admin-gated
+    /api/openapi.json, so the docs themselves remain admin-restricted."""
     html = """<!DOCTYPE html>
 <html>
 <head>

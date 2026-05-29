@@ -12,7 +12,7 @@ from app.database import get_db
 from app.cameras.service import CameraService
 from app.cameras.onvif_service import onvif_service
 from app.core.dependencies import require_permission
-from app.core.crypto import decrypt_value
+from app.cameras.onvif_creds import onvif_credentials
 from app.core.audit_logger import write_audit, client_ip
 
 logger = logging.getLogger(__name__)
@@ -30,10 +30,9 @@ async def get_relay_outputs(
     camera = await svc.get_by_id(db, camera_id)
     if not camera or not camera.onvif_host:
         raise HTTPException(404, "Camera not found or no ONVIF configured")
+    onvif_user, onvif_pass = onvif_credentials(camera)
     outputs = await onvif_service.get_relay_outputs(
-        camera.onvif_host, camera.onvif_port,
-        decrypt_value(camera.onvif_username) or "admin",
-        decrypt_value(camera.onvif_password or ""),
+        camera.onvif_host, camera.onvif_port, onvif_user, onvif_pass,
     )
     camera.relay_outputs = outputs
     await db.commit()
@@ -59,10 +58,9 @@ async def trigger_relay_output(
     state = body.get("state", "active")
     if state not in ("active", "inactive"):
         raise HTTPException(400, "state must be 'active' or 'inactive'")
+    onvif_user, onvif_pass = onvif_credentials(camera)
     ok = await onvif_service.set_relay_output_state(
-        camera.onvif_host, camera.onvif_port,
-        decrypt_value(camera.onvif_username) or "admin",
-        decrypt_value(camera.onvif_password or ""),
+        camera.onvif_host, camera.onvif_port, onvif_user, onvif_pass,
         relay_token=relay_token,
         logical_state=state,
     )
@@ -87,10 +85,9 @@ async def get_digital_inputs(
     camera = await svc.get_by_id(db, camera_id)
     if not camera or not camera.onvif_host:
         raise HTTPException(404, "Camera not found or no ONVIF configured")
+    onvif_user, onvif_pass = onvif_credentials(camera)
     inputs = await onvif_service.get_digital_inputs(
-        camera.onvif_host, camera.onvif_port,
-        decrypt_value(camera.onvif_username) or "admin",
-        decrypt_value(camera.onvif_password or ""),
+        camera.onvif_host, camera.onvif_port, onvif_user, onvif_pass,
     )
     camera.digital_inputs = inputs
     await db.commit()

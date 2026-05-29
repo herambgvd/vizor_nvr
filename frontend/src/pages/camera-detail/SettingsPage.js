@@ -15,6 +15,7 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
+import { maskStreamUrl } from "../../lib/utils";
 import apiClient from "../../api/client";
 
 // ── Firmware Upload Card ─────────────────────────────────────────────────────
@@ -246,7 +247,6 @@ const BandwidthPolicyCard = ({ cameraId }) => {
       <Button
         onClick={handleSave}
         disabled={mutation.isPending}
-        className="bg-teal-600 hover:bg-teal-500 text-white"
       >
         {mutation.isPending ? (
           <RefreshCwIcon className="h-4 w-4 mr-2 animate-spin" />
@@ -523,7 +523,7 @@ const SubStreamRecordingCard = ({ cameraId, camera }) => {
         {enabled && hasSubStream && (
           <p className="text-xs text-teal-400">
             Active — FFmpeg will record from sub-stream:{" "}
-            <span className="font-mono break-all">{camera.sub_stream_url}</span>
+            <span className="font-mono break-all">{maskStreamUrl(camera.sub_stream_url)}</span>
           </p>
         )}
       </CardContent>

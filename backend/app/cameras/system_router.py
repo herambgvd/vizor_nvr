@@ -12,7 +12,7 @@ from app.database import get_db
 from app.cameras.service import CameraService
 from app.cameras.onvif_service import onvif_service
 from app.core.dependencies import require_permission, get_admin_user
-from app.core.crypto import decrypt_value
+from app.cameras.onvif_creds import onvif_credentials
 from app.core.audit_logger import write_audit, client_ip
 
 logger = logging.getLogger(__name__)
@@ -30,10 +30,9 @@ async def get_onvif_capabilities(
     camera = await svc.get_by_id(db, camera_id)
     if not camera or not camera.onvif_host:
         raise HTTPException(404, "Camera not found or no ONVIF configured")
+    onvif_user, onvif_pass = onvif_credentials(camera)
     caps = await onvif_service.get_capabilities(
-        camera.onvif_host, camera.onvif_port,
-        decrypt_value(camera.onvif_username) or "admin",
-        decrypt_value(camera.onvif_password or ""),
+        camera.onvif_host, camera.onvif_port, onvif_user, onvif_pass,
     )
     return {"camera_id": camera_id, "capabilities": caps}
 
@@ -48,10 +47,9 @@ async def get_system_info(
     camera = await svc.get_by_id(db, camera_id)
     if not camera or not camera.onvif_host:
         raise HTTPException(404, "Camera not found or no ONVIF configured")
+    onvif_user, onvif_pass = onvif_credentials(camera)
     info = await onvif_service.get_device_system_info(
-        camera.onvif_host, camera.onvif_port,
-        decrypt_value(camera.onvif_username) or "admin",
-        decrypt_value(camera.onvif_password or ""),
+        camera.onvif_host, camera.onvif_port, onvif_user, onvif_pass,
     )
     return {"camera_id": camera_id, **info}
 
@@ -66,10 +64,9 @@ async def get_camera_time(
     camera = await svc.get_by_id(db, camera_id)
     if not camera or not camera.onvif_host:
         raise HTTPException(404, "Camera not found or no ONVIF configured")
+    onvif_user, onvif_pass = onvif_credentials(camera)
     time_info = await onvif_service.get_camera_time(
-        camera.onvif_host, camera.onvif_port,
-        decrypt_value(camera.onvif_username) or "admin",
-        decrypt_value(camera.onvif_password or ""),
+        camera.onvif_host, camera.onvif_port, onvif_user, onvif_pass,
     )
     return {"camera_id": camera_id, **time_info}
 
@@ -85,10 +82,9 @@ async def sync_camera_time(
     camera = await svc.get_by_id(db, camera_id)
     if not camera or not camera.onvif_host:
         raise HTTPException(404, "Camera not found or no ONVIF configured")
+    onvif_user, onvif_pass = onvif_credentials(camera)
     ok = await onvif_service.sync_camera_time(
-        camera.onvif_host, camera.onvif_port,
-        decrypt_value(camera.onvif_username) or "admin",
-        decrypt_value(camera.onvif_password or ""),
+        camera.onvif_host, camera.onvif_port, onvif_user, onvif_pass,
     )
     if not ok:
         raise HTTPException(500, "Time sync failed")
@@ -112,10 +108,9 @@ async def reboot_camera(
     if not camera or not camera.onvif_host:
         raise HTTPException(404, "Camera not found or no ONVIF configured")
     try:
+        onvif_user, onvif_pass = onvif_credentials(camera)
         msg = await onvif_service.reboot_camera(
-            camera.onvif_host, camera.onvif_port,
-            decrypt_value(camera.onvif_username) or "admin",
-            decrypt_value(camera.onvif_password or ""),
+            camera.onvif_host, camera.onvif_port, onvif_user, onvif_pass,
         )
     except RuntimeError as e:
         raise HTTPException(500, str(e))
@@ -145,10 +140,9 @@ async def factory_default_camera(
         raise HTTPException(404, "Camera not found or no ONVIF configured")
     hard = bool(body.get("hard", False))
     try:
+        onvif_user, onvif_pass = onvif_credentials(camera)
         msg = await onvif_service.factory_default(
-            camera.onvif_host, camera.onvif_port,
-            decrypt_value(camera.onvif_username) or "admin",
-            decrypt_value(camera.onvif_password or ""),
+            camera.onvif_host, camera.onvif_port, onvif_user, onvif_pass,
             hard=hard,
         )
     except RuntimeError as e:
@@ -174,10 +168,9 @@ async def get_firmware_info(
     camera = await svc.get_by_id(db, camera_id)
     if not camera or not camera.onvif_host:
         raise HTTPException(404, "Camera not found or ONVIF not configured")
+    onvif_user, onvif_pass = onvif_credentials(camera)
     info = await onvif_service.get_device_system_info(
-        camera.onvif_host, camera.onvif_port,
-        decrypt_value(camera.onvif_username) or "admin",
-        decrypt_value(camera.onvif_password or ""),
+        camera.onvif_host, camera.onvif_port, onvif_user, onvif_pass,
     )
     return {"camera_id": camera_id, **info}
 
@@ -211,7 +204,7 @@ async def upload_firmware(
     if not firmware_bytes:
         raise HTTPException(400, "Empty firmware file")
 
-    onvif_user = decrypt_value(camera.onvif_username) or "admin"
+    onvif_user, onvif_pass = onvif_credentials(camera)
 
     if dry_run:
         envelope_desc = {
@@ -235,8 +228,7 @@ async def upload_firmware(
 
     result = await onvif_service.upgrade_firmware(
         camera.onvif_host, camera.onvif_port,
-        onvif_user,
-        decrypt_value(camera.onvif_password or ""),
+        onvif_user, onvif_pass,
         firmware_bytes=firmware_bytes,
     )
 

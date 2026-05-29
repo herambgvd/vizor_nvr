@@ -17,6 +17,7 @@ import {
   Settings,
   Bell,
   BellRing,
+  Bookmark,
   UserSquare2,
   ChevronDown,
   LogOut,
@@ -72,6 +73,11 @@ const Layout = () => {
       path: "/events",
       label: "Events",
       icon: Bell,
+    },
+    {
+      path: "/bookmarks",
+      label: "Bookmarks",
+      icon: Bookmark,
     },
     {
       path: "/settings",

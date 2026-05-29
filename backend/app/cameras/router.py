@@ -467,6 +467,10 @@ async def update_camera(
         details={"changes": changes},
     )
     await db.commit()
+    # Re-load with a fresh query so all columns + groups are eagerly populated
+    # in async context — avoids MissingGreenlet from lazy attribute loads in
+    # to_response() after the commit.
+    camera = await svc.get_by_id(db, camera_id)
     return CameraResponse(**svc.to_response(camera))
 
 
