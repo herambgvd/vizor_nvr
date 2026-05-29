@@ -70,14 +70,21 @@ export default function MultiTimeline({
 
   const center = (view.start + view.end) / 2;
   const ticks = gridTicks(view);
-  const playheadPct = timeToPct(currentTime, view);
+
+  // Clamp all overlay positions to the visible [0,100]% track. Without this an
+  // out-of-range playhead (e.g. a currentTime past the viewport) renders far to
+  // the right of the lane and triggers a stray horizontal scrollbar under the
+  // seekbar.
+  const clampPct = (p) => Math.max(0, Math.min(100, p));
+  const playheadPct = clampPct(timeToPct(currentTime, view));
 
   const rangeStyle =
     range && range.in != null && range.out != null
-      ? {
-          left: `${timeToPct(Math.min(range.in, range.out), view)}%`,
-          width: `${Math.abs(timeToPct(range.out, view) - timeToPct(range.in, view))}%`,
-        }
+      ? (() => {
+          const lo = clampPct(timeToPct(Math.min(range.in, range.out), view));
+          const hi = clampPct(timeToPct(Math.max(range.in, range.out), view));
+          return { left: `${lo}%`, width: `${hi - lo}%` };
+        })()
       : null;
 
   return (
@@ -95,12 +102,20 @@ export default function MultiTimeline({
             <Minimize className="h-3.5 w-3.5" style={{ color: "var(--console-muted)" }} />
           </button>
         </div>
-        <div className="relative flex-1 min-w-0">
+        <div className="relative flex-1 min-w-0 overflow-hidden">
           {ticks.map((t) => (
             <span
               key={t.t}
-              className="absolute top-0 bottom-0 flex items-center text-[10px] font-telemetry"
-              style={{ left: `${t.left}%`, color: "var(--console-muted)", transform: "translateX(2px)" }}
+              className="absolute top-0 bottom-0 flex items-center text-[10px] font-telemetry whitespace-nowrap"
+              style={{
+                left: `${t.left}%`,
+                color: "var(--console-muted)",
+                // The final tick (left ≈ 100%) would render its label past the
+                // right edge and trigger a stray horizontal scrollbar. Right-
+                // align it so it sits inside the bar; all others hang slightly
+                // to the right of their gridline as usual.
+                transform: t.left >= 99 ? "translateX(calc(-100% - 4px))" : "translateX(2px)",
+              }}
             >
               {t.label}
             </span>
@@ -111,7 +126,7 @@ export default function MultiTimeline({
       {/* Interactive lane stack */}
       <div
         ref={laneRef}
-        className="relative cursor-crosshair"
+        className="relative cursor-crosshair overflow-hidden"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onWheel={onWheel}
