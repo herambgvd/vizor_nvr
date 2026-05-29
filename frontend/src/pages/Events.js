@@ -1,5 +1,10 @@
 // =============================================================================
-// Events — Real-time event log with filters, acknowledge, CSV export
+// Events — Historical events console (console-themed master-detail)
+// =============================================================================
+// Left panel: filterable/searchable scrollable event list with severity accents.
+// Right panel: detail card with snapshot thumbnail, metadata, and actions.
+// All existing functionality preserved: filters, ack, false-alarm, bulk-delete,
+// CSV export, pagination, live-view dialog, jump-to-playback.
 // =============================================================================
 
 import React, { useState, useMemo, useEffect, useCallback } from "react";
@@ -9,6 +14,7 @@ import {
   useQueryClient,
   keepPreviousData,
 } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
   Bell,
@@ -27,6 +33,7 @@ import {
   VideoOff,
   Eye,
   Trash2,
+  PlayCircle,
 } from "lucide-react";
 import {
   getEvents,
@@ -62,6 +69,8 @@ import { cn } from "../lib/utils";
 import { toast } from "sonner";
 import { format } from "date-fns";
 
+// ─── Constants ────────────────────────────────────────────────────────────────
+
 const PAGE_SIZE = 50;
 
 const EVENT_TYPES = [
@@ -78,17 +87,66 @@ const EVENT_TYPES = [
   { value: "manual", label: "Manual", icon: Bell },
 ];
 
-const SEVERITY_MAP = {
-  info:     { color: "bg-blue-500/15 text-blue-300 border border-blue-500/30",   label: "Info" },
-  warning:  { color: "bg-amber-500/15 text-amber-300 border border-amber-500/30", label: "Warning" },
-  critical: { color: "bg-rose-500/15 text-rose-300 border border-rose-500/30",   label: "Critical" },
-  alarm:    { color: "bg-rose-500/25 text-rose-200 border border-rose-500/50",   label: "Alarm" },
+// Severity → accent-bar color (left edge of list row) + badge style
+const SEVERITY_CONFIG = {
+  info: {
+    bar: "bg-blue-500",
+    badge: "bg-blue-500/15 text-blue-300 border border-blue-500/30",
+    label: "Info",
+  },
+  warning: {
+    bar: "bg-amber-500",
+    badge: "bg-amber-500/15 text-amber-300 border border-amber-500/30",
+    label: "Warning",
+  },
+  critical: {
+    bar: "bg-rose-500",
+    badge: "bg-rose-500/15 text-rose-300 border border-rose-500/30",
+    label: "Critical",
+  },
+  alarm: {
+    bar: "bg-rose-600",
+    badge: "bg-rose-500/25 text-rose-200 border border-rose-500/50",
+    label: "Alarm",
+  },
 };
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function getEventIcon(type) {
+  const et = EVENT_TYPES.find((e) => e.value === type);
+  return et ? et.icon : Bell;
+}
+
+function severityOf(s) {
+  return SEVERITY_CONFIG[s] || SEVERITY_CONFIG.info;
+}
+
+// ─── Sub-components ──────────────────────────────────────────────────────────
+
+/** Compact label used inside the filter bar */
+const FilterLabel = ({ children }) => (
+  <span className="text-[10px] font-medium uppercase tracking-widest text-zinc-500 mb-0.5 block">
+    {children}
+  </span>
+);
+
+/** Severity stat chip shown in the header */
+const SeverityChip = ({ label, count, barClass }) => (
+  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded border border-zinc-700/60 bg-zinc-900/60 text-xs font-telemetry">
+    <span className={cn("h-2 w-2 rounded-sm flex-shrink-0", barClass)} />
+    <span className="text-zinc-400">{label}</span>
+    <span className="text-zinc-200 font-medium">{count}</span>
+  </div>
+);
+
+// ─── Main component ───────────────────────────────────────────────────────────
 
 const Events = () => {
   const qc = useQueryClient();
+  const navigate = useNavigate();
 
-  // Filters
+  // ── Filter state ─────────────────────────────────────────────────────────
   const [page, setPage] = useState(1);
   const [eventType, setEventType] = useState("all");
   const [severity, setSeverity] = useState("all");
@@ -96,25 +154,20 @@ const Events = () => {
   const [acknowledged, setAcknowledged] = useState("all");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
 
-  // Detail dialog
+  // ── Selection & detail ────────────────────────────────────────────────────
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [ackNote, setAckNote] = useState("");
-
-  // Bulk selection
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [liveOpen, setLiveOpen] = useState(false);
 
-  // Hero tile state — recording snapshot (the snapshot captured *at* the
-  // event) and live snapshot (a fresh shot from the same camera now)
+  // ── Snapshot state for detail panel ───────────────────────────────────────
   const [recSnapUrl, setRecSnapUrl] = useState(null);
   const [snapLoading, setSnapLoading] = useState(false);
-  // confirmDelete shape:
-  //   { mode: "single", id }
-  //   { mode: "bulk", count }
-  //   { mode: "filtered", filters, label }
 
-  // Build query params
+  // ── Build query params ─────────────────────────────────────────────────────
   const params = useMemo(() => {
     const p = { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE };
     if (eventType !== "all") p.event_type = eventType;
@@ -126,7 +179,7 @@ const Events = () => {
     return p;
   }, [page, eventType, severity, cameraId, acknowledged, startDate, endDate]);
 
-  // Queries
+  // ── Queries ───────────────────────────────────────────────────────────────
   const { data, isLoading } = useQuery({
     queryKey: ["events", params],
     queryFn: () => getEvents(params),
@@ -151,12 +204,31 @@ const Events = () => {
     queryFn: getAllCameras,
   });
 
-  const events = data?.events || [];
+  const rawEvents = data?.events || [];
   const total = data?.total || 0;
   const totalPages = Math.ceil(total / PAGE_SIZE);
   const unackCount = unackData?.count || 0;
 
-  // Drop selections that no longer match the current page
+  // Client-side search filter applied on top of server-side filters
+  const events = useMemo(() => {
+    if (!searchQuery.trim()) return rawEvents;
+    const q = searchQuery.toLowerCase();
+    return rawEvents.filter((e) => {
+      const cname = cameras?.find((c) => c.id === e.camera_id)?.name || "";
+      return (
+        (e.title || "").toLowerCase().includes(q) ||
+        (e.event_type || "").toLowerCase().includes(q) ||
+        cname.toLowerCase().includes(q)
+      );
+    });
+  }, [rawEvents, searchQuery, cameras]);
+
+  // ── Bulk selection helpers ────────────────────────────────────────────────
+  const allOnPageSelected =
+    events.length > 0 && events.every((e) => selectedIds.has(e.id));
+  const someSelected = selectedIds.size > 0;
+
+  // Drop selections that no longer appear on the current page
   useEffect(() => {
     if (!selectedIds.size) return;
     const visible = new Set(events.map((e) => e.id));
@@ -170,8 +242,26 @@ const Events = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [events]);
 
-  // Fetch recording-tile snapshot when an event is selected. The live
-  // tile uses WebRTCPlayer directly — no snapshot polling needed.
+  const toggleSelect = (id) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const toggleSelectAllOnPage = () =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allOnPageSelected) {
+        events.forEach((e) => next.delete(e.id));
+      } else {
+        events.forEach((e) => next.add(e.id));
+      }
+      return next;
+    });
+
+  // ── Snapshot fetch for detail panel ──────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
     let urls = [];
@@ -182,14 +272,14 @@ const Events = () => {
       return cleanup;
     }
 
-    const cameraId = selectedEvent.camera_id;
+    const camId = selectedEvent.camera_id;
     setSnapLoading(true);
     setRecSnapUrl(null);
 
     (async () => {
       try {
         const { getAccessToken, BACKEND_URL } = await import("../api/client");
-        const latest = await getLatestSnapshot(cameraId);
+        const latest = await getLatestSnapshot(camId);
         if (latest?.id && !cancelled) {
           const token = getAccessToken();
           const res = await fetch(
@@ -204,7 +294,7 @@ const Events = () => {
           }
         }
       } catch {
-        // No prior snapshot
+        // No prior snapshot available
       }
       if (!cancelled) setSnapLoading(false);
     })();
@@ -215,29 +305,14 @@ const Events = () => {
     };
   }, [selectedEvent]);
 
-  const allOnPageSelected =
-    events.length > 0 && events.every((e) => selectedIds.has(e.id));
-  const someSelected = selectedIds.size > 0;
+  // ── getCameraName ──────────────────────────────────────────────────────────
+  const getCameraName = useCallback(
+    (id) =>
+      cameras?.find((c) => c.id === id)?.name || id?.slice(0, 8) || "System",
+    [cameras],
+  );
 
-  const toggleSelect = (id) =>
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  const toggleSelectAllOnPage = () =>
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (allOnPageSelected) {
-        events.forEach((e) => next.delete(e.id));
-      } else {
-        events.forEach((e) => next.add(e.id));
-      }
-      return next;
-    });
-
-  // Mutations
+  // ── Mutations ─────────────────────────────────────────────────────────────
   const ackMutation = useMutation({
     mutationFn: ({ id, note }) => acknowledgeEvent(id, note),
     onSuccess: () => {
@@ -245,15 +320,17 @@ const Events = () => {
       qc.invalidateQueries({ queryKey: ["events"] });
       qc.invalidateQueries({ queryKey: ["events-unack-count"] });
       qc.invalidateQueries({ queryKey: ["event-stats"] });
-      setSelectedEvent(null);
+      setSelectedEvent((prev) =>
+        prev ? { ...prev, acknowledged: true } : null,
+      );
       setAckNote("");
     },
   });
 
   const ackAllMutation = useMutation({
-    mutationFn: (params) => acknowledgeAllEvents(params),
-    onSuccess: (data) => {
-      toast.success(`${data.acknowledged} events acknowledged`);
+    mutationFn: (p) => acknowledgeAllEvents(p),
+    onSuccess: (d) => {
+      toast.success(`${d.acknowledged} events acknowledged`);
       qc.invalidateQueries({ queryKey: ["events"] });
       qc.invalidateQueries({ queryKey: ["events-unack-count"] });
       qc.invalidateQueries({ queryKey: ["event-stats"] });
@@ -319,7 +396,6 @@ const Events = () => {
       if (cameraId !== "all") csvParams.camera_id = cameraId;
       if (startDate) csvParams.start_date = startDate;
       if (endDate) csvParams.end_date = endDate;
-
       const blob = await exportEventsCSV(csvParams);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -333,292 +409,132 @@ const Events = () => {
     }
   }, [eventType, severity, cameraId, startDate, endDate]);
 
-  const getCameraName = useCallback(
-    (id) =>
-      cameras?.find((c) => c.id === id)?.name || id?.slice(0, 8) || "System",
-    [cameras],
-  );
-
-  const getEventIcon = (type) => {
-    const et = EVENT_TYPES.find((e) => e.value === type);
-    return et ? et.icon : Bell;
-  };
-
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="p-6 md:p-8 space-y-6 w-full">
-      {/* Header — title left, stat badges centered, actions right */}
-      <div className="flex items-center gap-4 flex-wrap">
-        <div className="flex items-center gap-3">
-          <Bell className="h-6 w-6" />
-          <h1 className="text-2xl font-semibold">Events</h1>
-          {unackCount > 0 && (
-            <Badge variant="destructive">{unackCount} unacknowledged</Badge>
-          )}
-        </div>
+    <div className="flex flex-col h-full min-h-screen bg-background text-foreground">
 
-        {/* Inline severity stat badges */}
-        {stats && (
-          <div className="flex-1 flex items-center justify-center gap-2 flex-wrap">
-            {Object.entries(SEVERITY_MAP).map(([key, { color, label }]) => (
-              <div
-                key={key}
-                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-border bg-card/50"
-              >
-                <span className="text-xs text-muted-foreground">{label}</span>
-                <Badge className={cn("text-[10px] px-1.5 py-0", color)}>
-                  {stats.by_severity?.[key] || 0}
-                </Badge>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div className="flex items-center gap-2 ml-auto">
-          {someSelected && (
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={() =>
-                setConfirmDelete({ mode: "bulk", count: selectedIds.size })
-              }
-            >
-              <Trash2 className="h-4 w-4 mr-1" />
-              Delete {selectedIds.size}
-            </Button>
-          )}
-          {!someSelected && total > 0 && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-rose-300 hover:text-rose-200"
-              onClick={() => {
-                const filters = {};
-                if (eventType !== "all") filters.event_type = eventType;
-                if (severity !== "all") filters.severity = severity;
-                if (cameraId !== "all") filters.camera_id = cameraId;
-                if (acknowledged !== "all")
-                  filters.acknowledged = acknowledged === "true";
-                if (startDate) filters.before = endDate || undefined;
-                if (Object.keys(filters).length === 0) {
-                  toast.error(
-                    "Apply at least one filter before deleting all matches",
-                  );
-                  return;
-                }
-                setConfirmDelete({
-                  mode: "filtered",
-                  filters,
-                  label: `${total} matching events`,
-                });
-              }}
-            >
-              <Trash2 className="h-4 w-4 mr-1" />
-              Delete Filtered
-            </Button>
-          )}
-          {unackCount > 0 && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => ackAllMutation.mutate({})}
-              disabled={ackAllMutation.isPending}
-            >
-              <CheckCheck className="h-4 w-4 mr-1" />
-              Acknowledge All
-            </Button>
-          )}
-          <Button variant="outline" size="sm" onClick={handleExportCSV}>
-            <Download className="h-4 w-4 mr-1" />
-            Export CSV
-          </Button>
-        </div>
-      </div>
-
-      {/* Hero panel — Scylla-style master-detail. Always visible so the
-          page redesign is obvious even when nothing's selected. */}
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.1fr_1fr] gap-4">
-        {/* Recording snapshot */}
-        <div className="rounded-lg border border-border bg-card/40 overflow-hidden">
-          <div className="flex items-center justify-between px-3 py-2 border-b border-white/5">
-            <span className="text-xs font-medium tracking-wide uppercase text-muted-foreground">
-              Recording
+      {/* ── Console header ─────────────────────────────────────────────────── */}
+      <div className="flex-shrink-0 px-4 py-3 border-b border-zinc-800 bg-zinc-900/80 backdrop-blur-sm">
+        <div className="flex items-center gap-4 flex-wrap">
+          {/* Title */}
+          <div className="flex items-center gap-2.5 flex-shrink-0">
+            <Bell className="h-4 w-4 text-teal-400" />
+            <span className="text-xs font-medium tracking-[0.18em] uppercase text-zinc-200 font-telemetry">
+              Event Log
             </span>
-            <span className="text-[10px] text-muted-foreground">
-              {selectedEvent?.triggered_at
-                ? format(new Date(selectedEvent.triggered_at), "HH:mm:ss")
-                : ""}
-            </span>
-          </div>
-          <div className="aspect-video bg-black/60 flex items-center justify-center">
-            {!selectedEvent ? (
-              <span className="text-xs text-muted-foreground">
-                Select an event below
-              </span>
-            ) : recSnapUrl ? (
-              <img
-                src={recSnapUrl}
-                alt="event snapshot"
-                className="w-full h-full object-contain"
-              />
-            ) : (
-              <span className="text-xs text-muted-foreground">
-                {snapLoading ? "Loading snapshot…" : "No snapshot"}
+            {unackCount > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                <BellOff className="h-3 w-3" />
+                {unackCount} unack
               </span>
             )}
           </div>
-        </div>
 
-        {/* Details */}
-        <div className="rounded-lg border border-border bg-card/40">
-          <div className="flex items-center justify-between px-3 py-2 border-b border-white/5">
-            <span className="text-xs font-medium tracking-wide uppercase text-muted-foreground">
-              Details
-            </span>
-            {selectedEvent && (
-              <button
-                type="button"
-                className="text-xs text-muted-foreground hover:text-white"
-                onClick={() => setSelectedEvent(null)}
-              >
-                Clear
-              </button>
-            )}
-          </div>
-          {!selectedEvent ? (
-            <div className="flex flex-col items-center justify-center text-center text-muted-foreground py-16 px-4">
-              <Bell className="h-8 w-8 mb-3 opacity-40" />
-              <p className="text-sm">No event selected</p>
-              <p className="text-xs mt-1 opacity-70">
-                Click a row to view recording + live snapshot + details
-              </p>
+          {/* Severity stat chips */}
+          {stats && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {Object.entries(SEVERITY_CONFIG).map(([key, { bar, label }]) => (
+                <SeverityChip
+                  key={key}
+                  label={label}
+                  count={stats.by_severity?.[key] || 0}
+                  barClass={bar}
+                />
+              ))}
             </div>
-          ) : (
-            <>
-              <div className="divide-y divide-white/5">
-                {[
-                  ["Event Type", (selectedEvent.event_type || "").replace(/_/g, " ")],
-                  ["Severity", null],
-                  ["Date", selectedEvent.triggered_at
-                    ? format(new Date(selectedEvent.triggered_at), "yyyy-MM-dd HH:mm:ss")
-                    : "—"],
-                  ["Camera", getCameraName(selectedEvent.camera_id)],
-                  ["Title", selectedEvent.title || "—"],
-                  ["ID", selectedEvent.id],
-                  ["Status", selectedEvent.acknowledged ? "Acknowledged" : "Unacknowledged"],
-                ].map(([k, v]) => (
-                  <div key={k} className="grid grid-cols-[120px_1fr] px-3 py-2 text-sm">
-                    <span className="text-muted-foreground text-xs uppercase tracking-wider self-center">
-                      {k}
-                    </span>
-                    {k === "Severity" ? (
-                      <Badge
-                        className={
-                          SEVERITY_MAP[selectedEvent.severity]?.color ||
-                          SEVERITY_MAP.info.color
-                        }
-                      >
-                        {SEVERITY_MAP[selectedEvent.severity]?.label || "Info"}
-                      </Badge>
-                    ) : (
-                      <span className="truncate">{v}</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-              <div className="flex flex-wrap gap-2 p-3 border-t border-white/5">
-                {!selectedEvent.acknowledged && (
-                  <Button
-                    size="sm"
-                    onClick={() =>
-                      ackMutation.mutate({ id: selectedEvent.id, note: null })
-                    }
-                  >
-                    <Check className="h-4 w-4 mr-1" />
-                    Acknowledge
-                  </Button>
-                )}
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setSelectedEvent(null)}
-                >
-                  Dismiss
-                </Button>
-                {!selectedEvent.acknowledged && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() =>
-                      falseAlarmMutation.mutate({
-                        id: selectedEvent.id,
-                        note: null,
-                      })
-                    }
-                  >
-                    <XCircle className="h-4 w-4 mr-1" />
-                    False Alarm
-                  </Button>
-                )}
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  onClick={() =>
-                    setConfirmDelete({ mode: "single", id: selectedEvent.id })
-                  }
-                >
-                  <Trash2 className="h-4 w-4 mr-1" />
-                  Delete
-                </Button>
-              </div>
-            </>
           )}
-        </div>
 
-        {/* Live snapshot */}
-        <div className="rounded-lg border border-border bg-card/40 overflow-hidden">
-          <div className="flex items-center justify-between px-3 py-2 border-b border-white/5">
-            <span className="flex items-center gap-1.5 text-xs font-medium tracking-wide uppercase text-muted-foreground">
-              <span className="h-1.5 w-1.5 rounded-full bg-rose-500 animate-pulse" />
-              {selectedEvent
-                ? `Live · ${getCameraName(selectedEvent.camera_id)}`
-                : "Live"}
-            </span>
-            <span className="text-[10px] text-muted-foreground">
-              {format(new Date(), "HH:mm:ss")}
-            </span>
-          </div>
-          <div className="aspect-video bg-black/60 flex items-center justify-center">
-            {!selectedEvent ? (
-              <span className="text-xs text-muted-foreground">
-                Select an event below
-              </span>
-            ) : (
-              <WebRTCPlayer
-                key={selectedEvent.camera_id}
-                cameraId={selectedEvent.camera_id}
-                streamId={selectedEvent.camera_id}
-                autoPlay
-                muted
-                className="w-full h-full"
-              />
+          {/* Right action group */}
+          <div className="ml-auto flex items-center gap-2 flex-wrap">
+            {someSelected && (
+              <Button
+                variant="destructive"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() =>
+                  setConfirmDelete({ mode: "bulk", count: selectedIds.size })
+                }
+              >
+                <Trash2 className="h-3.5 w-3.5 mr-1" />
+                Delete {selectedIds.size}
+              </Button>
             )}
+            {!someSelected && total > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-500/10"
+                onClick={() => {
+                  const filters = {};
+                  if (eventType !== "all") filters.event_type = eventType;
+                  if (severity !== "all") filters.severity = severity;
+                  if (cameraId !== "all") filters.camera_id = cameraId;
+                  if (acknowledged !== "all")
+                    filters.acknowledged = acknowledged === "true";
+                  if (endDate) filters.before = endDate;
+                  if (Object.keys(filters).length === 0) {
+                    toast.error(
+                      "Apply at least one filter before deleting all matches",
+                    );
+                    return;
+                  }
+                  setConfirmDelete({
+                    mode: "filtered",
+                    filters,
+                    label: `${total} matching events`,
+                  });
+                }}
+              >
+                <Trash2 className="h-3.5 w-3.5 mr-1" />
+                Delete Filtered
+              </Button>
+            )}
+            {unackCount > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs text-teal-400 hover:text-teal-300 hover:bg-teal-500/10"
+                onClick={() => ackAllMutation.mutate({})}
+                disabled={ackAllMutation.isPending}
+              >
+                <CheckCheck className="h-3.5 w-3.5 mr-1" />
+                Ack All
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50"
+              onClick={handleExportCSV}
+            >
+              <Download className="h-3.5 w-3.5 mr-1" />
+              CSV
+            </Button>
           </div>
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-wrap items-end gap-3 rounded-lg border border-border bg-card/40 p-3">
-        <Filter className="h-4 w-4 text-muted-foreground mt-5" />
+      {/* ── Filter bar ─────────────────────────────────────────────────────── */}
+      <div className="flex-shrink-0 px-4 py-2.5 border-b border-zinc-800 bg-zinc-900/50">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Filter className="h-3.5 w-3.5 text-zinc-500 flex-shrink-0" />
 
-        <div className="w-40">
+          {/* Free-text search */}
+          <div className="relative flex-shrink-0">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-zinc-500 pointer-events-none" />
+            <Input
+              className="pl-6 h-7 w-44 text-xs bg-zinc-800/60 border-zinc-700 placeholder:text-zinc-600 focus:border-teal-500/50"
+              placeholder="Search title, type, camera…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+
           <Select
             value={eventType}
-            onValueChange={(v) => {
-              setEventType(v);
-              setPage(1);
-            }}
+            onValueChange={(v) => { setEventType(v); setPage(1); }}
           >
-            <SelectTrigger>
+            <SelectTrigger className="h-7 w-36 text-xs bg-zinc-800/60 border-zinc-700 focus:border-teal-500/50">
               <SelectValue placeholder="Event type" />
             </SelectTrigger>
             <SelectContent>
@@ -630,17 +546,12 @@ const Events = () => {
               ))}
             </SelectContent>
           </Select>
-        </div>
 
-        <div className="w-32">
           <Select
             value={severity}
-            onValueChange={(v) => {
-              setSeverity(v);
-              setPage(1);
-            }}
+            onValueChange={(v) => { setSeverity(v); setPage(1); }}
           >
-            <SelectTrigger>
+            <SelectTrigger className="h-7 w-28 text-xs bg-zinc-800/60 border-zinc-700 focus:border-teal-500/50">
               <SelectValue placeholder="Severity" />
             </SelectTrigger>
             <SelectContent>
@@ -651,17 +562,12 @@ const Events = () => {
               <SelectItem value="alarm">Alarm</SelectItem>
             </SelectContent>
           </Select>
-        </div>
 
-        <div className="w-44">
           <Select
             value={cameraId}
-            onValueChange={(v) => {
-              setCameraId(v);
-              setPage(1);
-            }}
+            onValueChange={(v) => { setCameraId(v); setPage(1); }}
           >
-            <SelectTrigger>
+            <SelectTrigger className="h-7 w-36 text-xs bg-zinc-800/60 border-zinc-700 focus:border-teal-500/50">
               <SelectValue placeholder="Camera" />
             </SelectTrigger>
             <SelectContent>
@@ -673,17 +579,12 @@ const Events = () => {
               ))}
             </SelectContent>
           </Select>
-        </div>
 
-        <div className="w-36">
           <Select
             value={acknowledged}
-            onValueChange={(v) => {
-              setAcknowledged(v);
-              setPage(1);
-            }}
+            onValueChange={(v) => { setAcknowledged(v); setPage(1); }}
           >
-            <SelectTrigger>
+            <SelectTrigger className="h-7 w-32 text-xs bg-zinc-800/60 border-zinc-700 focus:border-teal-500/50">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
@@ -692,367 +593,476 @@ const Events = () => {
               <SelectItem value="true">Acknowledged</SelectItem>
             </SelectContent>
           </Select>
-        </div>
 
-        <Input
-          type="datetime-local"
-          className="w-44"
-          value={startDate}
-          onChange={(e) => {
-            setStartDate(e.target.value);
-            setPage(1);
-          }}
-          placeholder="Start date"
-        />
-        <Input
-          type="datetime-local"
-          className="w-44"
-          value={endDate}
-          onChange={(e) => {
-            setEndDate(e.target.value);
-            setPage(1);
-          }}
-          placeholder="End date"
-        />
+          <Input
+            type="datetime-local"
+            className="h-7 w-40 text-xs bg-zinc-800/60 border-zinc-700 focus:border-teal-500/50"
+            value={startDate}
+            onChange={(e) => { setStartDate(e.target.value); setPage(1); }}
+          />
+          <Input
+            type="datetime-local"
+            className="h-7 w-40 text-xs bg-zinc-800/60 border-zinc-700 focus:border-teal-500/50"
+            value={endDate}
+            onChange={(e) => { setEndDate(e.target.value); setPage(1); }}
+          />
+        </div>
       </div>
 
-      {/* Events table */}
-      <div className="rounded-lg border border-border bg-card/40 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-card/50 text-zinc-400 uppercase text-[11px] tracking-wider">
-              <tr>
-                <th className="p-3 w-10">
-                  <input
-                    type="checkbox"
-                    aria-label="Select all on page"
-                    className="accent-teal-400 cursor-pointer"
-                    checked={allOnPageSelected}
-                    onChange={toggleSelectAllOnPage}
-                  />
-                </th>
-                <th className="text-left p-3 font-medium">Time</th>
-                <th className="text-left p-3 font-medium">Type</th>
-                <th className="text-left p-3 font-medium">Severity</th>
-                <th className="text-left p-3 font-medium">Camera</th>
-                <th className="text-left p-3 font-medium">Title</th>
-                <th className="text-left p-3 font-medium">Status</th>
-                <th className="text-right p-3 font-medium">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {isLoading ? (
-                <tr>
-                  <td
-                    colSpan={8}
-                    className="p-8 text-center text-muted-foreground"
-                  >
-                    Loading events…
-                  </td>
-                </tr>
-              ) : events.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={8}
-                    className="p-8 text-center text-muted-foreground"
-                  >
-                    No events found
-                  </td>
-                </tr>
-              ) : (
-                events.map((event) => {
-                  const Icon = getEventIcon(event.event_type);
-                  const sevInfo =
-                    SEVERITY_MAP[event.severity] || SEVERITY_MAP.info;
-                  return (
-                    <tr
-                      key={event.id}
-                      className={`border-t border-white/5 hover:bg-card/50 cursor-pointer transition-colors ${
-                        !event.acknowledged ? "bg-rose-500/[0.04]" : ""
-                      } ${selectedIds.has(event.id) ? "bg-teal-500/[0.08]" : ""}`}
-                      onClick={() => setSelectedEvent(event)}
-                    >
-                      <td
-                        className="p-3 w-10"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <input
-                          type="checkbox"
-                          aria-label={`Select event ${event.id}`}
-                          className="accent-teal-400 cursor-pointer"
-                          checked={selectedIds.has(event.id)}
-                          onChange={() => toggleSelect(event.id)}
-                        />
-                      </td>
-                      <td className="p-3 whitespace-nowrap text-muted-foreground">
-                        {event.triggered_at
-                          ? format(
-                              new Date(event.triggered_at),
-                              "MMM dd HH:mm:ss",
-                            )
-                          : "—"}
-                      </td>
-                      <td className="p-3">
-                        <div className="flex items-center gap-1.5">
-                          <Icon className="h-4 w-4" />
-                          <span className="capitalize">
-                            {event.event_type.replace(/_/g, " ")}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="p-3">
-                        <Badge className={sevInfo.color} variant="secondary">
-                          {sevInfo.label}
-                        </Badge>
-                      </td>
-                      <td className="p-3">{getCameraName(event.camera_id)}</td>
-                      <td className="p-3 max-w-[300px] truncate">
-                        {event.title}
-                      </td>
-                      <td className="p-3">
-                        {event.is_false_alarm ? (
-                          <Badge variant="outline">False Alarm</Badge>
-                        ) : event.acknowledged ? (
-                          <Badge
-                            variant="secondary"
-                            className="bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
-                          >
-                            <Check className="h-3 w-3 mr-1" />
-                            Ack
-                          </Badge>
-                        ) : (
-                          <Badge variant="destructive">
-                            <BellOff className="h-3 w-3 mr-1" />
-                            New
-                          </Badge>
-                        )}
-                      </td>
-                      <td className="p-3 text-right">
-                        <div className="inline-flex items-center gap-1">
-                          {!event.acknowledged && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              title="Acknowledge"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                ackMutation.mutate({
-                                  id: event.id,
-                                  note: null,
-                                });
-                              }}
-                            >
-                              <Check className="h-4 w-4" />
-                            </Button>
-                          )}
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            title="Delete event"
-                            className="text-rose-300 hover:text-rose-200 hover:bg-rose-500/10"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setConfirmDelete({
-                                mode: "single",
-                                id: event.id,
-                              });
-                            }}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+      {/* ── Master-detail body ─────────────────────────────────────────────── */}
+      <div className="flex-1 flex min-h-0 overflow-hidden">
 
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between border-t p-3">
-            <span className="text-sm text-muted-foreground">
-              {total} events — page {page} of {totalPages}
+        {/* ── LEFT: Event list ─────────────────────────────────────────────── */}
+        <div className="flex flex-col border-r border-zinc-800 bg-zinc-950/60"
+          style={{ width: "420px", minWidth: "280px", maxWidth: "520px", flexShrink: 0 }}>
+
+          {/* List header */}
+          <div className="flex-shrink-0 flex items-center gap-2 px-3 py-2 border-b border-zinc-800 bg-zinc-900/70">
+            <input
+              type="checkbox"
+              aria-label="Select all on page"
+              className="accent-teal-400 cursor-pointer"
+              checked={allOnPageSelected}
+              onChange={toggleSelectAllOnPage}
+            />
+            <span className="text-[10px] uppercase tracking-widest text-zinc-500 font-telemetry">
+              {total > 0 ? `${total} events` : "No events"}
+              {searchQuery.trim() && events.length !== rawEvents.length
+                ? ` · ${events.length} shown`
+                : ""}
             </span>
-            <div className="flex gap-1">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={page <= 1}
-                onClick={() => setPage((p) => p - 1)}
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={page >= totalPages}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </div>
           </div>
-        )}
-      </div>
 
-      {/* Event detail dialog — disabled, hero panel replaces it */}
-      <Dialog
-        open={false}
-        onOpenChange={() => setSelectedEvent(null)}
-      >
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Event Details</DialogTitle>
-          </DialogHeader>
-          {selectedEvent && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div>
-                  <span className="text-muted-foreground">Type</span>
-                  <p className="font-medium capitalize">
-                    {selectedEvent.event_type.replace(/_/g, " ")}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Severity</span>
-                  <p>
-                    <Badge
-                      className={
-                        SEVERITY_MAP[selectedEvent.severity]?.color ||
-                        SEVERITY_MAP.info.color
-                      }
-                    >
-                      {selectedEvent.severity}
-                    </Badge>
-                  </p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Camera</span>
-                  <p className="font-medium">
-                    {getCameraName(selectedEvent.camera_id)}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Time</span>
-                  <p className="font-medium">
-                    {selectedEvent.triggered_at
-                      ? format(
-                          new Date(selectedEvent.triggered_at),
-                          "yyyy-MM-dd HH:mm:ss",
-                        )
-                      : "—"}
-                  </p>
-                </div>
+          {/* Scrollable event rows */}
+          <div className="flex-1 overflow-y-auto">
+            {isLoading ? (
+              <div className="flex items-center justify-center py-16 text-xs text-zinc-500">
+                Loading events…
               </div>
-
-              <div>
-                <span className="text-sm text-muted-foreground">Title</span>
-                <p className="font-medium">{selectedEvent.title}</p>
+            ) : events.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 text-zinc-500 gap-2">
+                <Bell className="h-7 w-7 opacity-30" />
+                <span className="text-xs">No events found</span>
               </div>
+            ) : (
+              events.map((event) => {
+                const Icon = getEventIcon(event.event_type);
+                const sev = severityOf(event.severity);
+                const isSelected = selectedEvent?.id === event.id;
+                return (
+                  <button
+                    key={event.id}
+                    type="button"
+                    onClick={() => setSelectedEvent(event)}
+                    className={cn(
+                      "w-full flex items-stretch text-left border-b border-zinc-800/70",
+                      "hover:bg-zinc-800/50 transition-colors focus:outline-none",
+                      isSelected && "bg-teal-500/10 border-l-2 border-l-teal-500",
+                      !isSelected && !event.acknowledged && "bg-rose-500/[0.03]",
+                      selectedIds.has(event.id) && !isSelected && "bg-teal-500/[0.05]",
+                    )}
+                  >
+                    {/* Severity accent bar */}
+                    {!isSelected && (
+                      <span className={cn("w-1 flex-shrink-0 rounded-sm", sev.bar)} />
+                    )}
 
-              {selectedEvent.description && (
-                <div>
-                  <span className="text-sm text-muted-foreground">
-                    Description
-                  </span>
-                  <p className="text-sm">{selectedEvent.description}</p>
-                </div>
-              )}
-
-              {selectedEvent.note && (
-                <div>
-                  <span className="text-sm text-muted-foreground">Note</span>
-                  <p className="text-sm">{selectedEvent.note}</p>
-                </div>
-              )}
-
-              {!selectedEvent.acknowledged && (
-                <div className="space-y-2">
-                  <Textarea
-                    placeholder="Add a note (optional)…"
-                    value={ackNote}
-                    onChange={(e) => setAckNote(e.target.value)}
-                    rows={2}
-                  />
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      onClick={() =>
-                        ackMutation.mutate({
-                          id: selectedEvent.id,
-                          note: ackNote || null,
-                        })
-                      }
-                      disabled={ackMutation.isPending}
+                    {/* Checkbox cell */}
+                    <span
+                      className="flex items-center px-2 flex-shrink-0"
+                      onClick={(e) => { e.stopPropagation(); toggleSelect(event.id); }}
                     >
-                      <Check className="h-4 w-4 mr-1" />
-                      Acknowledge
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        falseAlarmMutation.mutate({
-                          id: selectedEvent.id,
-                          note: ackNote || null,
-                        })
-                      }
-                      disabled={falseAlarmMutation.isPending}
-                    >
-                      <XCircle className="h-4 w-4 mr-1" />
-                      False Alarm
-                    </Button>
-                  </div>
-                </div>
-              )}
+                      <input
+                        type="checkbox"
+                        aria-label={`Select event ${event.id}`}
+                        className="accent-teal-400 cursor-pointer"
+                        checked={selectedIds.has(event.id)}
+                        onChange={() => toggleSelect(event.id)}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </span>
 
-              <div className="flex justify-end pt-2 border-t border-white/5">
+                    {/* Content */}
+                    <span className="flex-1 min-w-0 px-1 py-2.5">
+                      {/* Row 1: type + timestamp */}
+                      <span className="flex items-center justify-between gap-1 mb-1">
+                        <span className="flex items-center gap-1.5 min-w-0">
+                          <Icon className="h-3.5 w-3.5 flex-shrink-0 text-zinc-400" />
+                          <span className="text-[11px] font-medium text-zinc-200 truncate capitalize">
+                            {(event.event_type || "").replace(/_/g, " ")}
+                          </span>
+                        </span>
+                        <span className="text-[10px] text-zinc-500 font-telemetry flex-shrink-0">
+                          {event.triggered_at
+                            ? format(new Date(event.triggered_at), "MMM dd HH:mm:ss")
+                            : "—"}
+                        </span>
+                      </span>
+                      {/* Row 2: camera + status badge */}
+                      <span className="flex items-center justify-between gap-1">
+                        <span className="text-[10px] text-zinc-500 truncate">
+                          {getCameraName(event.camera_id)}
+                        </span>
+                        <span className="flex items-center gap-1 flex-shrink-0">
+                          <Badge
+                            className={cn("text-[9px] px-1 py-0 h-4", sev.badge)}
+                          >
+                            {sev.label}
+                          </Badge>
+                          {event.is_false_alarm ? (
+                            <Badge variant="outline" className="text-[9px] px-1 py-0 h-4">FA</Badge>
+                          ) : event.acknowledged ? (
+                            <Badge className="text-[9px] px-1 py-0 h-4 bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                              <Check className="h-2.5 w-2.5" />
+                            </Badge>
+                          ) : (
+                            <Badge variant="destructive" className="text-[9px] px-1 py-0 h-4">
+                              NEW
+                            </Badge>
+                          )}
+                        </span>
+                      </span>
+                      {/* Row 3: title if present */}
+                      {event.title && (
+                        <span className="block text-[10px] text-zinc-400 truncate mt-0.5">
+                          {event.title}
+                        </span>
+                      )}
+                    </span>
+
+                    {/* Quick actions */}
+                    <span className="flex flex-col justify-center gap-0.5 pr-2 pl-1 flex-shrink-0">
+                      {!event.acknowledged && (
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          title="Acknowledge"
+                          className="p-1 rounded hover:bg-teal-500/20 text-zinc-500 hover:text-teal-400 transition-colors"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            ackMutation.mutate({ id: event.id, note: null });
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.stopPropagation();
+                              ackMutation.mutate({ id: event.id, note: null });
+                            }
+                          }}
+                        >
+                          <Check className="h-3 w-3" />
+                        </span>
+                      )}
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        title="Delete event"
+                        className="p-1 rounded hover:bg-rose-500/20 text-zinc-600 hover:text-rose-400 transition-colors"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setConfirmDelete({ mode: "single", id: event.id });
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.stopPropagation();
+                            setConfirmDelete({ mode: "single", id: event.id });
+                          }
+                        }}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </span>
+                    </span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex-shrink-0 flex items-center justify-between border-t border-zinc-800 px-3 py-2 bg-zinc-900/60">
+              <span className="text-[10px] text-zinc-500 font-telemetry">
+                Page {page}/{totalPages}
+              </span>
+              <div className="flex gap-1">
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="text-rose-300 hover:text-rose-200 hover:bg-rose-500/10"
-                  onClick={() =>
-                    setConfirmDelete({
-                      mode: "single",
-                      id: selectedEvent.id,
-                    })
-                  }
+                  className="h-6 w-6 p-0 text-zinc-400 hover:text-zinc-200"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => p - 1)}
                 >
-                  <Trash2 className="h-4 w-4 mr-1" />
-                  Delete Event
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0 text-zinc-400 hover:text-zinc-200"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
                 </Button>
               </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── RIGHT: Detail panel ───────────────────────────────────────────── */}
+        <div className="flex-1 min-w-0 overflow-y-auto bg-zinc-950/40">
+          {!selectedEvent ? (
+            /* Empty state */
+            <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-zinc-600 gap-3">
+              <Bell className="h-10 w-10 opacity-20" />
+              <p className="text-sm font-medium text-zinc-500">No event selected</p>
+              <p className="text-xs text-zinc-600">Click a row to view details</p>
+            </div>
+          ) : (
+            <div className="flex flex-col h-full">
+              {/* Panel header */}
+              <div className="flex-shrink-0 flex items-center justify-between px-4 py-2.5 border-b border-zinc-800 bg-zinc-900/70">
+                <div className="flex items-center gap-2">
+                  {(() => {
+                    const sev = severityOf(selectedEvent.severity);
+                    return (
+                      <>
+                        <span className={cn("h-2 w-2 rounded-sm", sev.bar)} />
+                        <span className="text-xs font-medium text-zinc-200 capitalize">
+                          {(selectedEvent.event_type || "").replace(/_/g, " ")}
+                        </span>
+                        <Badge className={cn("text-[10px] px-1.5 py-0", sev.badge)}>
+                          {sev.label}
+                        </Badge>
+                      </>
+                    );
+                  })()}
+                </div>
+                <button
+                  type="button"
+                  className="text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors"
+                  onClick={() => setSelectedEvent(null)}
+                >
+                  Dismiss
+                </button>
+              </div>
+
+              {/* Snapshot thumbnail */}
+              <div className="flex-shrink-0 relative bg-black aspect-video w-full overflow-hidden">
+                {recSnapUrl ? (
+                  <img
+                    src={recSnapUrl}
+                    alt="event snapshot"
+                    className="w-full h-full object-contain"
+                  />
+                ) : (
+                  <div className="flex flex-col items-center justify-center h-full text-zinc-600 gap-2">
+                    <Video className="h-8 w-8 opacity-30" />
+                    <span className="text-xs">
+                      {snapLoading ? "Loading snapshot…" : "No snapshot available"}
+                    </span>
+                  </div>
+                )}
+                {/* Camera name overlay */}
+                <div className="absolute bottom-0 left-0 right-0 px-3 py-1.5 bg-gradient-to-t from-black/70 to-transparent flex items-end justify-between">
+                  <span className="text-[11px] font-medium text-zinc-200 truncate">
+                    {getCameraName(selectedEvent.camera_id)}
+                  </span>
+                  {selectedEvent.triggered_at && (
+                    <span className="text-[10px] text-zinc-400 font-telemetry flex-shrink-0 ml-2">
+                      {format(new Date(selectedEvent.triggered_at), "yyyy-MM-dd HH:mm:ss")}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Metadata grid */}
+              <div className="flex-shrink-0 divide-y divide-zinc-800/60">
+                {[
+                  ["Event Type", (selectedEvent.event_type || "").replace(/_/g, " ")],
+                  ["Date / Time", selectedEvent.triggered_at
+                    ? format(new Date(selectedEvent.triggered_at), "yyyy-MM-dd HH:mm:ss")
+                    : "—"],
+                  ["Camera", getCameraName(selectedEvent.camera_id)],
+                  ["Title", selectedEvent.title || "—"],
+                  ["Event ID", selectedEvent.id],
+                  ["Status", null], // rendered specially
+                ].map(([k, v]) => (
+                  <div key={k} className="grid grid-cols-[130px_1fr] px-4 py-2 text-sm">
+                    <span className="text-[10px] uppercase tracking-wider text-zinc-500 self-center font-telemetry">
+                      {k}
+                    </span>
+                    {k === "Status" ? (
+                      <span className="flex items-center gap-1.5">
+                        {selectedEvent.is_false_alarm ? (
+                          <Badge variant="outline" className="text-[10px]">False Alarm</Badge>
+                        ) : selectedEvent.acknowledged ? (
+                          <Badge className="text-[10px] bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                            <Check className="h-3 w-3 mr-1" />
+                            Acknowledged
+                          </Badge>
+                        ) : (
+                          <Badge variant="destructive" className="text-[10px]">
+                            <BellOff className="h-3 w-3 mr-1" />
+                            Unacknowledged
+                          </Badge>
+                        )}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-zinc-200 truncate capitalize self-center">
+                        {v}
+                      </span>
+                    )}
+                  </div>
+                ))}
+                {selectedEvent.description && (
+                  <div className="px-4 py-2">
+                    <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-telemetry block mb-1">
+                      Description
+                    </span>
+                    <p className="text-xs text-zinc-300">{selectedEvent.description}</p>
+                  </div>
+                )}
+                {selectedEvent.note && (
+                  <div className="px-4 py-2">
+                    <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-telemetry block mb-1">
+                      Note
+                    </span>
+                    <p className="text-xs text-zinc-300">{selectedEvent.note}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Acknowledge note textarea (only if unacked) */}
+              {!selectedEvent.acknowledged && (
+                <div className="flex-shrink-0 px-4 py-3 border-t border-zinc-800">
+                  <Textarea
+                    placeholder="Add a note before acknowledging (optional)…"
+                    value={ackNote}
+                    onChange={(e) => setAckNote(e.target.value)}
+                    rows={2}
+                    className="text-xs bg-zinc-800/60 border-zinc-700 resize-none"
+                  />
+                </div>
+              )}
+
+              {/* Action buttons */}
+              <div className="flex-shrink-0 flex flex-wrap gap-2 px-4 py-3 border-t border-zinc-800 bg-zinc-900/40 mt-auto">
+                {!selectedEvent.acknowledged && (
+                  <Button
+                    size="sm"
+                    className="h-7 text-xs bg-teal-600 hover:bg-teal-500 text-white"
+                    onClick={() =>
+                      ackMutation.mutate({ id: selectedEvent.id, note: ackNote || null })
+                    }
+                    disabled={ackMutation.isPending}
+                  >
+                    <Check className="h-3.5 w-3.5 mr-1" />
+                    Acknowledge
+                  </Button>
+                )}
+                {!selectedEvent.acknowledged && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs border-zinc-700 text-zinc-300 hover:text-white hover:bg-zinc-700"
+                    onClick={() =>
+                      falseAlarmMutation.mutate({ id: selectedEvent.id, note: ackNote || null })
+                    }
+                    disabled={falseAlarmMutation.isPending}
+                  >
+                    <XCircle className="h-3.5 w-3.5 mr-1" />
+                    False Alarm
+                  </Button>
+                )}
+                {selectedEvent.camera_id && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs border-zinc-700 text-blue-300 hover:text-blue-200 hover:bg-blue-500/10 hover:border-blue-500/50"
+                    onClick={() =>
+                      navigate(`/playback?camera=${selectedEvent.camera_id}`)
+                    }
+                  >
+                    <PlayCircle className="h-3.5 w-3.5 mr-1" />
+                    Jump to Playback
+                  </Button>
+                )}
+                {selectedEvent.camera_id && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs border-zinc-700 text-zinc-300 hover:text-white hover:bg-zinc-700"
+                    onClick={() => setLiveOpen(true)}
+                  >
+                    <Eye className="h-3.5 w-3.5 mr-1" />
+                    View Live
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 ml-auto"
+                  onClick={() =>
+                    setConfirmDelete({ mode: "single", id: selectedEvent.id })
+                  }
+                >
+                  <Trash2 className="h-3.5 w-3.5 mr-1" />
+                  Delete
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Live-view dialog ──────────────────────────────────────────────────── */}
+      <Dialog open={liveOpen} onOpenChange={setLiveOpen}>
+        <DialogContent className="max-w-3xl bg-zinc-900 border-zinc-700">
+          <DialogHeader>
+            <DialogTitle className="text-sm font-medium text-zinc-200">
+              Live View — {selectedEvent ? getCameraName(selectedEvent.camera_id) : ""}
+            </DialogTitle>
+          </DialogHeader>
+          {selectedEvent && liveOpen && (
+            <div className="aspect-video bg-black rounded overflow-hidden">
+              <WebRTCPlayer
+                key={selectedEvent.camera_id}
+                cameraId={selectedEvent.camera_id}
+                streamId={selectedEvent.camera_id}
+                autoPlay
+                muted
+                className="w-full h-full"
+              />
             </div>
           )}
         </DialogContent>
       </Dialog>
 
-      {/* Delete confirmation */}
+      {/* ── Delete confirmation dialog ────────────────────────────────────────── */}
       <Dialog
         open={!!confirmDelete}
         onOpenChange={(open) => !open && setConfirmDelete(null)}
       >
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md bg-zinc-900 border-zinc-700">
           <DialogHeader>
-            <DialogTitle>Confirm delete</DialogTitle>
+            <DialogTitle className="text-sm font-medium text-zinc-200">
+              Confirm delete
+            </DialogTitle>
           </DialogHeader>
           {confirmDelete && (
             <div className="space-y-4 text-sm">
-              <p className="text-muted-foreground">
+              <p className="text-zinc-400">
                 {confirmDelete.mode === "single" &&
                   "This event will be permanently removed. This cannot be undone."}
                 {confirmDelete.mode === "bulk" &&
-                  `${confirmDelete.count} selected events will be permanently removed. This cannot be undone.`}
+                  `${confirmDelete.count} selected events will be permanently removed.`}
                 {confirmDelete.mode === "filtered" &&
                   `${confirmDelete.label} will be permanently removed. This cannot be undone.`}
               </p>
               <div className="flex justify-end gap-2">
                 <Button
-                  variant="outline"
+                  variant="ghost"
                   size="sm"
+                  className="h-7 text-xs border-zinc-700 text-zinc-300"
                   onClick={() => setConfirmDelete(null)}
                 >
                   Cancel
@@ -1060,12 +1070,13 @@ const Events = () => {
                 <Button
                   variant="destructive"
                   size="sm"
+                  className="h-7 text-xs"
                   onClick={runConfirmedDelete}
                   disabled={
                     deleteMutation.isPending || bulkDeleteMutation.isPending
                   }
                 >
-                  <Trash2 className="h-4 w-4 mr-1" />
+                  <Trash2 className="h-3.5 w-3.5 mr-1" />
                   Delete
                 </Button>
               </div>

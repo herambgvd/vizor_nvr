@@ -11,6 +11,8 @@ const DEFAULTS = {
   wallTiles: [],
   // playbackCameras: array of cameraId in the playback review set
   playbackCameras: [],
+  // camerasView: "table" | "grid" — Cameras device-manager view toggle
+  camerasView: "table",
 };
 
 function read() {

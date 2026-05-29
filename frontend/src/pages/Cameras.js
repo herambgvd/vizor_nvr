@@ -1,6 +1,10 @@
 // =============================================================================
-// Cameras — table with thumbnails, search, sort, filter, drag-reorder,
+// Cameras — dense console device manager.
+// Table view (sortable, drag-reorder, bulk actions) +
+// Grid/card view toggle (persisted via useUiPrefs camerasView pref).
+// ALL existing functionality preserved: search, sort, filter, drag-reorder,
 // bulk actions, inline recording toggle, right-click context menu, health
+// indicators, ONVIF discovery, camera form dialog, preview modal.
 // =============================================================================
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
@@ -31,9 +35,12 @@ import {
   FolderInput,
   Timer,
   CalendarClock,
+  LayoutGrid,
+  List,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useCamerasQuery, useCameraMutations } from "../hooks";
+import { useUiPrefs } from "../hooks/useUiPrefs";
 import { usePermissions } from "../hooks/usePermissions";
 import useLicense from "../hooks/useLicense";
 import {
@@ -98,11 +105,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../components/ui/dialog";
-import { cn } from "../lib/utils";
+import { cn, maskStreamUrl } from "../lib/utils";
 
 const PAGE_SIZES = [10, 25, 50, 100];
 
-// Health pill helpers — green if both kbps & fps healthy, amber if degraded
+// ── Health helpers ────────────────────────────────────────────────────────────
 const healthTone = (h) => {
   if (!h) return null;
   const k = h.bitrate_kbps;
@@ -113,14 +120,12 @@ const healthTone = (h) => {
 };
 
 const HealthCell = ({ data }) => {
-  if (!data) return <span className="text-xs text-muted-foreground">—</span>;
+  if (!data) return <span className="font-telemetry text-xs" style={{ color: "var(--console-muted)" }}>—</span>;
   const tone = healthTone(data);
-  const toneCls =
-    tone === "ok"
-      ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/20"
-      : tone === "amber"
-        ? "bg-amber-500/10 text-amber-300 border-amber-500/20"
-        : "bg-card/60 text-muted-foreground border-border";
+  const color =
+    tone === "ok" ? "var(--console-online)"
+    : tone === "amber" ? "var(--console-alarm)"
+    : "var(--console-muted)";
   const kbps = data.bitrate_kbps != null ? `${data.bitrate_kbps} kbps` : "—";
   const fps = data.fps_actual != null ? `${Math.round(data.fps_actual)} fps` : "—";
   const loss = data.packet_loss_percent != null
@@ -128,19 +133,21 @@ const HealthCell = ({ data }) => {
     : null;
   return (
     <div
-      className={cn(
-        "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-[11px] font-mono",
-        toneCls,
-      )}
+      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded font-telemetry text-[11px] border"
+      style={{
+        color,
+        borderColor: "var(--console-border)",
+        background: "var(--console-raised)",
+      }}
       title={data.captured_at ? `Captured ${new Date(data.captured_at).toLocaleString()}` : ""}
     >
       <Activity className="h-3 w-3" />
       <span>{kbps}</span>
-      <span className="opacity-50">·</span>
+      <span style={{ opacity: 0.4 }}>·</span>
       <span>{fps}</span>
       {loss && (
         <>
-          <span className="opacity-50">·</span>
+          <span style={{ opacity: 0.4 }}>·</span>
           <span>{loss} loss</span>
         </>
       )}
@@ -148,7 +155,7 @@ const HealthCell = ({ data }) => {
   );
 };
 
-// Sortable header
+// ── Sortable header ───────────────────────────────────────────────────────────
 const SortHeader = ({ label, field, sort, setSort, className }) => {
   const active = sort.field === field;
   const dir = active ? sort.dir : null;
@@ -163,10 +170,11 @@ const SortHeader = ({ label, field, sort, setSort, className }) => {
         )
       }
       className={cn(
-        "inline-flex items-center gap-1 text-left hover:text-white transition-colors",
-        active ? "text-white" : "text-muted-foreground",
+        "inline-flex items-center gap-1 text-left transition-colors font-telemetry text-[11px] uppercase tracking-wide",
+        active ? "" : "",
         className,
       )}
+      style={{ color: active ? "var(--console-accent)" : "var(--console-muted)" }}
     >
       {label}
       {dir === "asc" ? (
@@ -174,12 +182,200 @@ const SortHeader = ({ label, field, sort, setSort, className }) => {
       ) : dir === "desc" ? (
         <ChevronDown className="h-3 w-3" />
       ) : (
-        <ArrowUpDown className="h-3 w-3 opacity-40" />
+        <ArrowUpDown className="h-3 w-3" style={{ opacity: 0.4 }} />
       )}
     </button>
   );
 };
 
+// ── Status dot (compact, used in grid cards) ──────────────────────────────────
+const StatusDot = ({ status }) => {
+  const color =
+    status === "online" ? "var(--console-online)"
+    : status === "offline" ? "var(--console-offline)"
+    : "var(--console-alarm)";
+  return (
+    <span
+      className="inline-block w-2 h-2 rounded-full flex-shrink-0"
+      style={{ background: color }}
+      title={status}
+    />
+  );
+};
+
+// ── Recording dot (compact for card overlay) ──────────────────────────────────
+const RecDot = () => (
+  <span
+    className="inline-flex items-center gap-1 font-telemetry text-[10px] px-1 py-0.5 rounded"
+    style={{ background: "var(--console-rec)", color: "#fff" }}
+  >
+    ● REC
+  </span>
+);
+
+// ── Camera grid card ──────────────────────────────────────────────────────────
+const CameraGridCard = ({
+  camera,
+  health,
+  selectedIds,
+  toggleSelect,
+  inlineToggle,
+  canOperate,
+  canManage,
+  onContextMenu,
+  onPreview,
+  openEdit,
+  setDeleteTarget,
+  navigate,
+  mutations,
+  isDraggable,
+  dragIdx,
+  handleDragStart,
+  handleDragOver,
+  handleDrop,
+}) => {
+  return (
+    <div
+      className={cn(
+        "group relative flex flex-col rounded overflow-hidden border transition-colors cursor-default",
+        !camera.is_enabled && "opacity-50",
+        selectedIds.has(camera.id) && "ring-1",
+      )}
+      style={{
+        background: "var(--console-raised)",
+        borderColor: selectedIds.has(camera.id) ? "var(--console-accent)" : "var(--console-border)",
+        boxShadow: selectedIds.has(camera.id) ? "0 0 0 1px var(--console-accent)" : undefined,
+      }}
+      onContextMenu={onContextMenu}
+      draggable={isDraggable}
+      onDragStart={() => handleDragStart(dragIdx)}
+      onDragOver={handleDragOver}
+      onDrop={() => handleDrop(dragIdx)}
+    >
+      {/* Thumbnail */}
+      <div className="relative w-full" style={{ aspectRatio: "16/9", background: "#000" }}>
+        <button
+          type="button"
+          className="w-full h-full block"
+          onClick={() => onPreview(camera)}
+          title="Open preview"
+        >
+          <CameraThumbnail cameraId={camera.id} className="w-full h-full object-cover" />
+        </button>
+
+        {/* Top-left overlay: status dot + rec */}
+        <div className="absolute top-1.5 left-1.5 flex items-center gap-1.5">
+          <StatusDot status={camera.status} />
+          {camera.is_recording && <RecDot />}
+        </div>
+
+        {/* Top-right overlay: checkbox */}
+        <div className="absolute top-1.5 right-1.5">
+          <input
+            type="checkbox"
+            aria-label={`Select ${camera.name}`}
+            className="cursor-pointer accent-teal-400 w-3.5 h-3.5"
+            checked={selectedIds.has(camera.id)}
+            onChange={() => toggleSelect(camera.id)}
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+
+        {/* Drag handle — shown on hover when drag enabled */}
+        {isDraggable && (
+          <div
+            className="absolute bottom-1 left-1 opacity-0 group-hover:opacity-60 cursor-grab active:cursor-grabbing"
+            style={{ color: "var(--console-muted)" }}
+          >
+            <GripVertical className="h-3.5 w-3.5" />
+          </div>
+        )}
+      </div>
+
+      {/* Card footer */}
+      <div
+        className="flex items-center gap-1 px-2 py-1.5 border-t"
+        style={{
+          background: "var(--console-panel)",
+          borderColor: "var(--console-border)",
+        }}
+      >
+        {/* Name + health */}
+        <div className="flex-1 min-w-0">
+          <p
+            className="text-xs font-medium truncate cursor-pointer hover:underline"
+            style={{ color: "var(--console-text)" }}
+            onClick={() => navigate(`/cameras/${camera.id}`)}
+            title={camera.name}
+          >
+            {camera.name}
+          </p>
+          {health ? (
+            <p className="font-telemetry text-[10px] truncate mt-0.5" style={{ color: "var(--console-muted)" }}>
+              {health.bitrate_kbps != null ? `${health.bitrate_kbps} kbps` : ""}
+              {health.bitrate_kbps != null && health.fps_actual != null ? " · " : ""}
+              {health.fps_actual != null ? `${Math.round(health.fps_actual)} fps` : ""}
+            </p>
+          ) : (
+            <p className="font-telemetry text-[10px]" style={{ color: "var(--console-muted)" }}>
+              {camera.resolution || "—"}
+            </p>
+          )}
+        </div>
+
+        {/* Actions dropdown */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="flex-shrink-0 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-white/10 transition"
+              style={{ color: "var(--console-muted)" }}
+            >
+              <MoreVertical className="h-3.5 w-3.5" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {canOperate && (
+              <DropdownMenuItem onClick={() => inlineToggle(camera)}>
+                {camera.is_recording ? (
+                  <><Square className="h-4 w-4 mr-2" /> Stop Recording</>
+                ) : (
+                  <><Play className="h-4 w-4 mr-2" /> Start Recording</>
+                )}
+              </DropdownMenuItem>
+            )}
+            {canOperate && (
+              <DropdownMenuItem onClick={() => mutations.test.mutate(camera.id)}>
+                <RefreshCw className="h-4 w-4 mr-2" /> Test Connection
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem onClick={() => navigate(`/cameras/${camera.id}`)}>
+              <ExternalLink className="h-4 w-4 mr-2" /> View Details
+            </DropdownMenuItem>
+            {canManage && (
+              <DropdownMenuItem onClick={() => openEdit(camera)}>
+                <Pencil className="h-4 w-4 mr-2" /> Edit Camera
+              </DropdownMenuItem>
+            )}
+            {canManage && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() => setDeleteTarget(camera)}
+                  className="text-red-600 focus:text-red-600"
+                >
+                  <Trash2 className="h-4 w-4 mr-2" /> Delete Camera
+                </DropdownMenuItem>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    </div>
+  );
+};
+
+// ── Main page component ───────────────────────────────────────────────────────
 const Cameras = () => {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -187,6 +383,8 @@ const Cameras = () => {
   const { cameraCap: licenseCap } = useLicense();
   const { data: cameras = [], isLoading } = useCamerasQuery();
   const mutations = useCameraMutations();
+  const [prefs, setPrefs] = useUiPrefs();
+  const camerasView = prefs.camerasView || "table";
 
   // Health snapshot map { camera_id: {...} }
   const { data: healthMap = {} } = useQuery({
@@ -354,7 +552,7 @@ const Cameras = () => {
       return next;
     });
 
-  // ── Mutations ───────────────────────────────────────────────────────────
+  // ── Mutations ────────────────────────────────────────────────────────────
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: ["cameras"] });
 
@@ -444,7 +642,6 @@ const Cameras = () => {
     mutationFn: (ids) => reorderCameras(ids),
     onSuccess: () => {
       invalidate();
-      // Server now reflects order; clear local override
       setOrderOverride(null);
     },
     onError: () => {
@@ -453,7 +650,7 @@ const Cameras = () => {
     },
   });
 
-  // ── Drag & drop reorder ─────────────────────────────────────────────────
+  // ── Drag & drop reorder ──────────────────────────────────────────────────
   const handleDragStart = (idx) => {
     dragIndexRef.current = idx;
   };
@@ -466,8 +663,6 @@ const Cameras = () => {
     dragIndexRef.current = null;
     if (src == null || src === targetIdx) return;
 
-    // Build full ordered id list (entire dataset, not just current page),
-    // moving the dragged item to the new position.
     const ids = orderedCameras.map((c) => c.id);
     const fromGlobalIdx = (page - 1) * pageSize + src;
     const toGlobalIdx = (page - 1) * pageSize + targetIdx;
@@ -478,7 +673,7 @@ const Cameras = () => {
     reorderMutation.mutate(ids);
   };
 
-  // ── Right-click context menu ────────────────────────────────────────────
+  // ── Right-click context menu ─────────────────────────────────────────────
   useEffect(() => {
     if (!contextMenu) return;
     const close = () => setContextMenu(null);
@@ -490,7 +685,7 @@ const Cameras = () => {
     };
   }, [contextMenu]);
 
-  // ── Inline start/stop ──────────────────────────────────────────────────
+  // ── Inline start/stop ────────────────────────────────────────────────────
   const inlineToggle = useCallback(
     (camera) => {
       if (!canOperate) return;
@@ -505,7 +700,7 @@ const Cameras = () => {
     [canOperate, mutations],
   );
 
-  // ── Dialog helpers ─────────────────────────────────────────────────────
+  // ── Dialog helpers ───────────────────────────────────────────────────────
   const openAdd = () => {
     setSelected(null);
     setShowForm(true);
@@ -529,25 +724,114 @@ const Cameras = () => {
 
   const sortAllowsDrag = sort.field === "order" && !search && statusFilter === "all" && groupFilter === "all";
 
+  // ── Shared input / select console style props ────────────────────────────
+  const inputStyle = {
+    background: "var(--console-raised)",
+    borderColor: "var(--console-border)",
+    color: "var(--console-text)",
+  };
+
   return (
-    <div className="p-4 md:p-6 h-full overflow-y-auto">
-      {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-2 mb-4">
-        <div className="relative flex-1 min-w-[240px] max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
+    <div
+      className="h-full overflow-y-auto flex flex-col"
+      style={{ background: "var(--console-bg)", color: "var(--console-text)" }}
+    >
+      {/* ── Page header ──────────────────────────────────────────────────── */}
+      <div
+        className="flex items-center gap-3 px-4 py-2.5 border-b flex-shrink-0"
+        style={{ background: "var(--console-panel)", borderColor: "var(--console-border)" }}
+      >
+        <div className="flex items-center gap-2">
+          <span
+            className="w-0.5 h-4 rounded-full flex-shrink-0"
+            style={{ background: "var(--console-accent)" }}
+          />
+          <span
+            className="font-telemetry text-xs font-semibold uppercase tracking-widest"
+            style={{ color: "var(--console-text)" }}
+          >
+            Cameras
+          </span>
+          {!isLoading && (
+            <span
+              className="font-telemetry text-[11px] px-1.5 py-0.5 rounded"
+              style={{
+                background: "var(--console-raised)",
+                color: "var(--console-muted)",
+                border: "1px solid var(--console-border)",
+              }}
+            >
+              {total}
+            </span>
+          )}
+        </div>
+
+        {/* Spacer */}
+        <div className="flex-1" />
+
+        {/* View toggle */}
+        <div
+          className="flex items-center rounded overflow-hidden border"
+          style={{ borderColor: "var(--console-border)" }}
+        >
+          <button
+            type="button"
+            className="p-1.5 transition-colors"
+            style={{
+              background: camerasView === "table" ? "var(--console-accent)" : "var(--console-raised)",
+              color: camerasView === "table" ? "#06231f" : "var(--console-muted)",
+            }}
+            title="Table view"
+            onClick={() => setPrefs({ camerasView: "table" })}
+          >
+            <List className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            className="p-1.5 transition-colors"
+            style={{
+              background: camerasView === "grid" ? "var(--console-accent)" : "var(--console-raised)",
+              color: camerasView === "grid" ? "#06231f" : "var(--console-muted)",
+            }}
+            title="Grid view"
+            onClick={() => setPrefs({ camerasView: "grid" })}
+          >
+            <LayoutGrid className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {/* ── Toolbar ──────────────────────────────────────────────────────── */}
+      <div
+        className="flex flex-wrap items-center gap-2 px-4 py-2 border-b flex-shrink-0"
+        style={{ background: "var(--console-panel)", borderColor: "var(--console-border)" }}
+      >
+        <div className="relative flex-1 min-w-[200px] max-w-md">
+          <Search
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5"
+            style={{ color: "var(--console-muted)" }}
+          />
+          <input
+            type="text"
             placeholder="Search cameras…"
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);
               setPage(1);
             }}
-            className="pl-10 h-9"
+            className="w-full pl-8 pr-3 py-1.5 rounded text-xs border outline-none focus:ring-1 font-telemetry"
+            style={{
+              ...inputStyle,
+              "--tw-ring-color": "var(--console-accent)",
+            }}
           />
         </div>
 
         <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(1); }}>
-          <SelectTrigger className="h-9 w-[130px]">
+          <SelectTrigger
+            className="h-[30px] w-[120px] text-xs font-telemetry"
+            style={inputStyle}
+          >
             <SelectValue placeholder="Status" />
           </SelectTrigger>
           <SelectContent>
@@ -560,7 +844,10 @@ const Cameras = () => {
 
         {groups.length > 0 && (
           <Select value={groupFilter} onValueChange={(v) => { setGroupFilter(v); setPage(1); }}>
-            <SelectTrigger className="h-9 w-[160px]">
+            <SelectTrigger
+              className="h-[30px] w-[140px] text-xs font-telemetry"
+              style={inputStyle}
+            >
               <SelectValue placeholder="Group" />
             </SelectTrigger>
             <SelectContent>
@@ -577,9 +864,17 @@ const Cameras = () => {
         {someSelected && canOperate && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button size="sm" variant="outline">
-                Bulk actions ({selectedIds.size})
-              </Button>
+              <button
+                type="button"
+                className="h-[30px] px-3 rounded text-xs border font-telemetry transition-colors hover:bg-white/5"
+                style={{
+                  borderColor: "var(--console-accent)",
+                  color: "var(--console-accent)",
+                  background: "transparent",
+                }}
+              >
+                Bulk ({selectedIds.size}) ▾
+              </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem
@@ -638,31 +933,41 @@ const Cameras = () => {
         )}
 
         <div className="ml-auto flex items-center gap-2">
-          <span className="text-xs text-muted-foreground hidden md:inline">
-            {total} camera{total !== 1 ? "s" : ""}
-          </span>
           {canManage && (
             <>
-              <Button variant="outline" size="sm" onClick={() => setShowOnvif(true)}>
-                <Wifi className="h-4 w-4 sm:mr-2" />
+              <button
+                type="button"
+                className="h-[30px] px-3 rounded text-xs border font-telemetry inline-flex items-center gap-1.5 transition-colors hover:bg-white/5"
+                style={{
+                  borderColor: "var(--console-border)",
+                  color: "var(--console-muted)",
+                  background: "var(--console-raised)",
+                }}
+                onClick={() => setShowOnvif(true)}
+              >
+                <Wifi className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">Discover</span>
-              </Button>
+              </button>
               {(() => {
                 const cap = licenseCap;
                 const atCap = cap && cap.limit > 0 && cap.used >= cap.limit;
                 return (
-                  <Button
+                  <button
+                    type="button"
                     onClick={openAdd}
-                    className="bg-primary hover:bg-primary/60"
-                    size="sm"
                     disabled={atCap}
                     title={atCap ? `License cap: ${cap.used}/${cap.limit}` : undefined}
+                    className="h-[30px] px-3 rounded text-xs font-telemetry inline-flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                    style={{
+                      background: "var(--console-accent)",
+                      color: "#06231f",
+                    }}
                   >
-                    <Plus className="h-4 w-4 sm:mr-2" />
+                    <Plus className="h-3.5 w-3.5" />
                     <span className="hidden sm:inline">
                       {atCap ? "License full" : "Add Camera"}
                     </span>
-                  </Button>
+                  </button>
                 );
               })()}
             </>
@@ -670,451 +975,629 @@ const Cameras = () => {
         </div>
       </div>
 
-      {/* Mobile card list — visible below md, hidden above */}
-      <div className="md:hidden space-y-2 mb-4">
-        {isLoading ? (
-          <div className="text-center py-10 text-muted-foreground text-sm">Loading cameras…</div>
-        ) : paginated.length === 0 ? (
-          <div className="text-center py-10">
-            <Camera className="h-10 w-10 text-slate-300 mx-auto mb-3" />
-            <p className="text-muted-foreground text-sm">
-              {search || statusFilter !== "all" || groupFilter !== "all"
-                ? "No cameras match the current filters"
-                : "No cameras added yet"}
-            </p>
-            {!search && statusFilter === "all" && groupFilter === "all" && canManage && (
-              <Button onClick={openAdd} variant="outline" className="mt-4" size="sm">
-                <Plus className="h-4 w-4 mr-2" /> Add Your First Camera
-              </Button>
-            )}
-          </div>
-        ) : (
-          paginated.map((camera) => (
+      {/* ── Main content area ─────────────────────────────────────────────── */}
+      <div className="flex-1 min-h-0 overflow-y-auto p-3">
+
+        {/* Mobile card list — visible below md, hidden above */}
+        <div className="md:hidden space-y-1.5 mb-3">
+          {isLoading ? (
             <div
-              key={camera.id}
-              className={cn(
-                "bg-card border border-border rounded-lg p-3 flex items-center gap-3",
-                !camera.is_enabled && "opacity-60",
-                selectedIds.has(camera.id) && "border-teal-500/40 bg-teal-500/[0.06]",
-              )}
+              className="text-center py-10 text-xs font-telemetry"
+              style={{ color: "var(--console-muted)" }}
             >
-              <input
-                type="checkbox"
-                aria-label={`Select ${camera.name}`}
-                className="accent-teal-400 cursor-pointer flex-shrink-0"
-                checked={selectedIds.has(camera.id)}
-                onChange={() => toggleSelect(camera.id)}
-              />
-              <button
-                type="button"
-                onClick={() => setPreviewCamera(camera)}
-                className="rounded-md overflow-hidden ring-1 ring-white/5 hover:ring-teal-400/60 transition flex-shrink-0"
-              >
-                <CameraThumbnail cameraId={camera.id} className="w-16 h-10" />
-              </button>
-              <div className="flex-1 min-w-0">
-                <p
-                  className="font-medium text-white hover:text-teal-300 cursor-pointer transition-colors truncate text-sm"
-                  onClick={() => navigate(`/cameras/${camera.id}`)}
+              Loading cameras…
+            </div>
+          ) : paginated.length === 0 ? (
+            <div className="text-center py-10">
+              <Camera className="h-10 w-10 mx-auto mb-3" style={{ color: "var(--console-muted)" }} />
+              <p className="text-xs font-telemetry" style={{ color: "var(--console-muted)" }}>
+                {search || statusFilter !== "all" || groupFilter !== "all"
+                  ? "No cameras match the current filters"
+                  : "No cameras added yet"}
+              </p>
+              {!search && statusFilter === "all" && groupFilter === "all" && canManage && (
+                <button
+                  type="button"
+                  onClick={openAdd}
+                  className="mt-4 px-3 py-1.5 rounded text-xs font-telemetry border"
+                  style={{
+                    borderColor: "var(--console-border)",
+                    color: "var(--console-muted)",
+                    background: "var(--console-raised)",
+                  }}
                 >
-                  {camera.name}
-                </p>
-                <div className="flex items-center gap-2 mt-1 flex-wrap">
-                  <StatusBadge status={camera.status} />
-                  {camera.is_recording && <RecordingIndicator isRecording />}
+                  <Plus className="h-3.5 w-3.5 inline mr-1" /> Add Your First Camera
+                </button>
+              )}
+            </div>
+          ) : (
+            paginated.map((camera) => (
+              <div
+                key={camera.id}
+                className={cn(
+                  "rounded border p-2.5 flex items-center gap-2.5",
+                  !camera.is_enabled && "opacity-60",
+                )}
+                style={{
+                  background: selectedIds.has(camera.id) ? "rgba(20,184,166,0.06)" : "var(--console-raised)",
+                  borderColor: selectedIds.has(camera.id) ? "var(--console-accent)" : "var(--console-border)",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  aria-label={`Select ${camera.name}`}
+                  className="accent-teal-400 cursor-pointer flex-shrink-0"
+                  checked={selectedIds.has(camera.id)}
+                  onChange={() => toggleSelect(camera.id)}
+                />
+                <button
+                  type="button"
+                  onClick={() => setPreviewCamera(camera)}
+                  className="rounded overflow-hidden flex-shrink-0"
+                  style={{ border: "1px solid var(--console-border)" }}
+                >
+                  <CameraThumbnail cameraId={camera.id} className="w-16 h-10" />
+                </button>
+                <div className="flex-1 min-w-0">
+                  <p
+                    className="text-xs font-medium truncate cursor-pointer hover:underline"
+                    style={{ color: "var(--console-text)" }}
+                    onClick={() => navigate(`/cameras/${camera.id}`)}
+                  >
+                    {camera.name}
+                  </p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <StatusBadge status={camera.status} />
+                    {camera.is_recording && <RecordingIndicator isRecording />}
+                  </div>
+                </div>
+                <div className="flex-shrink-0">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" className="h-8 w-8">
+                        <MoreVertical className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      {canOperate && (
+                        <DropdownMenuItem onClick={() => inlineToggle(camera)}>
+                          {camera.is_recording ? (
+                            <><Square className="h-4 w-4 mr-2" /> Stop Recording</>
+                          ) : (
+                            <><Play className="h-4 w-4 mr-2" /> Start Recording</>
+                          )}
+                        </DropdownMenuItem>
+                      )}
+                      {canManage && (
+                        <DropdownMenuItem onClick={() => openEdit(camera)}>
+                          <Pencil className="h-4 w-4 mr-2" /> Edit Camera
+                        </DropdownMenuItem>
+                      )}
+                      <DropdownMenuItem onClick={() => navigate(`/cameras/${camera.id}`)}>
+                        <ExternalLink className="h-4 w-4 mr-2" /> View Details
+                      </DropdownMenuItem>
+                      {canManage && (
+                        <>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onClick={() => setDeleteTarget(camera)}
+                            className="text-red-600 focus:text-red-600"
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" /> Delete Camera
+                          </DropdownMenuItem>
+                        </>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
               </div>
-              <div className="flex-shrink-0">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-8 w-8">
-                      <MoreVertical className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    {canOperate && (
-                      <DropdownMenuItem onClick={() => inlineToggle(camera)}>
-                        {camera.is_recording ? (
-                          <><Square className="h-4 w-4 mr-2" /> Stop Recording</>
-                        ) : (
-                          <><Play className="h-4 w-4 mr-2" /> Start Recording</>
+            ))
+          )}
+        </div>
+
+        {/* ── Desktop views: table or grid ─────────────────────────────── */}
+        <div className="hidden md:block">
+
+          {/* === TABLE VIEW === */}
+          {camerasView === "table" && (
+            <div
+              className="rounded overflow-hidden overflow-x-auto border"
+              style={{ borderColor: "var(--console-border)", background: "var(--console-panel)" }}
+            >
+              <table className="min-w-[1100px] w-full text-xs" style={{ color: "var(--console-text)" }}>
+                <thead>
+                  <tr style={{ borderBottom: "1px solid var(--console-border)", background: "var(--console-raised)" }}>
+                    {sortAllowsDrag && canManage && <th className="w-[32px] px-2 py-2" />}
+                    <th className="w-[36px] px-2 py-2">
+                      <input
+                        type="checkbox"
+                        aria-label="Select all on page"
+                        className="accent-teal-400 cursor-pointer"
+                        checked={allOnPageSelected}
+                        onChange={toggleSelectAllOnPage}
+                      />
+                    </th>
+                    <th className="w-[76px] px-2 py-2" style={{ color: "var(--console-muted)" }}>
+                      <span className="font-telemetry uppercase tracking-wide text-[10px]">Preview</span>
+                    </th>
+                    <th className="w-[220px] px-2 py-2">
+                      <SortHeader label="Camera" field="name" sort={sort} setSort={setSort} />
+                    </th>
+                    <th className="px-2 py-2">
+                      <SortHeader label="Status" field="status" sort={sort} setSort={setSort} />
+                    </th>
+                    <th className="w-[110px] px-2 py-2">
+                      <SortHeader label="Recording" field="recording" sort={sort} setSort={setSort} />
+                    </th>
+                    <th className="hidden lg:table-cell px-2 py-2">
+                      <SortHeader label="Health" field="health" sort={sort} setSort={setSort} />
+                    </th>
+                    <th className="hidden xl:table-cell px-2 py-2">
+                      <SortHeader label="Resolution" field="resolution" sort={sort} setSort={setSort} />
+                    </th>
+                    <th className="hidden md:table-cell px-2 py-2">
+                      <SortHeader label="Last Online" field="last_online" sort={sort} setSort={setSort} />
+                    </th>
+                    <th className="w-[44px] px-2 py-2" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginated.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={sortAllowsDrag && canManage ? 10 : 9}
+                        className="text-center py-12"
+                      >
+                        <Camera className="h-10 w-10 mx-auto mb-3" style={{ color: "var(--console-muted)" }} />
+                        <p className="font-telemetry text-xs" style={{ color: "var(--console-muted)" }}>
+                          {isLoading
+                            ? "Loading cameras…"
+                            : search || statusFilter !== "all" || groupFilter !== "all"
+                              ? "No cameras match the current filters"
+                              : "No cameras added yet"}
+                        </p>
+                        {!search && statusFilter === "all" && groupFilter === "all" && !isLoading && canManage && (
+                          <button
+                            type="button"
+                            onClick={openAdd}
+                            className="mt-4 px-3 py-1.5 rounded text-xs font-telemetry border"
+                            style={{
+                              borderColor: "var(--console-border)",
+                              color: "var(--console-muted)",
+                              background: "var(--console-raised)",
+                            }}
+                          >
+                            <Plus className="h-3.5 w-3.5 inline mr-1" />
+                            Add Your First Camera
+                          </button>
                         )}
-                      </DropdownMenuItem>
-                    )}
-                    {canManage && (
-                      <DropdownMenuItem onClick={() => openEdit(camera)}>
-                        <Pencil className="h-4 w-4 mr-2" /> Edit Camera
-                      </DropdownMenuItem>
-                    )}
-                    <DropdownMenuItem onClick={() => navigate(`/cameras/${camera.id}`)}>
-                      <ExternalLink className="h-4 w-4 mr-2" /> View Details
-                    </DropdownMenuItem>
-                    {canManage && (
-                      <>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          onClick={() => setDeleteTarget(camera)}
-                          className="text-red-600 focus:text-red-600"
+                      </td>
+                    </tr>
+                  ) : (
+                    paginated.map((camera, idx) => {
+                      const health = healthMap[camera.id];
+                      const isDraggable = sortAllowsDrag && canManage;
+                      return (
+                        <tr
+                          key={camera.id}
+                          className="transition-colors"
+                          style={{
+                            borderBottom: "1px solid var(--console-border)",
+                            background: selectedIds.has(camera.id)
+                              ? "rgba(20,184,166,0.05)"
+                              : "transparent",
+                            opacity: !camera.is_enabled ? 0.5 : 1,
+                          }}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            setContextMenu({ x: e.clientX, y: e.clientY, camera });
+                          }}
+                          draggable={isDraggable}
+                          onDragStart={() => handleDragStart(idx)}
+                          onDragOver={handleDragOver}
+                          onDrop={() => handleDrop(idx)}
                         >
-                          <Trash2 className="h-4 w-4 mr-2" /> Delete Camera
-                        </DropdownMenuItem>
-                      </>
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                          {isDraggable && (
+                            <td className="px-2 py-2 cursor-grab active:cursor-grabbing" style={{ color: "var(--console-muted)" }}>
+                              <GripVertical className="h-3.5 w-3.5" />
+                            </td>
+                          )}
+                          <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              aria-label={`Select ${camera.name}`}
+                              className="accent-teal-400 cursor-pointer"
+                              checked={selectedIds.has(camera.id)}
+                              onChange={() => toggleSelect(camera.id)}
+                            />
+                          </td>
+                          <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              onClick={() => setPreviewCamera(camera)}
+                              className="rounded overflow-hidden transition"
+                              style={{ border: "1px solid var(--console-border)" }}
+                              title="Open preview"
+                            >
+                              <CameraThumbnail cameraId={camera.id} className="w-16 h-10" />
+                            </button>
+                          </td>
+                          <td className="px-2 py-2">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <p
+                                  className="font-medium cursor-pointer hover:underline truncate"
+                                  style={{ color: "var(--console-text)" }}
+                                  onClick={() => navigate(`/cameras/${camera.id}`)}
+                                >
+                                  {camera.name}
+                                </p>
+                                {camera.retention_days != null && (
+                                  <span
+                                    className="font-telemetry text-[10px] px-1 py-0.5 rounded border flex-shrink-0"
+                                    style={{
+                                      color: "#c4b5fd",
+                                      borderColor: "rgba(139,92,246,0.3)",
+                                      background: "rgba(139,92,246,0.1)",
+                                    }}
+                                  >
+                                    Ret: {camera.retention_days}d
+                                  </span>
+                                )}
+                              </div>
+                              <p
+                                className="font-telemetry text-[10px] truncate max-w-[200px] mt-0.5"
+                                style={{ color: "var(--console-muted)" }}
+                              >
+                                {maskStreamUrl(camera.main_stream_url)}
+                              </p>
+                            </div>
+                          </td>
+                          <td className="px-2 py-2">
+                            <div className="flex flex-col gap-1">
+                              <StatusBadge status={camera.status} />
+                              {camera.credentials_status === "unauthorized" && (
+                                <a
+                                  href={`/cameras/${camera.id}/settings#credentials`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    navigate(`/cameras/${camera.id}/settings`);
+                                    e.preventDefault();
+                                  }}
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border hover:opacity-80 transition-opacity whitespace-nowrap font-telemetry"
+                                  style={{
+                                    color: "var(--console-alarm)",
+                                    borderColor: "rgba(245,158,11,0.3)",
+                                    background: "rgba(245,158,11,0.1)",
+                                  }}
+                                  title="ONVIF credentials invalid — click to update"
+                                >
+                                  Credentials invalid
+                                </a>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
+                            {canOperate ? (
+                              <button
+                                type="button"
+                                onClick={() => inlineToggle(camera)}
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium border transition-colors font-telemetry"
+                                style={
+                                  camera.is_recording
+                                    ? {
+                                        background: "rgba(239,68,68,0.15)",
+                                        color: "var(--console-rec)",
+                                        borderColor: "rgba(239,68,68,0.3)",
+                                      }
+                                    : camera.status === "online"
+                                      ? {
+                                          background: "rgba(34,197,94,0.1)",
+                                          color: "var(--console-online)",
+                                          borderColor: "rgba(34,197,94,0.2)",
+                                        }
+                                      : {
+                                          background: "var(--console-raised)",
+                                          color: "var(--console-muted)",
+                                          borderColor: "var(--console-border)",
+                                          cursor: "not-allowed",
+                                        }
+                                }
+                                disabled={!camera.is_recording && camera.status !== "online"}
+                              >
+                                {camera.is_recording ? (
+                                  <><Square className="h-3 w-3" /> Stop</>
+                                ) : (
+                                  <><Play className="h-3 w-3" /> Start</>
+                                )}
+                              </button>
+                            ) : camera.is_recording ? (
+                              <RecordingIndicator isRecording />
+                            ) : (
+                              <span className="font-telemetry text-[11px]" style={{ color: "var(--console-muted)" }}>—</span>
+                            )}
+                          </td>
+                          <td className="hidden lg:table-cell px-2 py-2">
+                            <HealthCell data={health} />
+                          </td>
+                          <td className="font-telemetry text-[11px] hidden xl:table-cell px-2 py-2" style={{ color: "var(--console-muted)" }}>
+                            {camera.resolution || "—"}
+                          </td>
+                          <td className="font-telemetry text-[11px] hidden md:table-cell px-2 py-2" style={{ color: "var(--console-muted)" }}>
+                            {camera.last_online_at
+                              ? new Date(camera.last_online_at).toLocaleString()
+                              : "Never"}
+                          </td>
+                          <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="p-1.5 rounded hover:bg-white/5 transition"
+                                  style={{ color: "var(--console-muted)" }}
+                                >
+                                  <MoreVertical className="h-3.5 w-3.5" />
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                {canManage && (
+                                  <DropdownMenuItem onClick={() => openEdit(camera)}>
+                                    <Pencil className="h-4 w-4 mr-2" /> Edit Camera
+                                  </DropdownMenuItem>
+                                )}
+                                {canOperate && (
+                                  <DropdownMenuItem
+                                    onClick={() => mutations.test.mutate(camera.id)}
+                                  >
+                                    <RefreshCw className="h-4 w-4 mr-2" /> Test Connection
+                                  </DropdownMenuItem>
+                                )}
+                                <DropdownMenuItem onClick={() => navigate(`/cameras/${camera.id}`)}>
+                                  <ExternalLink className="h-4 w-4 mr-2" /> View Details
+                                </DropdownMenuItem>
+                                {canManage && (
+                                  <>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                      onClick={() => setDeleteTarget(camera)}
+                                      className="text-red-600 focus:text-red-600"
+                                    >
+                                      <Trash2 className="h-4 w-4 mr-2" /> Delete Camera
+                                    </DropdownMenuItem>
+                                  </>
+                                )}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* === GRID VIEW === */}
+          {camerasView === "grid" && (
+            <>
+              {isLoading ? (
+                <div
+                  className="text-center py-16 font-telemetry text-xs"
+                  style={{ color: "var(--console-muted)" }}
+                >
+                  Loading cameras…
+                </div>
+              ) : paginated.length === 0 ? (
+                <div className="text-center py-16">
+                  <Camera className="h-12 w-12 mx-auto mb-4" style={{ color: "var(--console-muted)" }} />
+                  <p className="font-telemetry text-xs" style={{ color: "var(--console-muted)" }}>
+                    {search || statusFilter !== "all" || groupFilter !== "all"
+                      ? "No cameras match the current filters"
+                      : "No cameras added yet"}
+                  </p>
+                  {!search && statusFilter === "all" && groupFilter === "all" && canManage && (
+                    <button
+                      type="button"
+                      onClick={openAdd}
+                      className="mt-4 px-3 py-1.5 rounded text-xs font-telemetry border"
+                      style={{
+                        borderColor: "var(--console-border)",
+                        color: "var(--console-muted)",
+                        background: "var(--console-raised)",
+                      }}
+                    >
+                      <Plus className="h-3.5 w-3.5 inline mr-1" /> Add Your First Camera
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
+                  {paginated.map((camera, idx) => {
+                    const isDraggable = sortAllowsDrag && canManage;
+                    return (
+                      <CameraGridCard
+                        key={camera.id}
+                        camera={camera}
+                        health={healthMap[camera.id]}
+                        selectedIds={selectedIds}
+                        toggleSelect={toggleSelect}
+                        inlineToggle={inlineToggle}
+                        canOperate={canOperate}
+                        canManage={canManage}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          setContextMenu({ x: e.clientX, y: e.clientY, camera });
+                        }}
+                        onPreview={setPreviewCamera}
+                        openEdit={openEdit}
+                        setDeleteTarget={setDeleteTarget}
+                        navigate={navigate}
+                        mutations={mutations}
+                        isDraggable={isDraggable}
+                        dragIdx={idx}
+                        handleDragStart={handleDragStart}
+                        handleDragOver={handleDragOver}
+                        handleDrop={handleDrop}
+                      />
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Drag hint */}
+        {!sortAllowsDrag && canManage && total > 0 && (
+          <p className="mt-2 font-telemetry text-[10px]" style={{ color: "var(--console-muted)" }}>
+            Drag-to-reorder disabled — clear search/filter and sort by default order to rearrange.
+          </p>
+        )}
+
+        {/* ── Pagination ───────────────────────────────────────────────── */}
+        {total > 0 && (
+          <div
+            className="flex flex-wrap items-center justify-between gap-2 mt-3 font-telemetry text-[11px]"
+            style={{ color: "var(--console-muted)" }}
+          >
+            <div className="flex items-center gap-2">
+              <span>Rows per page</span>
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setPage(1);
+                }}
+                className="rounded px-2 py-0.5 border"
+                style={{
+                  background: "var(--console-raised)",
+                  borderColor: "var(--console-border)",
+                  color: "var(--console-text)",
+                }}
+              >
+                {PAGE_SIZES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <span>
+                {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of {total}
+              </span>
+              <div className="flex gap-1">
+                <button
+                  type="button"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => p - 1)}
+                  className="px-2 py-1 rounded border disabled:opacity-30 hover:bg-white/5 transition"
+                  style={{
+                    borderColor: "var(--console-border)",
+                    color: "var(--console-muted)",
+                    background: "var(--console-raised)",
+                  }}
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => p + 1)}
+                  className="px-2 py-1 rounded border disabled:opacity-30 hover:bg-white/5 transition"
+                  style={{
+                    borderColor: "var(--console-border)",
+                    color: "var(--console-muted)",
+                    background: "var(--console-raised)",
+                  }}
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
               </div>
             </div>
-          ))
+          </div>
         )}
       </div>
 
-      {/* Table — hidden on mobile, visible md+ */}
-      <div className="hidden md:block bg-card border border-border rounded-lg overflow-hidden overflow-x-auto">
-        <Table className="min-w-[1100px]">
-          <TableHeader>
-            <TableRow className="bg-card/40">
-              {sortAllowsDrag && canManage && <TableHead className="w-[32px]" />}
-              <TableHead className="w-[40px]">
-                <input
-                  type="checkbox"
-                  aria-label="Select all on page"
-                  className="accent-teal-400 cursor-pointer"
-                  checked={allOnPageSelected}
-                  onChange={toggleSelectAllOnPage}
-                />
-              </TableHead>
-              <TableHead className="w-[80px]">Preview</TableHead>
-              <TableHead className="w-[240px]">
-                <SortHeader label="Camera" field="name" sort={sort} setSort={setSort} />
-              </TableHead>
-              <TableHead>
-                <SortHeader label="Status" field="status" sort={sort} setSort={setSort} />
-              </TableHead>
-              <TableHead className="w-[120px]">Recording</TableHead>
-              <TableHead className="hidden lg:table-cell">
-                <SortHeader label="Health" field="health" sort={sort} setSort={setSort} />
-              </TableHead>
-              <TableHead className="hidden xl:table-cell">
-                <SortHeader label="Resolution" field="resolution" sort={sort} setSort={setSort} />
-              </TableHead>
-              <TableHead className="hidden md:table-cell">
-                <SortHeader label="Last Online" field="last_online" sort={sort} setSort={setSort} />
-              </TableHead>
-              <TableHead className="w-[50px]" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {paginated.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={sortAllowsDrag && canManage ? 10 : 9}
-                  className="text-center py-12"
-                >
-                  <Camera className="h-12 w-12 text-slate-300 mx-auto mb-4" />
-                  <p className="text-muted-foreground">
-                    {isLoading
-                      ? "Loading cameras…"
-                      : search || statusFilter !== "all" || groupFilter !== "all"
-                        ? "No cameras match the current filters"
-                        : "No cameras added yet"}
-                  </p>
-                  {!search && statusFilter === "all" && groupFilter === "all" && !isLoading && canManage && (
-                    <Button onClick={openAdd} variant="outline" className="mt-4">
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add Your First Camera
-                    </Button>
-                  )}
-                </TableCell>
-              </TableRow>
-            ) : (
-              paginated.map((camera, idx) => {
-                const health = healthMap[camera.id];
-                const isDraggable = sortAllowsDrag && canManage;
-                return (
-                  <TableRow
-                    key={camera.id}
-                    className={cn(
-                      selectedIds.has(camera.id) && "bg-teal-500/[0.06]",
-                      !camera.is_enabled && "opacity-60",
-                    )}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      setContextMenu({ x: e.clientX, y: e.clientY, camera });
-                    }}
-                    draggable={isDraggable}
-                    onDragStart={() => handleDragStart(idx)}
-                    onDragOver={handleDragOver}
-                    onDrop={() => handleDrop(idx)}
-                  >
-                    {isDraggable && (
-                      <TableCell className="text-muted-foreground cursor-grab active:cursor-grabbing">
-                        <GripVertical className="h-4 w-4" />
-                      </TableCell>
-                    )}
-                    <TableCell onClick={(e) => e.stopPropagation()}>
-                      <input
-                        type="checkbox"
-                        aria-label={`Select ${camera.name}`}
-                        className="accent-teal-400 cursor-pointer"
-                        checked={selectedIds.has(camera.id)}
-                        onChange={() => toggleSelect(camera.id)}
-                      />
-                    </TableCell>
-                    <TableCell onClick={(e) => e.stopPropagation()}>
-                      <button
-                        type="button"
-                        onClick={() => setPreviewCamera(camera)}
-                        className="rounded-md overflow-hidden ring-1 ring-white/5 hover:ring-teal-400/60 transition"
-                        title="Open preview"
-                      >
-                        <CameraThumbnail cameraId={camera.id} className="w-16 h-10" />
-                      </button>
-                    </TableCell>
-                    <TableCell>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p
-                            className="font-medium text-white hover:text-teal-300 cursor-pointer transition-colors truncate"
-                            onClick={() => navigate(`/cameras/${camera.id}`)}
-                          >
-                            {camera.name}
-                          </p>
-                          {camera.retention_days != null && (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono bg-violet-500/15 text-violet-300 border border-violet-500/20 flex-shrink-0">
-                              Ret: {camera.retention_days}d
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs text-muted-foreground truncate max-w-[220px]">
-                          {camera.main_stream_url}
-                        </p>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-col gap-1">
-                        <StatusBadge status={camera.status} />
-                        {camera.credentials_status === "unauthorized" && (
-                          <a
-                            href={`/cameras/${camera.id}/settings#credentials`}
-                            onClick={(e) => { e.stopPropagation(); navigate(`/cameras/${camera.id}/settings`); e.preventDefault(); }}
-                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30 hover:bg-amber-500/25 transition-colors whitespace-nowrap"
-                            title="ONVIF credentials invalid — click to update"
-                          >
-                            Credentials invalid
-                          </a>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell onClick={(e) => e.stopPropagation()}>
-                      {canOperate ? (
-                        <button
-                          type="button"
-                          onClick={() => inlineToggle(camera)}
-                          className={cn(
-                            "inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium border transition-colors",
-                            camera.is_recording
-                              ? "bg-rose-500/15 text-rose-300 border-rose-500/30 hover:bg-rose-500/25"
-                              : camera.status === "online"
-                                ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/20 hover:bg-emerald-500/20"
-                                : "bg-card/60 text-muted-foreground border-border cursor-not-allowed",
-                          )}
-                          disabled={!camera.is_recording && camera.status !== "online"}
-                        >
-                          {camera.is_recording ? (
-                            <>
-                              <Square className="h-3 w-3" /> Stop
-                            </>
-                          ) : (
-                            <>
-                              <Play className="h-3 w-3" /> Start
-                            </>
-                          )}
-                        </button>
-                      ) : camera.is_recording ? (
-                        <RecordingIndicator isRecording />
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="hidden lg:table-cell">
-                      <HealthCell data={health} />
-                    </TableCell>
-                    <TableCell className="font-mono text-sm text-zinc-400 hidden xl:table-cell">
-                      {camera.resolution || "-"}
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground hidden md:table-cell">
-                      {camera.last_online_at
-                        ? new Date(camera.last_online_at).toLocaleString()
-                        : "Never"}
-                    </TableCell>
-                    <TableCell onClick={(e) => e.stopPropagation()}>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8">
-                            <MoreVertical className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          {canManage && (
-                            <DropdownMenuItem onClick={() => openEdit(camera)}>
-                              <Pencil className="h-4 w-4 mr-2" /> Edit Camera
-                            </DropdownMenuItem>
-                          )}
-                          {canOperate && (
-                            <DropdownMenuItem
-                              onClick={() => mutations.test.mutate(camera.id)}
-                            >
-                              <RefreshCw className="h-4 w-4 mr-2" /> Test Connection
-                            </DropdownMenuItem>
-                          )}
-                          <DropdownMenuItem onClick={() => navigate(`/cameras/${camera.id}`)}>
-                            <ExternalLink className="h-4 w-4 mr-2" /> View Details
-                          </DropdownMenuItem>
-                          {canManage && (
-                            <>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                onClick={() => setDeleteTarget(camera)}
-                                className="text-red-600 focus:text-red-600"
-                              >
-                                <Trash2 className="h-4 w-4 mr-2" /> Delete Camera
-                              </DropdownMenuItem>
-                            </>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                );
-              })
-            )}
-          </TableBody>
-        </Table>
-      </div>
-
-      {!sortAllowsDrag && canManage && total > 0 && (
-        <p className="mt-2 text-[11px] text-muted-foreground">
-          Drag-to-reorder disabled — clear search/filter and sort by default to rearrange.
-        </p>
-      )}
-
-      {/* Pagination */}
-      {total > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-2 mt-3 text-xs text-muted-foreground">
-          <div className="flex items-center gap-2">
-            <span>Rows per page</span>
-            <select
-              value={pageSize}
-              onChange={(e) => {
-                setPageSize(Number(e.target.value));
-                setPage(1);
-              }}
-              className="bg-card border border-border rounded px-2 py-1 text-foreground"
-            >
-              {PAGE_SIZES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex items-center gap-2">
-            <span>
-              {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of {total}
-            </span>
-            <div className="flex gap-1">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={page <= 1}
-                onClick={() => setPage((p) => p - 1)}
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={page >= totalPages}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Floating context menu */}
+      {/* ── Floating context menu ─────────────────────────────────────────── */}
       {contextMenu && (
         <div
-          className="fixed z-50 min-w-[180px] rounded-lg border border-white/10 bg-card/95 backdrop-blur-xl shadow-2xl p-1 text-sm"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
+          className="fixed z-50 min-w-[180px] rounded border shadow-2xl p-1 text-xs"
+          style={{
+            left: contextMenu.x,
+            top: contextMenu.y,
+            background: "var(--console-raised)",
+            borderColor: "var(--console-border)",
+            color: "var(--console-text)",
+          }}
           onClick={(e) => e.stopPropagation()}
         >
           {canOperate && (
             <button
-              className="w-full text-left flex items-center gap-2 px-3 py-2 rounded-md hover:bg-white/5"
+              className="w-full text-left flex items-center gap-2 px-3 py-2 rounded hover:bg-white/5"
               onClick={() => {
                 inlineToggle(contextMenu.camera);
                 setContextMenu(null);
               }}
             >
               {contextMenu.camera.is_recording ? (
-                <><Square className="h-4 w-4" /> Stop Recording</>
+                <><Square className="h-3.5 w-3.5" /> Stop Recording</>
               ) : (
-                <><Play className="h-4 w-4" /> Start Recording</>
+                <><Play className="h-3.5 w-3.5" /> Start Recording</>
               )}
             </button>
           )}
           {canOperate && (
             <button
-              className="w-full text-left flex items-center gap-2 px-3 py-2 rounded-md hover:bg-white/5"
+              className="w-full text-left flex items-center gap-2 px-3 py-2 rounded hover:bg-white/5"
               onClick={() => {
                 mutations.test.mutate(contextMenu.camera.id);
                 setContextMenu(null);
               }}
             >
-              <RefreshCw className="h-4 w-4" /> Test Connection
+              <RefreshCw className="h-3.5 w-3.5" /> Test Connection
             </button>
           )}
           <button
-            className="w-full text-left flex items-center gap-2 px-3 py-2 rounded-md hover:bg-white/5"
+            className="w-full text-left flex items-center gap-2 px-3 py-2 rounded hover:bg-white/5"
             onClick={() => {
               navigate(`/cameras/${contextMenu.camera.id}`);
               setContextMenu(null);
             }}
           >
-            <ExternalLink className="h-4 w-4" /> View Details
+            <ExternalLink className="h-3.5 w-3.5" /> View Details
           </button>
           {canManage && (
             <button
-              className="w-full text-left flex items-center gap-2 px-3 py-2 rounded-md hover:bg-white/5"
+              className="w-full text-left flex items-center gap-2 px-3 py-2 rounded hover:bg-white/5"
               onClick={() => {
                 openEdit(contextMenu.camera);
                 setContextMenu(null);
               }}
             >
-              <Pencil className="h-4 w-4" /> Edit Camera
+              <Pencil className="h-3.5 w-3.5" /> Edit Camera
             </button>
           )}
           {canManage && (
             <>
-              <div className="h-px bg-white/10 my-1" />
+              <div className="h-px my-1" style={{ background: "var(--console-border)" }} />
               <button
-                className="w-full text-left flex items-center gap-2 px-3 py-2 rounded-md hover:bg-rose-500/10 text-rose-300"
+                className="w-full text-left flex items-center gap-2 px-3 py-2 rounded hover:bg-rose-500/10"
+                style={{ color: "var(--console-rec)" }}
                 onClick={() => {
                   setDeleteTarget(contextMenu.camera);
                   setContextMenu(null);
                 }}
               >
-                <Trash2 className="h-4 w-4" /> Delete Camera
+                <Trash2 className="h-3.5 w-3.5" /> Delete Camera
               </button>
             </>
           )}
         </div>
       )}
 
-      {/* Move to group dialog */}
+      {/* ── Move to group dialog ──────────────────────────────────────────── */}
       <Dialog open={showMoveToGroup} onOpenChange={setShowMoveToGroup}>
         <DialogContent>
           <DialogHeader>
@@ -1151,7 +1634,7 @@ const Cameras = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Set retention dialog */}
+      {/* ── Set retention dialog ──────────────────────────────────────────── */}
       <Dialog open={showSetRetention} onOpenChange={setShowSetRetention}>
         <DialogContent>
           <DialogHeader>
@@ -1187,7 +1670,7 @@ const Cameras = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Apply schedule template dialog */}
+      {/* ── Apply schedule template dialog ───────────────────────────────── */}
       <Dialog open={showApplyTemplate} onOpenChange={setShowApplyTemplate}>
         <DialogContent>
           <DialogHeader>
@@ -1227,7 +1710,7 @@ const Cameras = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Form */}
+      {/* ── Form dialog ───────────────────────────────────────────────────── */}
       <CameraFormDialog
         open={showForm}
         onOpenChange={(open) => {
@@ -1243,7 +1726,7 @@ const Cameras = () => {
         isPending={mutations.create.isPending || mutations.update.isPending}
       />
 
-      {/* Single delete */}
+      {/* ── Single delete confirmation ─────────────────────────────────────── */}
       <AlertDialog
         open={!!deleteTarget}
         onOpenChange={() => setDeleteTarget(null)}
@@ -1273,7 +1756,7 @@ const Cameras = () => {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Bulk delete */}
+      {/* ── Bulk delete confirmation ───────────────────────────────────────── */}
       <AlertDialog open={bulkConfirm} onOpenChange={setBulkConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -1298,8 +1781,7 @@ const Cameras = () => {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Preview modal — bigger snapshot on click. Refreshes every 5s
-          via CameraThumbnail interval so operator sees near-live frame. */}
+      {/* ── Preview modal ─────────────────────────────────────────────────── */}
       <Dialog
         open={!!previewCamera}
         onOpenChange={(open) => !open && setPreviewCamera(null)}
@@ -1307,9 +1789,12 @@ const Cameras = () => {
         <DialogContent className="!max-w-3xl !p-0 !gap-0 !block overflow-hidden">
           {previewCamera && (
             <>
-              <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-white/10">
-                <DialogTitle className="flex items-center gap-2 text-sm font-semibold">
-                  <Camera className="h-4 w-4 text-teal-300" />
+              <div
+                className="flex items-center justify-between gap-3 px-5 py-3 border-b"
+                style={{ borderColor: "var(--console-border)" }}
+              >
+                <DialogTitle className="flex items-center gap-2 text-sm font-semibold" style={{ color: "var(--console-text)" }}>
+                  <Camera className="h-4 w-4" style={{ color: "var(--console-accent)" }} />
                   {previewCamera.name}
                   <StatusBadge status={previewCamera.status} />
                 </DialogTitle>
@@ -1321,9 +1806,12 @@ const Cameras = () => {
                   className="w-full h-full object-contain"
                 />
               </div>
-              <div className="flex items-center justify-between gap-3 px-5 py-3 text-xs text-muted-foreground border-t border-white/10">
-                <span className="font-mono truncate flex-1">
-                  {previewCamera.main_stream_url}
+              <div
+                className="flex items-center justify-between gap-3 px-5 py-3 border-t font-telemetry text-xs"
+                style={{ borderColor: "var(--console-border)", color: "var(--console-muted)" }}
+              >
+                <span className="truncate flex-1">
+                  {maskStreamUrl(previewCamera.main_stream_url)}
                 </span>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   {previewCamera.resolution && (
@@ -1355,6 +1843,7 @@ const Cameras = () => {
         </DialogContent>
       </Dialog>
 
+      {/* ── ONVIF Discovery ───────────────────────────────────────────────── */}
       <ONVIFDiscovery
         open={showOnvif}
         onOpenChange={setShowOnvif}
