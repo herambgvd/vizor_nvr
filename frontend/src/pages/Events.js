@@ -411,7 +411,7 @@ const Events = () => {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col h-full min-h-screen bg-background text-foreground">
+    <div className="flex flex-col h-full min-h-0 overflow-hidden bg-background text-foreground">
 
       {/* ── Console header ─────────────────────────────────────────────────── */}
       <div className="flex-shrink-0 px-4 py-3 border-b border-zinc-800 bg-zinc-900/80 backdrop-blur-sm">
@@ -808,16 +808,16 @@ const Events = () => {
         </div>
 
         {/* ── RIGHT: Detail panel ───────────────────────────────────────────── */}
-        <div className="flex-1 min-w-0 overflow-y-auto bg-zinc-950/40">
+        <div className="flex-1 min-w-0 flex flex-col min-h-0 bg-zinc-950/40">
           {!selectedEvent ? (
             /* Empty state */
-            <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-zinc-600 gap-3">
+            <div className="flex flex-col items-center justify-center h-full text-zinc-600 gap-3">
               <Bell className="h-10 w-10 opacity-20" />
               <p className="text-sm font-medium text-zinc-500">No event selected</p>
               <p className="text-xs text-zinc-600">Click a row to view details</p>
             </div>
           ) : (
-            <div className="flex flex-col h-full">
+            <div className="flex flex-col h-full min-h-0">
               {/* Panel header */}
               <div className="flex-shrink-0 flex items-center justify-between px-4 py-2.5 border-b border-zinc-800 bg-zinc-900/70">
                 <div className="flex items-center gap-2">
@@ -845,6 +845,8 @@ const Events = () => {
                 </button>
               </div>
 
+              {/* Scrollable content — keeps action bar pinned below */}
+              <div className="flex-1 min-h-0 overflow-y-auto">
               {/* Snapshot thumbnail */}
               <div className="flex-shrink-0 relative bg-black aspect-video w-full overflow-hidden">
                 {recSnapUrl ? (
@@ -944,8 +946,10 @@ const Events = () => {
                 </div>
               )}
 
+              </div>{/* /scrollable content */}
+
               {/* Action buttons */}
-              <div className="flex-shrink-0 flex flex-wrap gap-2 px-4 py-3 border-t border-zinc-800 bg-zinc-900/40 mt-auto">
+              <div className="flex-shrink-0 flex flex-wrap gap-2 px-4 py-3 border-t border-zinc-800 bg-zinc-900/40">
                 {!selectedEvent.acknowledged && (
                   <Button
                     size="sm"

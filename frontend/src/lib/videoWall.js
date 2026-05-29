@@ -12,6 +12,23 @@ export function fitLayout(n) {
   return LAYOUTS.find((l) => l >= n) || LAYOUTS[LAYOUTS.length - 1];
 }
 
+// Split camera ids into auto-cycling tour pages of `layout` slots each.
+// Every page is padded to exactly slotCount(layout) entries (null fill) so
+// the grid keeps a stable shape while cycling. Falsy ids are dropped.
+// Returns [] when there are no cameras to show.
+export function tourPages(cameraIds, layout) {
+  const ids = Array.isArray(cameraIds) ? cameraIds.filter(Boolean) : [];
+  if (ids.length === 0) return [];
+  const size = slotCount(layout);
+  const pages = [];
+  for (let i = 0; i < ids.length; i += size) {
+    const page = ids.slice(i, i + size);
+    while (page.length < size) page.push(null);
+    pages.push(page);
+  }
+  return pages;
+}
+
 // Square-ish grid: columns = ceil(sqrt(n)).
 export function gridStyle(layout) {
   const n = slotCount(layout);

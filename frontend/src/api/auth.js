@@ -86,3 +86,12 @@ export const changePassword = async (currentPassword, newPassword) => {
   });
   return response.data;
 };
+
+// Re-authenticate the current user (confirmation gate for sensitive actions).
+// Resolves on success, throws (401) when the password is incorrect.
+export const verifyPassword = async (password) => {
+  const response = await apiClient.post("/auth/me/verify-password", {
+    password,
+  });
+  return response.data;
+};

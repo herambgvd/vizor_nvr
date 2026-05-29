@@ -1,8 +1,16 @@
-import React, { useMemo, useState } from "react";
-import { LayoutGrid, Grid3x3, Eraser } from "lucide-react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
+import { LayoutGrid, Grid3x3, Eraser, Play, Pause } from "lucide-react";
 import { useCamerasQuery, useUiPrefs } from "../../hooks";
-import { LAYOUTS, slotCount, gridStyle, fitLayout } from "../../lib/videoWall";
+import {
+  LAYOUTS,
+  slotCount,
+  gridStyle,
+  fitLayout,
+  tourPages,
+} from "../../lib/videoWall";
 import VideoTile from "./VideoTile";
+
+const TOUR_DWELLS = [5, 10, 15, 30];
 
 export default function VideoWall() {
   const { data: cameras = [] } = useCamerasQuery();
@@ -62,6 +70,42 @@ export default function VideoWall() {
     setPrefs({ wallTiles: Array(count).fill(null) });
   };
 
+  // ── Tour: auto-cycle the wall through every camera in dwell-second steps ──
+  const [tourOn, setTourOn] = useState(false);
+  const [tourSec, setTourSec] = useState(10);
+  const tourIdxRef = useRef(0);
+
+  // Online cameras first. The joined signature lets the tour effect ignore the
+  // periodic camera refetch unless the set/order actually changed (otherwise
+  // the tour would reset to page 1 every 10s).
+  const orderedIds = useMemo(
+    () =>
+      [...cameras]
+        .sort((a, b) => {
+          const ao = a.status === "online" ? 0 : 1;
+          const bo = b.status === "online" ? 0 : 1;
+          return ao - bo;
+        })
+        .map((c) => c.id),
+    [cameras],
+  );
+  const orderedSig = orderedIds.join(",");
+
+  useEffect(() => {
+    if (!tourOn) return undefined;
+    const pages = tourPages(orderedIds, count);
+    if (pages.length === 0) return undefined;
+    if (tourIdxRef.current >= pages.length) tourIdxRef.current = 0;
+    setPrefs({ wallTiles: pages[tourIdxRef.current] });
+    if (pages.length === 1) return undefined; // single page → nothing to cycle
+    const timer = setInterval(() => {
+      tourIdxRef.current = (tourIdxRef.current + 1) % pages.length;
+      setPrefs({ wallTiles: pages[tourIdxRef.current] });
+    }, tourSec * 1000);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tourOn, tourSec, count, orderedSig]);
+
   const maximized = maximizedId ? byId.get(maximizedId) : null;
   if (maximizedId && maximized) {
     return (
@@ -95,6 +139,48 @@ export default function VideoWall() {
         ))}
 
         <div className="flex-1" />
+
+        <button
+          onClick={() => setTourOn((v) => !v)}
+          disabled={cameras.length === 0}
+          title={tourOn ? "Stop camera tour" : "Auto-cycle through all cameras"}
+          className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded font-telemetry uppercase tracking-wide transition-opacity disabled:opacity-40"
+          style={
+            tourOn
+              ? { background: "var(--console-accent)", color: "#06231f" }
+              : {
+                  background: "transparent",
+                  border: "1px solid var(--console-border)",
+                  color: "var(--console-muted)",
+                }
+          }
+        >
+          {tourOn ? (
+            <Pause className="h-3.5 w-3.5" />
+          ) : (
+            <Play className="h-3.5 w-3.5" />
+          )}
+          Tour
+        </button>
+        {tourOn && (
+          <select
+            value={tourSec}
+            onChange={(e) => setTourSec(Number(e.target.value))}
+            title="Dwell time per page"
+            className="h-[26px] px-1 text-xs rounded font-telemetry outline-none"
+            style={{
+              background: "var(--console-panel)",
+              border: "1px solid var(--console-border)",
+              color: "var(--console-muted)",
+            }}
+          >
+            {TOUR_DWELLS.map((s) => (
+              <option key={s} value={s}>
+                {s}s
+              </option>
+            ))}
+          </select>
+        )}
 
         <button
           onClick={fillAll}

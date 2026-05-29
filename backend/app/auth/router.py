@@ -390,6 +390,33 @@ async def change_own_password(
     return {"success": True, "message": "Password changed successfully"}
 
 
+class PasswordVerifyBody(BaseModel):
+    password: str
+
+
+@router.post("/me/verify-password", status_code=200)
+async def verify_own_password(
+    body: PasswordVerifyBody,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Re-authenticate the current user by their password.
+
+    Used as a confirmation gate for sensitive/irreversible actions
+    (e.g. deleting a camera). Returns {"verified": true} on success,
+    401 otherwise. Does not mutate any state.
+    """
+    db_user = await svc.get_user_by_id(db, user["id"])
+    if not db_user:
+        raise HTTPException(404, "User not found")
+
+    from app.core.security import verify_password
+    if not verify_password(body.password, db_user.hashed_password):
+        raise HTTPException(401, "Password is incorrect")
+
+    return {"verified": True}
+
+
 # ------------------------------------------------------------------
 # Admin-only
 # ------------------------------------------------------------------

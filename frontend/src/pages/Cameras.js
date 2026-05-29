@@ -65,6 +65,7 @@ import {
   listScheduleTemplates,
   applyScheduleTemplate,
 } from "../api/scheduleTemplates";
+import { verifyPassword } from "../api/auth";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import {
@@ -409,6 +410,11 @@ const Cameras = () => {
   const [selected, setSelected] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [bulkConfirm, setBulkConfirm] = useState(false);
+  // Password-confirmation gate for irreversible camera deletes.
+  const [deletePwd, setDeletePwd] = useState("");
+  const [bulkPwd, setBulkPwd] = useState("");
+  const [deleteVerifying, setDeleteVerifying] = useState(false);
+  const [deletePwdError, setDeletePwdError] = useState("");
   const [contextMenu, setContextMenu] = useState(null); // {x,y,camera}
   const [previewCamera, setPreviewCamera] = useState(null); // camera obj
 
@@ -566,6 +572,54 @@ const Cameras = () => {
     },
     onError: () => toast.error("Bulk delete failed"),
   });
+
+  // Verify the operator's password before running an irreversible delete.
+  // Keeps the dialog open (and shows an inline error) on a wrong password.
+  const confirmSingleDelete = async () => {
+    if (!deletePwd) {
+      setDeletePwdError("Password is required");
+      return;
+    }
+    setDeleteVerifying(true);
+    setDeletePwdError("");
+    try {
+      await verifyPassword(deletePwd);
+    } catch (e) {
+      setDeleteVerifying(false);
+      setDeletePwdError(
+        e.response?.status === 401
+          ? "Incorrect password"
+          : e.response?.data?.detail || "Verification failed",
+      );
+      return;
+    }
+    setDeleteVerifying(false);
+    mutations.remove.mutate(deleteTarget?.id, {
+      onSuccess: () => setDeleteTarget(null),
+    });
+  };
+
+  const confirmBulkDelete = async () => {
+    if (!bulkPwd) {
+      setDeletePwdError("Password is required");
+      return;
+    }
+    setDeleteVerifying(true);
+    setDeletePwdError("");
+    try {
+      await verifyPassword(bulkPwd);
+    } catch (e) {
+      setDeleteVerifying(false);
+      setDeletePwdError(
+        e.response?.status === 401
+          ? "Incorrect password"
+          : e.response?.data?.detail || "Verification failed",
+      );
+      return;
+    }
+    setDeleteVerifying(false);
+    bulkDeleteMutation.mutate(Array.from(selectedIds));
+  };
 
   const bulkStartMutation = useMutation({
     mutationFn: (ids) => bulkStartRecording(ids),
@@ -1729,7 +1783,13 @@ const Cameras = () => {
       {/* ── Single delete confirmation ─────────────────────────────────────── */}
       <AlertDialog
         open={!!deleteTarget}
-        onOpenChange={() => setDeleteTarget(null)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteTarget(null);
+            setDeletePwd("");
+            setDeletePwdError("");
+          }
+        }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -1740,24 +1800,56 @@ const Cameras = () => {
               action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="space-y-1.5">
+            <label className="text-xs text-muted-foreground">
+              Confirm with your account password
+            </label>
+            <Input
+              type="password"
+              autoComplete="current-password"
+              placeholder="Account password"
+              value={deletePwd}
+              onChange={(e) => {
+                setDeletePwd(e.target.value);
+                if (deletePwdError) setDeletePwdError("");
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") confirmSingleDelete();
+              }}
+            />
+            {deletePwdError && (
+              <p className="text-xs text-rose-400">{deletePwdError}</p>
+            )}
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() =>
-                mutations.remove.mutate(deleteTarget?.id, {
-                  onSuccess: () => setDeleteTarget(null),
-                })
-              }
+              onClick={(e) => {
+                e.preventDefault();
+                confirmSingleDelete();
+              }}
               className="bg-destructive hover:bg-destructive/90"
+              disabled={deleteVerifying || mutations.remove.isPending}
             >
-              Delete
+              {deleteVerifying || mutations.remove.isPending
+                ? "Deleting…"
+                : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
       {/* ── Bulk delete confirmation ───────────────────────────────────────── */}
-      <AlertDialog open={bulkConfirm} onOpenChange={setBulkConfirm}>
+      <AlertDialog
+        open={bulkConfirm}
+        onOpenChange={(open) => {
+          setBulkConfirm(open);
+          if (!open) {
+            setBulkPwd("");
+            setDeletePwdError("");
+          }
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete {selectedIds.size} cameras</AlertDialogTitle>
@@ -1766,16 +1858,40 @@ const Cameras = () => {
               recording files are deleted. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="space-y-1.5">
+            <label className="text-xs text-muted-foreground">
+              Confirm with your account password
+            </label>
+            <Input
+              type="password"
+              autoComplete="current-password"
+              placeholder="Account password"
+              value={bulkPwd}
+              onChange={(e) => {
+                setBulkPwd(e.target.value);
+                if (deletePwdError) setDeletePwdError("");
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") confirmBulkDelete();
+              }}
+            />
+            {deletePwdError && (
+              <p className="text-xs text-rose-400">{deletePwdError}</p>
+            )}
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() =>
-                bulkDeleteMutation.mutate(Array.from(selectedIds))
-              }
+              onClick={(e) => {
+                e.preventDefault();
+                confirmBulkDelete();
+              }}
               className="bg-destructive hover:bg-destructive/90"
-              disabled={bulkDeleteMutation.isPending}
+              disabled={deleteVerifying || bulkDeleteMutation.isPending}
             >
-              Delete {selectedIds.size}
+              {deleteVerifying || bulkDeleteMutation.isPending
+                ? "Deleting…"
+                : `Delete ${selectedIds.size}`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
