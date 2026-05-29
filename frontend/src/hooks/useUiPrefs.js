@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 
 const KEY = "nvr_ui_prefs";
 
@@ -20,20 +20,34 @@ function read() {
   }
 }
 
+// Module-level shared store so every useUiPrefs consumer (e.g. the camera tree
+// in the shell and the video wall) reads and writes the SAME state and stays in
+// sync. A plain per-component useState would give each consumer an independent
+// copy, so a write from one component would never reach the others.
+let state = read();
+const listeners = new Set();
+
+function getSnapshot() {
+  return state;
+}
+
+function subscribe(listener) {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+function write(patch) {
+  state = { ...state, ...patch };
+  try {
+    localStorage.setItem(KEY, JSON.stringify(state));
+  } catch {
+    /* ignore quota errors */
+  }
+  listeners.forEach((l) => l());
+}
+
 export function useUiPrefs() {
-  const [prefs, setPrefs] = useState(read);
-
-  const update = useCallback((patch) => {
-    setPrefs((prev) => {
-      const next = { ...prev, ...patch };
-      try {
-        localStorage.setItem(KEY, JSON.stringify(next));
-      } catch {
-        /* ignore quota errors */
-      }
-      return next;
-    });
-  }, []);
-
+  const prefs = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  const update = useCallback((patch) => write(patch), []);
   return [prefs, update];
 }
