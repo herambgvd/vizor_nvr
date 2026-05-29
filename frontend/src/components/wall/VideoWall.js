@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
-import { LayoutGrid } from "lucide-react";
+import { LayoutGrid, Grid3x3, Eraser } from "lucide-react";
 import { useCamerasQuery, useUiPrefs } from "../../hooks";
-import { LAYOUTS, slotCount, gridStyle } from "../../lib/videoWall";
+import { LAYOUTS, slotCount, gridStyle, fitLayout } from "../../lib/videoWall";
 import VideoTile from "./VideoTile";
 
 export default function VideoWall() {
@@ -42,6 +42,26 @@ export default function VideoWall() {
     setPrefs({ wallLayout: n, wallTiles: next });
   };
 
+  // One-shot: auto-size the grid and populate every camera in a single click,
+  // so the user doesn't have to drag cameras one at a time. Online cameras are
+  // placed first so the most useful tiles are visible without scrolling.
+  const fillAll = () => {
+    const ordered = [...cameras].sort((a, b) => {
+      const ao = a.status === "online" ? 0 : 1;
+      const bo = b.status === "online" ? 0 : 1;
+      return ao - bo;
+    });
+    const ids = ordered.map((c) => c.id);
+    const layout = fitLayout(ids.length);
+    const next = ids.slice(0, layout);
+    while (next.length < layout) next.push(null);
+    setPrefs({ wallLayout: layout, wallTiles: next });
+  };
+
+  const clearAll = () => {
+    setPrefs({ wallTiles: Array(count).fill(null) });
+  };
+
   const maximized = maximizedId ? byId.get(maximizedId) : null;
   if (maximizedId && maximized) {
     return (
@@ -73,6 +93,28 @@ export default function VideoWall() {
             {n}
           </button>
         ))}
+
+        <div className="flex-1" />
+
+        <button
+          onClick={fillAll}
+          disabled={cameras.length === 0}
+          title="Auto-size grid and show all cameras"
+          className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded font-telemetry uppercase tracking-wide transition-opacity disabled:opacity-40"
+          style={{ background: "var(--console-accent)", color: "#06231f" }}
+        >
+          <Grid3x3 className="h-3.5 w-3.5" />
+          Fill all
+        </button>
+        <button
+          onClick={clearAll}
+          title="Clear all tiles"
+          className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded font-telemetry uppercase tracking-wide border transition-colors hover:bg-white/5"
+          style={{ background: "transparent", borderColor: "var(--console-border)", color: "var(--console-muted)" }}
+        >
+          <Eraser className="h-3.5 w-3.5" />
+          Clear
+        </button>
       </div>
 
       <div className="flex-1 min-h-0 p-1">

@@ -97,7 +97,7 @@ const ConsoleInput = ({ value, onChange, type = "text", placeholder, className =
 
 const Section = ({ icon: Icon, title, children }) => (
   <div
-    className="rounded overflow-hidden mb-4"
+    className="rounded overflow-hidden mb-4 break-inside-avoid"
     style={{ border: "1px solid var(--console-border)" }}
   >
     <div
@@ -268,7 +268,7 @@ const IntegrationsPage = () => {
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 max-w-3xl">
+      <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6">
         <p
           className="font-telemetry text-[11px] mb-5"
           style={{ color: "var(--console-muted)" }}
@@ -277,6 +277,7 @@ const IntegrationsPage = () => {
           monitoring, and archive scheduling.
         </p>
 
+        <div className="columns-1 lg:columns-2 2xl:columns-3 gap-4">
         {/* ── Twilio SMS ── */}
         <Section icon={MessageSquare} title="SMS Alerts (Twilio)">
           <Field label="Account SID" hint="Starts with AC">
@@ -592,6 +593,7 @@ const IntegrationsPage = () => {
             </PrimaryBtn>
           </div>
         </Section>
+        </div>
       </div>
     </div>
   );

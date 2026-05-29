@@ -99,7 +99,7 @@ const Settings = () => {
 
       {/* Tab content */}
       <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6">
-        <div className="mx-auto max-w-5xl">
+        <div className="w-full">
           {tab === "retention" && <RetentionTab queryClient={qc} />}
           {tab === "recording" && <RecordingTab queryClient={qc} />}
           {tab === "general" && <GeneralTab queryClient={qc} />}

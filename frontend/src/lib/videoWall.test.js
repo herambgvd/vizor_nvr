@@ -1,7 +1,7 @@
-import { LAYOUTS, slotCount, gridStyle } from "./videoWall";
+import { LAYOUTS, slotCount, gridStyle, fitLayout } from "./videoWall";
 
 test("LAYOUTS are the supported wall sizes", () => {
-  expect(LAYOUTS).toEqual([1, 4, 6, 8, 9, 16, 25]);
+  expect(LAYOUTS).toEqual([1, 4, 6, 8, 9, 16, 25, 36, 49, 64]);
 });
 
 test("slotCount returns the layout value when valid", () => {
@@ -18,4 +18,20 @@ test("gridStyle produces a square-ish grid template", () => {
   expect(gridStyle(16).gridTemplateColumns).toBe("repeat(4, 1fr)");
   expect(gridStyle(6).gridTemplateColumns).toBe("repeat(3, 1fr)");
   expect(gridStyle(8).gridTemplateColumns).toBe("repeat(3, 1fr)");
+  expect(gridStyle(64).gridTemplateColumns).toBe("repeat(8, 1fr)");
+  expect(gridStyle(36).gridTemplateColumns).toBe("repeat(6, 1fr)");
+});
+
+test("fitLayout picks the smallest layout that holds n cameras", () => {
+  expect(fitLayout(1)).toBe(1);
+  expect(fitLayout(3)).toBe(4);
+  expect(fitLayout(10)).toBe(16);
+  expect(fitLayout(40)).toBe(49);
+  expect(fitLayout(64)).toBe(64);
+});
+
+test("fitLayout caps at the largest layout and handles empty input", () => {
+  expect(fitLayout(100)).toBe(64);
+  expect(fitLayout(0)).toBe(1);
+  expect(fitLayout(undefined)).toBe(1);
 });

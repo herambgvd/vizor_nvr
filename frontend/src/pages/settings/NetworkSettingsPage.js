@@ -184,8 +184,9 @@ const NetworkSettingsPage = () => {
         </button>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 space-y-4 max-w-2xl">
+      <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 space-y-4">
 
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
         {/* Read-only host info */}
         <ConsoleCard>
           <CardHeader>
@@ -345,6 +346,7 @@ const NetworkSettingsPage = () => {
             </div>
           </div>
         </ConsoleCard>
+        </div>
 
         {/* Save */}
         <div>
