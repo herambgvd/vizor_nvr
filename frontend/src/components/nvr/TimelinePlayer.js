@@ -603,14 +603,14 @@ export const TimelinePlayer = forwardRef(
         tabIndex={0}
         data-testid="timeline-player"
         className={cn(
-          "bg-card border border-border rounded-lg overflow-hidden outline-none focus:ring-2 focus:ring-slate-400",
+          "bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg overflow-hidden outline-none focus:ring-2 focus:ring-teal-500/40",
           className,
         )}
       >
         {/* Video Display Area */}
         <div
           ref={videoContainerRef}
-          className="w-full bg-primary relative overflow-hidden cursor-crosshair"
+          className="w-full bg-black relative overflow-hidden cursor-crosshair"
           style={{ height: "60vh", maxHeight: "720px" }}
           onWheel={handleWheelZoom}
           onMouseDown={handlePanStart}
@@ -623,7 +623,7 @@ export const TimelinePlayer = forwardRef(
         >
           {/* Loading Overlay */}
           {isLoading && recordings.length === 0 && (
-            <div className="absolute inset-0 flex items-center justify-center bg-primary/80 z-20">
+            <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-20">
               <div className="text-center">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
                 <p className="text-white text-lg">Loading recordings...</p>
@@ -692,7 +692,7 @@ export const TimelinePlayer = forwardRef(
         </div>
 
         {/* Playback Controls */}
-        <div className="px-4 py-3 border-t border-border flex items-center justify-between gap-4">
+        <div className="px-4 py-3 border-t border-[#1f1f1f] flex items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <TooltipProvider>
               {/* Skip Back */}
@@ -746,7 +746,7 @@ export const TimelinePlayer = forwardRef(
               </Tooltip>
 
               {/* Separator */}
-              <div className="w-px h-5 bg-card/70 mx-1" />
+              <div className="w-px h-5 bg-[#1f1f1f] mx-1" />
 
               {/* Frame Back */}
               <Tooltip>
@@ -892,7 +892,7 @@ export const TimelinePlayer = forwardRef(
           <div
             ref={timelineRef}
             data-testid="timeline-bar"
-            className="relative h-16 bg-card/60 rounded-lg cursor-pointer overflow-hidden select-none"
+            className="relative h-16 bg-[#141414] rounded-lg cursor-pointer overflow-hidden select-none"
             onClick={handleTimelineClick}
             onMouseDown={handleMouseDown}
             onMouseMove={handleTimelineHover}
@@ -927,7 +927,7 @@ export const TimelinePlayer = forwardRef(
               {hourMarkers.map((hour, index) => (
                 <div
                   key={index}
-                  className="flex-1 border-l border-border first:border-l-0"
+                  className="flex-1 border-l border-[#1f1f1f] first:border-l-0"
                 >
                   <span className="text-[10px] text-muted-foreground pl-1">
                     {format(hour, "HH:mm")}

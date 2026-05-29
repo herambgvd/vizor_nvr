@@ -591,6 +591,23 @@ class CameraMonitor:
                     status="online",
                 )
                 db.add(snap)
+
+                # Persist stream metadata onto the camera row so the UI shows
+                # resolution/fps without requiring a manual test-connection.
+                from app.cameras.models import Camera as _Camera
+                row = await db.get(_Camera, camera.id)
+                if row is not None:
+                    res = stream_info.get("resolution")
+                    fps = stream_info.get("fps")
+                    bitrate = stream_info.get("bitrate")
+                    if res and row.resolution != res:
+                        row.resolution = res
+                    if fps:
+                        fps_int = int(float(fps))
+                        if row.fps != fps_int:
+                            row.fps = fps_int
+                    if bitrate is not None and str(row.bitrate or "") != str(bitrate):
+                        row.bitrate = str(bitrate)
                 # Keep only last 1000 snapshots per camera
                 await db.execute(
                     __import__("sqlalchemy").text(

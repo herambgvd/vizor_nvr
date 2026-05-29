@@ -67,10 +67,10 @@ const queryClient = new QueryClient({
 
 // Shared loading fallback
 const PageSpinner = () => (
-  <div className="min-h-screen flex items-center justify-center bg-white">
+  <div className="min-h-screen flex items-center justify-center bg-black">
     <div className="flex flex-col items-center gap-3">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-900" />
-      <span className="text-sm text-slate-500">Loading…</span>
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-400" />
+      <span className="text-sm text-[#8a8f98]">Loading…</span>
     </div>
   </div>
 );
