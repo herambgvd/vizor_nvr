@@ -9,7 +9,7 @@
 // matching TimelineTrack's w-32 gutter.
 // =============================================================================
 
-import React, { useRef, useCallback } from "react";
+import React, { useRef, useCallback, useEffect } from "react";
 import { ZoomIn, ZoomOut, Minimize } from "lucide-react";
 import {
   DAY_SECONDS,
@@ -60,13 +60,51 @@ export default function MultiTimeline({
     onSeek?.(Math.floor(pointerToTime(e.clientX)));
   };
 
-  const onWheel = (e) => {
-    if (!(e.ctrlKey || e.metaKey)) return; // plain scroll left to the page
-    e.preventDefault();
-    const anchor = pointerToTime(e.clientX);
-    const factor = e.deltaY > 0 ? 1.25 : 0.8;
-    onViewChange?.(zoomView(view, factor, anchor));
-  };
+  // Wheel handling lives on a NATIVE, non-passive listener (below). React's
+  // synthetic onWheel is registered as passive, so e.preventDefault() there is
+  // silently ignored — which let trackpad pinch-zoom fall through to the
+  // browser and zoom the whole console (video tiles included). A native
+  // { passive: false } listener lets us actually cancel that default.
+  useEffect(() => {
+    const el = laneRef.current;
+    if (!el) return undefined;
+
+    const handleWheel = (e) => {
+      // Pinch-zoom and ctrl/cmd+wheel arrive as wheel events with a modifier.
+      // Zoom the timeline around the cursor and swallow the event so the
+      // browser doesn't page-zoom the surrounding video wall.
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        const anchor = pointerToTime(e.clientX);
+        const factor = e.deltaY > 0 ? 1.25 : 0.8;
+        onViewChange?.(zoomView(view, factor, anchor));
+        return;
+      }
+
+      // Horizontal trackpad scroll (or Shift+vertical) pans the viewport so a
+      // zoomed-in window can slide left/right. Plain vertical scroll is left
+      // alone for the page.
+      const dx =
+        Math.abs(e.deltaX) > Math.abs(e.deltaY)
+          ? e.deltaX
+          : e.shiftKey
+          ? e.deltaY
+          : 0;
+      if (dx === 0) return;
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      const laneWidth = rect.width - GUTTER_PX;
+      if (laneWidth <= 0) return;
+      const secPerPx = (view.end - view.start) / laneWidth;
+      const shift = dx * secPerPx;
+      onViewChange?.(
+        clampView({ start: view.start + shift, end: view.end + shift })
+      );
+    };
+
+    el.addEventListener("wheel", handleWheel, { passive: false });
+    return () => el.removeEventListener("wheel", handleWheel);
+  }, [view, pointerToTime, onViewChange]);
 
   const center = (view.start + view.end) / 2;
   const ticks = gridTicks(view);
@@ -129,7 +167,6 @@ export default function MultiTimeline({
         className="relative cursor-crosshair overflow-hidden"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
-        onWheel={onWheel}
       >
         {cameras.map((cam) => (
           <TimelineTrack
