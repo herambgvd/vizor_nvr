@@ -26,6 +26,16 @@ export default function ControlRoomLayout() {
   const showTree =
     location.pathname === "/" || location.pathname.startsWith("/playback");
 
+  const fillFirstEmpty = (cam) => {
+    const tiles = Array.isArray(prefs.wallTiles) ? prefs.wallTiles.slice() : [];
+    const count = prefs.wallLayout || 4;
+    while (tiles.length < count) tiles.push(null);
+    const idx = tiles.findIndex((t) => !t);
+    if (idx === -1) tiles[0] = cam.id;
+    else tiles[idx] = cam.id;
+    setPrefs({ wallTiles: tiles });
+  };
+
   return (
     <LiveEventProvider>
       <div className="console-root h-screen w-screen flex flex-col overflow-hidden">
@@ -37,7 +47,7 @@ export default function ControlRoomLayout() {
               {showTree && (
                 <>
                   <Panel defaultSize={18} minSize={12} maxSize={30} order={1}>
-                    <CameraTree />
+                    <CameraTree onActivate={fillFirstEmpty} />
                   </Panel>
                   <PanelResizeHandle
                     className="w-px hover:w-1 transition-all"
