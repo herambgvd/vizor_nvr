@@ -59,7 +59,7 @@ export default function ControlRoomLayout() {
               {showTree && (
                 <>
                   <Panel defaultSize={18} minSize={12} maxSize={30} order={1}>
-                    <CameraTree onActivate={fillFirstEmpty} />
+                    <CameraTree onActivate={onTreeActivate} />
                   </Panel>
                   <PanelResizeHandle
                     className="w-px hover:w-1 transition-all"
