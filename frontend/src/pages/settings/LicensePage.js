@@ -23,42 +23,135 @@ import {
   activateLicense,
   clearLicense,
 } from "../../api/license";
-import { Button } from "../../components/ui/button";
-import { Badge } from "../../components/ui/badge";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "../../components/ui/alert-dialog";
+
+// ─── Shared primitives ────────────────────────────────────────────────────────
+
+const PrimaryBtn = ({ children, disabled, onClick, type = "button" }) => (
+  <button
+    type={type}
+    onClick={onClick}
+    disabled={disabled}
+    className="inline-flex items-center h-[28px] px-3 rounded font-telemetry text-[11px] font-semibold uppercase tracking-wide transition-opacity disabled:opacity-50"
+    style={{ background: "var(--console-accent)", color: "#06231f" }}
+  >
+    {children}
+  </button>
+);
+
+const SecondaryBtn = ({ children, disabled, onClick, type = "button" }) => (
+  <button
+    type={type}
+    onClick={onClick}
+    disabled={disabled}
+    className="inline-flex items-center h-[28px] px-3 rounded font-telemetry text-[11px] border transition-colors hover:bg-white/5 disabled:opacity-50"
+    style={{
+      background: "var(--console-raised)",
+      borderColor: "var(--console-border)",
+      color: "var(--console-muted)",
+    }}
+  >
+    {children}
+  </button>
+);
+
+const ConsoleCard = ({ children, className = "" }) => (
+  <div
+    className={`rounded p-4 ${className}`}
+    style={{
+      background: "var(--console-panel)",
+      border: "1px solid var(--console-border)",
+    }}
+  >
+    {children}
+  </div>
+);
+
+// ─── Stat Bar ────────────────────────────────────────────────────────────────
 
 const StatBar = ({ label, used, limit, icon: Icon }) => {
   const pct = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
   const hot = pct >= 90;
   return (
-    <div className="rounded-lg border border-border bg-card/40 p-4">
+    <ConsoleCard>
       <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground uppercase tracking-wider">
-          {Icon && <Icon className="h-3.5 w-3.5" />}
-          {label}
+        <div className="flex items-center gap-2">
+          {Icon && <Icon className="h-3.5 w-3.5" style={{ color: "var(--console-muted)" }} />}
+          <span
+            className="font-telemetry text-[10px] uppercase tracking-widest"
+            style={{ color: "var(--console-muted)" }}
+          >
+            {label}
+          </span>
         </div>
-        <span className={`text-sm font-mono ${hot ? "text-rose-300" : ""}`}>
+        <span
+          className="font-telemetry text-xs"
+          style={{ color: hot ? "var(--console-rec)" : "var(--console-text)" }}
+        >
           {used} / {limit || "∞"}
         </span>
       </div>
-      <div className="h-1.5 rounded-full bg-white/5 overflow-hidden">
+      <div
+        className="h-1 rounded-full overflow-hidden"
+        style={{ background: "var(--console-raised)" }}
+      >
         <div
-          className={hot ? "bg-rose-400 h-full" : "bg-teal-400 h-full"}
-          style={{ width: `${pct}%` }}
+          className="h-full rounded-full"
+          style={{
+            width: `${pct}%`,
+            background: hot ? "var(--console-rec)" : "var(--console-accent)",
+          }}
         />
+      </div>
+    </ConsoleCard>
+  );
+};
+
+// ─── Confirm Clear Dialog ────────────────────────────────────────────────────
+
+const ConfirmDialog = ({ open, onConfirm, onCancel, isPending }) => {
+  if (!open) return null;
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: "rgba(0,0,0,0.7)" }}
+    >
+      <div
+        className="rounded p-6 max-w-sm w-full mx-4"
+        style={{
+          background: "var(--console-panel)",
+          border: "1px solid var(--console-border)",
+        }}
+      >
+        <p
+          className="font-telemetry text-xs font-semibold uppercase tracking-wide mb-2"
+          style={{ color: "var(--console-text)" }}
+        >
+          Remove license?
+        </p>
+        <p
+          className="font-telemetry text-[11px] mb-5"
+          style={{ color: "var(--console-muted)" }}
+        >
+          The .lic file will be deleted. New cameras above the dev cap will be
+          rejected. Upload a new license file to restore functionality.
+        </p>
+        <div className="flex gap-2 justify-end">
+          <SecondaryBtn onClick={onCancel}>Cancel</SecondaryBtn>
+          <button
+            onClick={onConfirm}
+            disabled={isPending}
+            className="inline-flex items-center h-[28px] px-3 rounded font-telemetry text-[11px] font-semibold uppercase tracking-wide disabled:opacity-50"
+            style={{ background: "var(--console-rec)", color: "#fff" }}
+          >
+            Remove
+          </button>
+        </div>
       </div>
     </div>
   );
 };
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
 
 const LicensePage = () => {
   const qc = useQueryClient();
@@ -108,173 +201,245 @@ const LicensePage = () => {
   };
 
   const StatusIcon = data?.active ? ShieldCheck : ShieldAlert;
-  const statusTone = data?.active
+  const statusColor = data?.active
     ? data.in_grace
-      ? "text-amber-300"
-      : "text-emerald-300"
-    : "text-rose-300";
+      ? "var(--console-alarm)"
+      : "var(--console-online)"
+    : "var(--console-rec)";
 
   return (
-    <div className="p-4 md:p-6 max-w-5xl space-y-5">
-      {/* Status header */}
-      <div className="rounded-xl border border-border bg-card/40 p-5">
-        <div className="flex items-start gap-4">
-          <StatusIcon className={`h-8 w-8 ${statusTone} shrink-0`} />
-          <div className="flex-1">
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-semibold">License</h1>
-              {data?.active && (
-                <Badge className="bg-violet-500/15 text-violet-300 border border-violet-500/30 uppercase">
-                  {data.tier || "—"}
-                </Badge>
-              )}
-              {data?.in_grace && (
-                <Badge className="bg-amber-500/15 text-amber-300 border border-amber-500/30">
-                  Grace period
-                </Badge>
-              )}
-              {!data?.active && (
-                <Badge className="bg-rose-500/15 text-rose-300 border border-rose-500/30">
-                  {data?.reason === "no_license_installed" ? "No license" : data?.reason || "Inactive"}
-                </Badge>
-              )}
-            </div>
-            {data?.customer && (
-              <p className="text-sm text-muted-foreground mt-1">
-                {data.customer} · {data.license_id}
-              </p>
-            )}
-            {data?.expires_at && (
-              <p className="text-xs text-muted-foreground font-mono mt-1 inline-flex items-center gap-1">
-                <Calendar className="h-3 w-3" />
-                Expires {data.expires_at.slice(0, 10)}
-                {data.days_remaining != null && (
+    <div
+      className="h-full flex flex-col overflow-hidden"
+      style={{ background: "var(--console-bg)", color: "var(--console-text)" }}
+    >
+      {/* Page header bar */}
+      <div
+        className="flex items-center gap-3 px-4 py-2.5 border-b flex-shrink-0"
+        style={{ background: "var(--console-panel)", borderColor: "var(--console-border)" }}
+      >
+        <div className="flex items-center gap-2">
+          <span
+            className="w-0.5 h-4 rounded-full flex-shrink-0"
+            style={{ background: "var(--console-accent)" }}
+          />
+          <span
+            className="font-telemetry text-xs font-semibold uppercase tracking-widest"
+            style={{ color: "var(--console-text)" }}
+          >
+            License
+          </span>
+        </div>
+      </div>
+
+      <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 space-y-4">
+        {isLoading && (
+          <p className="font-telemetry text-xs" style={{ color: "var(--console-muted)" }}>
+            Loading…
+          </p>
+        )}
+
+        {/* Status card */}
+        <ConsoleCard>
+          <div className="flex items-start gap-4">
+            <StatusIcon
+              className="h-7 w-7 shrink-0 mt-0.5"
+              style={{ color: statusColor }}
+            />
+            <div className="flex-1 min-w-0">
+              <div className="flex flex-wrap items-center gap-2 mb-1">
+                <span
+                  className="font-telemetry text-xs font-semibold uppercase tracking-wide"
+                  style={{ color: "var(--console-text)" }}
+                >
+                  Status
+                </span>
+                {data?.active && (
                   <span
-                    className={
-                      data.days_remaining <= 30
-                        ? "ml-1 text-amber-300"
-                        : "ml-1 text-muted-foreground"
-                    }
+                    className="font-telemetry text-[10px] px-1.5 py-0.5 rounded border uppercase tracking-wide"
+                    style={{
+                      background: "rgba(139,92,246,0.1)",
+                      borderColor: "rgba(139,92,246,0.3)",
+                      color: "#c4b5fd",
+                    }}
                   >
-                    ({data.days_remaining}d remaining)
+                    {data.tier || "—"}
                   </span>
                 )}
-              </p>
-            )}
-          </div>
-          <div className="flex flex-col gap-2 shrink-0">
-            <input
-              ref={inputRef}
-              type="file"
-              accept=".lic,.txt"
-              onChange={onPick}
-              className="hidden"
-            />
-            <Button
-              onClick={() => inputRef.current?.click()}
-              disabled={activateMut.isPending}
-            >
-              <UploadCloud className="h-4 w-4 mr-1" />
-              {activateMut.isPending ? "Activating…" : "Upload license"}
-            </Button>
-            {data?.active && (
-              <Button variant="outline" size="sm" onClick={() => setConfirmClear(true)}>
-                <Trash2 className="h-3.5 w-3.5 mr-1 text-rose-300" />
-                Remove
-              </Button>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Hardware fingerprint */}
-      <div className="rounded-lg border border-border bg-card/40 p-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground uppercase tracking-wider">
-            <Cpu className="h-3.5 w-3.5" />
-            Machine fingerprint
-          </div>
-          {data?.fingerprint_match === false && (
-            <Badge className="bg-rose-500/15 text-rose-300 border border-rose-500/30">
-              Mismatch
-            </Badge>
-          )}
-        </div>
-        <div className="mt-2 flex items-center gap-2">
-          <code className="text-xs font-mono break-all flex-1">
-            {fp?.fingerprint || data?.fingerprint || "—"}
-          </code>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={copyFingerprint}
-            disabled={!fp?.fingerprint}
-          >
-            Copy
-          </Button>
-        </div>
-        <p className="text-[11px] text-muted-foreground mt-2">
-          Send this to the vendor when requesting a hardware-bound license.
-        </p>
-      </div>
-
-      {/* Usage */}
-      {data?.active && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <StatBar
-            label="Cameras"
-            used={data?.usage?.cameras || 0}
-            limit={data?.camera_limit || 0}
-            icon={Camera}
-          />
-        </div>
-      )}
-
-      {/* Features */}
-      {data?.active && data?.features?.length > 0 && (
-        <div className="rounded-lg border border-border bg-card/40 p-4">
-          <h3 className="text-xs text-muted-foreground uppercase tracking-wider mb-3">
-            Features
-          </h3>
-          <div className="flex flex-wrap gap-1.5">
-            {data.features.map((f) => (
-              <Badge
-                key={f}
-                variant="outline"
-                className="text-[10px]"
+                {data?.in_grace && (
+                  <span
+                    className="font-telemetry text-[10px] px-1.5 py-0.5 rounded border"
+                    style={{
+                      background: "rgba(245,158,11,0.1)",
+                      borderColor: "rgba(245,158,11,0.3)",
+                      color: "var(--console-alarm)",
+                    }}
+                  >
+                    Grace period
+                  </span>
+                )}
+                {!data?.active && (
+                  <span
+                    className="font-telemetry text-[10px] px-1.5 py-0.5 rounded border"
+                    style={{
+                      background: "rgba(239,68,68,0.1)",
+                      borderColor: "rgba(239,68,68,0.3)",
+                      color: "var(--console-rec)",
+                    }}
+                  >
+                    {data?.reason === "no_license_installed"
+                      ? "No license"
+                      : data?.reason || "Inactive"}
+                  </span>
+                )}
+              </div>
+              {data?.customer && (
+                <p
+                  className="font-telemetry text-[11px] mt-0.5"
+                  style={{ color: "var(--console-muted)" }}
+                >
+                  {data.customer} · {data.license_id}
+                </p>
+              )}
+              {data?.expires_at && (
+                <p
+                  className="font-telemetry text-[11px] mt-0.5 flex items-center gap-1"
+                  style={{ color: "var(--console-muted)" }}
+                >
+                  <Calendar className="h-3 w-3" />
+                  Expires {data.expires_at.slice(0, 10)}
+                  {data.days_remaining != null && (
+                    <span
+                      style={{
+                        color:
+                          data.days_remaining <= 30
+                            ? "var(--console-alarm)"
+                            : "var(--console-muted)",
+                      }}
+                    >
+                      ({data.days_remaining}d remaining)
+                    </span>
+                  )}
+                </p>
+              )}
+            </div>
+            <div className="flex flex-col gap-2 shrink-0">
+              <input
+                ref={inputRef}
+                type="file"
+                accept=".lic,.txt"
+                onChange={onPick}
+                className="hidden"
+              />
+              <PrimaryBtn
+                onClick={() => inputRef.current?.click()}
+                disabled={activateMut.isPending}
               >
-                {f}
-              </Badge>
-            ))}
+                <UploadCloud className="h-3.5 w-3.5 mr-1.5" />
+                {activateMut.isPending ? "Activating…" : "Upload license"}
+              </PrimaryBtn>
+              {data?.active && (
+                <SecondaryBtn onClick={() => setConfirmClear(true)}>
+                  <Trash2
+                    className="h-3.5 w-3.5 mr-1.5"
+                    style={{ color: "var(--console-rec)" }}
+                  />
+                  Remove
+                </SecondaryBtn>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        </ConsoleCard>
 
-      <AlertDialog open={confirmClear} onOpenChange={setConfirmClear}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Remove license?</AlertDialogTitle>
-            <AlertDialogDescription>
-              The .lic file will be deleted. New cameras above the dev cap
-              will be rejected. Upload a new license file to restore
-              functionality.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => clearMut.mutate()}
-              className="bg-destructive hover:bg-destructive/90"
+        {/* Hardware fingerprint */}
+        <ConsoleCard>
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <Cpu className="h-3.5 w-3.5" style={{ color: "var(--console-muted)" }} />
+              <span
+                className="font-telemetry text-[10px] uppercase tracking-widest"
+                style={{ color: "var(--console-muted)" }}
+              >
+                Machine fingerprint
+              </span>
+            </div>
+            {data?.fingerprint_match === false && (
+              <span
+                className="font-telemetry text-[10px] px-1.5 py-0.5 rounded border"
+                style={{
+                  background: "rgba(239,68,68,0.1)",
+                  borderColor: "rgba(239,68,68,0.3)",
+                  color: "var(--console-rec)",
+                }}
+              >
+                Mismatch
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2 mt-1">
+            <code
+              className="font-telemetry text-[11px] break-all flex-1"
+              style={{ color: "var(--console-text)" }}
             >
-              Remove
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+              {fp?.fingerprint || data?.fingerprint || "—"}
+            </code>
+            <SecondaryBtn onClick={copyFingerprint} disabled={!fp?.fingerprint}>
+              Copy
+            </SecondaryBtn>
+          </div>
+          <p
+            className="font-telemetry text-[10px] mt-2"
+            style={{ color: "var(--console-muted)" }}
+          >
+            Send this to the vendor when requesting a hardware-bound license.
+          </p>
+        </ConsoleCard>
 
-      {isLoading && (
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      )}
+        {/* Usage */}
+        {data?.active && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <StatBar
+              label="Cameras"
+              used={data?.usage?.cameras || 0}
+              limit={data?.camera_limit || 0}
+              icon={Camera}
+            />
+          </div>
+        )}
+
+        {/* Features */}
+        {data?.active && data?.features?.length > 0 && (
+          <ConsoleCard>
+            <p
+              className="font-telemetry text-[10px] uppercase tracking-widest mb-3"
+              style={{ color: "var(--console-muted)" }}
+            >
+              Features
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {data.features.map((f) => (
+                <span
+                  key={f}
+                  className="font-telemetry text-[10px] px-1.5 py-0.5 rounded border"
+                  style={{
+                    background: "var(--console-raised)",
+                    borderColor: "var(--console-border)",
+                    color: "var(--console-text)",
+                  }}
+                >
+                  {f}
+                </span>
+              ))}
+            </div>
+          </ConsoleCard>
+        )}
+      </div>
+
+      <ConfirmDialog
+        open={confirmClear}
+        onConfirm={() => clearMut.mutate()}
+        onCancel={() => setConfirmClear(false)}
+        isPending={clearMut.isPending}
+      />
     </div>
   );
 };

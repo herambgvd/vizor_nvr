@@ -18,6 +18,7 @@ import {
   Network,
   BookOpen,
   Plug,
+  Users,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { useAuth } from "../../context/AuthContext";
@@ -35,6 +36,7 @@ const SettingsLayout = () => {
   const NAV = isAdmin
     ? [
         ...BASE_NAV,
+        { path: "users", label: "Users", icon: Users },
         { path: "time", label: "Time & NTP", icon: Clock },
         { path: "network", label: "Network", icon: Network },
         { path: "integrations", label: "Integrations", icon: Plug },
@@ -43,20 +45,45 @@ const SettingsLayout = () => {
         { path: "__api_docs__", label: "API Docs", icon: BookOpen, external: "/api/docs" },
       ]
     : BASE_NAV;
-  const isActive = (sub) => location.pathname.endsWith(`/${sub}`);
+  const isActive = (item) =>
+    item.absolute
+      ? location.pathname === item.path
+      : location.pathname.endsWith(`/${item.path}`);
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      <header className="flex-shrink-0 flex items-center gap-3 px-4 md:px-6 h-14 border-b border-border bg-card/30">
-        <SettingsIcon className="h-5 w-5" />
-        <h1 className="text-base md:text-lg font-semibold">Settings</h1>
-      </header>
+    <div
+      className="flex flex-col h-full overflow-hidden"
+      style={{ background: "var(--console-bg)", color: "var(--console-text)" }}
+    >
+      {/* Page header bar */}
+      <div
+        className="flex items-center gap-3 px-4 py-2.5 border-b flex-shrink-0"
+        style={{ background: "var(--console-panel)", borderColor: "var(--console-border)" }}
+      >
+        <div className="flex items-center gap-2">
+          <span
+            className="w-0.5 h-4 rounded-full flex-shrink-0"
+            style={{ background: "var(--console-accent)" }}
+          />
+          <span
+            className="font-telemetry text-xs font-semibold uppercase tracking-widest"
+            style={{ color: "var(--console-text)" }}
+          >
+            Settings
+          </span>
+        </div>
+        <div className="flex-1" />
+      </div>
 
       <div className="flex-1 min-h-0 flex">
-        <aside className="w-[220px] flex-shrink-0 border-r border-border bg-card/30 hidden md:flex flex-col py-2">
+        {/* Desktop left sidebar nav */}
+        <aside
+          className="w-[200px] flex-shrink-0 border-r hidden md:flex flex-col py-1"
+          style={{ background: "var(--console-panel)", borderColor: "var(--console-border)" }}
+        >
           {NAV.map((item) => {
             const Icon = item.icon;
-            const active = isActive(item.path);
+            const active = isActive(item);
             if (item.external) {
               return (
                 <a
@@ -64,9 +91,10 @@ const SettingsLayout = () => {
                   href={item.external}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="relative flex items-center gap-2 px-4 py-2.5 text-sm transition-colors text-zinc-400 hover:text-white hover:bg-card/60"
+                  className="relative flex items-center gap-2 px-4 py-2 font-telemetry text-xs transition-colors hover:bg-white/5"
+                  style={{ color: "var(--console-muted)" }}
                 >
-                  <Icon className="h-4 w-4" />
+                  <Icon className="h-3.5 w-3.5 flex-shrink-0" />
                   {item.label}
                 </a>
               );
@@ -75,17 +103,29 @@ const SettingsLayout = () => {
               <Link
                 key={item.path}
                 to={item.path}
-                className={cn(
-                  "relative flex items-center gap-2 px-4 py-2.5 text-sm transition-colors",
+                className="relative flex items-center gap-2 px-4 py-2 font-telemetry text-xs transition-colors"
+                style={
                   active
-                    ? "text-white bg-card"
-                    : "text-zinc-400 hover:text-white hover:bg-card/60",
-                )}
+                    ? {
+                        background: "var(--console-raised)",
+                        color: "var(--console-text)",
+                      }
+                    : { color: "var(--console-muted)" }
+                }
+                onMouseEnter={(e) => {
+                  if (!active) e.currentTarget.style.background = "rgba(255,255,255,0.04)";
+                }}
+                onMouseLeave={(e) => {
+                  if (!active) e.currentTarget.style.background = "transparent";
+                }}
               >
                 {active && (
-                  <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-[3px] rounded-r-full bg-gradient-to-b from-teal-400 to-blue-400" />
+                  <span
+                    className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-[3px] rounded-r-full"
+                    style={{ background: "var(--console-accent)" }}
+                  />
                 )}
-                <Icon className="h-4 w-4" />
+                <Icon className="h-3.5 w-3.5 flex-shrink-0" />
                 {item.label}
               </Link>
             );
@@ -93,11 +133,14 @@ const SettingsLayout = () => {
         </aside>
 
         {/* Mobile horizontal nav */}
-        <div className="md:hidden flex-shrink-0 border-b border-border overflow-x-auto">
+        <div
+          className="md:hidden w-full flex-shrink-0 border-b overflow-x-auto"
+          style={{ background: "var(--console-panel)", borderColor: "var(--console-border)" }}
+        >
           <div className="flex gap-1 px-2 py-1.5">
             {NAV.map((item) => {
               const Icon = item.icon;
-              const active = isActive(item.path);
+              const active = isActive(item);
               if (item.external) {
                 return (
                   <a
@@ -105,7 +148,8 @@ const SettingsLayout = () => {
                     href={item.external}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap text-zinc-400 hover:text-white hover:bg-card/60"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded font-telemetry text-xs whitespace-nowrap transition-colors hover:bg-white/5"
+                    style={{ color: "var(--console-muted)" }}
                   >
                     <Icon className="h-3.5 w-3.5" />
                     {item.label}
@@ -116,12 +160,16 @@ const SettingsLayout = () => {
                 <Link
                   key={item.path}
                   to={item.path}
-                  className={cn(
-                    "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap",
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded font-telemetry text-xs whitespace-nowrap transition-colors"
+                  style={
                     active
-                      ? "bg-card text-white"
-                      : "text-zinc-400 hover:text-white hover:bg-card/60",
-                  )}
+                      ? {
+                          background: "var(--console-raised)",
+                          color: "var(--console-text)",
+                          borderBottom: `2px solid var(--console-accent)`,
+                        }
+                      : { color: "var(--console-muted)" }
+                  }
                 >
                   <Icon className="h-3.5 w-3.5" />
                   {item.label}

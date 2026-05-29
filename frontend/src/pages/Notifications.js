@@ -10,13 +10,9 @@ import {
   AlertCircle, Settings2, MessageSquare, Smartphone,
 } from "lucide-react";
 import { toast } from "sonner";
-import { Button } from "../components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card";
-import { Badge } from "../components/ui/badge";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Switch } from "../components/ui/switch";
-import PageTabs from "../components/ui/page-tabs";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "../components/ui/dialog";
@@ -26,6 +22,14 @@ import {
 import { Checkbox } from "../components/ui/checkbox";
 import { ScrollArea } from "../components/ui/scroll-area";
 import api from "../api/client";
+
+// ─── shared styles ────────────────────────────────────────────────────────────
+
+const inputStyle = {
+  background: "var(--console-raised)",
+  border: "1px solid var(--console-border)",
+  color: "var(--console-text)",
+};
 
 // ─── API helpers ──────────────────────────────────────────────────────────────
 
@@ -56,6 +60,13 @@ const EVENT_LABELS = {
   system_error: "System Error",
   video_loss: "Video Loss",
 };
+
+const TABS = [
+  { id: "webhooks", label: "Webhooks", icon: Webhook },
+  { id: "email", label: "Email (SMTP)", icon: Mail },
+  { id: "sms", label: "SMS / WhatsApp", icon: Smartphone },
+  { id: "logs", label: "Delivery Logs", icon: Bell },
+];
 
 // ─── Webhook Form Dialog ────────────────────────────────────────────────────
 
@@ -120,78 +131,84 @@ const WebhookFormDialog = ({ open, onClose, webhook, eventTypes }) => {
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-lg">
+      <DialogContent
+        className="max-w-lg"
+        style={{ background: "var(--console-panel)", border: "1px solid var(--console-border)", color: "var(--console-text)" }}
+      >
         <DialogHeader>
-          <DialogTitle>{isEdit ? "Edit Webhook" : "New Webhook"}</DialogTitle>
+          <DialogTitle className="font-telemetry text-xs uppercase tracking-wide" style={{ color: "var(--console-text)" }}>
+            {isEdit ? "Edit Webhook" : "New Webhook"}
+          </DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-2 space-y-1">
-              <Label>Name</Label>
-              <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} required />
+            <div className="col-span-2">
+              <DlgField label="Name">
+                <ConsoleInput value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} required />
+              </DlgField>
             </div>
-            <div className="col-span-2 space-y-1">
-              <Label>URL</Label>
-              <div className="flex gap-2">
-                <Input
-                  value={form.url}
-                  onChange={(e) => setForm((f) => ({ ...f, url: e.target.value }))}
-                  placeholder="https://hooks.example.com/nvr"
-                  type="url"
-                  required
-                  className="flex-1"
-                />
-                <Button type="button" variant="outline" size="sm" onClick={handleTest} disabled={testing}>
-                  {testing ? <RefreshCw className="h-4 w-4 animate-spin" /> : <TestTube2 className="h-4 w-4" />}
-                </Button>
-              </div>
+            <div className="col-span-2">
+              <DlgField label="URL">
+                <div className="flex gap-2">
+                  <ConsoleInput
+                    value={form.url}
+                    onChange={(e) => setForm((f) => ({ ...f, url: e.target.value }))}
+                    placeholder="https://hooks.example.com/nvr"
+                    type="url"
+                    required
+                    className="flex-1"
+                  />
+                  <SecondaryBtn type="button" onClick={handleTest} disabled={testing}>
+                    {testing ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <TestTube2 className="h-3.5 w-3.5" />}
+                  </SecondaryBtn>
+                </div>
+              </DlgField>
             </div>
-            <div className="col-span-2 space-y-1">
-              <Label>HMAC Secret (optional)</Label>
-              <div className="flex gap-2">
-                <Input
-                  value={form.secret}
-                  onChange={(e) => setForm((f) => ({ ...f, secret: e.target.value }))}
-                  type={showSecret ? "text" : "password"}
-                  placeholder={isEdit ? "Leave blank to keep existing" : "Optional signing secret"}
-                  className="flex-1"
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setShowSecret((v) => !v)}
-                >
-                  {showSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </Button>
-              </div>
+            <div className="col-span-2">
+              <DlgField label="HMAC Secret (optional)">
+                <div className="flex gap-2">
+                  <ConsoleInput
+                    value={form.secret}
+                    onChange={(e) => setForm((f) => ({ ...f, secret: e.target.value }))}
+                    type={showSecret ? "text" : "password"}
+                    placeholder={isEdit ? "Leave blank to keep existing" : "Optional signing secret"}
+                    className="flex-1"
+                  />
+                  <GhostIconBtn type="button" onClick={() => setShowSecret((v) => !v)}>
+                    {showSecret ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                  </GhostIconBtn>
+                </div>
+              </DlgField>
             </div>
-            <div className="space-y-1">
-              <Label>Retry attempts</Label>
-              <Input
+            <DlgField label="Retry attempts">
+              <ConsoleInput
                 type="number"
                 min={0}
                 max={5}
                 value={form.retry_count}
                 onChange={(e) => setForm((f) => ({ ...f, retry_count: +e.target.value }))}
               />
-            </div>
-            <div className="space-y-1">
-              <Label>Timeout (s)</Label>
-              <Input
+            </DlgField>
+            <DlgField label="Timeout (s)">
+              <ConsoleInput
                 type="number"
                 min={1}
                 max={60}
                 value={form.timeout_seconds}
                 onChange={(e) => setForm((f) => ({ ...f, timeout_seconds: +e.target.value }))}
               />
-            </div>
+            </DlgField>
           </div>
 
           {/* Event filter */}
-          <div className="space-y-2">
-            <Label>Subscribed Events</Label>
-            <ScrollArea className="h-44 rounded border p-2">
+          <div>
+            <label className="block font-telemetry text-[10px] uppercase tracking-wide mb-1" style={{ color: "var(--console-muted)" }}>
+              Subscribed Events
+            </label>
+            <ScrollArea
+              className="h-44 rounded p-2"
+              style={{ background: "var(--console-raised)", border: "1px solid var(--console-border)" }}
+            >
               <div className="grid grid-cols-2 gap-1.5">
                 {(eventTypes || []).map(({ value }) => (
                   <div key={value} className="flex items-center gap-2">
@@ -200,14 +217,14 @@ const WebhookFormDialog = ({ open, onClose, webhook, eventTypes }) => {
                       checked={form.events.includes(value)}
                       onCheckedChange={() => toggleEvent(value)}
                     />
-                    <label htmlFor={`ev-${value}`} className="text-sm cursor-pointer">
+                    <label htmlFor={`ev-${value}`} className="font-telemetry text-[11px] cursor-pointer" style={{ color: "var(--console-text)" }}>
                       {EVENT_LABELS[value] || value}
                     </label>
                   </div>
                 ))}
               </div>
             </ScrollArea>
-            <p className="text-xs text-muted-foreground">Empty = receive all events.</p>
+            <p className="font-telemetry text-[10px] mt-1" style={{ color: "var(--console-muted)" }}>Empty = receive all events.</p>
           </div>
 
           <div className="flex items-center gap-2">
@@ -215,14 +232,14 @@ const WebhookFormDialog = ({ open, onClose, webhook, eventTypes }) => {
               checked={form.is_active}
               onCheckedChange={(v) => setForm((f) => ({ ...f, is_active: v }))}
             />
-            <Label>Active</Label>
+            <label className="font-telemetry text-xs" style={{ color: "var(--console-text)" }}>Active</label>
           </div>
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-            <Button type="submit" disabled={saveMutation.isPending}>
+            <SecondaryBtn type="button" onClick={onClose}>Cancel</SecondaryBtn>
+            <PrimaryBtn type="submit" disabled={saveMutation.isPending}>
               {saveMutation.isPending ? "Saving…" : isEdit ? "Save" : "Create"}
-            </Button>
+            </PrimaryBtn>
           </DialogFooter>
         </form>
       </DialogContent>
@@ -234,7 +251,6 @@ const WebhookFormDialog = ({ open, onClose, webhook, eventTypes }) => {
 
 const SMTPPanel = ({ settings }) => {
   const qc = useQueryClient();
-  // Settings stored as strings on backend — normalize types here
   const asBool = (v) => v === true || v === "true";
   const buildForm = (s) => ({
     smtp_host: s?.smtp_host || "",
@@ -250,14 +266,10 @@ const SMTPPanel = ({ settings }) => {
 
   const [form, setForm] = useState(buildForm(settings));
 
-  // Re-init when settings arrive from the API after initial mount.
-  // Re-run if any tracked field changed (server canonical version).
   React.useEffect(() => {
     if (!settings) return;
     setForm((prev) => ({
       ...buildForm(settings),
-      // Preserve in-flight password edits — backend never echoes the
-      // current password back.
       smtp_password: prev.smtp_password,
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -290,8 +302,6 @@ const SMTPPanel = ({ settings }) => {
 
   const handleSave = (e) => {
     e.preventDefault();
-    // Drop empty password so existing one isn't overwritten with blank.
-    // SMTP is implicitly enabled — selection-level granularity comes later.
     const payload = { ...form, smtp_enabled: true };
     if (!payload.smtp_password) delete payload.smtp_password;
     saveMutation.mutate(payload);
@@ -309,14 +319,10 @@ const SMTPPanel = ({ settings }) => {
     setTesting(true);
     try {
       await api.post("/notifications/email/test", {
-        host: form.smtp_host,
-        port: +form.smtp_port,
-        username: form.smtp_username,
-        password: form.smtp_password,
-        use_tls: form.smtp_use_tls,
-        use_ssl: form.smtp_use_ssl,
-        from_email: form.smtp_from_email,
-        from_name: form.smtp_from_name,
+        host: form.smtp_host, port: +form.smtp_port,
+        username: form.smtp_username, password: form.smtp_password,
+        use_tls: form.smtp_use_tls, use_ssl: form.smtp_use_ssl,
+        from_email: form.smtp_from_email, from_name: form.smtp_from_name,
         recipients,
       });
       toast.success("Test email sent successfully");
@@ -328,103 +334,71 @@ const SMTPPanel = ({ settings }) => {
   };
 
   return (
-    <form onSubmit={handleSave} className="space-y-5">
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-1">
-          <Label>SMTP Host</Label>
-          <Input
-            value={form.smtp_host}
-            onChange={(e) => setForm((f) => ({ ...f, smtp_host: e.target.value }))}
-            placeholder="smtp.gmail.com"
-          />
-        </div>
-        <div className="space-y-1">
-          <Label>Port</Label>
-          <Input
-            type="number"
-            value={form.smtp_port}
-            onChange={(e) => setForm((f) => ({ ...f, smtp_port: +e.target.value }))}
-          />
-        </div>
-        <div className="space-y-1">
-          <Label>Username</Label>
-          <Input
-            value={form.smtp_username}
-            onChange={(e) => setForm((f) => ({ ...f, smtp_username: e.target.value }))}
-          />
-        </div>
-        <div className="space-y-1">
-          <Label>Password</Label>
+    <form onSubmit={handleSave} className="space-y-4">
+      <div className="grid grid-cols-2 gap-3">
+        <FormRow label="SMTP Host">
+          <ConsoleInput value={form.smtp_host} onChange={(e) => setForm((f) => ({ ...f, smtp_host: e.target.value }))} placeholder="smtp.gmail.com" />
+        </FormRow>
+        <FormRow label="Port">
+          <ConsoleInput type="number" value={form.smtp_port} onChange={(e) => setForm((f) => ({ ...f, smtp_port: +e.target.value }))} />
+        </FormRow>
+        <FormRow label="Username">
+          <ConsoleInput value={form.smtp_username} onChange={(e) => setForm((f) => ({ ...f, smtp_username: e.target.value }))} />
+        </FormRow>
+        <FormRow label="Password">
           <div className="flex gap-2">
-            <Input
+            <ConsoleInput
               type={showPassword ? "text" : "password"}
               value={form.smtp_password}
               onChange={(e) => setForm((f) => ({ ...f, smtp_password: e.target.value }))}
               placeholder="Leave blank to keep existing"
               className="flex-1"
             />
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowPassword((v) => !v)}
-            >
-              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-            </Button>
+            <GhostIconBtn type="button" onClick={() => setShowPassword((v) => !v)}>
+              {showPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+            </GhostIconBtn>
           </div>
+        </FormRow>
+        <FormRow label="From Email">
+          <ConsoleInput type="email" value={form.smtp_from_email} onChange={(e) => setForm((f) => ({ ...f, smtp_from_email: e.target.value }))} />
+        </FormRow>
+        <FormRow label="From Name">
+          <ConsoleInput value={form.smtp_from_name} onChange={(e) => setForm((f) => ({ ...f, smtp_from_name: e.target.value }))} />
+        </FormRow>
+        <div className="col-span-2">
+          <FormRow label="Recipients (comma-separated)">
+            <ConsoleInput value={form.smtp_recipients} onChange={(e) => setForm((f) => ({ ...f, smtp_recipients: e.target.value }))} placeholder="ops@company.com, security@company.com" />
+          </FormRow>
         </div>
-        <div className="space-y-1">
-          <Label>From Email</Label>
-          <Input
-            type="email"
-            value={form.smtp_from_email}
-            onChange={(e) => setForm((f) => ({ ...f, smtp_from_email: e.target.value }))}
-          />
-        </div>
-        <div className="space-y-1">
-          <Label>From Name</Label>
-          <Input
-            value={form.smtp_from_name}
-            onChange={(e) => setForm((f) => ({ ...f, smtp_from_name: e.target.value }))}
-          />
-        </div>
-        <div className="col-span-2 space-y-1">
-          <Label>Recipients (comma-separated)</Label>
-          <Input
-            value={form.smtp_recipients}
-            onChange={(e) => setForm((f) => ({ ...f, smtp_recipients: e.target.value }))}
-            placeholder="ops@company.com, security@company.com"
-          />
-        </div>
-        <div className="flex items-center gap-4">
+        <div className="col-span-2 flex items-center gap-6">
           <div className="flex items-center gap-2">
             <Switch
               checked={form.smtp_use_tls === true || form.smtp_use_tls === "true"}
               onCheckedChange={(v) => setForm((f) => ({ ...f, smtp_use_tls: v }))}
             />
-            <Label>TLS (STARTTLS)</Label>
+            <label className="font-telemetry text-xs" style={{ color: "var(--console-text)" }}>TLS (STARTTLS)</label>
           </div>
           <div className="flex items-center gap-2">
             <Switch
               checked={form.smtp_use_ssl === true || form.smtp_use_ssl === "true"}
               onCheckedChange={(v) => setForm((f) => ({ ...f, smtp_use_ssl: v }))}
             />
-            <Label>SSL</Label>
+            <label className="font-telemetry text-xs" style={{ color: "var(--console-text)" }}>SSL</label>
           </div>
         </div>
       </div>
 
-      <div className="flex gap-3">
-        <Button type="submit" disabled={saveMutation.isPending}>
+      <div className="flex gap-2">
+        <PrimaryBtn type="submit" disabled={saveMutation.isPending}>
           {saveMutation.isPending ? "Saving…" : "Save SMTP Settings"}
-        </Button>
-        <Button type="button" variant="outline" onClick={handleTest} disabled={testing}>
+        </PrimaryBtn>
+        <SecondaryBtn type="button" onClick={handleTest} disabled={testing}>
           {testing ? (
-            <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Sending…</>
+            <><RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" />Sending…</>
           ) : (
-            <><TestTube2 className="h-4 w-4 mr-2" />Send Test Email</>
+            <><TestTube2 className="h-3.5 w-3.5 mr-1.5" />Send Test Email</>
           )}
-        </Button>
+        </SecondaryBtn>
       </div>
     </form>
   );
@@ -504,59 +478,59 @@ const TwilioPanel = ({ settings }) => {
   };
 
   return (
-    <form onSubmit={handleSave} className="space-y-5">
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-1">
-          <Label>Account SID</Label>
-          <Input value={form.twilio_account_sid} onChange={(e) => setForm((f) => ({ ...f, twilio_account_sid: e.target.value }))} placeholder="ACxxxxxxxxxxxxxxxx" />
-        </div>
-        <div className="space-y-1">
-          <Label>Auth Token</Label>
+    <form onSubmit={handleSave} className="space-y-4">
+      <div className="grid grid-cols-2 gap-3">
+        <FormRow label="Account SID">
+          <ConsoleInput value={form.twilio_account_sid} onChange={(e) => setForm((f) => ({ ...f, twilio_account_sid: e.target.value }))} placeholder="ACxxxxxxxxxxxxxxxx" />
+        </FormRow>
+        <FormRow label="Auth Token">
           <div className="flex gap-2">
-            <Input type={showToken ? "text" : "password"} value={form.twilio_auth_token} onChange={(e) => setForm((f) => ({ ...f, twilio_auth_token: e.target.value }))} placeholder="Leave blank to keep existing" className="flex-1" />
-            <Button type="button" variant="ghost" size="icon" onClick={() => setShowToken((v) => !v)}>
-              {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-            </Button>
+            <ConsoleInput type={showToken ? "text" : "password"} value={form.twilio_auth_token} onChange={(e) => setForm((f) => ({ ...f, twilio_auth_token: e.target.value }))} placeholder="Leave blank to keep existing" className="flex-1" />
+            <GhostIconBtn type="button" onClick={() => setShowToken((v) => !v)}>
+              {showToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+            </GhostIconBtn>
           </div>
+        </FormRow>
+        <FormRow label="SMS Sender Number">
+          <ConsoleInput value={form.twilio_phone_number} onChange={(e) => setForm((f) => ({ ...f, twilio_phone_number: e.target.value }))} placeholder="+1234567890" />
+        </FormRow>
+        <FormRow label="WhatsApp Sender Number">
+          <ConsoleInput value={form.twilio_whatsapp_number} onChange={(e) => setForm((f) => ({ ...f, twilio_whatsapp_number: e.target.value }))} placeholder="+1234567890" />
+        </FormRow>
+        <div className="col-span-2">
+          <FormRow label="SMS Recipients (comma-separated)">
+            <ConsoleInput value={form.sms_recipients} onChange={(e) => setForm((f) => ({ ...f, sms_recipients: e.target.value }))} placeholder="+911234567890, +911234567891" />
+          </FormRow>
         </div>
-        <div className="space-y-1">
-          <Label>SMS Sender Number</Label>
-          <Input value={form.twilio_phone_number} onChange={(e) => setForm((f) => ({ ...f, twilio_phone_number: e.target.value }))} placeholder="+1234567890" />
+        <div className="col-span-2">
+          <FormRow label="WhatsApp Recipients (comma-separated)">
+            <ConsoleInput value={form.whatsapp_recipients} onChange={(e) => setForm((f) => ({ ...f, whatsapp_recipients: e.target.value }))} placeholder="+911234567890, +911234567891" />
+          </FormRow>
         </div>
-        <div className="space-y-1">
-          <Label>WhatsApp Sender Number</Label>
-          <Input value={form.twilio_whatsapp_number} onChange={(e) => setForm((f) => ({ ...f, twilio_whatsapp_number: e.target.value }))} placeholder="+1234567890" />
+        <div className="col-span-2">
+          <FormRow label="SMS Alert Events (comma-separated)">
+            <ConsoleInput value={form.sms_alert_events} onChange={(e) => setForm((f) => ({ ...f, sms_alert_events: e.target.value }))} />
+          </FormRow>
         </div>
-        <div className="col-span-2 space-y-1">
-          <Label>SMS Recipients (comma-separated)</Label>
-          <Input value={form.sms_recipients} onChange={(e) => setForm((f) => ({ ...f, sms_recipients: e.target.value }))} placeholder="+911234567890, +911234567891" />
-        </div>
-        <div className="col-span-2 space-y-1">
-          <Label>WhatsApp Recipients (comma-separated)</Label>
-          <Input value={form.whatsapp_recipients} onChange={(e) => setForm((f) => ({ ...f, whatsapp_recipients: e.target.value }))} placeholder="+911234567890, +911234567891" />
-        </div>
-        <div className="col-span-2 space-y-1">
-          <Label>SMS Alert Events (comma-separated)</Label>
-          <Input value={form.sms_alert_events} onChange={(e) => setForm((f) => ({ ...f, sms_alert_events: e.target.value }))} />
-        </div>
-        <div className="col-span-2 space-y-1">
-          <Label>WhatsApp Alert Events (comma-separated)</Label>
-          <Input value={form.whatsapp_alert_events} onChange={(e) => setForm((f) => ({ ...f, whatsapp_alert_events: e.target.value }))} />
+        <div className="col-span-2">
+          <FormRow label="WhatsApp Alert Events (comma-separated)">
+            <ConsoleInput value={form.whatsapp_alert_events} onChange={(e) => setForm((f) => ({ ...f, whatsapp_alert_events: e.target.value }))} />
+          </FormRow>
         </div>
       </div>
 
-      <div className="flex gap-3">
-        <Button type="submit" disabled={saveMutation.isPending}>
+      <div className="flex gap-2">
+        <PrimaryBtn type="submit" disabled={saveMutation.isPending}>
           {saveMutation.isPending ? "Saving…" : "Save Twilio Settings"}
-        </Button>
-        <Button type="button" variant="outline" onClick={testSms} disabled={testingSms}>
-          {testingSms ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : <MessageSquare className="h-4 w-4 mr-2" />}
+        </PrimaryBtn>
+        <SecondaryBtn type="button" onClick={testSms} disabled={testingSms}>
+          {testingSms ? <RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <MessageSquare className="h-3.5 w-3.5 mr-1.5" />}
           Test SMS
-        </Button>
-        <Button type="button" variant="outline" onClick={testWa} disabled={testingWa}>
-          {testingWa ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : <Smartphone className="h-4 w-4 mr-2" />}
+        </SecondaryBtn>
+        <SecondaryBtn type="button" onClick={testWa} disabled={testingWa}>
+          {testingWa ? <RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Smartphone className="h-3.5 w-3.5 mr-1.5" />}
           Test WhatsApp
-        </Button>
+        </SecondaryBtn>
       </div>
     </form>
   );
@@ -572,64 +546,67 @@ const LogsPanel = () => {
   });
 
   const statusColor = {
-    sent: "text-green-600",
-    failed: "text-red-600",
-    pending: "text-yellow-600",
+    sent: "var(--console-online)",
+    failed: "var(--console-rec)",
+    pending: "var(--console-alarm)",
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex gap-3 items-center">
-        <Input
+    <div className="space-y-3">
+      <div className="flex gap-2 items-center">
+        <ConsoleInput
           placeholder="Filter by event type…"
           value={filter.event_type}
           onChange={(e) => setFilter((f) => ({ ...f, event_type: e.target.value }))}
-          className="w-48"
+          style={{ maxWidth: "200px" }}
         />
-        <Button variant="outline" size="sm" onClick={refetch}>
-          <RefreshCw className="h-4 w-4" />
-        </Button>
+        <GhostIconBtn onClick={refetch}>
+          <RefreshCw className="h-3.5 w-3.5" />
+        </GhostIconBtn>
       </div>
 
       {isLoading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <p className="font-telemetry text-xs" style={{ color: "var(--console-muted)" }}>Loading…</p>
       ) : logs.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+        <div className="flex flex-col items-center justify-center py-16" style={{ color: "var(--console-muted)" }}>
           <Bell className="h-10 w-10 mb-3 opacity-30" />
-          <p>No notification logs yet.</p>
+          <p className="font-telemetry text-xs">No notification logs yet.</p>
         </div>
       ) : (
-        <div className="rounded-md border overflow-hidden">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Event</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>HTTP</TableHead>
-                <TableHead>Attempts</TableHead>
-                <TableHead>Time</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
+        <div
+          className="rounded overflow-hidden"
+          style={{ border: "1px solid var(--console-border)" }}
+        >
+          <table className="w-full font-telemetry text-[11px]">
+            <thead style={{ background: "var(--console-raised)", borderBottom: "1px solid var(--console-border)" }}>
+              <tr>
+                {["Event", "Status", "HTTP", "Attempts", "Time"].map((h) => (
+                  <th key={h} className="px-3 py-2.5 text-left font-semibold uppercase tracking-wide" style={{ color: "var(--console-muted)" }}>
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
               {logs.map((log) => (
-                <TableRow key={log.id}>
-                  <TableCell className="font-mono text-xs">
+                <tr key={log.id} className="border-b last:border-0" style={{ borderColor: "var(--console-border)" }}>
+                  <td className="px-3 py-2.5" style={{ color: "var(--console-text)" }}>
                     {EVENT_LABELS[log.event_type] || log.event_type}
-                  </TableCell>
-                  <TableCell>
-                    <span className={`text-xs font-medium ${statusColor[log.status] || ""}`}>
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <span className="font-semibold" style={{ color: statusColor[log.status] || "var(--console-muted)" }}>
                       {log.status}
                     </span>
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{log.response_code || "—"}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{log.attempts}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
+                  </td>
+                  <td className="px-3 py-2.5" style={{ color: "var(--console-muted)" }}>{log.response_code || "—"}</td>
+                  <td className="px-3 py-2.5" style={{ color: "var(--console-muted)" }}>{log.attempts}</td>
+                  <td className="px-3 py-2.5" style={{ color: "var(--console-muted)" }}>
                     {log.created_at ? new Date(log.created_at).toLocaleString() : "—"}
-                  </TableCell>
-                </TableRow>
+                  </td>
+                </tr>
               ))}
-            </TableBody>
-          </Table>
+            </tbody>
+          </table>
         </div>
       )}
     </div>
@@ -672,182 +649,176 @@ export default function Notifications() {
     onSuccess: () => qc.invalidateQueries(["webhooks"]),
   });
 
-  const handleEdit = (wh) => {
-    setEditWebhook(wh);
-    setShowForm(true);
-  };
-
-  const handleClose = () => {
-    setShowForm(false);
-    setEditWebhook(null);
-  };
-
-  const tabs = [
-    { id: "webhooks", label: "Webhooks", icon: Webhook },
-    { id: "email", label: "Email (SMTP)", icon: Mail },
-    { id: "sms", label: "SMS / WhatsApp", icon: Smartphone },
-    { id: "logs", label: "Delivery Logs", icon: Bell },
-  ];
+  const handleEdit = (wh) => { setEditWebhook(wh); setShowForm(true); };
+  const handleClose = () => { setShowForm(false); setEditWebhook(null); };
 
   return (
-    <div className="p-4 md:p-6 h-full overflow-y-auto">
-      <div className="mb-4">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+    <div
+      className="h-full flex flex-col overflow-hidden"
+      style={{ background: "var(--console-bg)", color: "var(--console-text)" }}
+    >
+      {/* Page header bar */}
+      <div
+        className="flex items-center gap-3 px-4 py-2.5 border-b flex-shrink-0"
+        style={{ background: "var(--console-panel)", borderColor: "var(--console-border)" }}
+      >
+        <span
+          className="w-0.5 h-4 rounded-full flex-shrink-0"
+          style={{ background: "var(--console-accent)" }}
+        />
+        <span
+          className="font-telemetry text-xs font-semibold uppercase tracking-widest"
+          style={{ color: "var(--console-text)" }}
+        >
           Notifications
-        </h2>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          Configure webhooks, email, SMS and WhatsApp alerts
-        </p>
+        </span>
       </div>
 
-      <PageTabs tabs={tabs} value={tab} onValueChange={setTab} className="mb-6" />
-
-      <div className={tab === "webhooks" ? "" : "hidden"}>
-        {/* ── Webhooks ── */}
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-3">
-              <div>
-                <CardTitle>Webhooks</CardTitle>
-                <CardDescription>HTTP POST callbacks on NVR events</CardDescription>
-              </div>
-              <Button size="sm" onClick={() => { setEditWebhook(null); setShowForm(true); }}>
-                <Plus className="h-4 w-4 mr-2" />
-                Add Webhook
-              </Button>
-            </CardHeader>
-            <CardContent>
-              {wLoading ? (
-                <p className="text-sm text-muted-foreground py-8 text-center">Loading…</p>
-              ) : webhooks.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-                  <Webhook className="h-12 w-12 mb-3 opacity-30" />
-                  <p className="font-medium">No webhooks configured</p>
-                  <p className="text-sm mt-1">Add one to start receiving event notifications.</p>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="mt-4"
-                    onClick={() => setShowForm(true)}
-                  >
-                    <Plus className="h-4 w-4 mr-2" />Add Webhook
-                  </Button>
-                </div>
-              ) : (
-                <div className="rounded-md border overflow-hidden">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Name</TableHead>
-                        <TableHead>URL</TableHead>
-                        <TableHead>Events</TableHead>
-                        <TableHead>Stats</TableHead>
-                        <TableHead>Active</TableHead>
-                        <TableHead />
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {webhooks.map((wh) => (
-                        <TableRow key={wh.id}>
-                          <TableCell className="font-medium">{wh.name}</TableCell>
-                          <TableCell className="font-mono text-xs text-muted-foreground max-w-[200px] truncate">
-                            {wh.url}
-                          </TableCell>
-                          <TableCell>
-                            {wh.events?.length ? (
-                              <span className="text-xs text-muted-foreground">
-                                {wh.events.length} event{wh.events.length !== 1 ? "s" : ""}
-                              </span>
-                            ) : (
-                              <Badge variant="secondary" className="text-xs">All</Badge>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-xs text-muted-foreground">
-                            <span className="text-green-600">{wh.success_count ?? 0} ok</span>
-                            {" / "}
-                            <span className="text-red-500">{wh.failure_count ?? 0} fail</span>
-                          </TableCell>
-                          <TableCell>
-                            <Switch
-                              checked={wh.is_active}
-                              onCheckedChange={(v) =>
-                                toggleActiveMutation.mutate({ id: wh.id, is_active: v })
-                              }
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex gap-1">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleEdit(wh)}
-                              >
-                                <Settings2 className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="text-red-500 hover:text-red-700"
-                                onClick={() => {
-                                  if (window.confirm(`Delete webhook "${wh.name}"?`)) {
-                                    deleteMutation.mutate(wh.id);
-                                  }
-                                }}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
+      {/* Internal tab bar */}
+      <div
+        className="flex items-center gap-0 border-b flex-shrink-0 overflow-x-auto"
+        style={{ background: "var(--console-panel)", borderColor: "var(--console-border)" }}
+      >
+        {TABS.map(({ id, label, icon: Icon }) => {
+          const active = tab === id;
+          return (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setTab(id)}
+              className="relative flex items-center gap-1.5 px-4 py-2.5 font-telemetry text-[11px] uppercase tracking-wide whitespace-nowrap transition-colors hover:bg-white/5"
+              style={{ color: active ? "var(--console-accent)" : "var(--console-muted)" }}
+            >
+              <Icon className="h-3.5 w-3.5 flex-shrink-0" />
+              {label}
+              {active && (
+                <span
+                  className="absolute bottom-0 left-0 right-0 h-[2px] rounded-t"
+                  style={{ background: "var(--console-accent)" }}
+                />
               )}
-            </CardContent>
-          </Card>
+            </button>
+          );
+        })}
       </div>
 
-      <div className={tab === "email" ? "" : "hidden"}>
+      {/* Tab content */}
+      <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6">
+        {/* ── Webhooks ── */}
+        <div className={tab === "webhooks" ? "" : "hidden"}>
+          <ConsoleSection
+            title="Webhooks"
+            subtitle="HTTP POST callbacks on NVR events"
+            action={
+              <PrimaryBtn onClick={() => { setEditWebhook(null); setShowForm(true); }}>
+                <Plus className="h-3.5 w-3.5 mr-1" />
+                Add Webhook
+              </PrimaryBtn>
+            }
+          >
+            {wLoading ? (
+              <p className="font-telemetry text-xs py-8 text-center" style={{ color: "var(--console-muted)" }}>Loading…</p>
+            ) : webhooks.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16" style={{ color: "var(--console-muted)" }}>
+                <Webhook className="h-12 w-12 mb-3 opacity-30" />
+                <p className="font-telemetry text-xs font-semibold">No webhooks configured</p>
+                <p className="font-telemetry text-[10px] mt-1">Add one to start receiving event notifications.</p>
+                <PrimaryBtn onClick={() => setShowForm(true)} className="mt-4">
+                  <Plus className="h-3.5 w-3.5 mr-1" />Add Webhook
+                </PrimaryBtn>
+              </div>
+            ) : (
+              <div
+                className="rounded overflow-hidden"
+                style={{ border: "1px solid var(--console-border)" }}
+              >
+                <table className="w-full font-telemetry text-[11px]">
+                  <thead style={{ background: "var(--console-raised)", borderBottom: "1px solid var(--console-border)" }}>
+                    <tr>
+                      {["Name", "URL", "Events", "Stats", "Active", ""].map((h, i) => (
+                        <th key={i} className="px-3 py-2.5 text-left font-semibold uppercase tracking-wide" style={{ color: "var(--console-muted)" }}>
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {webhooks.map((wh) => (
+                      <tr key={wh.id} className="border-b last:border-0" style={{ borderColor: "var(--console-border)" }}>
+                        <td className="px-3 py-2.5 font-semibold" style={{ color: "var(--console-text)" }}>
+                          {wh.name}
+                        </td>
+                        <td className="px-3 py-2.5 max-w-[200px] truncate" style={{ color: "var(--console-muted)" }}>
+                          {wh.url}
+                        </td>
+                        <td className="px-3 py-2.5" style={{ color: "var(--console-muted)" }}>
+                          {wh.events?.length ? (
+                            <span>{wh.events.length} event{wh.events.length !== 1 ? "s" : ""}</span>
+                          ) : (
+                            <span
+                              className="px-1.5 py-0.5 rounded text-[10px]"
+                              style={{ background: "var(--console-raised)", border: "1px solid var(--console-border)", color: "var(--console-muted)" }}
+                            >
+                              All
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <span style={{ color: "var(--console-online)" }}>{wh.success_count ?? 0} ok</span>
+                          {" / "}
+                          <span style={{ color: "var(--console-rec)" }}>{wh.failure_count ?? 0} fail</span>
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <Switch
+                            checked={wh.is_active}
+                            onCheckedChange={(v) => toggleActiveMutation.mutate({ id: wh.id, is_active: v })}
+                          />
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <div className="flex gap-0.5">
+                            <GhostIconBtn onClick={() => handleEdit(wh)}>
+                              <Settings2 className="h-3.5 w-3.5" />
+                            </GhostIconBtn>
+                            <GhostIconBtn
+                              onClick={() => {
+                                if (window.confirm(`Delete webhook "${wh.name}"?`)) {
+                                  deleteMutation.mutate(wh.id);
+                                }
+                              }}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" style={{ color: "var(--console-rec)" }} />
+                            </GhostIconBtn>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </ConsoleSection>
+        </div>
+
         {/* ── Email ── */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Email / SMTP</CardTitle>
-            <CardDescription>
-              Send alert emails for camera events, storage warnings, and system errors
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
+        <div className={tab === "email" ? "" : "hidden"}>
+          <ConsoleSection title="Email / SMTP" subtitle="Send alert emails for camera events, storage warnings, and system errors">
             <SMTPPanel settings={settings} />
-          </CardContent>
-        </Card>
-      </div>
+          </ConsoleSection>
+        </div>
 
-      <div className={tab === "sms" ? "" : "hidden"}>
         {/* ── SMS / WhatsApp ── */}
-        <Card>
-          <CardHeader>
-            <CardTitle>SMS / WhatsApp (Twilio)</CardTitle>
-            <CardDescription>
-              Send SMS and WhatsApp alerts via Twilio
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
+        <div className={tab === "sms" ? "" : "hidden"}>
+          <ConsoleSection title="SMS / WhatsApp (Twilio)" subtitle="Send SMS and WhatsApp alerts via Twilio">
             <TwilioPanel settings={settings} />
-          </CardContent>
-        </Card>
-      </div>
+          </ConsoleSection>
+        </div>
 
-      <div className={tab === "logs" ? "" : "hidden"}>
         {/* ── Logs ── */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Delivery Logs</CardTitle>
-            <CardDescription>History of all notification attempts</CardDescription>
-          </CardHeader>
-          <CardContent>
+        <div className={tab === "logs" ? "" : "hidden"}>
+          <ConsoleSection title="Delivery Logs" subtitle="History of all notification attempts">
             <LogsPanel />
-          </CardContent>
-        </Card>
+          </ConsoleSection>
+        </div>
       </div>
 
       {/* Webhook form dialog */}
@@ -862,3 +833,99 @@ export default function Notifications() {
     </div>
   );
 }
+
+// ─── Shared UI primitives ────────────────────────────────────────────────────
+
+const ConsoleSection = ({ title, subtitle, action, children }) => (
+  <div
+    className="rounded mb-4"
+    style={{ background: "var(--console-panel)", border: "1px solid var(--console-border)" }}
+  >
+    <div
+      className="flex items-center justify-between px-4 py-3 border-b"
+      style={{ borderColor: "var(--console-border)" }}
+    >
+      <div>
+        <p className="font-telemetry text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--console-text)" }}>
+          {title}
+        </p>
+        {subtitle && (
+          <p className="font-telemetry text-[10px] mt-0.5" style={{ color: "var(--console-muted)" }}>
+            {subtitle}
+          </p>
+        )}
+      </div>
+      {action && <div>{action}</div>}
+    </div>
+    <div className="p-4">{children}</div>
+  </div>
+);
+
+const FormRow = ({ label, children }) => (
+  <div>
+    <label className="block font-telemetry text-[10px] uppercase tracking-wide mb-1" style={{ color: "var(--console-muted)" }}>
+      {label}
+    </label>
+    {children}
+  </div>
+);
+
+const DlgField = ({ label, children }) => (
+  <div>
+    <label className="block font-telemetry text-[10px] uppercase tracking-wide mb-1" style={{ color: "var(--console-muted)" }}>
+      {label}
+    </label>
+    {children}
+  </div>
+);
+
+const PrimaryBtn = ({ children, disabled, onClick, type = "button", className = "" }) => (
+  <button
+    type={type}
+    onClick={onClick}
+    disabled={disabled}
+    className={`inline-flex items-center h-[28px] px-3 rounded font-telemetry text-[11px] font-semibold uppercase tracking-wide transition-opacity disabled:opacity-50 ${className}`}
+    style={{ background: "var(--console-accent)", color: "#06231f" }}
+  >
+    {children}
+  </button>
+);
+
+const SecondaryBtn = ({ children, disabled, onClick, type = "button", className = "" }) => (
+  <button
+    type={type}
+    onClick={onClick}
+    disabled={disabled}
+    className={`inline-flex items-center h-[28px] px-3 rounded font-telemetry text-[11px] border transition-colors hover:bg-white/5 disabled:opacity-50 ${className}`}
+    style={{ background: "var(--console-raised)", borderColor: "var(--console-border)", color: "var(--console-muted)" }}
+  >
+    {children}
+  </button>
+);
+
+const GhostIconBtn = ({ children, onClick, disabled, title, type = "button" }) => (
+  <button
+    type={type}
+    onClick={onClick}
+    disabled={disabled}
+    title={title}
+    className="h-7 w-7 flex items-center justify-center rounded transition-colors hover:bg-white/5 disabled:opacity-50"
+    style={{ color: "var(--console-muted)" }}
+  >
+    {children}
+  </button>
+);
+
+const ConsoleInput = ({ className = "", style: extraStyle = {}, ...props }) => (
+  <input
+    {...props}
+    className={`w-full rounded font-telemetry text-xs h-[30px] px-2 border outline-none focus:ring-1 ${className}`}
+    style={{
+      background: "var(--console-raised)",
+      border: "1px solid var(--console-border)",
+      color: "var(--console-text)",
+      "--tw-ring-color": "var(--console-accent)",
+      ...extraStyle,
+    }}
+  />
+);

@@ -21,7 +21,6 @@ import {
 import { getBookmarks, updateBookmark, deleteBookmark } from "../api/bookmarks";
 import { getAllCameras } from "../api/cameras";
 import { Button } from "../components/ui/button";
-import { Input } from "../components/ui/input";
 import { Badge } from "../components/ui/badge";
 import {
   Select,
@@ -43,6 +42,12 @@ import { toast } from "sonner";
 import { format } from "date-fns";
 
 const PAGE_SIZE = 20;
+
+const inputStyle = {
+  background: "var(--console-raised)",
+  border: "1px solid var(--console-border)",
+  color: "var(--console-text)",
+};
 
 const Bookmarks = () => {
   const qc = useQueryClient();
@@ -169,35 +174,54 @@ const Bookmarks = () => {
   const hasPrev = page > 1;
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-amber-100 rounded-lg">
-            <Bookmark className="h-6 w-6 text-amber-600" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold">Bookmarks</h1>
-            <p className="text-sm text-muted-foreground">
-              View and manage your saved recording bookmarks
-            </p>
-          </div>
+    <div
+      className="h-full flex flex-col overflow-hidden"
+      style={{ background: "var(--console-bg)", color: "var(--console-text)" }}
+    >
+      {/* Page header bar */}
+      <div
+        className="flex items-center gap-3 px-4 py-2.5 border-b flex-shrink-0"
+        style={{ background: "var(--console-panel)", borderColor: "var(--console-border)" }}
+      >
+        <div className="flex items-center gap-2">
+          <span
+            className="w-0.5 h-4 rounded-full flex-shrink-0"
+            style={{ background: "var(--console-accent)" }}
+          />
+          <span
+            className="font-telemetry text-xs font-semibold uppercase tracking-widest"
+            style={{ color: "var(--console-text)" }}
+          >
+            Bookmarks
+          </span>
         </div>
+        <div className="flex-1" />
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3">
+      {/* Toolbar / filter row */}
+      <div
+        className="flex flex-wrap items-center gap-2 px-4 py-2 border-b flex-shrink-0"
+        style={{ background: "var(--console-panel)", borderColor: "var(--console-border)" }}
+      >
         {/* Search */}
         <div className="relative flex-1 min-w-[200px] max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search bookmarks..."
+          <Search
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5"
+            style={{ color: "var(--console-muted)" }}
+          />
+          <input
+            type="text"
+            placeholder="Search bookmarks…"
             value={searchQuery}
             onChange={(e) => {
               setSearchQuery(e.target.value);
               setPage(1);
             }}
-            className="pl-9"
+            className="w-full pl-8 pr-3 rounded text-xs border outline-none focus:ring-1 font-telemetry h-[30px]"
+            style={{
+              ...inputStyle,
+              "--tw-ring-color": "var(--console-accent)",
+            }}
           />
         </div>
 
@@ -209,8 +233,11 @@ const Bookmarks = () => {
             setPage(1);
           }}
         >
-          <SelectTrigger className="w-48">
-            <Camera className="h-4 w-4 mr-2" />
+          <SelectTrigger
+            className="h-[30px] w-48 text-xs font-telemetry"
+            style={inputStyle}
+          >
+            <Camera className="h-3.5 w-3.5 mr-2 flex-shrink-0" style={{ color: "var(--console-muted)" }} />
             <SelectValue placeholder="All Cameras" />
           </SelectTrigger>
           <SelectContent>
@@ -224,116 +251,184 @@ const Bookmarks = () => {
         </Select>
       </div>
 
-      {/* Bookmarks List */}
-      <div className="bg-card rounded-lg border">
-        {isLoading ? (
-          <div className="p-8 text-center text-muted-foreground">
-            Loading bookmarks...
-          </div>
-        ) : bookmarks.length === 0 ? (
-          <div className="p-8 text-center">
-            <Bookmark className="h-12 w-12 text-muted-foreground mx-auto mb-3 opacity-50" />
-            <p className="text-muted-foreground">
-              {searchQuery || cameraId !== "all"
-                ? "No bookmarks match your filters"
-                : "No bookmarks yet. Create one while viewing a recording."}
-            </p>
-          </div>
-        ) : (
-          <div className="divide-y">
-            {bookmarks.map((bookmark) => {
-              const camera = cameraMap[bookmark.camera_id];
-              return (
-                <div
-                  key={bookmark.id}
-                  className="p-4 flex items-start gap-4 hover:bg-muted/50 transition-colors"
-                >
-                  {/* Camera icon */}
-                  <div className="p-2 bg-card/60 rounded-lg shrink-0">
-                    <Camera className="h-5 w-5 text-zinc-400" />
-                  </div>
-
-                  {/* Info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="font-medium truncate">
-                        {camera?.name || "Unknown Camera"}
-                      </span>
-                      <Badge variant="secondary" className="shrink-0">
-                        <Clock className="h-3 w-3 mr-1" />
-                        {formatTimestamp(bookmark.timestamp)}
-                      </Badge>
-                    </div>
-                    {bookmark.note && (
-                      <p className="text-sm text-muted-foreground line-clamp-2">
-                        {bookmark.note}
-                      </p>
-                    )}
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Created {format(new Date(bookmark.created_at), "PPp")}
-                    </p>
-                  </div>
-
-                  {/* Actions */}
-                  <div className="flex items-center gap-1 shrink-0">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handlePlayBookmark(bookmark)}
-                      title="Play from bookmark"
-                    >
-                      <Play className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleEditClick(bookmark)}
-                      title="Edit note"
-                    >
-                      <Edit2 className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => setDeleteConfirm(bookmark)}
-                      title="Delete bookmark"
-                      className="text-destructive hover:text-destructive"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Pagination */}
-        {(hasMore || hasPrev) && (
-          <div className="flex items-center justify-between p-4 border-t">
-            <span className="text-sm text-muted-foreground">Page {page}</span>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setPage((p) => p - 1)}
-                disabled={!hasPrev || isFetching}
-              >
-                <ChevronLeft className="h-4 w-4 mr-1" />
-                Previous
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setPage((p) => p + 1)}
-                disabled={!hasMore || isFetching}
-              >
-                Next
-                <ChevronRight className="h-4 w-4 ml-1" />
-              </Button>
+      {/* Bookmarks list */}
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        <div
+          className="rounded-none border-0"
+          style={{ background: "var(--console-bg)" }}
+        >
+          {isLoading ? (
+            <div
+              className="p-8 text-center font-telemetry text-xs"
+              style={{ color: "var(--console-muted)" }}
+            >
+              Loading bookmarks…
             </div>
-          </div>
-        )}
+          ) : bookmarks.length === 0 ? (
+            <div className="p-8 text-center">
+              <Bookmark
+                className="h-10 w-10 mx-auto mb-3 opacity-30"
+                style={{ color: "var(--console-muted)" }}
+              />
+              <p
+                className="font-telemetry text-xs"
+                style={{ color: "var(--console-muted)" }}
+              >
+                {searchQuery || cameraId !== "all"
+                  ? "No bookmarks match your filters"
+                  : "No bookmarks yet. Create one while viewing a recording."}
+              </p>
+            </div>
+          ) : (
+            <div>
+              {bookmarks.map((bookmark) => {
+                const camera = cameraMap[bookmark.camera_id];
+                return (
+                  <div
+                    key={bookmark.id}
+                    className="flex items-start gap-3 px-4 py-3 border-b transition-colors"
+                    style={{
+                      borderColor: "var(--console-border)",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = "var(--console-panel)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = "transparent";
+                    }}
+                  >
+                    {/* Camera icon */}
+                    <div
+                      className="p-1.5 rounded flex-shrink-0 mt-0.5"
+                      style={{
+                        background: "var(--console-raised)",
+                        border: "1px solid var(--console-border)",
+                      }}
+                    >
+                      <Camera className="h-4 w-4" style={{ color: "var(--console-muted)" }} />
+                    </div>
+
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <span
+                          className="font-telemetry text-xs font-semibold truncate"
+                          style={{ color: "var(--console-text)" }}
+                        >
+                          {camera?.name || "Unknown Camera"}
+                        </span>
+                        <span
+                          className="inline-flex items-center gap-1 font-telemetry text-[10px] px-1.5 py-0.5 rounded flex-shrink-0"
+                          style={{
+                            background: "var(--console-raised)",
+                            border: "1px solid var(--console-border)",
+                            color: "var(--console-accent)",
+                          }}
+                        >
+                          <Clock className="h-2.5 w-2.5" />
+                          {formatTimestamp(bookmark.timestamp)}
+                        </span>
+                      </div>
+                      {bookmark.note && (
+                        <p
+                          className="font-telemetry text-xs line-clamp-2 mb-0.5"
+                          style={{ color: "var(--console-muted)" }}
+                        >
+                          {bookmark.note}
+                        </p>
+                      )}
+                      <p
+                        className="font-telemetry text-[10px]"
+                        style={{ color: "var(--console-muted)" }}
+                      >
+                        {format(new Date(bookmark.created_at), "PPp")}
+                      </p>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handlePlayBookmark(bookmark)}
+                        title="Play from bookmark"
+                        className="p-1.5 rounded transition-colors hover:bg-white/5"
+                        style={{ color: "var(--console-accent)" }}
+                      >
+                        <Play className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleEditClick(bookmark)}
+                        title="Edit note"
+                        className="p-1.5 rounded transition-colors hover:bg-white/5"
+                        style={{ color: "var(--console-muted)" }}
+                      >
+                        <Edit2 className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeleteConfirm(bookmark)}
+                        title="Delete bookmark"
+                        className="p-1.5 rounded transition-colors hover:bg-white/5"
+                        style={{ color: "var(--console-rec)" }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Pagination */}
+          {(hasMore || hasPrev) && (
+            <div
+              className="flex items-center justify-between px-4 py-2.5 border-t"
+              style={{
+                background: "var(--console-panel)",
+                borderColor: "var(--console-border)",
+              }}
+            >
+              <span
+                className="font-telemetry text-xs"
+                style={{ color: "var(--console-muted)" }}
+              >
+                PAGE {page}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => p - 1)}
+                  disabled={!hasPrev || isFetching}
+                  className="h-[28px] px-3 rounded font-telemetry text-xs border transition-colors disabled:opacity-40 flex items-center gap-1 hover:bg-white/5"
+                  style={{
+                    background: "var(--console-raised)",
+                    borderColor: "var(--console-border)",
+                    color: "var(--console-muted)",
+                  }}
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                  Prev
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => p + 1)}
+                  disabled={!hasMore || isFetching}
+                  className="h-[28px] px-3 rounded font-telemetry text-xs border transition-colors disabled:opacity-40 flex items-center gap-1 hover:bg-white/5"
+                  style={{
+                    background: "var(--console-raised)",
+                    borderColor: "var(--console-border)",
+                    color: "var(--console-muted)",
+                  }}
+                >
+                  Next
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Edit Dialog */}
@@ -355,16 +450,31 @@ const Bookmarks = () => {
             rows={3}
           />
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditingBookmark(null)}>
+            <button
+              type="button"
+              onClick={() => setEditingBookmark(null)}
+              className="h-[30px] px-3 rounded font-telemetry text-xs border transition-colors hover:bg-white/5"
+              style={{
+                background: "var(--console-raised)",
+                borderColor: "var(--console-border)",
+                color: "var(--console-muted)",
+              }}
+            >
               Cancel
-            </Button>
-            <Button
+            </button>
+            <button
+              type="button"
               onClick={handleSaveEdit}
               disabled={updateMutation.isPending}
+              className="h-[30px] px-3 rounded font-telemetry text-xs transition-colors flex items-center gap-1.5 disabled:opacity-50"
+              style={{
+                background: "var(--console-accent)",
+                color: "#06231f",
+              }}
             >
-              <Check className="h-4 w-4 mr-2" />
+              <Check className="h-3.5 w-3.5" />
               Save
-            </Button>
+            </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -383,17 +493,31 @@ const Bookmarks = () => {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteConfirm(null)}>
+            <button
+              type="button"
+              onClick={() => setDeleteConfirm(null)}
+              className="h-[30px] px-3 rounded font-telemetry text-xs border transition-colors hover:bg-white/5"
+              style={{
+                background: "var(--console-raised)",
+                borderColor: "var(--console-border)",
+                color: "var(--console-muted)",
+              }}
+            >
               Cancel
-            </Button>
-            <Button
-              variant="destructive"
+            </button>
+            <button
+              type="button"
               onClick={() => deleteMutation.mutate(deleteConfirm.id)}
               disabled={deleteMutation.isPending}
+              className="h-[30px] px-3 rounded font-telemetry text-xs transition-colors flex items-center gap-1.5 disabled:opacity-50"
+              style={{
+                background: "var(--console-rec)",
+                color: "#fff",
+              }}
             >
-              <Trash2 className="h-4 w-4 mr-2" />
+              <Trash2 className="h-3.5 w-3.5" />
               Delete
-            </Button>
+            </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -2,7 +2,7 @@
 // ResourcesPage — /monitoring/resources
 // =============================================================================
 // CPU / Memory / Disk / Network gauges + 60-min history sparklines +
-// per-camera bandwidth list. Dark-theme tokens throughout.
+// per-camera bandwidth list. Console OLED theme throughout.
 // =============================================================================
 
 import React, { useMemo, useState } from "react";
@@ -32,53 +32,28 @@ import {
 } from "../../api/monitoring";
 import { downloadDiagnosticsBundle } from "../../api/system";
 import { useAuth } from "../../context/AuthContext";
-import { Button } from "../../components/ui/button";
 import { cn } from "../../lib/utils";
 
 const fmt = (v) => (typeof v === "number" ? v.toFixed(1) : "—");
 
-// Severity coloring based on percent
-const tone = (pct) => {
-  if (pct >= 85) return "rose";
-  if (pct >= 65) return "amber";
-  return "teal";
+// Severity coloring based on percent — returns CSS var strings
+const toneColor = (pct) => {
+  if (pct >= 85) return "var(--console-rec)";
+  if (pct >= 65) return "var(--console-alarm)";
+  return "var(--console-accent)";
 };
 
-const TONES = {
-  teal: {
-    ring: "stroke-teal-400",
-    text: "text-teal-300",
-    icon: "text-teal-300",
-    iconBg: "bg-teal-500/15",
-  },
-  amber: {
-    ring: "stroke-amber-400",
-    text: "text-amber-300",
-    icon: "text-amber-300",
-    iconBg: "bg-amber-500/15",
-  },
-  rose: {
-    ring: "stroke-rose-400",
-    text: "text-rose-300",
-    icon: "text-rose-300",
-    iconBg: "bg-rose-500/15",
-  },
-  blue: {
-    ring: "stroke-blue-400",
-    text: "text-blue-300",
-    icon: "text-blue-300",
-    iconBg: "bg-blue-500/15",
-  },
-};
-
-const GaugeCard = ({ label, value, max, unit, icon: Icon, color, sub }) => {
-  const c = TONES[color] || TONES.teal;
+const GaugeCard = ({ label, value, max, unit, icon: Icon, sub }) => {
   const pct = Math.min((value / max) * 100, 100);
   const circum = 2 * Math.PI * 40;
   const offset = circum - (pct / 100) * circum;
+  const color = toneColor(pct);
 
   return (
-    <div className="rounded-lg border border-border bg-card/40 p-5 flex flex-col items-center">
+    <div
+      className="rounded border p-5 flex flex-col items-center"
+      style={{ background: "var(--console-panel)", borderColor: "var(--console-border)" }}
+    >
       <div className="relative mb-3">
         <svg className="h-24 w-24 -rotate-90" viewBox="0 0 100 100">
           <circle
@@ -86,7 +61,7 @@ const GaugeCard = ({ label, value, max, unit, icon: Icon, color, sub }) => {
             cy="50"
             r="40"
             fill="none"
-            className="stroke-white/10"
+            stroke="rgba(255,255,255,0.06)"
             strokeWidth="8"
           />
           <circle
@@ -94,7 +69,7 @@ const GaugeCard = ({ label, value, max, unit, icon: Icon, color, sub }) => {
             cy="50"
             r="40"
             fill="none"
-            className={c.ring}
+            stroke={color}
             strokeWidth="8"
             strokeDasharray={circum}
             strokeDashoffset={offset}
@@ -103,20 +78,23 @@ const GaugeCard = ({ label, value, max, unit, icon: Icon, color, sub }) => {
           />
         </svg>
         <div className="absolute inset-0 flex items-center justify-center">
-          <span className={cn("text-lg font-bold tabular-nums", c.text)}>
-            {fmt(value)}
-            {unit}
+          <span className="font-telemetry text-lg font-bold tabular-nums" style={{ color }}>
+            {fmt(value)}{unit}
           </span>
         </div>
       </div>
       <div className="flex items-center gap-2">
-        <div className={cn("p-1.5 rounded-md", c.iconBg)}>
-          <Icon className={cn("h-4 w-4", c.icon)} />
+        <div className="p-1.5 rounded-md" style={{ background: "rgba(255,255,255,0.05)" }}>
+          <Icon className="h-4 w-4" style={{ color }} />
         </div>
-        <span className="text-sm font-medium">{label}</span>
+        <span className="font-telemetry text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--console-text)" }}>
+          {label}
+        </span>
       </div>
       {sub && (
-        <p className="text-[11px] text-muted-foreground mt-1 font-mono">{sub}</p>
+        <p className="font-telemetry text-[11px] mt-1 tabular-nums" style={{ color: "var(--console-muted)" }}>
+          {sub}
+        </p>
       )}
     </div>
   );
@@ -130,9 +108,16 @@ const HistoryCard = ({ title, history, accessor, stroke }) => {
 
   if (points.length === 0) {
     return (
-      <div className="rounded-lg border border-border bg-card/40 p-5">
-        <h3 className="text-sm font-semibold mb-3">{title}</h3>
-        <p className="text-sm text-muted-foreground">No history data</p>
+      <div
+        className="rounded border p-5"
+        style={{ background: "var(--console-panel)", borderColor: "var(--console-border)" }}
+      >
+        <p className="font-telemetry text-xs font-semibold uppercase tracking-wide mb-3" style={{ color: "var(--console-text)" }}>
+          {title}
+        </p>
+        <p className="font-telemetry text-xs" style={{ color: "var(--console-muted)" }}>
+          No history data
+        </p>
       </div>
     );
   }
@@ -151,10 +136,15 @@ const HistoryCard = ({ title, history, accessor, stroke }) => {
   const last = points[points.length - 1]?.y ?? 0;
 
   return (
-    <div className="rounded-lg border border-border bg-card/40 p-5">
+    <div
+      className="rounded border p-5"
+      style={{ background: "var(--console-panel)", borderColor: "var(--console-border)" }}
+    >
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold">{title}</h3>
-        <span className="text-xs text-muted-foreground font-mono">
+        <p className="font-telemetry text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--console-text)" }}>
+          {title}
+        </p>
+        <span className="font-telemetry text-[11px] tabular-nums" style={{ color: "var(--console-muted)" }}>
           now: {fmt(last)}%
         </span>
       </div>
@@ -170,24 +160,36 @@ const HistoryCard = ({ title, history, accessor, stroke }) => {
 const SmartPill = ({ status }) => {
   if (status === "ok")
     return (
-      <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium bg-teal-500/15 text-teal-300">
+      <span
+        className="inline-flex items-center gap-1 rounded px-2 py-0.5 font-telemetry text-[11px] font-medium border"
+        style={{ background: "rgba(20,184,166,0.12)", color: "var(--console-accent)", borderColor: "rgba(20,184,166,0.3)" }}
+      >
         <CheckCircle className="h-3 w-3" /> OK
       </span>
     );
   if (status === "warning")
     return (
-      <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium bg-amber-500/15 text-amber-300">
+      <span
+        className="inline-flex items-center gap-1 rounded px-2 py-0.5 font-telemetry text-[11px] font-medium border"
+        style={{ background: "rgba(245,158,11,0.12)", color: "var(--console-alarm)", borderColor: "rgba(245,158,11,0.3)" }}
+      >
         <AlertTriangle className="h-3 w-3" /> Warning
       </span>
     );
   if (status === "fail")
     return (
-      <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium bg-rose-500/15 text-rose-300">
+      <span
+        className="inline-flex items-center gap-1 rounded px-2 py-0.5 font-telemetry text-[11px] font-medium border"
+        style={{ background: "rgba(239,68,68,0.12)", color: "var(--console-rec)", borderColor: "rgba(239,68,68,0.3)" }}
+      >
         <XCircle className="h-3 w-3" /> Fail
       </span>
     );
   return (
-    <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium bg-zinc-500/15 text-zinc-400">
+    <span
+      className="inline-flex items-center gap-1 rounded px-2 py-0.5 font-telemetry text-[11px] font-medium border"
+      style={{ background: "var(--console-raised)", color: "var(--console-muted)", borderColor: "var(--console-border)" }}
+    >
       Unknown
     </span>
   );
@@ -202,18 +204,20 @@ const fmtBytes = (b) => {
 
 const DiskCard = ({ disk }) => {
   const pct = disk.used_pct || 0;
-  const barColor =
-    pct >= 90 ? "bg-rose-400" : pct >= 75 ? "bg-amber-400" : "bg-teal-400";
+  const barColor = pct >= 90 ? "var(--console-rec)" : pct >= 75 ? "var(--console-alarm)" : "var(--console-accent)";
 
   return (
-    <div className="rounded-lg border border-border bg-card/40 p-4 space-y-3">
+    <div
+      className="rounded border p-4 space-y-3"
+      style={{ background: "var(--console-raised)", borderColor: "var(--console-border)" }}
+    >
       {/* Header */}
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="text-xs font-mono text-zinc-200 truncate">
+          <p className="font-telemetry text-xs truncate" style={{ color: "var(--console-text)" }}>
             {disk.mount_path || disk.device || "—"}
           </p>
-          <p className="text-[11px] text-muted-foreground font-mono truncate">
+          <p className="font-telemetry text-[11px] truncate" style={{ color: "var(--console-muted)" }}>
             {disk.device !== disk.mount_path ? disk.device : ""}
             {disk.filesystem ? ` · ${disk.filesystem}` : ""}
           </p>
@@ -224,40 +228,43 @@ const DiskCard = ({ disk }) => {
       {/* Usage bar */}
       {disk.total_bytes > 0 && (
         <div>
-          <div className="flex items-center justify-between text-[11px] text-muted-foreground mb-1">
+          <div className="flex items-center justify-between font-telemetry text-[11px] mb-1" style={{ color: "var(--console-muted)" }}>
             <span>{fmtBytes(disk.used_bytes)} used</span>
             <span>{fmtBytes(disk.free_bytes)} free / {fmtBytes(disk.total_bytes)}</span>
           </div>
-          <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
+          <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.05)" }}>
             <div
-              className={cn("h-full transition-all", barColor)}
-              style={{ width: `${Math.min(pct, 100)}%` }}
+              className="h-full transition-all"
+              style={{ width: `${Math.min(pct, 100)}%`, background: barColor }}
             />
           </div>
-          <p className="text-[11px] text-right text-muted-foreground mt-0.5">
+          <p className="font-telemetry text-[11px] text-right mt-0.5" style={{ color: "var(--console-muted)" }}>
             {pct.toFixed(1)}%
           </p>
         </div>
       )}
 
       {/* SMART details */}
-      <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-[11px]">
+      <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 font-telemetry text-[11px]">
         {disk.model && (
           <>
-            <span className="text-muted-foreground">Model</span>
-            <span className="font-mono truncate">{disk.model}</span>
+            <span style={{ color: "var(--console-muted)" }}>Model</span>
+            <span className="truncate" style={{ color: "var(--console-text)" }}>{disk.model}</span>
           </>
         )}
         {disk.temp_c != null && (
           <>
-            <span className="text-muted-foreground flex items-center gap-1">
+            <span className="flex items-center gap-1" style={{ color: "var(--console-muted)" }}>
               <Thermometer className="h-3 w-3" />Temp
             </span>
             <span
-              className={cn(
-                "font-mono",
-                disk.temp_c >= 65 ? "text-rose-300" : disk.temp_c >= 50 ? "text-amber-300" : "",
-              )}
+              style={{
+                color: disk.temp_c >= 65
+                  ? "var(--console-rec)"
+                  : disk.temp_c >= 50
+                    ? "var(--console-alarm)"
+                    : "var(--console-text)",
+              }}
             >
               {disk.temp_c}°C
             </span>
@@ -265,16 +272,15 @@ const DiskCard = ({ disk }) => {
         )}
         {disk.reallocated_sectors != null && (
           <>
-            <span className="text-muted-foreground">Reallocated</span>
+            <span style={{ color: "var(--console-muted)" }}>Reallocated</span>
             <span
-              className={cn(
-                "font-mono",
-                disk.reallocated_sectors >= 50
-                  ? "text-rose-300"
+              style={{
+                color: disk.reallocated_sectors >= 50
+                  ? "var(--console-rec)"
                   : disk.reallocated_sectors >= 1
-                    ? "text-amber-300"
-                    : "",
-              )}
+                    ? "var(--console-alarm)"
+                    : "var(--console-text)",
+              }}
             >
               {disk.reallocated_sectors}
             </span>
@@ -282,8 +288,8 @@ const DiskCard = ({ disk }) => {
         )}
         {disk.power_on_hours != null && (
           <>
-            <span className="text-muted-foreground">Power-on hrs</span>
-            <span className="font-mono">{disk.power_on_hours.toLocaleString()}</span>
+            <span style={{ color: "var(--console-muted)" }}>Power-on hrs</span>
+            <span style={{ color: "var(--console-text)" }}>{disk.power_on_hours.toLocaleString()}</span>
           </>
         )}
       </div>
@@ -294,7 +300,8 @@ const DiskCard = ({ disk }) => {
           {disk.alerts.map((alert, i) => (
             <div
               key={i}
-              className="flex items-start gap-1.5 text-[11px] text-amber-300"
+              className="flex items-start gap-1.5 font-telemetry text-[11px]"
+              style={{ color: "var(--console-alarm)" }}
             >
               <AlertTriangle className="h-3 w-3 mt-0.5 flex-shrink-0" />
               {alert}
@@ -305,6 +312,36 @@ const DiskCard = ({ disk }) => {
     </div>
   );
 };
+
+// ─── Shared primitives ────────────────────────────────────────────────────────
+
+const SectionHeader = ({ icon: Icon, label, right }) => (
+  <div
+    className="flex items-center justify-between px-4 py-2.5 border-b"
+    style={{ background: "var(--console-panel)", borderColor: "var(--console-border)" }}
+  >
+    <div className="flex items-center gap-3">
+      <span className="w-0.5 h-4 rounded-full flex-shrink-0" style={{ background: "var(--console-accent)" }} />
+      {Icon && <Icon className="h-3.5 w-3.5 flex-shrink-0" style={{ color: "var(--console-accent)" }} />}
+      <span className="font-telemetry text-xs font-semibold uppercase tracking-widest" style={{ color: "var(--console-text)" }}>
+        {label}
+      </span>
+    </div>
+    {right && <div>{right}</div>}
+  </div>
+);
+
+const SecondaryBtn = ({ children, disabled, onClick }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    disabled={disabled}
+    className="inline-flex items-center h-[28px] px-3 rounded font-telemetry text-[11px] border transition-colors hover:bg-white/5 disabled:opacity-50"
+    style={{ background: "var(--console-raised)", borderColor: "var(--console-border)", color: "var(--console-muted)" }}
+  >
+    {children}
+  </button>
+);
 
 // ─── Diagnostics card ─────────────────────────────────────────────────────────
 
@@ -335,42 +372,45 @@ const DiagnosticsCard = () => {
   };
 
   return (
-    <div className="rounded-lg border border-border bg-card/40">
-      <div className="flex items-center gap-2 px-5 py-3 border-b border-white/5">
-        <FileArchive className="h-4 w-4 text-teal-300" />
-        <h2 className="text-sm font-semibold">Diagnostics</h2>
-      </div>
-      <div className="p-5 space-y-3">
-        <p className="text-sm text-muted-foreground">
+    <div className="rounded border overflow-hidden" style={{ borderColor: "var(--console-border)" }}>
+      <SectionHeader icon={FileArchive} label="Diagnostics" />
+      <div className="p-4 space-y-3" style={{ background: "var(--console-panel)" }}>
+        <p className="font-telemetry text-xs" style={{ color: "var(--console-muted)" }}>
           Download a support bundle for troubleshooting. The archive contains
           system manifest, sanitized config files, the last 5 000 log lines,
           camera inventory (ONVIF passwords stripped), audit log (last 7 days),
           disk health, and hardware acceleration status.
         </p>
-        <p className="text-[11px] text-amber-300 flex items-start gap-1.5">
+        <p className="font-telemetry text-[11px] flex items-start gap-1.5" style={{ color: "var(--console-alarm)" }}>
           <AlertTriangle className="h-3 w-3 mt-0.5 flex-shrink-0" />
           The bundle may contain sensitive information such as host paths and
           IP addresses. Share only with trusted support personnel.
         </p>
         {error && (
-          <p className="text-[11px] text-rose-300">{error}</p>
+          <p className="font-telemetry text-[11px]" style={{ color: "var(--console-rec)" }}>{error}</p>
         )}
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleDownload}
-          disabled={downloading}
-        >
-          <Download className={cn("h-4 w-4 mr-2", downloading && "animate-pulse")} />
+        <SecondaryBtn onClick={handleDownload} disabled={downloading}>
+          <Download className={cn("h-3.5 w-3.5 mr-1.5", downloading && "animate-pulse")} />
           {downloading ? "Preparing bundle…" : "Download support bundle"}
-        </Button>
-        <p className="text-[11px] text-muted-foreground">
+        </SecondaryBtn>
+        <p className="font-telemetry text-[11px]" style={{ color: "var(--console-muted)" }}>
           Estimated size: 50 KB – 2 MB depending on log volume.
         </p>
       </div>
     </div>
   );
 };
+
+// ─── Detail panel wrapper ─────────────────────────────────────────────────────
+
+const DetailPanel = ({ icon: Icon, label, right, children }) => (
+  <div className="rounded border overflow-hidden" style={{ borderColor: "var(--console-border)" }}>
+    <SectionHeader icon={Icon} label={label} right={right} />
+    <div className="p-4 space-y-3" style={{ background: "var(--console-panel)" }}>
+      {children}
+    </div>
+  </div>
+);
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
@@ -436,33 +476,31 @@ const ResourcesPage = () => {
   const netTotal = netSent + netRecv;
 
   return (
-    <div className="p-4 md:p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+    <div className="p-4 space-y-4">
+      {/* Section header bar */}
+      <div
+        className="flex items-center gap-3 px-4 py-2.5 rounded border"
+        style={{ background: "var(--console-panel)", borderColor: "var(--console-border)" }}
+      >
+        <span className="w-0.5 h-4 rounded-full flex-shrink-0" style={{ background: "var(--console-accent)" }} />
+        <span className="font-telemetry text-xs font-semibold uppercase tracking-widest" style={{ color: "var(--console-text)" }}>
           Live Resources
-        </h2>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => refetch()}
-          disabled={isLoading}
-        >
-          <RefreshCw
-            className={cn("h-4 w-4 mr-2", isLoading && "animate-spin")}
-          />
+        </span>
+        <div className="flex-1" />
+        <SecondaryBtn onClick={() => refetch()} disabled={isLoading}>
+          <RefreshCw className={cn("h-3.5 w-3.5 mr-1.5", isLoading && "animate-spin")} />
           Refresh
-        </Button>
+        </SecondaryBtn>
       </div>
 
       {/* Gauges */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
         <GaugeCard
           label="CPU Usage"
           value={cpu}
           max={100}
           unit="%"
           icon={Cpu}
-          color={tone(cpu)}
         />
         <GaugeCard
           label="Memory"
@@ -470,7 +508,6 @@ const ResourcesPage = () => {
           max={100}
           unit="%"
           icon={MemoryStick}
-          color={tone(memPct)}
           sub={
             memTotal > 0
               ? `${fmt(memUsed)} / ${fmt(memTotal)} MB`
@@ -485,7 +522,6 @@ const ResourcesPage = () => {
           max={100}
           unit="%"
           icon={HardDrive}
-          color={tone(diskPct)}
           sub={diskTotal > 0 ? `${fmt(diskUsed)} / ${fmt(diskTotal)} GB` : ""}
         />
         <GaugeCard
@@ -494,251 +530,229 @@ const ResourcesPage = () => {
           max={Math.max(100, netTotal * 1.2)}
           unit=" Mbps"
           icon={Network}
-          color="blue"
           sub={`↑${fmt(netSent)}  ↓${fmt(netRecv)} Mbps`}
         />
       </div>
 
       {/* CPU + GPU detail */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         {/* CPU detail */}
-        <div className="rounded-lg border border-border bg-card/40 overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-3 border-b border-white/5">
-            <h2 className="text-sm font-semibold flex items-center gap-2">
-              <Cpu className="h-4 w-4 text-teal-300" />
-              CPU Details
-            </h2>
-            <span className="text-xs text-muted-foreground font-mono tabular-nums">
+        <DetailPanel
+          icon={Cpu}
+          label="CPU Details"
+          right={
+            <span className="font-telemetry text-[11px] tabular-nums" style={{ color: "var(--console-muted)" }}>
               {fmt(cpu)}% · {cpuFreq > 0 ? `${Math.round(cpuFreq)} MHz` : "—"}
             </span>
-          </div>
-          <div className="p-5 space-y-3">
-            <div className="text-xs space-y-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Model</span>
-                <span className="font-mono truncate max-w-[60%] text-right">
-                  {sysInfo?.cpu_model || "—"}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Cores</span>
-                <span className="font-mono">
-                  {sysInfo?.cpu_cores_physical ?? "—"} physical ·{" "}
-                  {sysInfo?.cpu_cores_logical ?? "—"} logical
-                </span>
-              </div>
-              {sysInfo?.cpu_freq_max_mhz && (
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Max freq</span>
-                  <span className="font-mono">
-                    {Math.round(sysInfo.cpu_freq_max_mhz)} MHz
-                  </span>
-                </div>
-              )}
-              {sysInfo?.platform && (
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">OS</span>
-                  <span className="font-mono">{sysInfo.platform}</span>
-                </div>
-              )}
+          }
+        >
+          <div className="font-telemetry text-[11px] space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span style={{ color: "var(--console-muted)" }}>Model</span>
+              <span className="truncate max-w-[60%] text-right" style={{ color: "var(--console-text)" }}>
+                {sysInfo?.cpu_model || "—"}
+              </span>
             </div>
-
-            {/* Per-core mini bars */}
-            {cpuPerCore.length > 0 && (
-              <div className="pt-2">
-                <p className="text-[11px] text-muted-foreground mb-1.5 uppercase tracking-wider">
-                  Per-core usage
-                </p>
-                <div className="grid grid-cols-8 gap-1">
-                  {cpuPerCore.map((p, i) => {
-                    const t = tone(p);
-                    const bar =
-                      t === "rose"
-                        ? "bg-rose-400"
-                        : t === "amber"
-                          ? "bg-amber-400"
-                          : "bg-teal-400";
-                    return (
-                      <div key={i} className="flex flex-col items-center gap-0.5">
-                        <div className="h-10 w-full bg-white/5 rounded-sm overflow-hidden flex items-end">
-                          <div
-                            className={cn("w-full transition-all", bar)}
-                            style={{ height: `${Math.min(p, 100)}%` }}
-                          />
-                        </div>
-                        <span className="text-[9px] text-muted-foreground font-mono">
-                          {i}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
+            <div className="flex items-center justify-between">
+              <span style={{ color: "var(--console-muted)" }}>Cores</span>
+              <span style={{ color: "var(--console-text)" }}>
+                {sysInfo?.cpu_cores_physical ?? "—"} physical ·{" "}
+                {sysInfo?.cpu_cores_logical ?? "—"} logical
+              </span>
+            </div>
+            {sysInfo?.cpu_freq_max_mhz && (
+              <div className="flex items-center justify-between">
+                <span style={{ color: "var(--console-muted)" }}>Max freq</span>
+                <span style={{ color: "var(--console-text)" }}>
+                  {Math.round(sysInfo.cpu_freq_max_mhz)} MHz
+                </span>
+              </div>
+            )}
+            {sysInfo?.platform && (
+              <div className="flex items-center justify-between">
+                <span style={{ color: "var(--console-muted)" }}>OS</span>
+                <span style={{ color: "var(--console-text)" }}>{sysInfo.platform}</span>
               </div>
             )}
           </div>
-        </div>
+
+          {/* Per-core mini bars */}
+          {cpuPerCore.length > 0 && (
+            <div className="pt-2">
+              <p className="font-telemetry text-[10px] uppercase tracking-wider mb-1.5" style={{ color: "var(--console-muted)" }}>
+                Per-core usage
+              </p>
+              <div className="grid grid-cols-8 gap-1">
+                {cpuPerCore.map((p, i) => {
+                  const barColor = toneColor(p);
+                  return (
+                    <div key={i} className="flex flex-col items-center gap-0.5">
+                      <div
+                        className="h-10 w-full rounded-sm overflow-hidden flex items-end"
+                        style={{ background: "rgba(255,255,255,0.05)" }}
+                      >
+                        <div
+                          className="w-full transition-all"
+                          style={{ height: `${Math.min(p, 100)}%`, background: barColor }}
+                        />
+                      </div>
+                      <span className="font-telemetry text-[9px]" style={{ color: "var(--console-muted)" }}>
+                        {i}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </DetailPanel>
 
         {/* GPU detail */}
-        <div className="rounded-lg border border-border bg-card/40 overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-3 border-b border-white/5">
-            <h2 className="text-sm font-semibold flex items-center gap-2">
-              <Zap className="h-4 w-4 text-teal-300" />
-              GPU Details
-            </h2>
-            {sysInfo?.gpus?.length > 0 && (
-              <span className="text-xs text-muted-foreground font-mono tabular-nums">
+        <DetailPanel
+          icon={Zap}
+          label="GPU Details"
+          right={
+            sysInfo?.gpus?.length > 0 ? (
+              <span className="font-telemetry text-[11px] tabular-nums" style={{ color: "var(--console-muted)" }}>
                 {fmt(gpuPct)}%
               </span>
-            )}
-          </div>
-          <div className="p-5">
-            {!sysInfo?.gpus || sysInfo.gpus.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-6 text-center">
-                <MonitorCog className="h-8 w-8 text-muted-foreground/40 mb-2" />
-                <p className="text-sm text-muted-foreground">
-                  No GPU detected
-                </p>
-                <p className="text-[11px] text-muted-foreground/70 mt-1">
-                  NVIDIA driver + pynvml required
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {sysInfo.gpus.map((g) => (
-                  <div key={g.index} className="space-y-2">
-                    <div className="text-xs space-y-1.5">
+            ) : null
+          }
+        >
+          {!sysInfo?.gpus || sysInfo.gpus.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-6 text-center">
+              <MonitorCog className="h-8 w-8 mb-2 opacity-20" style={{ color: "var(--console-muted)" }} />
+              <p className="font-telemetry text-xs" style={{ color: "var(--console-muted)" }}>
+                No GPU detected
+              </p>
+              <p className="font-telemetry text-[10px] mt-1" style={{ color: "var(--console-muted)" }}>
+                NVIDIA driver + pynvml required
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {sysInfo.gpus.map((g) => (
+                <div key={g.index} className="space-y-2">
+                  <div className="font-telemetry text-[11px] space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span style={{ color: "var(--console-muted)" }}>Model</span>
+                      <span style={{ color: "var(--console-text)" }}>{g.name}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span style={{ color: "var(--console-muted)" }}>Memory</span>
+                      <span style={{ color: "var(--console-text)" }}>
+                        {fmt(gpuMemUsed)} / {fmt(g.memory_total_mb)} MB ({fmt(gpuMemPct)}%)
+                      </span>
+                    </div>
+                    {g.driver_version && (
                       <div className="flex items-center justify-between">
-                        <span className="text-muted-foreground">Model</span>
-                        <span className="font-mono">{g.name}</span>
+                        <span style={{ color: "var(--console-muted)" }}>Driver</span>
+                        <span style={{ color: "var(--console-text)" }}>{g.driver_version}</span>
                       </div>
+                    )}
+                    {gpuTemp > 0 && (
                       <div className="flex items-center justify-between">
-                        <span className="text-muted-foreground">Memory</span>
-                        <span className="font-mono">
-                          {fmt(gpuMemUsed)} / {fmt(g.memory_total_mb)} MB ({fmt(gpuMemPct)}%)
+                        <span className="flex items-center gap-1" style={{ color: "var(--console-muted)" }}>
+                          <Thermometer className="h-3 w-3" />
+                          Temp
+                        </span>
+                        <span
+                          style={{
+                            color: gpuTemp >= 85
+                              ? "var(--console-rec)"
+                              : gpuTemp >= 70
+                                ? "var(--console-alarm)"
+                                : "var(--console-text)",
+                          }}
+                        >
+                          {fmt(gpuTemp)}°C
                         </span>
                       </div>
-                      {g.driver_version && (
-                        <div className="flex items-center justify-between">
-                          <span className="text-muted-foreground">Driver</span>
-                          <span className="font-mono">{g.driver_version}</span>
-                        </div>
-                      )}
-                      {gpuTemp > 0 && (
-                        <div className="flex items-center justify-between">
-                          <span className="text-muted-foreground flex items-center gap-1">
-                            <Thermometer className="h-3 w-3" />
-                            Temp
-                          </span>
-                          <span
-                            className={cn(
-                              "font-mono",
-                              gpuTemp >= 85
-                                ? "text-rose-300"
-                                : gpuTemp >= 70
-                                  ? "text-amber-300"
-                                  : "",
-                            )}
-                          >
-                            {fmt(gpuTemp)}°C
-                          </span>
-                        </div>
-                      )}
-                    </div>
+                    )}
+                  </div>
 
-                    {/* GPU + VRAM bars */}
-                    <div className="pt-1 space-y-2">
-                      <div>
-                        <div className="flex items-center justify-between text-[11px] text-muted-foreground mb-1">
-                          <span>Utilization</span>
-                          <span className="font-mono">{fmt(gpuPct)}%</span>
-                        </div>
-                        <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
-                          <div
-                            className={cn(
-                              "h-full transition-all",
-                              gpuPct >= 85
-                                ? "bg-rose-400"
-                                : gpuPct >= 65
-                                  ? "bg-amber-400"
-                                  : "bg-teal-400",
-                            )}
-                            style={{ width: `${Math.min(gpuPct, 100)}%` }}
-                          />
-                        </div>
+                  {/* GPU + VRAM bars */}
+                  <div className="pt-1 space-y-2">
+                    <div>
+                      <div className="flex items-center justify-between font-telemetry text-[11px] mb-1" style={{ color: "var(--console-muted)" }}>
+                        <span>Utilization</span>
+                        <span>{fmt(gpuPct)}%</span>
                       </div>
-                      <div>
-                        <div className="flex items-center justify-between text-[11px] text-muted-foreground mb-1">
-                          <span>VRAM</span>
-                          <span className="font-mono">{fmt(gpuMemPct)}%</span>
-                        </div>
-                        <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
-                          <div
-                            className={cn(
-                              "h-full transition-all",
-                              gpuMemPct >= 85
-                                ? "bg-rose-400"
-                                : gpuMemPct >= 65
-                                  ? "bg-amber-400"
-                                  : "bg-blue-400",
-                            )}
-                            style={{ width: `${Math.min(gpuMemPct, 100)}%` }}
-                          />
-                        </div>
+                      <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.05)" }}>
+                        <div
+                          className="h-full transition-all"
+                          style={{ width: `${Math.min(gpuPct, 100)}%`, background: toneColor(gpuPct) }}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between font-telemetry text-[11px] mb-1" style={{ color: "var(--console-muted)" }}>
+                        <span>VRAM</span>
+                        <span>{fmt(gpuMemPct)}%</span>
+                      </div>
+                      <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.05)" }}>
+                        <div
+                          className="h-full transition-all"
+                          style={{ width: `${Math.min(gpuMemPct, 100)}%`, background: toneColor(gpuMemPct) }}
+                        />
                       </div>
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </DetailPanel>
       </div>
 
-      {/* History */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      {/* History sparklines */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <HistoryCard
           title="CPU (60 min)"
           history={history}
           accessor={(p) => p.cpu_percent ?? 0}
-          stroke="#14B8A6"
+          stroke="var(--console-accent)"
         />
         <HistoryCard
           title="Memory (60 min)"
           history={history}
           accessor={(p) => p.memory_percent ?? 0}
-          stroke="#3B82F6"
+          stroke="var(--console-accent-blue)"
         />
       </div>
 
       {/* Bandwidth */}
-      <div className="rounded-lg border border-border bg-card/40">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-white/5">
-          <h2 className="text-sm font-semibold flex items-center gap-2">
-            <Activity className="h-4 w-4 text-teal-300" />
-            Bandwidth per Camera
-          </h2>
-          <span className="text-xs text-muted-foreground">
-            {bandwidth.length} {bandwidth.length === 1 ? "camera" : "cameras"}
-          </span>
-        </div>
+      <div className="rounded border overflow-hidden" style={{ borderColor: "var(--console-border)" }}>
+        <SectionHeader
+          icon={Activity}
+          label="Bandwidth per Camera"
+          right={
+            <span className="font-telemetry text-[11px]" style={{ color: "var(--console-muted)" }}>
+              {bandwidth.length} {bandwidth.length === 1 ? "camera" : "cameras"}
+            </span>
+          }
+        />
         {bandwidth.length > 0 ? (
-          <ul className="divide-y divide-white/5">
-            {bandwidth.map((entry) => (
-              <li
-                key={entry.camera_id}
-                className="flex items-center justify-between px-5 py-2.5 text-sm"
-              >
-                <span className="font-mono text-xs text-zinc-300 truncate max-w-[60%]">
-                  {entry.camera_name || entry.camera_id}
-                </span>
-                <span className="text-muted-foreground font-mono tabular-nums">
-                  {fmt(entry.kbps ?? 0)} kbps
-                </span>
-              </li>
-            ))}
-          </ul>
+          <table className="w-full font-telemetry text-[11px]">
+            <tbody>
+              {bandwidth.map((entry) => (
+                <tr
+                  key={entry.camera_id}
+                  className="border-b last:border-0 hover:bg-white/5 transition-colors"
+                  style={{ borderColor: "var(--console-border)", background: "var(--console-panel)" }}
+                >
+                  <td className="px-4 py-2.5" style={{ color: "var(--console-text)" }}>
+                    {entry.camera_name || entry.camera_id}
+                  </td>
+                  <td className="px-4 py-2.5 text-right tabular-nums" style={{ color: "var(--console-muted)" }}>
+                    {fmt(entry.kbps ?? 0)} kbps
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         ) : (
-          <p className="px-5 py-6 text-sm text-muted-foreground">
+          <p className="px-4 py-6 font-telemetry text-xs" style={{ background: "var(--console-panel)", color: "var(--console-muted)" }}>
             No bandwidth data available
           </p>
         )}
@@ -746,25 +760,25 @@ const ResourcesPage = () => {
 
       {/* Storage Health — admin only */}
       {isAdmin && (
-        <div className="rounded-lg border border-border bg-card/40">
-          <div className="flex items-center justify-between px-5 py-3 border-b border-white/5">
-            <h2 className="text-sm font-semibold flex items-center gap-2">
-              <HardDrive className="h-4 w-4 text-teal-300" />
-              Storage Health
-            </h2>
-            <span className="text-xs text-muted-foreground">
-              {diskData?.disks?.length ?? 0}{" "}
-              {(diskData?.disks?.length ?? 0) === 1 ? "volume" : "volumes"}
-            </span>
-          </div>
+        <div className="rounded border overflow-hidden" style={{ borderColor: "var(--console-border)" }}>
+          <SectionHeader
+            icon={HardDrive}
+            label="Storage Health"
+            right={
+              <span className="font-telemetry text-[11px]" style={{ color: "var(--console-muted)" }}>
+                {diskData?.disks?.length ?? 0}{" "}
+                {(diskData?.disks?.length ?? 0) === 1 ? "volume" : "volumes"}
+              </span>
+            }
+          />
           {diskData?.disks?.length > 0 ? (
-            <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="p-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3" style={{ background: "var(--console-panel)" }}>
               {diskData.disks.map((disk, i) => (
                 <DiskCard key={`${disk.device}-${i}`} disk={disk} />
               ))}
             </div>
           ) : (
-            <p className="px-5 py-6 text-sm text-muted-foreground">
+            <p className="px-4 py-6 font-telemetry text-xs" style={{ background: "var(--console-panel)", color: "var(--console-muted)" }}>
               {diskData ? "No volumes found" : "Loading disk health…"}
             </p>
           )}
