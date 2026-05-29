@@ -187,3 +187,33 @@ code, pre, .font-mono {
   0%, 100% { transform: translate(0, 0) scale(1); }
   50%      { transform: translate(-4%, 3%) scale(1.05); }
 }
+
+/* ── Control-room console theme tokens ───────────────────────────── */
+:root {
+  --console-bg: #0b0f17;
+  --console-panel: #121821;
+  --console-raised: #161d29;
+  --console-border: #1e2530;
+  --console-text: #e2e8f0;
+  --console-muted: #94a3b8;
+  --console-accent: #14b8a6;
+  --console-accent-blue: #3b82f6;
+  --console-rec: #ef4444;
+  --console-alarm: #f59e0b;
+  --console-online: #22c55e;
+  --console-offline: #71717a;
+  --console-rail-w: 56px;
+  --console-tree-w: 260px;
+  --console-dock-w: 300px;
+  --console-header-h: 44px;
+  --console-statusbar-h: 28px;
+}
+
+/* Operational screens opt out of the aurora gradient via this class on
+   the shell root. */
+.console-root { background: var(--console-bg); color: var(--console-text); }
+.console-root .aurora { display: none; }
+
+.console-panel { background: var(--console-panel); border-color: var(--console-border); }
+.console-raised { background: var(--console-raised); }
+.font-telemetry { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
