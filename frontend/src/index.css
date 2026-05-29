@@ -190,12 +190,12 @@ code, pre, .font-mono {
 
 /* ── Control-room console theme tokens ───────────────────────────── */
 :root {
-  --console-bg: #0b0f17;
-  --console-panel: #121821;
-  --console-raised: #161d29;
-  --console-border: #1e2530;
+  --console-bg: #000000;
+  --console-panel: #0a0a0a;
+  --console-raised: #141414;
+  --console-border: #1f1f1f;
   --console-text: #e2e8f0;
-  --console-muted: #94a3b8;
+  --console-muted: #8a8f98;
   --console-accent: #14b8a6;
   --console-accent-blue: #3b82f6;
   --console-rec: #ef4444;
