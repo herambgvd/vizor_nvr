@@ -44,6 +44,19 @@ async def rotate_credentials(
     current_user = decrypt_value(camera.onvif_username) if camera.onvif_username else "admin"
     current_pass = decrypt_value(camera.onvif_password) if camera.onvif_password else ""
 
+    # RECOVERY PROCEDURE (partial-success failure scenario):
+    # If set_user_password succeeds on the camera but the DB commit below fails,
+    # the camera now uses new_pass but the NVR still stores the old encrypted
+    # password. The operator would be locked out of the camera via the NVR until
+    # the stored credential is corrected. Recovery steps:
+    #   1. Re-run POST /cameras/{id}/credentials/rotate with the SAME new_password
+    #      once connectivity is restored — set_user_password is idempotent and the
+    #      camera will accept the already-current password, letting the DB catch up.
+    #      OR manually correct the stored value:
+    #      UPDATE cameras SET onvif_password = '<encrypt(new_pass)>' WHERE id = '<camera_id>';
+    #   2. POST /cameras/{id}/audio/backchannel/recheck to clear the capability cache.
+    #   3. GET /cameras/{id}/onvif/probe to verify connectivity with the new credential.
+
     if dry_run:
         envelope_desc = {
             "soap_action": "http://www.onvif.org/ver10/device/wsdl/SetUser",
@@ -55,6 +68,10 @@ async def rotate_credentials(
             "new_password_length": len(new_pass),
             "user_level": "Administrator",
             "note": "dry_run=true — SOAP call was NOT sent. No camera change occurred.",
+            "recovery_hint": (
+                "If the live rotate succeeds on the camera but the NVR DB commit fails, "
+                "use the recovery steps documented in credentials_router.rotate_credentials."
+            ),
         }
         await write_audit(
             db, action="credentials_rotate_dry_run", user_id=user["id"], username=user["username"],

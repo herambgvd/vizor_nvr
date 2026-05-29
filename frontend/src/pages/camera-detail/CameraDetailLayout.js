@@ -82,18 +82,32 @@ const CameraDetailLayout = () => {
 
   if (isLoading) {
     return (
-      <div className="h-full flex items-center justify-center">
-        <RefreshCw className="h-6 w-6 text-muted-foreground animate-spin" />
+      <div
+        className="h-full flex items-center justify-center"
+        style={{ background: "var(--console-bg)" }}
+      >
+        <RefreshCw
+          className="h-6 w-6 animate-spin"
+          style={{ color: "var(--console-muted)" }}
+        />
       </div>
     );
   }
 
   if (!camera) {
     return (
-      <div className="h-full flex items-center justify-center">
+      <div
+        className="h-full flex items-center justify-center"
+        style={{ background: "var(--console-bg)" }}
+      >
         <div className="text-center">
-          <CameraIcon className="h-10 w-10 text-slate-300 mx-auto mb-3" />
-          <p className="text-muted-foreground mb-3">Camera not found</p>
+          <CameraIcon
+            className="h-10 w-10 mx-auto mb-3"
+            style={{ color: "var(--console-muted)" }}
+          />
+          <p className="mb-3" style={{ color: "var(--console-muted)" }}>
+            Camera not found
+          </p>
           <Button variant="outline" onClick={() => navigate("/cameras")}>
             Back to Cameras
           </Button>
@@ -105,38 +119,63 @@ const CameraDetailLayout = () => {
   const isActive = (sub) => location.pathname.endsWith(`/${sub}`);
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div
+      className="flex flex-col h-full overflow-hidden console-root"
+      style={{ background: "var(--console-bg)" }}
+    >
       {/* Compact header */}
-      <header className="flex-shrink-0 flex items-center gap-3 px-4 md:px-6 h-14 border-b border-border bg-card/30">
+      <header
+        className="flex-shrink-0 flex items-center gap-3 px-4 md:px-6 h-11 border-b console-panel"
+        style={{ borderColor: "var(--console-border)" }}
+      >
         <Button
           variant="ghost"
           size="icon"
-          className="h-8 w-8 -ml-2"
+          className="h-7 w-7 -ml-2 text-zinc-400 hover:text-white"
           onClick={() => navigate("/cameras")}
         >
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div className="flex items-center gap-2 min-w-0 flex-1">
-          <h1 className="text-base md:text-lg font-semibold truncate">
+          <h1
+            className="text-sm font-semibold truncate"
+            style={{ color: "var(--console-text)" }}
+          >
             {camera.name}
           </h1>
           <StatusBadge status={camera.status} />
           {camera.is_recording && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-rose-500/15 text-rose-300 border border-rose-500/30">
-              <span className="h-1.5 w-1.5 rounded-full bg-rose-500 animate-pulse" />
+            <span
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-telemetry uppercase tracking-wide border"
+              style={{
+                background: "rgba(239,68,68,0.12)",
+                color: "var(--console-rec)",
+                borderColor: "rgba(239,68,68,0.3)",
+              }}
+            >
+              <span
+                className="h-1.5 w-1.5 rounded-full animate-pulse"
+                style={{ background: "var(--console-rec)" }}
+              />
               REC
             </span>
           )}
           <HealthPill data={health} />
         </div>
-        <span className="hidden md:inline text-xs text-muted-foreground font-mono truncate max-w-[28ch]">
+        <span
+          className="hidden md:inline text-xs font-telemetry truncate max-w-[28ch]"
+          style={{ color: "var(--console-muted)" }}
+        >
           {maskStreamUrl(camera.main_stream_url)}
         </span>
       </header>
 
       {/* Body: left nav + content */}
       <div className="flex-1 min-h-0 flex">
-        <aside className="w-[220px] flex-shrink-0 border-r border-border bg-card/30 hidden md:flex flex-col py-2">
+        <aside
+          className="w-[200px] flex-shrink-0 border-r console-panel hidden md:flex flex-col py-2"
+          style={{ borderColor: "var(--console-border)" }}
+        >
           {NAV.map((item) => {
             const Icon = item.icon;
             const active = isActive(item.path);
@@ -144,17 +183,22 @@ const CameraDetailLayout = () => {
               <Link
                 key={item.path}
                 to={item.path}
-                className={cn(
-                  "group relative flex items-center gap-2 px-4 py-2.5 text-sm transition-colors",
-                  active
-                    ? "text-white bg-card"
-                    : "text-zinc-400 hover:text-white hover:bg-card/60",
-                )}
+                className="group relative flex items-center gap-2.5 px-4 py-2.5 text-xs font-telemetry uppercase tracking-wide transition-colors"
+                style={{
+                  color: active ? "var(--console-text)" : "var(--console-muted)",
+                  background: active ? "var(--console-raised)" : "transparent",
+                }}
               >
                 {active && (
-                  <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-[3px] rounded-r-full bg-gradient-to-b from-teal-400 to-blue-400" />
+                  <span
+                    className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-[3px] rounded-r-full"
+                    style={{ background: "var(--console-accent)" }}
+                  />
                 )}
-                <Icon className="h-4 w-4 shrink-0" />
+                <Icon
+                  className="h-4 w-4 shrink-0"
+                  style={active ? { color: "var(--console-accent)" } : undefined}
+                />
                 <span>{item.label}</span>
               </Link>
             );
@@ -162,7 +206,10 @@ const CameraDetailLayout = () => {
         </aside>
 
         {/* Mobile horizontal nav */}
-        <div className="md:hidden flex-shrink-0 fixed top-14 left-0 right-0 z-10 bg-card/95 backdrop-blur-xl border-b border-border overflow-x-auto">
+        <div
+          className="md:hidden flex-shrink-0 fixed top-11 left-0 right-0 z-10 backdrop-blur-xl border-b console-panel overflow-x-auto"
+          style={{ borderColor: "var(--console-border)" }}
+        >
           <div className="flex gap-1 px-2 py-1.5">
             {NAV.map((item) => {
               const Icon = item.icon;
@@ -171,12 +218,11 @@ const CameraDetailLayout = () => {
                 <Link
                   key={item.path}
                   to={item.path}
-                  className={cn(
-                    "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors",
-                    active
-                      ? "bg-card text-white"
-                      : "text-zinc-400 hover:text-white hover:bg-card/60",
-                  )}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-telemetry uppercase tracking-wide whitespace-nowrap transition-colors"
+                  style={{
+                    color: active ? "#06231f" : "var(--console-muted)",
+                    background: active ? "var(--console-accent)" : "transparent",
+                  }}
                 >
                   <Icon className="h-3.5 w-3.5" />
                   {item.label}
@@ -186,7 +232,10 @@ const CameraDetailLayout = () => {
           </div>
         </div>
 
-        <main className="flex-1 min-w-0 overflow-y-auto pt-16 md:pt-0">
+        <main
+          className="flex-1 min-w-0 overflow-y-auto pt-14 md:pt-0"
+          style={{ background: "var(--console-bg)" }}
+        >
           <Outlet context={{ camera, cameraId }} />
         </main>
       </div>

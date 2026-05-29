@@ -27,8 +27,8 @@ import { PTZControls } from "../../components/nvr/PTZControls";
 import { Button } from "../../components/ui/button";
 
 const InfoCard = ({ label, value }) => (
-  <div className="rounded-lg border border-border bg-card/40 px-3 py-2.5">
-    <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
+  <div className="rounded-lg border border-[#1f1f1f] bg-[#141414] px-3 py-2.5">
+    <p className="text-[11px] uppercase tracking-wider text-[#8a8f98]">
       {label}
     </p>
     <p className="text-sm font-medium text-white truncate mt-0.5">{value}</p>

@@ -49,7 +49,7 @@ const FirmwareCard = ({ cameraId, firmwareVersion }) => {
       </CardHeader>
       <CardContent className="space-y-3">
         {firmwareVersion && (
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-[#8a8f98]">
             Current firmware: <span className="font-mono">{firmwareVersion}</span>
           </p>
         )}
@@ -125,8 +125,8 @@ const CredentialCard = ({ cameraId, username }) => {
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="space-y-1">
-          <Label className="text-xs text-muted-foreground">Username</Label>
-          <Input value={username || "admin"} readOnly className="bg-muted/30" />
+          <Label className="text-xs text-[#8a8f98]">Username</Label>
+          <Input value={username || "admin"} readOnly className="bg-[#141414]/30" />
         </div>
         <div className="space-y-1">
           <Label className="text-xs">New Password</Label>
@@ -204,7 +204,7 @@ const BandwidthPolicyCard = ({ cameraId }) => {
   }
 
   return (
-    <div className="bg-card border border-border rounded-lg p-6 space-y-5">
+    <div className="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-6 space-y-5">
       <div className="flex items-center gap-2">
         <Network className="h-5 w-5 text-zinc-400" />
         <h2 className="text-base font-semibold text-white">Bandwidth Policy</h2>
@@ -219,7 +219,7 @@ const BandwidthPolicyCard = ({ cameraId }) => {
             min={0}
             value={eff_limit}
             onChange={(e) => setLimitKbps(Number(e.target.value))}
-            className="w-full px-3 py-2 text-sm bg-zinc-900 border border-border rounded-md text-zinc-200"
+            className="w-full px-3 py-2 text-sm bg-zinc-900 border border-[#1f1f1f] rounded-md text-zinc-200"
             placeholder="e.g. 4096"
           />
         </div>
@@ -233,7 +233,7 @@ const BandwidthPolicyCard = ({ cameraId }) => {
             max={100}
             value={eff_pct}
             onChange={(e) => setThresholdPct(Number(e.target.value))}
-            className="w-full px-3 py-2 text-sm bg-zinc-900 border border-border rounded-md text-zinc-200"
+            className="w-full px-3 py-2 text-sm bg-zinc-900 border border-[#1f1f1f] rounded-md text-zinc-200"
             placeholder="80"
           />
         </div>
@@ -337,7 +337,7 @@ const AnrSettingsCard = ({ cameraId, camera }) => {
         <div className="flex items-center justify-between">
           <div className="space-y-0.5">
             <Label className="text-sm font-medium">Enable ANR</Label>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-[#8a8f98]">
               Automatically backfill recording gaps from camera local storage after network outages
             </p>
           </div>
@@ -363,7 +363,7 @@ const AnrSettingsCard = ({ cameraId, camera }) => {
           <>
             {/* Max Gap Hours */}
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Maximum gap to backfill (hours)</Label>
+              <Label className="text-xs text-[#8a8f98]">Maximum gap to backfill (hours)</Label>
               <div className="flex items-center gap-2">
                 <Input
                   type="number"
@@ -387,7 +387,7 @@ const AnrSettingsCard = ({ cameraId, camera }) => {
             </div>
 
             {/* Status + Trigger */}
-            <div className="bg-card/60 border border-border rounded-lg p-3 space-y-3">
+            <div className="bg-[#141414] border border-[#1f1f1f] rounded-lg p-3 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <StatusIcon className={`h-4 w-4 ${statusColor} ${status === "downloading" ? "animate-spin" : ""}`} />
@@ -405,14 +405,14 @@ const AnrSettingsCard = ({ cameraId, camera }) => {
               </div>
 
               {anrStatus?.anr_last_run_at && (
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-[#8a8f98]">
                   Last run: {new Date(anrStatus.anr_last_run_at).toLocaleString()}
                 </p>
               )}
 
               {anrStatus?.job && (
-                <div className="text-xs space-y-1 border-t border-border pt-2">
-                  <p className="text-muted-foreground">Active job</p>
+                <div className="text-xs space-y-1 border-t border-[#1f1f1f] pt-2">
+                  <p className="text-[#8a8f98]">Active job</p>
                   <div className="grid grid-cols-3 gap-2">
                     <div className="text-zinc-400">Found: <span className="text-zinc-200">{anrStatus.job.segments_found}</span></div>
                     <div className="text-zinc-400">Downloaded: <span className="text-teal-400">{anrStatus.job.segments_downloaded}</span></div>
@@ -428,12 +428,12 @@ const AnrSettingsCard = ({ cameraId, camera }) => {
             {/* Recent Jobs */}
             {anrJobs && anrJobs.length > 0 && (
               <div className="space-y-2">
-                <Label className="text-xs text-muted-foreground">Recent backfill jobs</Label>
+                <Label className="text-xs text-[#8a8f98]">Recent backfill jobs</Label>
                 <div className="space-y-1.5 max-h-48 overflow-y-auto">
                   {anrJobs.map((job) => (
                     <div
                       key={job.id}
-                      className="flex items-center justify-between text-xs px-2 py-1.5 rounded bg-card/40 border border-border"
+                      className="flex items-center justify-between text-xs px-2 py-1.5 rounded bg-[#141414] border border-[#1f1f1f]"
                     >
                       <div className="flex items-center gap-2 min-w-0">
                         {(ANR_STATUS_ICONS[job.status] || Clock) && (
@@ -498,7 +498,7 @@ const SubStreamRecordingCard = ({ cameraId, camera }) => {
             <Label className="text-sm font-medium">
               Record from sub-stream
             </Label>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-[#8a8f98]">
               Lower quality (~480p) but ~80% less storage write rate. Best for
               non-evidence cameras.
             </p>
@@ -560,7 +560,7 @@ const PosOverlayCard = ({ cameraId, camera }) => {
         <div className="flex items-center justify-between">
           <div className="space-y-0.5">
             <Label className="text-sm font-medium">Enable Overlay</Label>
-            <p className="text-xs text-muted-foreground">Burn POS/ATM transaction text onto recordings</p>
+            <p className="text-xs text-[#8a8f98]">Burn POS/ATM transaction text onto recordings</p>
           </div>
           <button
             type="button" role="switch" aria-checked={enabled}
@@ -574,21 +574,21 @@ const PosOverlayCard = ({ cameraId, camera }) => {
         {enabled && (
           <>
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Text Style (FFmpeg drawtext opts)</Label>
+              <Label className="text-xs text-[#8a8f98]">Text Style (FFmpeg drawtext opts)</Label>
               <Input
                 value={config.text_style || "fontsize=24:fontcolor=white@0.9:box=1:boxcolor=black@0.5"}
                 onChange={(e) => update({ ...config, text_style: e.target.value })}
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Position (x=y=...)</Label>
+              <Label className="text-xs text-[#8a8f98]">Position (x=y=...)</Label>
               <Input
                 value={config.position || "x=10:y=10"}
                 onChange={(e) => update({ ...config, position: e.target.value })}
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Test Text</Label>
+              <Label className="text-xs text-[#8a8f98]">Test Text</Label>
               <div className="flex gap-2">
                 <Input value={text} onChange={(e) => setText(e.target.value)} />
                 <Button size="sm" onClick={() => apiClient.post(`/pos-overlay/${cameraId}`, { text }).then(() => toast.success("Sent")).catch(() => toast.error("Failed"))}>
@@ -641,7 +641,7 @@ const DewarpCard = ({ cameraId, camera }) => {
         <div className="flex items-center justify-between">
           <div className="space-y-0.5">
             <Label className="text-sm font-medium">Enable Dewarp</Label>
-            <p className="text-xs text-muted-foreground">Convert fisheye/360° stream to rectilinear view</p>
+            <p className="text-xs text-[#8a8f98]">Convert fisheye/360° stream to rectilinear view</p>
           </div>
           <button
             type="button" role="switch" aria-checked={enabled}
@@ -655,9 +655,9 @@ const DewarpCard = ({ cameraId, camera }) => {
         {enabled && (
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Mount mode</Label>
+              <Label className="text-xs text-[#8a8f98]">Mount mode</Label>
               <select
-                className="w-full h-9 px-2 text-sm bg-zinc-900 border border-border rounded-md"
+                className="w-full h-9 px-2 text-sm bg-zinc-900 border border-[#1f1f1f] rounded-md"
                 value={config.mount_mode || "ceiling"}
                 onChange={(e) => update({ ...config, mount_mode: e.target.value })}
               >
@@ -665,9 +665,9 @@ const DewarpCard = ({ cameraId, camera }) => {
               </select>
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">View mode</Label>
+              <Label className="text-xs text-[#8a8f98]">View mode</Label>
               <select
-                className="w-full h-9 px-2 text-sm bg-zinc-900 border border-border rounded-md"
+                className="w-full h-9 px-2 text-sm bg-zinc-900 border border-[#1f1f1f] rounded-md"
                 value={config.view_mode || "panoramic"}
                 onChange={(e) => update({ ...config, view_mode: e.target.value })}
               >
@@ -675,11 +675,11 @@ const DewarpCard = ({ cameraId, camera }) => {
               </select>
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">FOV X (°)</Label>
+              <Label className="text-xs text-[#8a8f98]">FOV X (°)</Label>
               <Input type="number" value={config.fov_x || 90} onChange={(e) => update({ ...config, fov_x: Number(e.target.value) })} />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">FOV Y (°)</Label>
+              <Label className="text-xs text-[#8a8f98]">FOV Y (°)</Label>
               <Input type="number" value={config.fov_y || 60} onChange={(e) => update({ ...config, fov_y: Number(e.target.value) })} />
             </div>
           </div>
@@ -702,8 +702,8 @@ const SettingsPage = () => {
   if (!canManage) {
     return (
       <div className="p-6 text-center">
-        <SlidersHorizontal className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
-        <p className="text-muted-foreground">
+        <SlidersHorizontal className="h-10 w-10 text-[#8a8f98] mx-auto mb-3" />
+        <p className="text-[#8a8f98]">
           You don't have permission to configure cameras.
         </p>
       </div>
@@ -716,14 +716,14 @@ const SettingsPage = () => {
 
       {/* PTZ Tour — visible only if camera has PTZ */}
       {camera?.ptz_capable && (
-        <div className="border-t border-border pt-6">
+        <div className="border-t border-[#1f1f1f] pt-6">
           <PtzTourPanel cameraId={cameraId} ptzCapable={camera.ptz_capable} />
         </div>
       )}
 
       {/* Admin-only: Firmware + Credentials */}
       {isAdmin && camera?.onvif_host && (
-        <div className="border-t border-border pt-6 grid gap-4 md:grid-cols-2">
+        <div className="border-t border-[#1f1f1f] pt-6 grid gap-4 md:grid-cols-2">
           <FirmwareCard
             cameraId={cameraId}
             firmwareVersion={camera?.firmware}
@@ -735,34 +735,34 @@ const SettingsPage = () => {
         </div>
       )}
 
-      <div className="border-t border-border pt-6">
+      <div className="border-t border-[#1f1f1f] pt-6">
         <LinkageRuleBuilder />
       </div>
 
       {/* ANR Settings */}
-      <div className="border-t border-border pt-6">
+      <div className="border-t border-[#1f1f1f] pt-6">
         <AnrSettingsCard cameraId={cameraId} camera={camera} />
       </div>
 
       {/* Storage Optimization — N5 sub-stream recording */}
       {camera?.sub_stream_url && (
-        <div className="border-t border-border pt-6">
+        <div className="border-t border-[#1f1f1f] pt-6">
           <SubStreamRecordingCard cameraId={cameraId} camera={camera} />
         </div>
       )}
 
       {/* POS Overlay */}
-      <div className="border-t border-border pt-6">
+      <div className="border-t border-[#1f1f1f] pt-6">
         <PosOverlayCard cameraId={cameraId} camera={camera} />
       </div>
 
       {/* Fisheye Dewarp */}
-      <div className="border-t border-border pt-6">
+      <div className="border-t border-[#1f1f1f] pt-6">
         <DewarpCard cameraId={cameraId} camera={camera} />
       </div>
 
       {/* Bandwidth Policy — D2 */}
-      <div className="border-t border-border pt-6">
+      <div className="border-t border-[#1f1f1f] pt-6">
         <BandwidthPolicyCard cameraId={cameraId} />
       </div>
     </div>

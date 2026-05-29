@@ -113,7 +113,7 @@ const SnapshotsPage = () => {
       onKeyDown={handleKeyDown}
     >
       {/* ── Config card ── */}
-      <div className="bg-card border border-border rounded-lg p-6 space-y-5">
+      <div className="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-6 space-y-5">
         <div className="flex items-center gap-2 mb-1">
           <Camera className="h-5 w-5 text-zinc-400" />
           <h2 className="text-base font-semibold text-white">Snapshot Schedule</h2>
@@ -157,7 +157,7 @@ const SnapshotsPage = () => {
                     className={`px-3 py-1.5 text-xs rounded-md border transition-colors ${
                       eff_interval === p.value
                         ? "border-teal-500 bg-teal-500/10 text-teal-300"
-                        : "border-border text-zinc-400 hover:border-zinc-500"
+                        : "border-[#1f1f1f] text-zinc-400 hover:border-zinc-500"
                     }`}
                   >
                     {p.label}
@@ -168,7 +168,7 @@ const SnapshotsPage = () => {
                   min={5}
                   value={eff_interval}
                   onChange={(e) => setIntervalSec(Number(e.target.value))}
-                  className="w-24 px-2 py-1 text-xs bg-zinc-900 border border-border rounded-md text-zinc-200"
+                  className="w-24 px-2 py-1 text-xs bg-zinc-900 border border-[#1f1f1f] rounded-md text-zinc-200"
                   placeholder="Custom (s)"
                 />
               </div>
@@ -184,7 +184,7 @@ const SnapshotsPage = () => {
                 min={1}
                 value={eff_retention}
                 onChange={(e) => setRetentionDays(e.target.value)}
-                className="w-32 px-3 py-2 text-sm bg-zinc-900 border border-border rounded-md text-zinc-200"
+                className="w-32 px-3 py-2 text-sm bg-zinc-900 border border-[#1f1f1f] rounded-md text-zinc-200"
                 placeholder="e.g. 7"
               />
             </div>
@@ -205,7 +205,7 @@ const SnapshotsPage = () => {
       </div>
 
       {/* ── Gallery ── */}
-      <div className="bg-card border border-border rounded-lg p-6 space-y-5">
+      <div className="bg-[#0a0a0a] border border-[#1f1f1f] rounded-lg p-6 space-y-5">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-2">
             <Calendar className="h-5 w-5 text-zinc-400" />
@@ -230,14 +230,14 @@ const SnapshotsPage = () => {
             type="datetime-local"
             value={fromDt.slice(0, 16)}
             onChange={(e) => setFromDt(new Date(e.target.value).toISOString())}
-            className="px-2 py-1 bg-zinc-900 border border-border rounded-md text-zinc-200 text-xs"
+            className="px-2 py-1 bg-zinc-900 border border-[#1f1f1f] rounded-md text-zinc-200 text-xs"
           />
           <span className="text-zinc-400">To</span>
           <input
             type="datetime-local"
             value={toDt.slice(0, 16)}
             onChange={(e) => setToDt(new Date(e.target.value).toISOString())}
-            className="px-2 py-1 bg-zinc-900 border border-border rounded-md text-zinc-200 text-xs"
+            className="px-2 py-1 bg-zinc-900 border border-[#1f1f1f] rounded-md text-zinc-200 text-xs"
           />
           <Button
             variant="outline"
@@ -252,13 +252,13 @@ const SnapshotsPage = () => {
         </div>
 
         {snaps.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-4 text-center">
+          <p className="text-sm text-[#8a8f98] py-4 text-center">
             No snapshots found in selected range.
           </p>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
             {snaps.map((snap, idx) => (
-              <div key={snap.url} className="relative group rounded-md overflow-hidden border border-border hover:border-teal-500/60 transition-colors aspect-video">
+              <div key={snap.url} className="relative group rounded-md overflow-hidden border border-[#1f1f1f] hover:border-teal-500/60 transition-colors aspect-video">
                 <button className="w-full h-full" onClick={() => openLightbox(idx)}>
                   <img
                     src={getImgSrc(snap.url)}
@@ -321,7 +321,7 @@ const SnapshotsPage = () => {
               </p>
               <button
                 onClick={() => { setAnnotatorUrl(snaps[lightboxIdx].url); closeLightbox(); }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border border-border text-zinc-300 hover:bg-card/60 transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border border-[#1f1f1f] text-zinc-300 hover:bg-[#141414] transition-colors"
               >
                 <Pencil className="h-3.5 w-3.5" />
                 Annotate
