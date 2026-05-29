@@ -372,7 +372,15 @@ async def get_camera(
     camera = await svc.get_by_id(db, camera_id)
     if not camera:
         raise HTTPException(404, "Camera not found")
-    return CameraResponse(**svc.to_response(camera))
+    # Patch live recording status from FFmpeg manager so the detail view
+    # matches the list view (and the global REC counter). The DB
+    # `is_recording` flag can be stale — set when "start recording" was
+    # issued — while FFmpeg may not actually be running (e.g. the stream
+    # failed). The live process state is the real source of truth.
+    from app.services.ffmpeg_manager import ffmpeg_manager
+    return CameraResponse(
+        **{**svc.to_response(camera), "is_recording": ffmpeg_manager.is_recording(camera.id)}
+    )
 
 
 @router.post("", response_model=CameraResponse, status_code=201)
