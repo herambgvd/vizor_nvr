@@ -96,9 +96,21 @@ const RecordingModeTab = ({ camera, cameraId }) => {
  * Props:
  *   - cameraId: string (required)
  *   - snapshotUrl?: string (optional camera snapshot for overlays)
+ *   - activeTab?: string  — when provided, the panel is *controlled* by the
+ *       parent (one of recording|motion|privacy|schedule) and renders only that
+ *       section. Used when the parent flattens these into its own tab bar.
+ *   - showChrome?: boolean (default true) — render the heading + internal tab
+ *       bar. Set false when the parent already provides tab navigation.
  */
-export const CameraSettingsPanel = ({ cameraId, snapshotUrl }) => {
-  const [tab, setTab] = useState("recording");
+export const CameraSettingsPanel = ({
+  cameraId,
+  snapshotUrl,
+  activeTab,
+  showChrome = true,
+}) => {
+  const [internalTab, setInternalTab] = useState("recording");
+  const tab = activeTab ?? internalTab;
+  const setTab = setInternalTab;
   const qc = useQueryClient();
 
   const { data: camera } = useQuery({
@@ -124,34 +136,38 @@ export const CameraSettingsPanel = ({ cameraId, snapshotUrl }) => {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2 mb-2">
-        <Settings2 className="h-5 w-5" />
-        <h2 className="font-semibold text-lg">
-          {camera?.name || "Camera"} — Advanced Settings
-        </h2>
-      </div>
+      {showChrome && (
+        <>
+          <div className="flex items-center gap-2 mb-2">
+            <Settings2 className="h-5 w-5" />
+            <h2 className="font-semibold text-lg">
+              {camera?.name || "Camera"} — Advanced Settings
+            </h2>
+          </div>
 
-      {/* Tab bar */}
-      <div className="flex gap-1 border-b">
-        {TABS.map(({ key, label, icon: Icon }) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setTab(key)}
-            className={`flex items-center gap-1.5 px-3 py-2 text-sm border-b-2 transition-colors ${
-              tab === key
-                ? "border-primary text-primary font-medium"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Icon className="h-4 w-4" />
-            {label}
-          </button>
-        ))}
-      </div>
+          {/* Tab bar */}
+          <div className="flex gap-1 border-b">
+            {TABS.map(({ key, label, icon: Icon }) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setTab(key)}
+                className={`flex items-center gap-1.5 px-3 py-2 text-sm border-b-2 transition-colors ${
+                  tab === key
+                    ? "border-primary text-primary font-medium"
+                    : "border-transparent text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Icon className="h-4 w-4" />
+                {label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
 
       {/* Tab content */}
-      <div className="pt-2">
+      <div className={showChrome ? "pt-2" : ""}>
         {tab === "recording" && (
           <RecordingModeTab camera={camera} cameraId={cameraId} />
         )}

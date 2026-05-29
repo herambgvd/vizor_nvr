@@ -4,7 +4,7 @@
 
 import React, { useState } from "react";
 import { useOutletContext } from "react-router-dom";
-import { SlidersHorizontal, Upload, KeyRound, Loader2, Network, Save, RefreshCw as RefreshCwIcon, HardDrive, DownloadCloud, Clock, AlertCircle, CheckCircle2, Search, XCircle, Receipt, Globe } from "lucide-react";
+import { SlidersHorizontal, Upload, KeyRound, Loader2, Network, Save, RefreshCw as RefreshCwIcon, HardDrive, DownloadCloud, Clock, AlertCircle, CheckCircle2, Search, XCircle, Receipt, Globe, Video, Activity, EyeOff, Move3d } from "lucide-react";
 import { toast } from "sonner";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getBandwidthPolicy, updateBandwidthPolicy } from "../../api/monitoring";
@@ -694,7 +694,7 @@ const DewarpCard = ({ cameraId, camera }) => {
 const SettingsPage = () => {
   const { camera, cameraId } = useOutletContext();
   const { canManage, isAdmin } = usePermissions();
-  const [activeTab, setActiveTab] = useState("capture");
+  const [activeTab, setActiveTab] = useState("recording");
 
   const GO2RTC_URL =
     process.env.REACT_APP_GO2RTC_URL || "/go2rtc";
@@ -714,18 +714,26 @@ const SettingsPage = () => {
   // Admin tab only relevant for ONVIF cameras the user can administer.
   const adminCamOk = isAdmin && camera?.onvif_host;
 
-  // Group settings into top-level tabs so each view fits without scrolling.
+  // A single, flat tab bar — no nested submenus. Each tab maps to one view that
+  // fits without scrolling. The capture-related tabs (recording/motion/privacy/
+  // schedule) drive CameraSettingsPanel directly via its controlled `activeTab`.
   const TAB_DEFS = [
-    { key: "capture", label: "Capture", icon: SlidersHorizontal },
+    { key: "recording", label: "Recording", icon: Video },
+    { key: "motion", label: "Motion", icon: Activity },
+    { key: "privacy", label: "Privacy", icon: EyeOff },
+    { key: "schedule", label: "Schedule", icon: Clock },
+    ...(camera?.ptz_capable ? [{ key: "ptz", label: "PTZ", icon: Move3d }] : []),
     { key: "storage", label: "Storage", icon: HardDrive },
     { key: "advanced", label: "Advanced", icon: Network },
     ...(adminCamOk ? [{ key: "admin", label: "Admin", icon: KeyRound }] : []),
   ];
 
-  // Guard against a stale active tab (e.g. Admin selected then camera changes).
+  // Guard against a stale active tab (e.g. PTZ selected then camera changes).
   const currentTab = TAB_DEFS.some((t) => t.key === activeTab)
     ? activeTab
-    : "capture";
+    : "recording";
+
+  const CAPTURE_TABS = ["recording", "motion", "privacy", "schedule"];
 
   return (
     <div className="p-4 md:p-6 max-w-5xl">
@@ -748,14 +756,19 @@ const SettingsPage = () => {
         ))}
       </div>
 
-      {/* Capture — recording mode, motion/privacy/schedule, PTZ tour */}
-      {currentTab === "capture" && (
-        <div className="space-y-6">
-          <CameraSettingsPanel cameraId={cameraId} snapshotUrl={snapshotUrl} />
-          {camera?.ptz_capable && (
-            <PtzTourPanel cameraId={cameraId} ptzCapable={camera.ptz_capable} />
-          )}
-        </div>
+      {/* Capture — recording mode, motion, privacy, schedule (flattened tabs) */}
+      {CAPTURE_TABS.includes(currentTab) && (
+        <CameraSettingsPanel
+          cameraId={cameraId}
+          snapshotUrl={snapshotUrl}
+          activeTab={currentTab}
+          showChrome={false}
+        />
+      )}
+
+      {/* PTZ tour presets */}
+      {currentTab === "ptz" && camera?.ptz_capable && (
+        <PtzTourPanel cameraId={cameraId} ptzCapable={camera.ptz_capable} />
       )}
 
       {/* Storage — sub-stream, ANR backfill, bandwidth policy */}
