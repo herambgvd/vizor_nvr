@@ -3,8 +3,7 @@
 # =============================================================================
 # Run `make help` for the full list.
 #
-# On Windows use bin\nvr.ps1 (PowerShell) or bin\nvr.cmd (cmd.exe) instead.
-# See docs/INSTALL_WINDOWS.md for setup instructions.
+# See docs/INSTALL_LINUX.md for setup instructions.
 
 COMPOSE_FILES_PROD = -f docker-compose.yml
 COMPOSE_FILES_DEV  = -f docker-compose.yml -f docker-compose.dev.yml
