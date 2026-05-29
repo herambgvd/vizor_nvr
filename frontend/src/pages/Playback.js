@@ -76,7 +76,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover";
-import { cn } from "../lib/utils";
+import { cn, getErrorMessage } from "../lib/utils";
 import { toast } from "sonner";
 
 const Playback = () => {
@@ -202,7 +202,7 @@ const Playback = () => {
   const bookmarkMutation = useMutation({
     mutationFn: (data) => createBookmark(data),
     onSuccess: () => toast.success("Bookmark saved"),
-    onError: (e) => toast.error(e.response?.data?.detail || "Bookmark failed"),
+    onError: (e) => toast.error(getErrorMessage(e, "Bookmark failed")),
   });
 
   const handleBookmark = useCallback(

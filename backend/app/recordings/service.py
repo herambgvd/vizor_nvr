@@ -258,6 +258,19 @@ class RecordingService:
         import uuid
         from sqlalchemy import text
 
+        # The recordings.start_time / end_time columns are TIMESTAMP WITHOUT
+        # TIME ZONE (naive). asyncpg raises a DataError ("can't subtract
+        # offset-naive and offset-aware datetimes") if handed a tz-aware value.
+        # Callers pass UTC-aware datetimes by convention, so normalize to naive
+        # UTC here — the single chokepoint for every segment insert.
+        def _to_naive_utc(dt: Optional[datetime]) -> Optional[datetime]:
+            if dt is not None and dt.tzinfo is not None:
+                return dt.astimezone(timezone.utc).replace(tzinfo=None)
+            return dt
+
+        start_time = _to_naive_utc(start_time)
+        end_time = _to_naive_utc(end_time)
+
         rec_id = str(uuid.uuid4())
         await db.execute(
             text("""

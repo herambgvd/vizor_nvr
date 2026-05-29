@@ -37,6 +37,7 @@ export default function PlaybackConsole() {
   const [searchParams] = useSearchParams();
   const cellRefs = useRef({});
   const syncIntervalRef = useRef(null);
+  const dateInputRef = useRef(null);
 
   // Seed selection from ?camera=<id> once if the review set is empty.
   const seededRef = useRef(false);
@@ -209,16 +210,32 @@ export default function PlaybackConsole() {
         <button className="p-1 rounded hover:bg-white/5" title="Previous day" onClick={() => shiftDate(1)}>
           <ChevronLeft className="h-4 w-4" style={{ color: "var(--console-muted)" }} />
         </button>
-        <span className="inline-flex items-center gap-1 text-xs font-telemetry" style={{ color: "var(--console-text)" }}>
+        {/* Single themed date control. Clicking opens the native date picker
+            (kept in a visually-hidden input) so we don't render the unstyled
+            native date widget twice in the toolbar. */}
+        <button
+          type="button"
+          title="Pick a date"
+          onClick={() => {
+            const el = dateInputRef.current;
+            if (!el) return;
+            if (typeof el.showPicker === "function") el.showPicker();
+            else el.click();
+          }}
+          className="inline-flex items-center gap-1 text-xs font-telemetry px-1.5 py-0.5 rounded hover:bg-white/5"
+          style={{ color: "var(--console-text)" }}
+        >
           <Calendar className="h-3.5 w-3.5" /> {date}
-        </span>
+        </button>
         <input
+          ref={dateInputRef}
           type="date"
           value={date}
           max={format(new Date(), "yyyy-MM-dd")}
           onChange={(e) => setDate(e.target.value)}
-          className="bg-transparent text-xs px-1 py-0.5 rounded border"
-          style={{ borderColor: "var(--console-border)", color: "var(--console-text)" }}
+          className="sr-only"
+          tabIndex={-1}
+          aria-hidden="true"
         />
         <button className="p-1 rounded hover:bg-white/5" title="Next day" onClick={() => shiftDate(-1)}>
           <ChevronRight className="h-4 w-4" style={{ color: "var(--console-muted)" }} />

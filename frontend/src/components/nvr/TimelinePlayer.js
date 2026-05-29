@@ -220,6 +220,26 @@ export const TimelinePlayer = forwardRef(
       }
     };
 
+    // Compute the bookmark position as a numeric offset (seconds) within the
+    // current recording. The backend BookmarkCreate schema expects
+    // `timestamp: float` (seconds), and the Bookmarks page renders/seeks with
+    // that offset. Emitting the raw Date here serialized to an ISO string and
+    // caused a 422 (which the UI then rendered as a raw error object → React
+    // error #31).
+    const bookmarkSeconds = () => {
+      const v = videoRef.current;
+      if (v && Number.isFinite(v.currentTime)) {
+        return Math.max(0, Math.floor(v.currentTime));
+      }
+      if (currentRecording?.start_time) {
+        return Math.max(
+          0,
+          differenceInSeconds(currentTime, new Date(currentRecording.start_time)),
+        );
+      }
+      return 0;
+    };
+
     // Keyboard shortcuts
     useEffect(() => {
       const el = containerRef.current;
@@ -274,7 +294,7 @@ export const TimelinePlayer = forwardRef(
           case "b":
           case "B":
             e.preventDefault();
-            onBookmark?.(currentTime, currentRecording);
+            onBookmark?.(bookmarkSeconds(), currentRecording);
             break;
           default:
             break;
@@ -830,7 +850,7 @@ export const TimelinePlayer = forwardRef(
               data-testid="bookmark-btn"
               variant="outline"
               size="sm"
-              onClick={() => onBookmark?.(currentTime, currentRecording)}
+              onClick={() => onBookmark?.(bookmarkSeconds(), currentRecording)}
               disabled={!currentRecording}
               title="Bookmark (B)"
             >

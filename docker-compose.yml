@@ -128,6 +128,13 @@ services:
       CLOUD_S3_SECRET_KEY: ${CLOUD_S3_SECRET_KEY:-}
       REDIS_URL: redis://redis:6379/0
     volumes:
+      # Base volume for /data so persistent state that lives directly under
+      # /data — license.lic and .machine_id (the license fingerprint cache) —
+      # survives container recreation (image rebuild / `up -d`). Without it the
+      # license is wiped AND the fingerprint regenerates on every recreate,
+      # invalidating any installed license. The more-specific mounts below take
+      # precedence for their own subpaths.
+      - appdata:/data
       - recordings:/data/recordings
       - thumbnails:/data/thumbnails
       - exports:/data/exports
@@ -278,6 +285,7 @@ networks:
 volumes:
   db_data:
   go2rtc_data:
+  appdata:
   recordings:
   thumbnails:
   exports:

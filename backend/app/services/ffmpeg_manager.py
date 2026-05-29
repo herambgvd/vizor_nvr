@@ -385,8 +385,11 @@ class FFmpegManager:
                     f"drawtext=textfile={text_file}:reload=1:{style}:{position}"
                 )
 
-        # Append milliseconds to avoid overwriting if clock jumps backward
-        output_pattern = os.path.join(storage_path, "%Y%m%d_%H%M%S_%f.mp4")
+        # NOTE: FFmpeg -strftime only supports C strftime tokens; %f (microseconds)
+        # is NOT supported and would be written literally, breaking the filename
+        # parser in _on_segment_complete (which expects %Y%m%d_%H%M%S). Segments
+        # are 15 min apart, so a second-resolution timestamp is collision-safe.
+        output_pattern = os.path.join(storage_path, "%Y%m%d_%H%M%S.mp4")
 
         if vf_parts:
             cmd.extend(["-vf", ",".join(vf_parts)])
