@@ -39,7 +39,7 @@ from app.audit import models as audit_models
 from app.notifications import models as notification_models
 from app.events import models as event_models  # Phase 8 — AI columns
 # aggregates.py removed in AI-removal migration (20260527_000000)
-# app.ai removed in AI-removal refactor
+from app.ai import models as ai_models  # AI scenarios + FRS (fresh integration)
 
 # ---------------------------------------------------------------------------
 # Alembic Config

@@ -68,6 +68,14 @@ class IngestEvent(BaseModel):
     # Wall-clock when the detection occurred on the worker side.
     triggered_at: Optional[datetime] = None
 
+    # ── AI / detection attributes (from FRS/PPE bridge) ──────────────────
+    detection_type: Optional[str] = Field(None, max_length=50)
+    confidence: Optional[float] = None
+    bbox: Optional[dict] = None
+    person_id: Optional[str] = None
+    track_id: Optional[str] = Field(None, max_length=50)
+    attributes: Optional[dict] = None
+
 
 class IngestBatch(BaseModel):
     events: List[IngestEvent] = Field(..., min_length=1)
@@ -127,6 +135,12 @@ async def ingest_events(
                     triggered_at=ev.triggered_at or datetime.utcnow(),
                     source_service=ev.source_service,
                     dedup_key=ev.dedup_key,
+                    detection_type=ev.detection_type,
+                    confidence=ev.confidence,
+                    bbox=ev.bbox,
+                    person_id=ev.person_id,
+                    track_id=ev.track_id,
+                    attributes=ev.attributes,
                 )
                 # Hypertable unique is composite (dedup_key, triggered_at)
                 .on_conflict_do_nothing(

@@ -86,6 +86,18 @@ async def lifespan(application: FastAPI):
     except Exception as _e:
         logger.warning(f"License load failed: {_e}")
 
+    # AI scenarios: seed the catalog (FRS, PPE) then project the signed
+    # license onto each scenario's licensed/camera_limit. Must run after the
+    # license is loaded so unlicensed scenarios start disabled.
+    try:
+        from app.ai.core.seed import seed_scenarios
+        from app.ai.core.service import ai_service
+        async with async_session_maker() as db:
+            await seed_scenarios(db)
+            await ai_service.sync_licensing(db)
+    except Exception as _e:
+        logger.warning(f"AI scenario seed/sync failed: {_e}")
+
     # TLS: emit a self-signed cert on first boot so HTTPS is usable out of
     # the box. Operator can replace it via POST /api/settings/tls/upload.
     try:
@@ -419,6 +431,14 @@ from app.license.router import router as license_router
 from app.cameras.schedule_templates_router import router as schedule_templates_router
 from app.snapshots.router import router as snapshots_router
 from app.spot_output.router import router as spot_output_router
+from app.ai.core.router import router as ai_router
+from app.ai.core.camera_config_router import router as ai_camera_config_router
+from app.ai.frs.query_router import router as ai_frs_query_router
+from app.ai.frs.router import router as ai_frs_router
+from app.ai.frs.recognize_router import router as ai_frs_recognize_router
+from app.ai.frs.investigate_router import router as ai_frs_investigate_router
+from app.ai.frs.transit_router import router as ai_frs_transit_router
+from app.ai.ppe.router import router as ai_ppe_router
 
 app.include_router(auth_router, prefix="/api")
 app.include_router(snapshots_router, prefix="/api")
@@ -443,6 +463,14 @@ app.include_router(api_keys_router)
 app.include_router(events_ingest_router)
 app.include_router(events_sse_router)
 app.include_router(license_router)
+app.include_router(ai_router)
+app.include_router(ai_camera_config_router)
+app.include_router(ai_frs_query_router)
+app.include_router(ai_frs_router)
+app.include_router(ai_frs_recognize_router)
+app.include_router(ai_frs_investigate_router)
+app.include_router(ai_frs_transit_router)
+app.include_router(ai_ppe_router)
 app.include_router(schedule_templates_router, prefix="/api")
 app.include_router(spot_output_router, prefix="/api")
 

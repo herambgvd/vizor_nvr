@@ -57,6 +57,8 @@ const Notifications = lazy(() => import("./pages/Notifications"));
 const Users = lazy(() => import("./pages/Users"));
 const Bookmarks = lazy(() => import("./pages/Bookmarks"));
 const PlaybackConsole = lazy(() => import("./pages/PlaybackConsole"));
+const AIHome = lazy(() => import("./pages/ai/AIHome"));
+const ScenarioWorkspace = lazy(() => import("./pages/ai/ScenarioWorkspace"));
 const LicenseRequired = lazy(() => import("./pages/LicenseRequired"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
@@ -174,6 +176,9 @@ const AppRoutes = () => (
             single-cam Playback retired. /playback/multi kept as alias. */}
         <Route path="playback" element={<PlaybackConsole />} />
         <Route path="events" element={<Events />} />
+        <Route path="ai" element={<AIHome />} />
+        <Route path="ai/:slug" element={<ScenarioWorkspace />} />
+        <Route path="ai/:slug/:tab" element={<ScenarioWorkspace />} />
         <Route path="settings" element={<SettingsLayout />}>
           <Route index element={<Navigate to="configuration" replace />} />
           <Route path="configuration" element={<SettingsConfiguration />} />

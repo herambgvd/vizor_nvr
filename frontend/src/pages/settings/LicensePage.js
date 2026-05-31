@@ -23,6 +23,7 @@ import {
   activateLicense,
   clearLicense,
 } from "../../api/license";
+import AIScenariosSection from "./AIScenariosSection";
 
 // ─── Shared primitives ────────────────────────────────────────────────────────
 
@@ -417,32 +418,9 @@ const LicensePage = () => {
           </div>
         )}
 
-        {/* Features */}
-        {data?.active && data?.features?.length > 0 && (
-          <ConsoleCard>
-            <p
-              className="font-telemetry text-[10px] uppercase tracking-widest mb-3"
-              style={{ color: "var(--console-muted)" }}
-            >
-              Features
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {data.features.map((f) => (
-                <span
-                  key={f}
-                  className="font-telemetry text-[10px] px-1.5 py-0.5 rounded border"
-                  style={{
-                    background: "var(--console-raised)",
-                    borderColor: "var(--console-border)",
-                    color: "var(--console-text)",
-                  }}
-                >
-                  {f}
-                </span>
-              ))}
-            </div>
-          </ConsoleCard>
-        )}
+
+        {/* AI Scenarios */}
+        <AIScenariosSection />
       </div>
 
       <ConfirmDialog

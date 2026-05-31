@@ -100,6 +100,11 @@ services:
         condition: service_completed_successfully
     environment:
       ENV: ${ENV:-production}
+      # Dev/test signing tree (vendor-keys/). Override per-env in prod.
+      LICENSE_PUBLIC_KEY: ${LICENSE_PUBLIC_KEY:-MCowBQYDK2VwAyEADRkzsd1Xaxj2/zmTvrN2EFgj5tkbgIVBb5Rujvrcx4k=}
+      # FRS image/video recognition proxies to the bridge HTTP API. Bridge runs
+      # on the host (--network host) so reach it via host.docker.internal.
+      BRIDGE_HTTP_URL: ${BRIDGE_HTTP_URL:-http://host.docker.internal:8099}
       DATABASE_URL: postgresql+asyncpg://${DB_USER:-nvr}:${DB_PASSWORD}@db:5432/gvd_nvr
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required}
       JWT_ACCESS_TOKEN_EXPIRE_HOURS: ${JWT_ACCESS_TOKEN_EXPIRE_HOURS:-24}

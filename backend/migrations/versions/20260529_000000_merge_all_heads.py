@@ -23,7 +23,9 @@ import sqlalchemy as sa
 
 revision = "20260529_000000"
 down_revision = (
-    "20260528_010000",
+    # 20260528_010000 removed: it is an ANCESTOR of 20260528_030000
+    # (010000 → 020000 → 030000), so listing both made alembic consume
+    # 010000 twice → KeyError during merge. 030000 already includes it.
     "20260528_030000",
     "20260528_040000",
     "20260528_050000",

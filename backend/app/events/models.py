@@ -3,7 +3,7 @@
 # =============================================================================
 
 from sqlalchemy import (
-    Column, String, Boolean, DateTime, Integer, Text, JSON,
+    Column, String, Boolean, DateTime, Integer, Text, JSON, Float,
     ForeignKey, Index,
 )
 from sqlalchemy.sql import func
@@ -87,6 +87,14 @@ class Event(Base):
     time bucket) so retries of the same logical event don't create
     duplicate rows.
     """
+
+    # ── AI / detection attributes (written by the bridge from scenario events) ──
+    detection_type = Column(String(50), nullable=True, index=True)   # "face","ppe_violation",...
+    confidence = Column(Float, nullable=True)                        # 0.0..1.0
+    bbox = Column(JSON, nullable=True)                               # {x,y,w,h}
+    person_id = Column(String, nullable=True, index=True)            # FRS person (soft ref)
+    track_id = Column(String(50), nullable=True)
+    attributes = Column(JSON, nullable=True)                         # {gender,age,violations,...}
 
     __table_args__ = (
         Index("ix_events_camera_triggered", "camera_id", "triggered_at"),

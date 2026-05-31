@@ -9,8 +9,7 @@ module.exports = {
   	extend: {
   		fontFamily: {
   			sans: [
-  				'"Source Sans 3"',
-  				'"Source Sans Pro"',
+  				'"Montserrat"',
   				'-apple-system',
   				'BlinkMacSystemFont',
   				'"Segoe UI"',

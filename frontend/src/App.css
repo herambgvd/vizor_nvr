@@ -9,8 +9,8 @@
    CSS Variables
    ============================================================================= */
 :root {
-  --font-heading: "Manrope", sans-serif;
-  --font-body: "IBM Plex Sans", sans-serif;
+  --font-heading: "Montserrat", sans-serif;
+  --font-body: "Montserrat", sans-serif;
   --font-mono: "JetBrains Mono", monospace;
 }
 
