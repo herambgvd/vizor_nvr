@@ -35,12 +35,12 @@ const patchSetting = ({ key, value }) =>
 
 const testSMS = (to) =>
   apiClient
-    .post("/notifications/sms/test", { to, message: "GVD NVR SMS test" })
+    .post("/notifications/sms/test", { to, message: "Vizor NVR SMS test" })
     .then((r) => r.data);
 
 const testWhatsApp = (to) =>
   apiClient
-    .post("/notifications/whatsapp/test", { to, message: "GVD NVR WhatsApp test" })
+    .post("/notifications/whatsapp/test", { to, message: "Vizor NVR WhatsApp test" })
     .then((r) => r.data);
 
 // ── Shared primitives ─────────────────────────────────────────────────────

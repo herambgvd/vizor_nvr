@@ -57,11 +57,11 @@ def _base_html(title: str, body_html: str) -> str:
     return f"""<!DOCTYPE html><html><head>{_STYLE}</head><body>
 <div class="container">
   <div class="header">
-    <h1>GVD NVR — {title}</h1>
+    <h1>Vizor NVR — {title}</h1>
     <p>{ts}</p>
   </div>
   <div class="body">{body_html}</div>
-  <div class="footer">GVD NVR Surveillance System &mdash; Automated Alert</div>
+  <div class="footer">Vizor NVR Surveillance System &mdash; Automated Alert</div>
 </div></body></html>"""
 
 
@@ -129,9 +129,9 @@ TEMPLATES = {
     ),
     "test": lambda d: _base_html(
         "Test Notification",
-        f"""<p>This is a test email from your GVD NVR system.</p>
+        f"""<p>This is a test email from your Vizor NVR system.</p>
         <div class="detail online">
-          <b>System:</b> {d.get('system_name', 'GVD NVR')}<br>
+          <b>System:</b> {d.get('system_name', 'Vizor NVR')}<br>
           <b>Status:</b> Email notifications are working correctly.
         </div>"""
     ),
@@ -149,14 +149,14 @@ TEMPLATES = {
 }
 
 _SUBJECTS = {
-    "camera_offline":  "GVD NVR Alert — Camera Offline: {camera_name}",
-    "camera_online":   "GVD NVR — Camera Online: {camera_name}",
-    "recording_error": "GVD NVR Alert — Recording Error: {camera_name}",
-    "storage_low":     "GVD NVR Warning — Storage Low ({percent}% used)",
-    "storage_full":    "GVD NVR CRITICAL — Storage Full",
-    "recording_gap":   "GVD NVR Alert — Recording Gap: {camera_name}",
-    "test":            "GVD NVR — Test Notification",
-    "motion_detected": "GVD NVR Alert — Motion Detected: {camera_name}",
+    "camera_offline":  "Vizor NVR Alert — Camera Offline: {camera_name}",
+    "camera_online":   "Vizor NVR — Camera Online: {camera_name}",
+    "recording_error": "Vizor NVR Alert — Recording Error: {camera_name}",
+    "storage_low":     "Vizor NVR Warning — Storage Low ({percent}% used)",
+    "storage_full":    "Vizor NVR CRITICAL — Storage Full",
+    "recording_gap":   "Vizor NVR Alert — Recording Gap: {camera_name}",
+    "test":            "Vizor NVR — Test Notification",
+    "motion_detected": "Vizor NVR Alert — Motion Detected: {camera_name}",
 }
 
 
@@ -194,7 +194,7 @@ class SMTPEmailService:
             logger.warning(f"No email template for event: {event_type}")
             return False
 
-        subject_tpl = _SUBJECTS.get(event_type, "GVD NVR Notification")
+        subject_tpl = _SUBJECTS.get(event_type, "Vizor NVR Notification")
         try:
             subject = subject_tpl.format(**{k: data.get(k, "") for k in data})
         except KeyError:
@@ -228,7 +228,7 @@ class SMTPEmailService:
         use_tls  = str(smtp_config.get("use_tls", "true")).lower() == "true"
         use_ssl  = str(smtp_config.get("use_ssl", "false")).lower() == "true"
         from_email = smtp_config.get("from_email") or username
-        from_name  = smtp_config.get("from_name", "GVD NVR")
+        from_name  = smtp_config.get("from_name", "Vizor NVR")
 
         if not host or not recipients:
             logger.warning("SMTP not configured or no recipients — skipping email")

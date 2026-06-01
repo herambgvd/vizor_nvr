@@ -289,9 +289,17 @@ class CameraService:
 
     @staticmethod
     def to_response(camera: Camera) -> dict:
+        # `groups` may be unloaded on an async-expired instance; touching a lazy
+        # relationship then raises (_connection_for_bind). Read only if loaded.
+        try:
+            from sqlalchemy import inspect as _sa_inspect
+            loaded = "groups" not in _sa_inspect(camera).unloaded
+        except Exception:
+            loaded = False
+        group_ids = [g.id for g in camera.groups] if (loaded and camera.groups) else []
         data = {
             **{c.name: getattr(camera, c.name) for c in Camera.__table__.columns},
-            "group_ids": [g.id for g in camera.groups] if camera.groups else [],
+            "group_ids": group_ids,
         }
         # Never expose credentials embedded in stream URLs to clients.
         for field in _STREAM_URL_FIELDS:

@@ -80,6 +80,8 @@ class EventService:
         acknowledged: Optional[bool] = None,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
+        source_service: Optional[str] = None,
+        detection_type: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
     ) -> tuple[List[Event], int]:
@@ -92,6 +94,10 @@ class EventService:
             conditions.append(Event.camera_id == camera_id)
         if event_type:
             conditions.append(Event.event_type == event_type)
+        if source_service:
+            conditions.append(Event.source_service == source_service)
+        if detection_type:
+            conditions.append(Event.detection_type == detection_type)
         if severity:
             conditions.append(Event.severity == severity)
         if acknowledged is not None:

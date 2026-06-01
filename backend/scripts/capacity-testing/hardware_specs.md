@@ -1,4 +1,4 @@
-# GVD NVR — Hardware Recommendations
+# Vizor NVR — Hardware Recommendations
 
 > Derived from the capacity testing framework and real-world FFmpeg / go2rtc / PostgreSQL resource modelling.
 > All figures assume **H.264** recording with `-c copy` (no re-encoding) unless privacy masks or codecs require otherwise.

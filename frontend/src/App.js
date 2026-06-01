@@ -1,5 +1,5 @@
 // =============================================================================
-// GVD Pro — Main Application Entry Point
+// Vizor — Main Application Entry Point
 // =============================================================================
 
 import React, { lazy, Suspense } from "react";

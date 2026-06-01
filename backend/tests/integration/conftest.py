@@ -1,5 +1,5 @@
 """
-Integration test fixtures for GVD NVR.
+Integration test fixtures for Vizor NVR.
 
 Uses a real PostgreSQL database (via TEST_DATABASE_URL) but mocks:
 - FFmpeg subprocess calls (no actual video processes)

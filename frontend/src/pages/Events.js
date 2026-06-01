@@ -272,6 +272,16 @@ const Events = () => {
       return cleanup;
     }
 
+    // Do NOT show a live-camera snapshot as a stand-in for events that carry no
+    // snapshot of their own. The live grab is often a half-decoded/garbled frame
+    // (H.265 ffmpeg snapshot) and is worse than a clean "No snapshot" message.
+    // AI events (e.g. PPE) currently have no snapshot_path → show placeholder.
+    if (!selectedEvent.snapshot_path) {
+      setRecSnapUrl(null);
+      setSnapLoading(false);
+      return cleanup;
+    }
+
     const camId = selectedEvent.camera_id;
     setSnapLoading(true);
     setRecSnapUrl(null);

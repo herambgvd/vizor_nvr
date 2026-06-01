@@ -322,7 +322,7 @@ class NotificationService:
         payload = {
             "event": "test",
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "data": {"message": "This is a test notification from GVD NVR"},
+            "data": {"message": "This is a test notification from Vizor NVR"},
         }
 
         headers = {"Content-Type": "application/json"}
@@ -391,7 +391,7 @@ class NotificationService:
                     "use_tls":    await SettingsService.get_value(db, "smtp_use_tls", "true"),
                     "use_ssl":    await SettingsService.get_value(db, "smtp_use_ssl", "false"),
                     "from_email": await SettingsService.get_value(db, "smtp_from_email"),
-                    "from_name":  await SettingsService.get_value(db, "smtp_from_name", "GVD NVR"),
+                    "from_name":  await SettingsService.get_value(db, "smtp_from_name", "Vizor NVR"),
                 }
 
             await smtp_service.send_event_email(
@@ -408,7 +408,7 @@ class NotificationService:
         from app.notifications.smtp_service import smtp_service
         success = await smtp_service.send_event_email(
             event_type="test",
-            data={"system_name": smtp_config.get("from_name", "GVD NVR")},
+            data={"system_name": smtp_config.get("from_name", "Vizor NVR")},
             recipients=recipients,
             smtp_config=smtp_config,
         )
@@ -474,7 +474,7 @@ class NotificationService:
                 if not recipients:
                     return
 
-            message = f"GVD NVR Alert: {event.value}"
+            message = f"Vizor NVR Alert: {event.value}"
             if data.get("camera_name"):
                 message += f" | {data['camera_name']}"
             if data.get("message"):
@@ -511,7 +511,7 @@ class NotificationService:
                 if not recipients:
                     return
 
-            message = f"*GVD NVR Alert*: {event.value}"
+            message = f"*Vizor NVR Alert*: {event.value}"
             if data.get("camera_name"):
                 message += f"\nCamera: {data['camera_name']}"
             if data.get("message"):

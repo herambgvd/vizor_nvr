@@ -54,7 +54,7 @@ def verify(secret_b32: str, token: str, step: int = 30, digits: int = 6,
     return False
 
 
-def provisioning_uri(username: str, secret_b32: str, issuer: str = "GVD NVR") -> str:
+def provisioning_uri(username: str, secret_b32: str, issuer: str = "Vizor NVR") -> str:
     """otpauth://totp URI that 2FA apps render as a QR code."""
     label = urllib.parse.quote(f"{issuer}:{username}")
     params = urllib.parse.urlencode({

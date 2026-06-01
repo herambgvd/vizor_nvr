@@ -190,7 +190,7 @@ def _custody_to_text(c: dict) -> str:
     r = c["recording"]
     op = c["operator"]
     return (
-        "GVD NVR — Evidence Chain of Custody\n"
+        "Vizor NVR — Evidence Chain of Custody\n"
         f"Generated: {c['generated_at']}\n\n"
         f"Recording ID:    {r['id']}\n"
         f"Camera:          {r.get('camera_name')} ({r.get('camera_id')})\n"

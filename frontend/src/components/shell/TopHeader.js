@@ -30,7 +30,7 @@ export default function TopHeader({ title }) {
         <div className="h-6 w-6 rounded bg-gradient-to-br from-teal-500 to-blue-500 flex items-center justify-center">
           <Video className="h-3.5 w-3.5 text-white" />
         </div>
-        <span className="text-sm font-semibold tracking-tight">GVD Pro</span>
+        <span className="text-sm font-semibold tracking-tight">Vizor</span>
       </div>
       <div className="h-4 w-px" style={{ background: "var(--console-border)" }} />
       <span className="text-sm text-zinc-400">{title}</span>

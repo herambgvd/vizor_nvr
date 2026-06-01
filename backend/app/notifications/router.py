@@ -198,7 +198,7 @@ class SMTPConfigRequest(BaseModel):
     use_tls: bool = True
     use_ssl: bool = False
     from_email: str = ""
-    from_name: str = "GVD NVR"
+    from_name: str = "Vizor NVR"
     recipients: List[str]
 
 
@@ -253,7 +253,7 @@ async def test_push(
     from app.notifications.push_service import push_service
     ok = await push_service.send_push(
         user_id=user["id"],
-        title="GVD NVR Test",
+        title="Vizor NVR Test",
         body="Push notifications are working!",
         data={"event_type": "test", "click_action": "/"},
     )
@@ -268,7 +268,7 @@ async def test_push(
 
 class SMSTestRequest(BaseModel):
     to: str
-    message: Optional[str] = "GVD NVR SMS test"
+    message: Optional[str] = "Vizor NVR SMS test"
 
 
 @router.post("/sms/test")
@@ -279,7 +279,7 @@ async def test_sms(
 ):
     """Send a test SMS via Twilio (admin only).  Audited."""
     from app.notifications.sms_service import sms_service
-    result = await sms_service.send(body.to, body.message or "GVD NVR SMS test")
+    result = await sms_service.send(body.to, body.message or "Vizor NVR SMS test")
     await write_audit(
         action="sms_test",
         actor=user.get("username", "admin"),
@@ -296,7 +296,7 @@ async def test_sms(
 
 class WhatsAppTestRequest(BaseModel):
     to: str
-    message: Optional[str] = "GVD NVR WhatsApp test"
+    message: Optional[str] = "Vizor NVR WhatsApp test"
 
 
 @router.post("/whatsapp/test")
@@ -307,7 +307,7 @@ async def test_whatsapp(
 ):
     """Send a test WhatsApp message via Twilio (admin only).  Audited."""
     from app.notifications.whatsapp_service import whatsapp_service
-    result = await whatsapp_service.send(body.to, body.message or "GVD NVR WhatsApp test")
+    result = await whatsapp_service.send(body.to, body.message or "Vizor NVR WhatsApp test")
     await write_audit(
         action="whatsapp_test",
         actor=user.get("username", "admin"),

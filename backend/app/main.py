@@ -1,5 +1,5 @@
 # =============================================================================
-# GVD NVR — Application Factory
+# Vizor NVR — Application Factory
 # =============================================================================
 # Entry point: uvicorn app.main:app  (from backend/ directory)
 # =============================================================================
@@ -42,7 +42,7 @@ logger = logging.getLogger("app")
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     # ── Startup ──────────────────────────────────────────────────────
-    logger.info(f"GVD NVR v{__version__} starting (env={settings.ENV})")
+    logger.info(f"Vizor NVR v{__version__} starting (env={settings.ENV})")
 
     # Wait for the database to accept connections before starting anything
     # (guards against Postgres still in recovery on container startup)
@@ -321,9 +321,9 @@ async def lifespan(application: FastAPI):
 # ══════════════════════════════════════════════════════════════════════
 
 app = FastAPI(
-    title="GVD NVR",
+    title="Vizor NVR",
     description=(
-        "GVD NVR REST API. ONVIF Profile S/T compliant. "
+        "Vizor NVR REST API. ONVIF Profile S/T compliant. "
         "All endpoints require Bearer JWT or X-Vizor-API-Key header.\n\n"
         "Network Video Recorder with RBAC, ONVIF, PTZ, multi-stream, "
         "storage pools, integrity verification, signed evidence export, "
@@ -500,12 +500,12 @@ async def get_swagger_ui():
     html = """<!DOCTYPE html>
 <html>
 <head>
-  <title>GVD NVR API &middot; Swagger</title>
+  <title>Vizor NVR API &middot; Swagger</title>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" type="text/css" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" >
   <style>
-    /* ── GVD NVR — forced dark theme (no light mode, no toggle) ───────── */
+    /* ── Vizor NVR — forced dark theme (no light mode, no toggle) ───────── */
     :root { color-scheme: dark; }
     body { margin: 0; background: #0f172a; }
     .swagger-ui, .swagger-ui .info, .swagger-ui .scheme-container { background: #0f172a; }
@@ -513,7 +513,7 @@ async def get_swagger_ui():
     .swagger-ui .topbar { background: #0b1220; border-bottom: 1px solid #1e293b; }
     .swagger-ui .topbar .download-url-wrapper { display: none; }
     .swagger-ui .topbar-wrapper img { content: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%2314b8a6" width="32" height="32"><circle cx="12" cy="12" r="10"/></svg>'); }
-    .swagger-ui .topbar-wrapper a::after { content: " GVD NVR"; color: #14b8a6; font-weight: 700; font-size: 1.1rem; margin-left: 8px; }
+    .swagger-ui .topbar-wrapper a::after { content: " Vizor NVR"; color: #14b8a6; font-weight: 700; font-size: 1.1rem; margin-left: 8px; }
     /* global text colour */
     .swagger-ui, .swagger-ui .info .title, .swagger-ui .info li, .swagger-ui .info p,
     .swagger-ui .info table, .swagger-ui label, .swagger-ui .opblock-tag,
@@ -595,7 +595,7 @@ async def get_redoc_ui():
     html = """<!DOCTYPE html>
 <html>
 <head>
-  <title>GVD NVR API &middot; ReDoc</title>
+  <title>Vizor NVR API &middot; ReDoc</title>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link href="https://fonts.googleapis.com/css?family=Montserrat:300,400,700|Roboto:300,400,700" rel="stylesheet">

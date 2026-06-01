@@ -60,14 +60,25 @@ const ScenarioCard = ({ scenario, onToggle, pending }) => {
               {scenario.name}
             </div>
             <div
-              className="font-telemetry text-[10px] uppercase tracking-widest"
+              className="font-telemetry text-[10px] uppercase tracking-widest flex items-center gap-1.5"
               style={{ color: "var(--console-muted)" }}
             >
               {scenario.slug}
+              {scenario.version && <span style={{ opacity: 0.7 }}>v{scenario.version}</span>}
+              {scenario.registered === false && (
+                <span style={{ color: "var(--console-rec)" }}>· not installed</span>
+              )}
             </div>
           </div>
         </div>
-        {scenario.licensed ? (
+        {!scenario.registered ? (
+          <span
+            className="inline-flex items-center gap-1 font-telemetry text-[10px] px-1.5 py-0.5 rounded border"
+            style={{ background: "var(--console-raised)", borderColor: "var(--console-border)", color: "var(--console-muted)" }}
+          >
+            <Lock className="h-3 w-3" /> {scenario.licensed ? "Awaiting install" : "Not installed"}
+          </span>
+        ) : scenario.licensed ? (
           <Toggle
             checked={scenario.enabled}
             disabled={pending}

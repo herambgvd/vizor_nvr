@@ -27,6 +27,7 @@ import { toast } from "sonner";
 import { format } from "date-fns";
 
 import { listFrsEvents, getScenarioCameras } from "../../../api/frs";
+import { listScenarioEvents } from "../../../api/ai";
 import { acknowledgeEvent } from "../../../api/events";
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
@@ -90,9 +91,24 @@ function SnapshotThumb({ ev }) {
   );
 }
 
+// Pretty-label any scenario event_type slug (works for FRS, PPE, future plugins).
+const prettyEventLabel = (slug) =>
+  FRS_EVENT_LABEL[slug] ||
+  String(slug || "")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+
 export default function EventsTab({ scenario }) {
   const scenarioId = scenario?.id;
   const qc = useQueryClient();
+
+  // Event-type filter options come from the scenario's manifest (event_types),
+  // so PPE shows ppe_violation/ppe_compliant — not the hardcoded FRS list.
+  const eventTypeOptions = (
+    Array.isArray(scenario?.event_types) && scenario.event_types.length
+      ? scenario.event_types
+      : FRS_EVENT_TYPES.map((t) => t.value)
+  ).map((v) => ({ value: v, label: prettyEventLabel(v) }));
 
   const [page, setPage] = useState(0);
   const [cameraId, setCameraId] = useState(ALL);
@@ -118,9 +134,13 @@ export default function EventsTab({ scenario }) {
     return p;
   }, [page, cameraId, eventType, personId, since, until]);
 
+  // FRS has a rich query endpoint (person joins etc); other scenarios read the
+  // unified event store filtered by their slug (source_service).
+  const isFrs = (scenario?.slug || "frs") === "frs";
   const { data, isLoading, isError, isFetching } = useQuery({
-    queryKey: ["frs", "events", params],
-    queryFn: () => listFrsEvents(params),
+    queryKey: ["scenario-events", scenario?.slug, params],
+    queryFn: () =>
+      isFrs ? listFrsEvents(params) : listScenarioEvents(scenario.slug, params),
     placeholderData: keepPreviousData,
   });
 
@@ -195,7 +215,7 @@ export default function EventsTab({ scenario }) {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={ALL}>All types</SelectItem>
-              {FRS_EVENT_TYPES.map((t) => (
+              {eventTypeOptions.map((t) => (
                 <SelectItem key={t.value} value={t.value}>
                   {t.label}
                 </SelectItem>
@@ -331,7 +351,7 @@ export default function EventsTab({ scenario }) {
                         eventTypeBadgeClass(ev.event_type),
                       )}
                     >
-                      {FRS_EVENT_LABEL[ev.event_type] || ev.event_type}
+                      {prettyEventLabel(ev.event_type)}
                     </span>
                   </td>
                   <td className="px-3 py-2">

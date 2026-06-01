@@ -260,7 +260,7 @@ const SMTPPanel = ({ settings }) => {
     smtp_use_tls: s?.smtp_use_tls != null ? asBool(s.smtp_use_tls) : true,
     smtp_use_ssl: asBool(s?.smtp_use_ssl),
     smtp_from_email: s?.smtp_from_email || "",
-    smtp_from_name: s?.smtp_from_name || "GVD NVR",
+    smtp_from_name: s?.smtp_from_name || "Vizor NVR",
     smtp_recipients: s?.smtp_recipients || "",
   });
 
@@ -455,7 +455,7 @@ const TwilioPanel = ({ settings }) => {
     if (!form.sms_recipients) return toast.error("Add at least one SMS recipient");
     setTestingSms(true);
     try {
-      await api.post("/notifications/sms/test", { to: form.sms_recipients.split(",")[0].trim(), message: "GVD NVR SMS test" });
+      await api.post("/notifications/sms/test", { to: form.sms_recipients.split(",")[0].trim(), message: "Vizor NVR SMS test" });
       toast.success("Test SMS sent");
     } catch (e) {
       toast.error(e.response?.data?.detail || "SMS test failed");
@@ -468,7 +468,7 @@ const TwilioPanel = ({ settings }) => {
     if (!form.whatsapp_recipients) return toast.error("Add at least one WhatsApp recipient");
     setTestingWa(true);
     try {
-      await api.post("/notifications/whatsapp/test", { to: form.whatsapp_recipients.split(",")[0].trim(), message: "GVD NVR WhatsApp test" });
+      await api.post("/notifications/whatsapp/test", { to: form.whatsapp_recipients.split(",")[0].trim(), message: "Vizor NVR WhatsApp test" });
       toast.success("Test WhatsApp sent");
     } catch (e) {
       toast.error(e.response?.data?.detail || "WhatsApp test failed");

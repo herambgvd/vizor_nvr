@@ -69,7 +69,8 @@ class AIService:
         q = select(AIScenario).order_by(AIScenario.name)
         rows = (await db.execute(q)).scalars().all()
         if operable_only:
-            rows = [s for s in rows if s.licensed and s.enabled]
+            # OPERABLE = plugin installed (registered) ∧ licensed ∧ operator-enabled.
+            rows = [s for s in rows if s.registered and s.licensed and s.enabled]
         return rows
 
     @staticmethod
@@ -98,6 +99,8 @@ class AIService:
     async def set_enabled(db: AsyncSession, scenario: AIScenario, enabled: bool) -> AIScenario:
         if enabled and not scenario.licensed:
             raise ScenarioNotOperable(scenario.slug, "not licensed")
+        if enabled and not scenario.registered:
+            raise ScenarioNotOperable(scenario.slug, "plugin not installed")
         scenario.enabled = enabled
         await db.commit()
         await db.refresh(scenario)

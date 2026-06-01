@@ -14,7 +14,17 @@
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _naive_utc(dt: "datetime | None") -> datetime:
+    """Normalise an incoming timestamp to naive-UTC for the TIMESTAMP WITHOUT
+    TIME ZONE `triggered_at` column. tz-aware → convert to UTC + drop tzinfo."""
+    if dt is None:
+        return datetime.utcnow()
+    if dt.tzinfo is not None:
+        return dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -132,7 +142,10 @@ async def ingest_events(
                     recording_id=ev.recording_id,
                     acknowledged=False,
                     is_false_alarm=False,
-                    triggered_at=ev.triggered_at or datetime.utcnow(),
+                    # events.triggered_at is TIMESTAMP WITHOUT TIME ZONE. Scenario
+                    # events arrive tz-aware (ISO with offset); strip to naive-UTC
+                    # so asyncpg can bind (else "can't subtract naive and aware").
+                    triggered_at=_naive_utc(ev.triggered_at),
                     source_service=ev.source_service,
                     dedup_key=ev.dedup_key,
                     detection_type=ev.detection_type,
