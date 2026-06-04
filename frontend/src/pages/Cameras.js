@@ -1161,8 +1161,8 @@ const Cameras = () => {
               <table className="min-w-[1100px] w-full text-xs" style={{ color: "var(--console-text)" }}>
                 <thead>
                   <tr style={{ borderBottom: "1px solid var(--console-border)", background: "var(--console-raised)" }}>
-                    {sortAllowsDrag && canManage && <th className="w-[32px] px-2 py-2" />}
-                    <th className="w-[36px] px-2 py-2">
+                    {sortAllowsDrag && canManage && <th className="w-[32px] px-2 py-2 align-middle" />}
+                    <th className="w-[36px] px-2 py-2 text-left align-middle">
                       <input
                         type="checkbox"
                         aria-label="Select all on page"
@@ -1171,28 +1171,28 @@ const Cameras = () => {
                         onChange={toggleSelectAllOnPage}
                       />
                     </th>
-                    <th className="w-[76px] px-2 py-2" style={{ color: "var(--console-muted)" }}>
+                    <th className="w-[76px] px-2 py-2 text-left align-middle" style={{ color: "var(--console-muted)" }}>
                       <span className="font-telemetry uppercase tracking-wide text-[10px]">Preview</span>
                     </th>
-                    <th className="w-[220px] px-2 py-2">
+                    <th className="w-[220px] px-2 py-2 text-left align-middle">
                       <SortHeader label="Camera" field="name" sort={sort} setSort={setSort} />
                     </th>
-                    <th className="px-2 py-2">
+                    <th className="px-2 py-2 text-left align-middle">
                       <SortHeader label="Status" field="status" sort={sort} setSort={setSort} />
                     </th>
-                    <th className="w-[110px] px-2 py-2">
+                    <th className="w-[110px] px-2 py-2 text-left align-middle">
                       <SortHeader label="Recording" field="recording" sort={sort} setSort={setSort} />
                     </th>
-                    <th className="hidden lg:table-cell px-2 py-2">
+                    <th className="hidden lg:table-cell px-2 py-2 text-left align-middle">
                       <SortHeader label="Health" field="health" sort={sort} setSort={setSort} />
                     </th>
-                    <th className="hidden xl:table-cell px-2 py-2">
+                    <th className="hidden xl:table-cell px-2 py-2 text-left align-middle">
                       <SortHeader label="Resolution" field="resolution" sort={sort} setSort={setSort} />
                     </th>
-                    <th className="hidden md:table-cell px-2 py-2">
+                    <th className="hidden md:table-cell px-2 py-2 text-left align-middle">
                       <SortHeader label="Last Online" field="last_online" sort={sort} setSort={setSort} />
                     </th>
-                    <th className="w-[44px] px-2 py-2" />
+                    <th className="w-[44px] px-2 py-2 align-middle" />
                   </tr>
                 </thead>
                 <tbody>
@@ -1252,11 +1252,11 @@ const Cameras = () => {
                           onDrop={() => handleDrop(idx)}
                         >
                           {isDraggable && (
-                            <td className="px-2 py-2 cursor-grab active:cursor-grabbing" style={{ color: "var(--console-muted)" }}>
+                            <td className="px-2 py-2 align-middle cursor-grab active:cursor-grabbing" style={{ color: "var(--console-muted)" }}>
                               <GripVertical className="h-3.5 w-3.5" />
                             </td>
                           )}
-                          <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
+                          <td className="px-2 py-2 align-middle" onClick={(e) => e.stopPropagation()}>
                             <input
                               type="checkbox"
                               aria-label={`Select ${camera.name}`}
@@ -1265,7 +1265,7 @@ const Cameras = () => {
                               onChange={() => toggleSelect(camera.id)}
                             />
                           </td>
-                          <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
+                          <td className="px-2 py-2 align-middle" onClick={(e) => e.stopPropagation()}>
                             <button
                               type="button"
                               onClick={() => setPreviewCamera(camera)}
@@ -1276,7 +1276,7 @@ const Cameras = () => {
                               <CameraThumbnail cameraId={camera.id} className="w-16 h-10" />
                             </button>
                           </td>
-                          <td className="px-2 py-2">
+                          <td className="px-2 py-2 align-middle">
                             <div className="min-w-0">
                               <div className="flex items-center gap-1.5 flex-wrap">
                                 <p
@@ -1307,7 +1307,7 @@ const Cameras = () => {
                               </p>
                             </div>
                           </td>
-                          <td className="px-2 py-2">
+                          <td className="px-2 py-2 align-middle">
                             <div className="flex flex-col gap-1">
                               <StatusBadge status={camera.status} />
                               {camera.credentials_status === "unauthorized" && (
@@ -1331,7 +1331,7 @@ const Cameras = () => {
                               )}
                             </div>
                           </td>
-                          <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
+                          <td className="px-2 py-2 align-middle" onClick={(e) => e.stopPropagation()}>
                             {canOperate ? (
                               <button
                                 type="button"
@@ -1371,18 +1371,18 @@ const Cameras = () => {
                               <span className="font-telemetry text-[11px]" style={{ color: "var(--console-muted)" }}>—</span>
                             )}
                           </td>
-                          <td className="hidden lg:table-cell px-2 py-2">
+                          <td className="hidden lg:table-cell px-2 py-2 align-middle">
                             <HealthCell data={health} />
                           </td>
-                          <td className="font-telemetry text-[11px] hidden xl:table-cell px-2 py-2" style={{ color: "var(--console-muted)" }}>
+                          <td className="font-telemetry text-[11px] hidden xl:table-cell px-2 py-2 align-middle" style={{ color: "var(--console-muted)" }}>
                             {camera.resolution || "—"}
                           </td>
-                          <td className="font-telemetry text-[11px] hidden md:table-cell px-2 py-2" style={{ color: "var(--console-muted)" }}>
+                          <td className="font-telemetry text-[11px] hidden md:table-cell px-2 py-2 align-middle" style={{ color: "var(--console-muted)" }}>
                             {camera.last_online_at
                               ? new Date(camera.last_online_at).toLocaleString()
                               : "Never"}
                           </td>
-                          <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
+                          <td className="px-2 py-2 align-middle" onClick={(e) => e.stopPropagation()}>
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
                                 <button

@@ -379,7 +379,7 @@ const GeneralTab = ({ queryClient }) => {
             <ConsoleInput
               value={form.system_name ?? ""}
               onChange={(e) => set("system_name", e.target.value)}
-              placeholder="GVD NVR"
+              placeholder="Vizor NVR"
             />
           </FieldGroup>
           <FieldGroup label="Timezone">

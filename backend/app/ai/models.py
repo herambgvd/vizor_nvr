@@ -53,6 +53,17 @@ class AIScenario(Base):
     # Event types this scenario emits (for UI filters / validation).
     event_types = Column(JSON, nullable=True)   # ["face_recognized","face_unknown","spoof_detected"]
 
+    # ── Plugin platform (Phase 1) ────────────────────────────────────────
+    # A scenario is a self-describing plugin. These come from its manifest
+    # (scenario.json), registered via POST /api/ai/scenarios/register.
+    version = Column(String(30), nullable=True)             # manifest version, e.g. "1.2.0"
+    capabilities = Column(JSON, nullable=True)              # ["rtsp","image","video","enroll",...]
+    license_feature = Column(String(50), nullable=True)    # entitlement key (usually == slug)
+    manifest = Column(JSON, nullable=True)                  # raw scenario.json as registered
+    source = Column(String(20), nullable=False, default="builtin")  # "builtin"|"manifest"
+    registered = Column(Boolean, nullable=False, default=True)      # manifest present / installed
+    registered_at = Column(DateTime, nullable=True)
+
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -181,10 +192,16 @@ class ScenarioResponse(BaseModel):
     licensed: bool
     enabled: bool
     camera_limit: int
+    grpc_endpoint: Optional[str] = None
     module_tabs: Optional[List[str]] = None
     camera_config_schema: Optional[Dict[str, Any]] = None
     event_types: Optional[List[str]] = None
     active_camera_count: int = 0
+    # plugin platform
+    version: Optional[str] = None
+    capabilities: Optional[List[str]] = None
+    source: Optional[str] = None
+    registered: bool = True
 
     class Config:
         from_attributes = True

@@ -1,5 +1,5 @@
 """
-Register an admin user in GVD NVR.
+Register an admin user in Vizor NVR.
 
 Usage:
     cd backend
@@ -41,7 +41,7 @@ async def seed_admin_role(session):
 
 
 async def register_admin():
-    print("\n=== GVD NVR — Admin Registration ===\n")
+    print("\n=== Vizor NVR — Admin Registration ===\n")
 
     username = input("Username: ").strip()
     if not username:

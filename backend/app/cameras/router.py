@@ -217,15 +217,30 @@ async def onvif_bulk_add(
                 camera.onvif_profile_token = cam_create.onvif_profile_token
                 await db.flush()
             await db.commit()
-            await db.refresh(camera, ["groups"])
-            created.append(svc.to_response(camera))
         except Exception as exc:
+            # CREATE failed (before commit) — genuine failure, roll back + report.
             logger.warning("onvif_bulk_add: failed to create camera '%s': %s", entry_name, exc)
             try:
                 await db.rollback()
             except Exception:
                 pass
             failed.append({"name": entry_name, "error": str(exc)})
+            continue
+
+        # Camera IS persisted. Building the response (refresh relationships,
+        # serialise) must NOT flip a successful create into a failure — do it
+        # best-effort and still report the row as created.
+        try:
+            await db.refresh(camera, attribute_names=["groups"])
+            await db.refresh(camera)  # un-expire all columns (avoid lazy reload)
+            created.append(svc.to_response(camera))
+        except Exception as exc:
+            logger.warning("onvif_bulk_add: '%s' created but response build failed: %s",
+                           entry_name, exc)
+            try:
+                created.append(svc.to_response(camera))
+            except Exception:
+                created.append({"id": getattr(camera, "id", None), "name": entry_name})
 
     return {"created": created, "failed": failed}
 
@@ -445,6 +460,16 @@ async def create_camera(
         except Exception as _e:
             logger.warning(f"ONVIF event pull start failed for {camera.id}: {_e}")
 
+    # After commit the instance is EXPIRED (expire_on_commit default). Touching
+    # ANY attribute in to_response then triggers a lazy reload outside the async
+    # greenlet → _load_expired → _connection_for_bind crash (500) even though the
+    # camera IS persisted. Refresh ALL columns + the `groups` relationship IN the
+    # async session so serialisation reads cached values, no lazy load.
+    try:
+        await db.refresh(camera, attribute_names=["groups"])
+        await db.refresh(camera)  # un-expire all column attributes
+    except Exception as _e:
+        logger.warning(f"camera refresh failed for {camera.id}: {_e}")
     return CameraResponse(**svc.to_response(camera))
 
 

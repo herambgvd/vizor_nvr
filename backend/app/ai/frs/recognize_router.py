@@ -21,8 +21,9 @@ from typing import Optional
 
 import httpx
 from fastapi import (
-    APIRouter, Depends, File, Form, HTTPException, UploadFile, status,
+    APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status,
 )
+from fastapi.responses import Response
 
 from app.core.dependencies import get_current_user, require_permission
 
@@ -109,6 +110,38 @@ async def detect_faces(
     except httpx.HTTPError as e:
         raise _bridge_error("failed to reach bridge", e)
     return _passthrough(resp)
+
+
+# =============================================================================
+# Snapshot proxy (rustfs-backed event snapshots)
+# =============================================================================
+
+@router.get("/snapshot")
+async def get_snapshot(
+    key: str = Query(..., description="rustfs object key from the event"),
+    user=Depends(get_current_user),
+):
+    """Proxy an FRS event snapshot through the bridge to the scenario's rustfs.
+
+    The browser cannot reach rustfs directly (auth + network), so the NVR
+    fetches the image bytes via the bridge GetSnapshot RPC and streams them
+    back. The bridge emits snapshot_path="/api/ai/frs/snapshot?key=..." so this
+    route must live at exactly that path."""
+    if not key:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "missing key")
+    try:
+        async with httpx.AsyncClient(timeout=_IMAGE_TIMEOUT) as client:
+            resp = await client.get(
+                f"{BRIDGE_HTTP_URL}/snapshot/frs", params={"key": key}
+            )
+    except httpx.HTTPError as e:
+        raise _bridge_error("failed to reach bridge", e)
+    if resp.status_code >= 400:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "snapshot not found")
+    return Response(
+        content=resp.content,
+        media_type=resp.headers.get("content-type", "image/jpeg"),
+    )
 
 
 # =============================================================================

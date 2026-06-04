@@ -22,7 +22,7 @@ export default function ControlRoomLayout() {
   const location = useLocation();
   const [prefs, setPrefs] = useUiPrefs();
 
-  const title = TITLES.find((t) => t.match(location.pathname))?.title || "GVD Pro";
+  const title = TITLES.find((t) => t.match(location.pathname))?.title || "Vizor";
   const showTree =
     location.pathname === "/" || location.pathname.startsWith("/playback");
 

@@ -1,6 +1,6 @@
 {
-  "short_name": "GVD NVR",
-  "name": "GVD Pro Network Video Recorder",
+  "short_name": "Vizor",
+  "name": "Vizor NVR",
   "description": "Multi-camera live view, playback, and event monitoring",
   "icons": [
     { "src": "icon-192.png", "type": "image/png", "sizes": "192x192", "purpose": "any maskable" },

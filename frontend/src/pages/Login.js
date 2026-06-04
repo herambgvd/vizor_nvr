@@ -1,12 +1,13 @@
 // =============================================================================
 // Login Page - User Authentication
 // =============================================================================
-// Login and registration page with clean white theme.
+// Centered single-card auth on the dark console theme. Animated aurora +
+// dot-grid backdrop, glowing brand mark, telemetry-style labels.
 // =============================================================================
 
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Video, Eye, EyeOff, LogIn, UserPlus } from "lucide-react";
+import { Video, Eye, EyeOff, LogIn, UserPlus, ShieldCheck } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { checkSetup } from "../api/auth";
 import { Button } from "../components/ui/button";
@@ -113,380 +114,356 @@ const Login = () => {
   };
 
   return (
-    <div className="relative min-h-screen bg-[var(--console-bg)] text-foreground flex overflow-hidden">
-      {/* Aurora glow — top-right blue/cyan bloom */}
+    <div
+      className="relative min-h-screen flex items-center justify-center overflow-hidden px-4 py-10 text-foreground"
+      style={{ background: "var(--console-bg)" }}
+    >
+      {/* Aurora glow — top bloom */}
       <div className="aurora" />
 
-      {/* Subtle dot grid */}
+      {/* Dot grid, faded toward center */}
       <div
-        className="pointer-events-none absolute inset-0 z-0 opacity-[0.05]"
+        className="pointer-events-none absolute inset-0 z-0 opacity-[0.06]"
         style={{
           backgroundImage:
             "radial-gradient(circle at 1px 1px, rgba(255,255,255,0.7) 1px, transparent 0)",
           backgroundSize: "32px 32px",
+          maskImage:
+            "radial-gradient(ellipse 70% 55% at 50% 35%, #000 35%, transparent 100%)",
+          WebkitMaskImage:
+            "radial-gradient(ellipse 70% 55% at 50% 35%, #000 35%, transparent 100%)",
+        }}
+      />
+      {/* Accent halo behind the card */}
+      <div
+        className="pointer-events-none absolute left-1/2 top-[18%] -translate-x-1/2 w-[420px] h-[420px] rounded-full blur-3xl opacity-20 z-0"
+        style={{
+          background:
+            "radial-gradient(circle, var(--console-accent) 0%, transparent 70%)",
         }}
       />
 
-      {/* Left Side - Branding */}
-      <div className="hidden lg:flex lg:w-1/2 relative z-10">
-        <div className="relative z-10 flex flex-col justify-center w-full p-16 text-white">
-          <div className="flex items-center gap-3 mb-12">
-            <div className="h-12 w-12 rounded-xl flex items-center justify-center shadow-[0_0_40px_rgba(20,184,166,0.45)]" style={{ backgroundColor: 'var(--console-accent)' }}>
-              <Video className="h-6 w-6 text-white" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight">GVD Pro</h1>
-              <p className="text-muted-foreground text-sm">Network Video Recorder</p>
-            </div>
+      <div className="relative z-10 w-full max-w-md">
+        {/* Brand */}
+        <div className="flex flex-col items-center text-center mb-8">
+          <div
+            className="h-14 w-14 rounded-2xl flex items-center justify-center mb-4 shadow-[0_0_48px_rgba(20,184,166,0.5)]"
+            style={{ backgroundColor: "var(--console-accent)" }}
+          >
+            <Video className="h-7 w-7 text-white" />
           </div>
-
-          <div className="max-w-md">
-            <h2 className="text-5xl font-semibold tracking-tight leading-[1.05] mb-6 text-balance">
-              <span className="text-gradient-blue">Surveillance,</span>
-              <br />
-              rebuilt for operators.
-            </h2>
-            <p className="leading-relaxed text-[15px]" style={{ color: 'var(--console-muted)' }}>
-              ONVIF-native recording with privacy masking, signed evidence
-              export, two-factor auth, and per-camera RBAC — all in a single
-              dark dashboard.
-            </p>
-          </div>
-
-          <div className="mt-12 grid grid-cols-2 gap-x-6 gap-y-3 max-w-md">
-            {[
-              "Multi-stream H.264/265",
-              "Motion-triggered events",
-              "S.M.A.R.T disk health",
-              "Signed evidence bundles",
-              "TOTP 2FA",
-              "Per-camera ACL",
-            ].map((feature) => (
-              <div
-                key={feature}
-                className="flex items-center gap-2 text-[13px]"
-                style={{ color: 'var(--console-muted)' }}
-              >
-                <div className="h-1.5 w-1.5 rounded-full shadow-[0_0_6px_rgba(20,184,166,0.7)]" style={{ backgroundColor: 'var(--console-accent)' }} />
-                {feature}
-              </div>
-            ))}
-          </div>
+          <h1 className="text-3xl font-semibold tracking-tight">
+            <span className="text-gradient-blue">Vizor</span>
+          </h1>
+          <p
+            className="font-telemetry text-[11px] uppercase tracking-[0.2em] mt-2"
+            style={{ color: "var(--console-muted)" }}
+          >
+            Network Video Recorder
+          </p>
         </div>
-      </div>
 
-      {/* Right Side - Auth Forms */}
-      <div className="flex-1 flex items-center justify-center p-4 sm:p-8">
-        <div className="w-full max-w-md">
-          {/* Mobile Logo */}
-          <div className="lg:hidden flex items-center justify-center gap-3 mb-8">
-            <div className="p-2 rounded-lg" style={{ backgroundColor: 'var(--console-accent)' }}>
-              <Video className="h-6 w-6 text-white" />
+        {/* Loading state */}
+        {setupRequired === null && (
+          <div className="flex items-center justify-center py-16">
+            <div className="text-muted-foreground text-sm">
+              Checking system status…
             </div>
-            <span
-              className="text-xl font-bold text-white"
-              style={{ fontFamily: "Manrope, sans-serif" }}
-            >
-              GVD Pro
-            </span>
           </div>
+        )}
 
-          {/* Loading state */}
-          {setupRequired === null && (
-            <div className="flex items-center justify-center py-16">
-              <div className="text-muted-foreground text-sm">
-                Checking system status…
-              </div>
-            </div>
-          )}
-
-          {/* Normal login — no register tab */}
-          {setupRequired === false && (
-            <Card className="border-[var(--console-border)] backdrop-blur-xl shadow-[0_0_60px_rgba(20,184,166,0.10)]" style={{ backgroundColor: 'var(--console-panel)' }}>
-              <CardHeader className="space-y-1">
-                <CardTitle
-                  className="text-2xl"
-                  style={{ fontFamily: "Manrope, sans-serif" }}
-                >
-                  Welcome back
-                </CardTitle>
-                <CardDescription>
-                  Enter your credentials to access your dashboard
-                </CardDescription>
-              </CardHeader>
-              <form onSubmit={handleLogin}>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="solo-login-username">Username</Label>
+        {/* Normal login — no register tab */}
+        {setupRequired === false && (
+          <Card
+            className="border-[var(--console-border)] backdrop-blur-xl shadow-[0_0_70px_rgba(20,184,166,0.12)]"
+            style={{ backgroundColor: "var(--console-panel)" }}
+          >
+            <CardHeader className="space-y-1">
+              <CardTitle className="text-2xl tracking-tight">
+                Welcome back
+              </CardTitle>
+              <CardDescription>
+                Enter your credentials to access your dashboard
+              </CardDescription>
+            </CardHeader>
+            <form onSubmit={handleLogin}>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="solo-login-username">Username</Label>
+                  <Input
+                    id="solo-login-username"
+                    data-testid="login-username-input"
+                    placeholder="Enter your username"
+                    value={loginForm.username}
+                    onChange={(e) =>
+                      setLoginForm({ ...loginForm, username: e.target.value })
+                    }
+                    required
+                    disabled={isLoading}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="solo-login-password">Password</Label>
+                  <div className="relative">
                     <Input
-                      id="solo-login-username"
-                      data-testid="login-username-input"
-                      placeholder="Enter your username"
-                      value={loginForm.username}
+                      id="solo-login-password"
+                      data-testid="login-password-input"
+                      type={showPassword ? "text" : "password"}
+                      placeholder="Enter your password"
+                      value={loginForm.password}
                       onChange={(e) =>
-                        setLoginForm({ ...loginForm, username: e.target.value })
+                        setLoginForm({
+                          ...loginForm,
+                          password: e.target.value,
+                        })
                       }
                       required
                       disabled={isLoading}
                     />
+                    <button
+                      type="button"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-[var(--console-text)]"
+                      onClick={() => setShowPassword(!showPassword)}
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-4 w-4" />
+                      ) : (
+                        <Eye className="h-4 w-4" />
+                      )}
+                    </button>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="solo-login-password">Password</Label>
-                    <div className="relative">
+                </div>
+              </CardContent>
+              <CardFooter>
+                <Button
+                  data-testid="login-submit-btn"
+                  type="submit"
+                  className="w-full text-white border-0 hover:opacity-90 transition-opacity shadow-[0_0_30px_rgba(20,184,166,0.35)]"
+                  style={{ backgroundColor: "var(--console-accent)" }}
+                  disabled={isLoading}
+                >
+                  {isLoading ? "Signing in..." : "Sign In"}
+                </Button>
+              </CardFooter>
+            </form>
+          </Card>
+        )}
+
+        {/* First-time setup — show both tabs, default to register */}
+        {setupRequired === true && (
+          <Tabs defaultValue="register" className="w-full">
+            <TabsList className="grid w-full grid-cols-2 mb-6">
+              <TabsTrigger data-testid="login-tab" value="login" className="">
+                <LogIn className="h-4 w-4 mr-2" />
+                Login
+              </TabsTrigger>
+              <TabsTrigger
+                data-testid="register-tab"
+                value="register"
+                className=""
+              >
+                <UserPlus className="h-4 w-4 mr-2" />
+                Setup Admin
+              </TabsTrigger>
+            </TabsList>
+
+            {/* Login Tab */}
+            <TabsContent value="login">
+              <Card
+                className="border-[var(--console-border)] backdrop-blur-xl shadow-[0_0_70px_rgba(20,184,166,0.12)]"
+                style={{ backgroundColor: "var(--console-panel)" }}
+              >
+                <CardHeader className="space-y-1">
+                  <CardTitle className="text-2xl tracking-tight">
+                    Welcome back
+                  </CardTitle>
+                  <CardDescription>
+                    Enter your credentials to access your dashboard
+                  </CardDescription>
+                </CardHeader>
+                <form onSubmit={handleLogin}>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="login-username">Username</Label>
                       <Input
-                        id="solo-login-password"
-                        data-testid="login-password-input"
-                        type={showPassword ? "text" : "password"}
-                        placeholder="Enter your password"
-                        value={loginForm.password}
+                        id="login-username"
+                        data-testid="login-username-input"
+                        placeholder="Enter your username"
+                        value={loginForm.username}
                         onChange={(e) =>
                           setLoginForm({
                             ...loginForm,
-                            password: e.target.value,
+                            username: e.target.value,
                           })
                         }
                         required
                         disabled={isLoading}
                       />
-                      <button
-                        type="button"
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-[var(--console-text)]"
-                        onClick={() => setShowPassword(!showPassword)}
-                      >
-                        {showPassword ? (
-                          <EyeOff className="h-4 w-4" />
-                        ) : (
-                          <Eye className="h-4 w-4" />
-                        )}
-                      </button>
                     </div>
-                  </div>
-                </CardContent>
-                <CardFooter>
-                  <Button
-                    data-testid="login-submit-btn"
-                    type="submit"
-                    className="w-full text-white border-0 hover:opacity-90 shadow-[0_0_30px_rgba(20,184,166,0.35)]"
-                    style={{ backgroundColor: 'var(--console-accent)' }}
-                    disabled={isLoading}
-                  >
-                    {isLoading ? "Signing in..." : "Sign In"}
-                  </Button>
-                </CardFooter>
-              </form>
-            </Card>
-          )}
-
-          {/* First-time setup — show both tabs, default to register */}
-          {setupRequired === true && (
-            <Tabs defaultValue="register" className="w-full">
-              <TabsList className="grid w-full grid-cols-2 mb-6">
-                <TabsTrigger
-                  data-testid="login-tab"
-                  value="login"
-                  className=""
-                >
-                  <LogIn className="h-4 w-4 mr-2" />
-                  Login
-                </TabsTrigger>
-                <TabsTrigger
-                  data-testid="register-tab"
-                  value="register"
-                  className=""
-                >
-                  <UserPlus className="h-4 w-4 mr-2" />
-                  Setup Admin
-                </TabsTrigger>
-              </TabsList>
-
-              {/* Login Tab */}
-              <TabsContent value="login">
-                <Card className="border-[var(--console-border)] backdrop-blur-xl shadow-[0_0_60px_rgba(20,184,166,0.10)]" style={{ backgroundColor: 'var(--console-panel)' }}>
-                  <CardHeader className="space-y-1">
-                    <CardTitle
-                      className="text-2xl"
-                      style={{ fontFamily: "Manrope, sans-serif" }}
-                    >
-                      Welcome back
-                    </CardTitle>
-                    <CardDescription>
-                      Enter your credentials to access your dashboard
-                    </CardDescription>
-                  </CardHeader>
-                  <form onSubmit={handleLogin}>
-                    <CardContent className="space-y-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="login-username">Username</Label>
+                    <div className="space-y-2">
+                      <Label htmlFor="login-password">Password</Label>
+                      <div className="relative">
                         <Input
-                          id="login-username"
-                          data-testid="login-username-input"
-                          placeholder="Enter your username"
-                          value={loginForm.username}
+                          id="login-password"
+                          data-testid="login-password-input"
+                          type={showPassword ? "text" : "password"}
+                          placeholder="Enter your password"
+                          value={loginForm.password}
                           onChange={(e) =>
                             setLoginForm({
                               ...loginForm,
-                              username: e.target.value,
-                            })
-                          }
-                          required
-                          disabled={isLoading}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="login-password">Password</Label>
-                        <div className="relative">
-                          <Input
-                            id="login-password"
-                            data-testid="login-password-input"
-                            type={showPassword ? "text" : "password"}
-                            placeholder="Enter your password"
-                            value={loginForm.password}
-                            onChange={(e) =>
-                              setLoginForm({
-                                ...loginForm,
-                                password: e.target.value,
-                              })
-                            }
-                            required
-                            disabled={isLoading}
-                          />
-                          <button
-                            type="button"
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-[var(--console-text)]"
-                            onClick={() => setShowPassword(!showPassword)}
-                          >
-                            {showPassword ? (
-                              <EyeOff className="h-4 w-4" />
-                            ) : (
-                              <Eye className="h-4 w-4" />
-                            )}
-                          </button>
-                        </div>
-                      </div>
-                    </CardContent>
-                    <CardFooter>
-                      <Button
-                        data-testid="login-submit-btn"
-                        type="submit"
-                        className="w-full text-white border-0 hover:opacity-90 shadow-[0_0_30px_rgba(20,184,166,0.35)]"
-                    style={{ backgroundColor: 'var(--console-accent)' }}
-                        disabled={isLoading}
-                      >
-                        {isLoading ? "Signing in..." : "Sign In"}
-                      </Button>
-                    </CardFooter>
-                  </form>
-                </Card>
-              </TabsContent>
-
-              {/* Register Tab */}
-              <TabsContent value="register">
-                <Card className="border-[var(--console-border)] backdrop-blur-xl shadow-[0_0_60px_rgba(20,184,166,0.10)]" style={{ backgroundColor: 'var(--console-panel)' }}>
-                  <CardHeader className="space-y-1">
-                    <CardTitle
-                      className="text-2xl"
-                      style={{ fontFamily: "Manrope, sans-serif" }}
-                    >
-                      Create administrator account
-                    </CardTitle>
-                    <CardDescription>
-                      Set up the primary admin account for GVD Pro
-                    </CardDescription>
-                  </CardHeader>
-                  <form onSubmit={handleRegister}>
-                    <CardContent className="space-y-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="register-username">Username</Label>
-                        <Input
-                          id="register-username"
-                          data-testid="register-username-input"
-                          placeholder="Choose a username"
-                          value={registerForm.username}
-                          onChange={(e) =>
-                            setRegisterForm({
-                              ...registerForm,
-                              username: e.target.value,
-                            })
-                          }
-                          required
-                          disabled={isLoading}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="register-email">Email</Label>
-                        <Input
-                          id="register-email"
-                          data-testid="register-email-input"
-                          type="email"
-                          placeholder="Enter your email"
-                          value={registerForm.email}
-                          onChange={(e) =>
-                            setRegisterForm({
-                              ...registerForm,
-                              email: e.target.value,
-                            })
-                          }
-                          required
-                          disabled={isLoading}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="register-password">Password</Label>
-                        <Input
-                          id="register-password"
-                          data-testid="register-password-input"
-                          type="password"
-                          placeholder="Create a password"
-                          value={registerForm.password}
-                          onChange={(e) =>
-                            setRegisterForm({
-                              ...registerForm,
                               password: e.target.value,
                             })
                           }
                           required
                           disabled={isLoading}
                         />
+                        <button
+                          type="button"
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-[var(--console-text)]"
+                          onClick={() => setShowPassword(!showPassword)}
+                        >
+                          {showPassword ? (
+                            <EyeOff className="h-4 w-4" />
+                          ) : (
+                            <Eye className="h-4 w-4" />
+                          )}
+                        </button>
                       </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="register-confirm">
-                          Confirm Password
-                        </Label>
-                        <Input
-                          id="register-confirm"
-                          data-testid="register-confirm-input"
-                          type="password"
-                          placeholder="Confirm your password"
-                          value={registerForm.confirmPassword}
-                          onChange={(e) =>
-                            setRegisterForm({
-                              ...registerForm,
-                              confirmPassword: e.target.value,
-                            })
-                          }
-                          required
-                          disabled={isLoading}
-                        />
-                      </div>
-                    </CardContent>
-                    <CardFooter>
-                      <Button
-                        data-testid="register-submit-btn"
-                        type="submit"
-                        className="w-full text-white border-0 hover:opacity-90 shadow-[0_0_30px_rgba(20,184,166,0.35)]"
-                    style={{ backgroundColor: 'var(--console-accent)' }}
+                    </div>
+                  </CardContent>
+                  <CardFooter>
+                    <Button
+                      data-testid="login-submit-btn"
+                      type="submit"
+                      className="w-full text-white border-0 hover:opacity-90 transition-opacity shadow-[0_0_30px_rgba(20,184,166,0.35)]"
+                      style={{ backgroundColor: "var(--console-accent)" }}
+                      disabled={isLoading}
+                    >
+                      {isLoading ? "Signing in..." : "Sign In"}
+                    </Button>
+                  </CardFooter>
+                </form>
+              </Card>
+            </TabsContent>
+
+            {/* Register Tab */}
+            <TabsContent value="register">
+              <Card
+                className="border-[var(--console-border)] backdrop-blur-xl shadow-[0_0_70px_rgba(20,184,166,0.12)]"
+                style={{ backgroundColor: "var(--console-panel)" }}
+              >
+                <CardHeader className="space-y-1">
+                  <CardTitle className="text-2xl tracking-tight">
+                    Create administrator account
+                  </CardTitle>
+                  <CardDescription>
+                    Set up the primary admin account for Vizor
+                  </CardDescription>
+                </CardHeader>
+                <form onSubmit={handleRegister}>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="register-username">Username</Label>
+                      <Input
+                        id="register-username"
+                        data-testid="register-username-input"
+                        placeholder="Choose a username"
+                        value={registerForm.username}
+                        onChange={(e) =>
+                          setRegisterForm({
+                            ...registerForm,
+                            username: e.target.value,
+                          })
+                        }
+                        required
                         disabled={isLoading}
-                      >
-                        {isLoading
-                          ? "Creating account..."
-                          : "Create Admin Account"}
-                      </Button>
-                    </CardFooter>
-                  </form>
-                </Card>
-              </TabsContent>
-            </Tabs>
-          )}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="register-email">Email</Label>
+                      <Input
+                        id="register-email"
+                        data-testid="register-email-input"
+                        type="email"
+                        placeholder="Enter your email"
+                        value={registerForm.email}
+                        onChange={(e) =>
+                          setRegisterForm({
+                            ...registerForm,
+                            email: e.target.value,
+                          })
+                        }
+                        required
+                        disabled={isLoading}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="register-password">Password</Label>
+                      <Input
+                        id="register-password"
+                        data-testid="register-password-input"
+                        type="password"
+                        placeholder="Create a password"
+                        value={registerForm.password}
+                        onChange={(e) =>
+                          setRegisterForm({
+                            ...registerForm,
+                            password: e.target.value,
+                          })
+                        }
+                        required
+                        disabled={isLoading}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="register-confirm">Confirm Password</Label>
+                      <Input
+                        id="register-confirm"
+                        data-testid="register-confirm-input"
+                        type="password"
+                        placeholder="Confirm your password"
+                        value={registerForm.confirmPassword}
+                        onChange={(e) =>
+                          setRegisterForm({
+                            ...registerForm,
+                            confirmPassword: e.target.value,
+                          })
+                        }
+                        required
+                        disabled={isLoading}
+                      />
+                    </div>
+                  </CardContent>
+                  <CardFooter>
+                    <Button
+                      data-testid="register-submit-btn"
+                      type="submit"
+                      className="w-full text-white border-0 hover:opacity-90 transition-opacity shadow-[0_0_30px_rgba(20,184,166,0.35)]"
+                      style={{ backgroundColor: "var(--console-accent)" }}
+                      disabled={isLoading}
+                    >
+                      {isLoading
+                        ? "Creating account..."
+                        : "Create Admin Account"}
+                    </Button>
+                  </CardFooter>
+                </form>
+              </Card>
+            </TabsContent>
+          </Tabs>
+        )}
+
+        {/* Secure-access footer */}
+        <div
+          className="flex items-center justify-center gap-1.5 mt-6 font-telemetry text-[10px] uppercase tracking-[0.18em]"
+          style={{ color: "var(--console-muted)" }}
+        >
+          <ShieldCheck
+            className="h-3.5 w-3.5"
+            style={{ color: "var(--console-accent)" }}
+          />
+          Vizor NVR · Secure Access
         </div>
       </div>
     </div>

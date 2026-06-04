@@ -680,7 +680,7 @@ class CapacityTest:
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="GVD NVR capacity testing framework",
+        description="Vizor NVR capacity testing framework",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:

@@ -161,6 +161,19 @@ export const listFrsEvents = async (params = {}) => {
   return r.data;
 };
 
+// Generic scenario events via the unified NVR event store, filtered by the
+// scenario's source_service (slug). Used by non-FRS scenarios (PPE, future
+// plugins) whose events aren't in the FRS-scoped query endpoint. Normalises
+// the response to the {items,total} shape EventsTab expects.
+export const listScenarioEvents = async (slug, params = {}) => {
+  const { since, until, ...rest } = params;
+  const q = { ...rest, source_service: slug };
+  if (since) q.start_date = since;
+  if (until) q.end_date = until;
+  const r = await apiClient.get("/events", { params: q });
+  return { items: r.data.events || [], total: r.data.total || 0 };
+};
+
 export const listAttendance = async (params = {}) => {
   const r = await apiClient.get("/ai/frs/attendance", { params });
   return r.data;

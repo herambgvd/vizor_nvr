@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ONVIF Profile S/T/G Conformance Smoke-Test for GVD NVR
+ONVIF Profile S/T/G Conformance Smoke-Test for Vizor NVR
 =======================================================
 Calls each Profile S mandatory operation (plus selected Profile T and G ops)
 against the running NVR ONVIF device service and prints a pass/fail table.

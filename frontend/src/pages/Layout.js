@@ -270,7 +270,7 @@ const Layout = () => {
             <Video className="h-4 w-4 text-white" />
           </div>
           <div className="hidden sm:block leading-tight">
-            <p className="text-[14px] font-semibold tracking-tight">GVD Pro</p>
+            <p className="text-[14px] font-semibold tracking-tight">Vizor</p>
             <p className="text-[10px] text-muted-foreground -mt-0.5">Network Video Recorder</p>
           </div>
         </Link>

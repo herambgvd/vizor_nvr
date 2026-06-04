@@ -22,5 +22,5 @@ def test_wrong_code_rejected():
 
 def test_provisioning_uri_format():
     uri = totp_service.provisioning_uri("alice", "JBSWY3DPEHPK3PXP")
-    assert uri.startswith("otpauth://totp/GVD%20NVR:alice?")
+    assert uri.startswith("otpauth://totp/Vizor%20NVR:alice?")
     assert "secret=JBSWY3DPEHPK3PXP" in uri

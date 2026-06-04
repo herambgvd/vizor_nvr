@@ -106,17 +106,23 @@ CATALOG = [
 
 
 async def seed_scenarios(db: AsyncSession) -> None:
-    """Upsert catalog rows by slug. Preserves operator state (enabled,
-    camera_limit, licensed) on existing rows — only refreshes static metadata."""
+    """BOOTSTRAP fallback only. The catalog is now manifest-driven (scenarios
+    register via POST /api/ai/scenarios/register — see core/registry.py). This
+    seed just guarantees the builtin scenarios EXIST on a fresh DB so the system
+    is usable before any manifest is registered.
+
+    Non-destructive: a row already sourced from a manifest (`source=="manifest"`)
+    is left untouched — the live plugin manifest wins over the static seed."""
     for entry in CATALOG:
         row = (await db.execute(
             select(AIScenario).where(AIScenario.slug == entry["slug"])
         )).scalar_one_or_none()
         if row is None:
-            db.add(AIScenario(**entry))
-            logger.info("[ai-seed] created scenario %s", entry["slug"])
-        else:
-            # Refresh static metadata; do NOT touch licensed/enabled/camera_limit.
+            db.add(AIScenario(source="builtin", **entry))
+            logger.info("[ai-seed] bootstrap created scenario %s", entry["slug"])
+        elif row.source != "manifest":
+            # Refresh static metadata on builtin rows only; never clobber a
+            # manifest-registered plugin or operator state.
             for k in ("name", "description", "category", "icon", "grpc_endpoint",
                       "module_tabs", "event_types", "camera_config_schema"):
                 setattr(row, k, entry[k])

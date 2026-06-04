@@ -1,5 +1,5 @@
 # =============================================================================
-# GVD NVR — Server Entry Point (thin wrapper)
+# Vizor NVR — Server Entry Point (thin wrapper)
 # =============================================================================
 # The actual application lives in app/main.py
 # Run with:  python server.py
@@ -24,7 +24,7 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", "8000"))
     reload = os.getenv("ENV", "development") == "development"
 
-    logging.info(f"Starting GVD NVR on {host}:{port}")
+    logging.info(f"Starting Vizor NVR on {host}:{port}")
     uvicorn.run(
         "app.main:app",
         host=host,

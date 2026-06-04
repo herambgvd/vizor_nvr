@@ -1,5 +1,5 @@
 # =============================================================================
-# GVD NVR — Backend Dockerfile
+# Vizor NVR — Backend Dockerfile
 # =============================================================================
 # Multi-stage build: smaller final image without build tools
 

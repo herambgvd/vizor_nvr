@@ -108,7 +108,7 @@ def generate_self_signed(
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     subject = issuer = x509.Name([
         x509.NameAttribute(NameOID.COMMON_NAME, common_name),
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "GVD NVR (self-signed)"),
+        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Vizor NVR (self-signed)"),
     ])
     now = datetime.now(timezone.utc)
     cert = (

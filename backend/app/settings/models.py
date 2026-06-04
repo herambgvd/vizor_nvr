@@ -26,7 +26,7 @@ class Settings(Base):
 # Default settings
 DEFAULT_SETTINGS = {
     # General
-    "system_name": {"value": "GVD NVR", "type": "string", "category": "general", "desc": "System display name"},
+    "system_name": {"value": "Vizor NVR", "type": "string", "category": "general", "desc": "System display name"},
     "timezone": {"value": "UTC", "type": "string", "category": "general", "desc": "System timezone"},
 
     # Retention
@@ -57,7 +57,7 @@ DEFAULT_SETTINGS = {
     "smtp_use_tls":    {"value": "true",         "type": "bool",   "category": "notifications", "desc": "Use STARTTLS (port 587)"},
     "smtp_use_ssl":    {"value": "false",        "type": "bool",   "category": "notifications", "desc": "Use implicit SSL (port 465)"},
     "smtp_from_email": {"value": "",             "type": "string", "category": "notifications", "desc": "Sender email address"},
-    "smtp_from_name":  {"value": "GVD NVR",     "type": "string", "category": "notifications", "desc": "Sender display name"},
+    "smtp_from_name":  {"value": "Vizor NVR",     "type": "string", "category": "notifications", "desc": "Sender display name"},
     "smtp_recipients": {"value": "",             "type": "string", "category": "notifications", "desc": "Comma-separated recipient email addresses"},
     "smtp_alert_events": {
         "value": "camera_offline,recording_error,storage_low,storage_full,recording_gap",

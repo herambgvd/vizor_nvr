@@ -43,6 +43,8 @@ async def list_events(
     acknowledged: Optional[bool] = Query(None),
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
+    source_service: Optional[str] = Query(None),
+    detection_type: Optional[str] = Query(None),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     user: dict = Depends(require_permission("view_cameras")),
@@ -57,6 +59,8 @@ async def list_events(
         acknowledged=acknowledged,
         start_date=start_date,
         end_date=end_date,
+        source_service=source_service,
+        detection_type=detection_type,
         limit=limit,
         offset=offset,
     )
