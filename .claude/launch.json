@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "gvd-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "/Users/snowden/office/website/frontend", "run", "dev"],
+      "port": 3000,
+      "autoPort": false
+    }
+  ]
+}
