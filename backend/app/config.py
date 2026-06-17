@@ -133,6 +133,12 @@ class Settings:
     ENABLE_AI_MODULES: bool = (
         os.getenv("ENABLE_AI_MODULES", "false").lower() == "true"
     )
+    AI_PLUGIN_PROXY_TIMEOUT: float = float(
+        os.getenv("AI_PLUGIN_PROXY_TIMEOUT", "30")
+    )
+    # Internal shared token injected by the NVR when it proxies to scenario
+    # containers. Plugins should validate this header and never receive user JWTs.
+    AI_PLUGIN_SERVICE_TOKEN: str = os.getenv("AI_PLUGIN_SERVICE_TOKEN", "")
 
     # ── Cluster ─────────────────────────────────────────────────────────
     # NVR_NODE_ID: unique identifier for this node; defaults to hostname
@@ -146,6 +152,9 @@ class Settings:
     # against restart loops spamming the alarms panel.
     CLUSTER_EVENT_COOLDOWN_SECS: int = int(
         os.getenv("CLUSTER_EVENT_COOLDOWN_SECS", "60")
+    )
+    CLUSTER_FAILOVER_EVENTS_ENABLED: bool = (
+        os.getenv("CLUSTER_FAILOVER_EVENTS_ENABLED", "false").lower() == "true"
     )
 
     # ── POS / ATM Overlay ───────────────────────────────────────────────

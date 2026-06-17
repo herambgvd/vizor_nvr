@@ -55,12 +55,22 @@ async def activate_license(
         await svc.activate(raw)
     except LicenseError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    try:
+        from app.config import settings
+        if settings.ENABLE_AI_MODULES:
+            from app.ai.core.service import ai_service
+            await ai_service.sync_licensing(db)
+    except Exception:
+        pass
     cam = await _counts(db)
     return svc.snapshot(cam)
 
 
 @router.delete("", status_code=status.HTTP_204_NO_CONTENT)
-async def clear_license(user=Depends(require_permission("manage_system"))):
+async def clear_license(
+    user=Depends(require_permission("manage_system")),
+    db: AsyncSession = Depends(get_db),
+):
     from app.license.service import LICENSE_FILE
 
     try:
@@ -69,4 +79,11 @@ async def clear_license(user=Depends(require_permission("manage_system"))):
         raise HTTPException(500, f"unlink_failed:{e}")
     svc = get_license_service()
     await svc.load_persisted()
+    try:
+        from app.config import settings
+        if settings.ENABLE_AI_MODULES:
+            from app.ai.core.service import ai_service
+            await ai_service.sync_licensing(db)
+    except Exception:
+        pass
     return None

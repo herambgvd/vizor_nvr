@@ -1,8 +1,12 @@
 // =============================================================================
 // AI · Live tab — video-wall of cameras assigned to this scenario, each with
-// the NVR's WebRTCPlayer (go2rtc, low-latency). Recent recognition events are
-// polled every 3s via GET /api/ai/frs/live and overlaid per-camera as
-// person-name + confidence badges so operators see who was just recognized.
+// the NVR's WebRTCPlayer (go2rtc, low-latency).
+//
+// For FRS, recent recognition events are polled every 3s from the FRS plugin's
+// /live endpoint and overlaid per-camera as person-name + confidence badges.
+// Other scenarios (suspect-search, PPE, …) render the same camera wall without
+// the recognition overlay (they have no live per-person feed), so the Live tab
+// is consistent across every scenario.
 // =============================================================================
 
 import React, { useMemo } from "react";
@@ -128,11 +132,15 @@ export default function LiveTab({ scenario }) {
     [enabledCameras],
   );
 
+  // Recognition overlay is FRS-only — other scenarios have no live per-person
+  // feed, so skip the poll and render a plain camera wall.
+  const isFrs = (scenario?.slug || "") === "frs";
+
   // Poll recent recognition events; group by camera for overlays.
   const { data: live } = useQuery({
     queryKey: ["frs", "live", cameraIds],
     queryFn: () => listFrsLive({ camera_id: cameraIds, limit: 100 }),
-    enabled: cameraIds.length > 0,
+    enabled: isFrs && cameraIds.length > 0,
     refetchInterval: LIVE_POLL_MS,
     refetchIntervalInBackground: false,
   });
@@ -178,8 +186,8 @@ export default function LiveTab({ scenario }) {
         <ScanFace className="h-10 w-10 text-zinc-500 mb-3" />
         <p className="text-sm font-medium text-zinc-200">No cameras assigned</p>
         <p className="text-xs text-zinc-500 mt-1 max-w-sm">
-          Assign cameras to this scenario from the Cameras tab to see live
-          recognition here.
+          Assign cameras to this scenario from the Cameras tab to see the live
+          camera wall here.
         </p>
       </div>
     );

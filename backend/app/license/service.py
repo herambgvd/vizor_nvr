@@ -267,6 +267,8 @@ class LicenseService:
             "expires_at": p.expires_at if p else None,
             "camera_limit": p.camera_limit if p else 0,
             "features": list(p.features) if p else [],
+            "scenarios": list(p.scenarios) if p else [],
+            "ai_camera_limit": p.ai_camera_limit if p else 0,
             "usage": {
                 "cameras": camera_count,
             },

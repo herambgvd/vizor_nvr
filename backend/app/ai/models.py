@@ -13,9 +13,9 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field, field_serializer
+from pydantic import BaseModel, field_serializer
 from sqlalchemy import (
-    Boolean, Column, DateTime, Float, ForeignKey, Integer, JSON, String, Text,
+    Boolean, Column, DateTime, ForeignKey, Integer, JSON, String, Text,
     Index, UniqueConstraint, func,
 )
 
@@ -94,88 +94,12 @@ class CameraAIConfig(Base):
 
 
 # =============================================================================
-# FRS — person gallery (NVR-owned metadata; embeddings live in the scenario)
+# FRS person gallery (groups / persons / photos / attendance) and FRS
+# recognition events now live entirely in the standalone FRS scenario
+# microservice (scenarios/frs), which owns its own Postgres, Qdrant face index
+# and photo volume. The NVR no longer defines those tables — see the Alembic
+# migration that drops the legacy frs_* tables after data is migrated.
 # =============================================================================
-
-class FRSGroup(Base):
-    __tablename__ = "frs_groups"
-
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    name = Column(String(100), nullable=False, unique=True)
-    group_type = Column(String(50), nullable=True)   # "employee","vip","watchlist","banned"
-    color_code = Column(String(20), nullable=True)
-    description = Column(Text, nullable=True)
-    alert_sound = Column(Boolean, nullable=False, default=False)
-    created_at = Column(DateTime, server_default=func.now())
-    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
-
-
-class FRSPerson(Base):
-    __tablename__ = "frs_persons"
-
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    full_name = Column(String(200), nullable=False)
-    external_id = Column(String(100), nullable=True, unique=True)   # HR id, etc.
-    group_id = Column(String, ForeignKey("frs_groups.id", ondelete="SET NULL"), nullable=True)
-    category = Column(String(20), nullable=False, default="standard")  # standard/vip/monitored/restricted/banned
-    priority = Column(Integer, nullable=False, default=0)              # 0..10
-    # Enrollment status mirrors the scenario's verdict (bridge updates it).
-    enrollment_status = Column(String(20), nullable=False, default="unenrolled")  # unenrolled/pending/enrolled/failed
-    photo_count = Column(Integer, nullable=False, default=0)
-    enrolled_photo_count = Column(Integer, nullable=False, default=0)
-    thumbnail_key = Column(String(500), nullable=True)
-    attributes = Column(JSON, nullable=True)        # {gender, age, dept, ...}
-    created_at = Column(DateTime, server_default=func.now())
-    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
-
-    __table_args__ = (
-        Index("ix_frs_persons_group", "group_id"),
-        Index("ix_frs_persons_category", "category"),
-    )
-
-
-class FRSPhoto(Base):
-    __tablename__ = "frs_photos"
-
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    person_id = Column(String, ForeignKey("frs_persons.id", ondelete="CASCADE"), nullable=False)
-    storage_key = Column(String(500), nullable=True)   # NVR media store key (original)
-    thumbnail_key = Column(String(500), nullable=True)
-    status = Column(String(20), nullable=False, default="pending")  # pending/enrolled/failed
-    # Scenario-side identifiers (filled by the bridge after EnrollFace).
-    embedding_id = Column(String(100), nullable=True)  # scenario Qdrant point id
-    quality_score = Column(Float, nullable=True)
-    liveness_score = Column(Float, nullable=True)
-    sharpness_score = Column(Float, nullable=True)
-    error_code = Column(String(50), nullable=True)
-    error = Column(Text, nullable=True)
-    created_at = Column(DateTime, server_default=func.now())
-    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
-
-    __table_args__ = (Index("ix_frs_photos_person", "person_id"),)
-
-
-class FRSAttendance(Base):
-    """Sighting log → attendance. Written by the bridge on recognition events.
-    (Plain table; promote to a TimescaleDB hypertable in the migration.)"""
-    __tablename__ = "frs_attendance"
-
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    person_id = Column(String, ForeignKey("frs_persons.id", ondelete="CASCADE"), nullable=False)
-    camera_id = Column(String, ForeignKey("cameras.id", ondelete="SET NULL"), nullable=True)
-    day_key = Column(String(10), nullable=False)        # YYYY-MM-DD
-    check_in_at = Column(DateTime, nullable=True)
-    check_out_at = Column(DateTime, nullable=True)
-    sighting_type = Column(String(20), nullable=True)   # seen/entered/exited
-    # events is a TimescaleDB hypertable — soft reference, no FK constraint.
-    event_id = Column(String, nullable=True)
-    created_at = Column(DateTime, server_default=func.now())
-    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
-
-    __table_args__ = (
-        UniqueConstraint("person_id", "day_key", name="uq_person_day"),
-        Index("ix_frs_attendance_day", "day_key"),
-    )
 
 
 # =============================================================================
@@ -202,6 +126,13 @@ class ScenarioResponse(BaseModel):
     capabilities: Optional[List[str]] = None
     source: Optional[str] = None
     registered: bool = True
+    # Manifest-derived plugin fields. Stored in AIScenario.manifest so we do
+    # not need a migration every time the plugin contract grows.
+    service_url: Optional[str] = None
+    proxy_routes: Optional[List[Dict[str, Any]]] = None
+    resource_requirements: Optional[Dict[str, Any]] = None
+    tabs: Optional[List[str]] = None
+    health: Optional[Dict[str, Any]] = None
 
     class Config:
         from_attributes = True
@@ -243,86 +174,6 @@ class CameraAIConfigResponse(BaseModel):
         return dt.isoformat() + "Z" if dt and dt.tzinfo is None else (dt.isoformat() if dt else None)
 
 
-class GroupCreate(BaseModel):
-    name: str = Field(..., min_length=1, max_length=100)
-    group_type: Optional[str] = None
-    color_code: Optional[str] = None
-    description: Optional[str] = None
-    alert_sound: bool = False
-
-
-class GroupResponse(BaseModel):
-    id: str
-    name: str
-    group_type: Optional[str]
-    color_code: Optional[str]
-    description: Optional[str]
-    alert_sound: bool
-    member_count: int = 0
-
-    class Config:
-        from_attributes = True
-
-
-class PersonCreate(BaseModel):
-    full_name: str = Field(..., min_length=1, max_length=200)
-    external_id: Optional[str] = None
-    group_id: Optional[str] = None
-    category: str = "standard"
-    priority: int = 0
-    attributes: Optional[Dict[str, Any]] = None
-
-
-class PersonUpdate(BaseModel):
-    full_name: Optional[str] = None
-    external_id: Optional[str] = None
-    group_id: Optional[str] = None
-    category: Optional[str] = None
-    priority: Optional[int] = None
-    attributes: Optional[Dict[str, Any]] = None
-
-
-class PersonResponse(BaseModel):
-    id: str
-    full_name: str
-    external_id: Optional[str]
-    group_id: Optional[str]
-    category: str
-    priority: int
-    enrollment_status: str
-    photo_count: int
-    enrolled_photo_count: int
-    thumbnail_key: Optional[str]
-    attributes: Optional[Dict[str, Any]] = None
-
-    class Config:
-        from_attributes = True
-
-
-class PhotoResponse(BaseModel):
-    id: str
-    person_id: str
-    storage_key: Optional[str]
-    thumbnail_key: Optional[str]
-    status: str
-    quality_score: Optional[float]
-    liveness_score: Optional[float]
-    error_code: Optional[str]
-    error: Optional[str]
-
-    class Config:
-        from_attributes = True
-
-
-class AttendanceResponse(BaseModel):
-    id: str
-    person_id: str
-    camera_id: Optional[str]
-    day_key: str
-    check_in_at: Optional[datetime]
-    check_out_at: Optional[datetime]
-    sighting_type: Optional[str]
-
-    class Config:
-        from_attributes = True
-
+# FRS gallery request/response schemas (GroupCreate, PersonCreate, PhotoResponse,
+# …) moved to the FRS scenario microservice (scenarios/frs) along with the data
+# they describe. The NVR keeps only the scenario-catalog + camera-config schemas.

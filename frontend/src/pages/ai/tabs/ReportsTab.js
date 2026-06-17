@@ -1,12 +1,9 @@
 // =============================================================================
-// AI · Reports tab — FRS dashboard summary.
+// AI · Reports tab — generic scenario-level report shell.
 //
-// GET /api/ai/frs/reports/summary (since, until) →
-//   { total_events, unique_persons, unknown_count, spoof_count,
-//     by_camera: [{camera_id, count}], by_hour: [{hour, count}] }
-//
-// Renders stat cards + two simple inline-SVG bar charts (by camera, by hour).
-// recharts is not a dependency, so charts are hand-rolled SVG (no extra deps).
+// This tab must not call FRS/PPE hardcoded APIs. All scenarios are moving to
+// plugin ownership, so this uses only generic scenario camera assignments and
+// scenario-filtered NVR events.
 // =============================================================================
 
 import React, { useMemo, useState } from "react";
@@ -14,35 +11,77 @@ import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import {
   Activity,
   Users,
-  UserX,
   ShieldAlert,
   BarChart3,
   Clock,
   Loader2,
 } from "lucide-react";
 
-import { frsSummary, getScenarioCameras } from "../../../api/frs";
-import { Input } from "../../../components/ui/input";
+import { listScenarioCameras, listScenarioEvents } from "../../../api/ai";
+import { listFrsEvents } from "../../../api/frs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../../components/ui/select";
 import { cameraNameMap } from "./frsShared";
-
-function isoDaysAgo(n) {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  d.setHours(0, 0, 0, 0);
-  // datetime-local wants "YYYY-MM-DDTHH:mm"
-  return d.toISOString().slice(0, 16);
-}
-function isoNow() {
-  return new Date().toISOString().slice(0, 16);
-}
 
 const RANGE_PRESETS = [
   { value: "1", label: "Last 24 hours" },
   { value: "7", label: "Last 7 days" },
   { value: "30", label: "Last 30 days" },
-  { value: "custom", label: "Custom" },
 ];
+
+// Per-scenario copy for the "model scope" panel + the activity stat label.
+// Falls back to a generic plugin description for any unknown scenario.
+const SCOPE_BY_SLUG = {
+  "suspect-search": {
+    activeLabel: "Indexing active",
+    scopeTitle: "Scenario model scope",
+    blurb:
+      "Suspect Search reports are plugin-driven. Indexed detections remain searchable even after a camera is disabled.",
+    footnote:
+      "Detailed detection counts will populate here once the ONNX detector/ReID engine publishes plugin report metrics.",
+  },
+  ppe: {
+    activeLabel: "Compliance active",
+    scopeTitle: "PPE model scope",
+    blurb:
+      "PPE compliance reports are plugin-driven. Violations and compliant verdicts are produced per worker by the PPE scenario.",
+    footnote:
+      "Detailed compliance counts will populate here once the PPE detector publishes plugin report metrics.",
+  },
+  frs: {
+    activeLabel: "Recognition active",
+    scopeTitle: "FRS model scope",
+    blurb:
+      "Face recognition reports are plugin-driven. Recognition events and attendance are owned by the FRS scenario.",
+    footnote:
+      "Detailed recognition counts will populate here once the FRS detector/embedding engine publishes plugin report metrics.",
+  },
+};
+
+const DEFAULT_SCOPE = {
+  activeLabel: "Active cameras",
+  scopeTitle: "Scenario model scope",
+  blurb:
+    "Reports for this scenario are plugin-driven. Detections are produced by the scenario microservice.",
+  footnote:
+    "Detailed counts will populate here once the scenario publishes plugin report metrics.",
+};
+
+// Pull the most meaningful "scope" chips a scenario exposes: suspect-search uses
+// object_types; PPE exposes required PPE items; FRS lists its event types.
+function scenarioScopeItems(scenario) {
+  const fields = scenario?.camera_config_schema?.fields || [];
+  const byKey = (k) => fields.find((f) => f.key === k)?.default;
+  const fromSchema =
+    byKey("object_types") ||
+    byKey("required_items") ||
+    byKey("required_ppe") ||
+    byKey("required_items");
+  if (Array.isArray(fromSchema) && fromSchema.length) return fromSchema;
+  if (Array.isArray(scenario?.event_types) && scenario.event_types.length) {
+    return scenario.event_types;
+  }
+  return [];
+}
 
 function StatCard({ icon: Icon, label, value, accent }) {
   return (
@@ -137,84 +176,6 @@ function HBarChart({ data, color = "#3b82f6", emptyLabel }) {
   );
 }
 
-// Vertical bar chart for the 24-hour distribution.
-function HourChart({ byHour, color = "#10b981" }) {
-  // Normalize to a full 0..23 grid so gaps are visible.
-  const counts = useMemo(() => {
-    const arr = new Array(24).fill(0);
-    (byHour || []).forEach((h) => {
-      if (h.hour >= 0 && h.hour <= 23) arr[h.hour] = h.count;
-    });
-    return arr;
-  }, [byHour]);
-
-  const max = Math.max(...counts, 1);
-  const colW = 18;
-  const gap = 4;
-  const chartH = 120;
-  const labelH = 16;
-  const width = 24 * (colW + gap);
-  const height = chartH + labelH;
-
-  if (!byHour || byHour.length === 0) {
-    return (
-      <p className="text-xs text-zinc-500 py-6 text-center">
-        No events in range.
-      </p>
-    );
-  }
-
-  return (
-    <svg
-      width="100%"
-      viewBox={`0 0 ${width} ${height}`}
-      preserveAspectRatio="xMinYMin meet"
-      role="img"
-    >
-      {counts.map((c, h) => {
-        const barH = c === 0 ? 0 : Math.max(2, (c / max) * chartH);
-        const x = h * (colW + gap);
-        const y = chartH - barH;
-        return (
-          <g key={h}>
-            <rect
-              x={x}
-              y={0}
-              width={colW}
-              height={chartH}
-              rx="2"
-              fill="#27272a"
-              opacity="0.5"
-            />
-            <rect
-              x={x}
-              y={y}
-              width={colW}
-              height={barH}
-              rx="2"
-              fill={color}
-              opacity="0.85"
-            >
-              <title>{`${h}:00 — ${c} event${c === 1 ? "" : "s"}`}</title>
-            </rect>
-            {h % 3 === 0 && (
-              <text
-                x={x + colW / 2}
-                y={chartH + labelH - 3}
-                textAnchor="middle"
-                fontSize="9"
-                fill="#71717a"
-              >
-                {h}
-              </text>
-            )}
-          </g>
-        );
-      })}
-    </svg>
-  );
-}
-
 function Panel({ title, icon: Icon, children }) {
   return (
     <div
@@ -238,46 +199,55 @@ function Panel({ title, icon: Icon, children }) {
 export default function ReportsTab({ scenario }) {
   const scenarioId = scenario?.id;
   const [preset, setPreset] = useState("7");
-  const [customSince, setCustomSince] = useState(isoDaysAgo(7));
-  const [customUntil, setCustomUntil] = useState(isoNow());
 
   const { since, until } = useMemo(() => {
-    if (preset === "custom") {
-      return {
-        since: customSince ? new Date(customSince).toISOString() : undefined,
-        until: customUntil ? new Date(customUntil).toISOString() : undefined,
-      };
-    }
     const d = new Date();
     d.setDate(d.getDate() - Number(preset));
     return { since: d.toISOString(), until: undefined };
-  }, [preset, customSince, customUntil]);
+  }, [preset]);
 
-  const { data: cameras = [] } = useQuery({
-    queryKey: ["frs", "scenario-cameras", scenarioId],
-    queryFn: () => getScenarioCameras(scenarioId),
+  const { data: cameras = [], isLoading: camerasLoading } = useQuery({
+    queryKey: ["scenario-cameras", scenarioId],
+    queryFn: () => listScenarioCameras(scenarioId),
     enabled: !!scenarioId,
   });
-  const camMap = useMemo(() => cameraNameMap(cameras), [cameras]);
 
-  const { data, isLoading, isError, isFetching } = useQuery({
-    queryKey: ["frs", "summary", since, until],
-    queryFn: () => frsSummary({ since, until }),
+  // FRS owns its events in the plugin DB (full isolation), so its reports read
+  // the plugin's /events; other scenarios aggregate from the unified NVR store.
+  const isFrs = (scenario?.slug || "") === "frs";
+  const { data: events, isLoading: eventsLoading, isFetching } = useQuery({
+    queryKey: ["scenario-events-summary", scenario?.slug, since, until],
+    queryFn: () =>
+      isFrs
+        ? listFrsEvents({ since, until, limit: 500 })
+        : listScenarioEvents(scenario.slug, { since, until, limit: 500 }),
+    enabled: !!scenario?.slug,
     placeholderData: keepPreviousData,
   });
 
-  const byCameraData = useMemo(
-    () =>
-      (data?.by_camera || []).map((c) => ({
-        label: camMap[c.camera_id] || c.camera_id || "Unknown",
-        value: c.count,
-      })),
-    [data, camMap],
+  const enabledCount = useMemo(
+    () => (cameras || []).filter((camera) => camera.enabled).length,
+    [cameras],
   );
+  const eventsList = useMemo(() => events?.items || [], [events]);
+  const byCameraData = useMemo(() => {
+    const names = cameraNameMap(cameras || []);
+    const counts = new Map();
+    eventsList.forEach((event) => {
+      const cameraId = event.camera_id || event.cameraId || "system";
+      counts.set(cameraId, (counts.get(cameraId) || 0) + 1);
+    });
+    return Array.from(counts.entries()).map(([cameraId, count]) => ({
+      label: names[cameraId] || cameraId || "Unknown",
+      value: count,
+    }));
+  }, [eventsList, cameras]);
+
+  const scope = SCOPE_BY_SLUG[scenario?.slug] || DEFAULT_SCOPE;
+  const scopeItems = useMemo(() => scenarioScopeItems(scenario), [scenario]);
 
   return (
     <div className="p-4 space-y-4">
-      {/* Range controls */}
       <div
         className="flex flex-wrap items-end gap-3 rounded-lg border p-3"
         style={{
@@ -302,94 +272,66 @@ export default function ReportsTab({ scenario }) {
             </SelectContent>
           </Select>
         </div>
-        {preset === "custom" && (
-          <>
-            <div>
-              <label className="block text-[9px] uppercase tracking-wider text-zinc-500 font-telemetry mb-0.5">
-                From
-              </label>
-              <Input
-                type="datetime-local"
-                className="h-8 text-xs"
-                value={customSince}
-                onChange={(e) => setCustomSince(e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="block text-[9px] uppercase tracking-wider text-zinc-500 font-telemetry mb-0.5">
-                To
-              </label>
-              <Input
-                type="datetime-local"
-                className="h-8 text-xs"
-                value={customUntil}
-                onChange={(e) => setCustomUntil(e.target.value)}
-              />
-            </div>
-          </>
-        )}
         {isFetching && (
           <Loader2 className="h-4 w-4 animate-spin text-zinc-400 self-center" />
         )}
       </div>
 
-      {isError ? (
-        <div className="py-16 text-center text-sm text-rose-400">
-          Couldn't load the summary.
-        </div>
-      ) : (
-        <>
-          {/* Stat cards */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <StatCard
-              icon={Activity}
-              label="Total events"
-              value={isLoading ? "—" : (data?.total_events ?? 0)}
-              accent="text-blue-400"
-            />
-            <StatCard
-              icon={Users}
-              label="Unique persons"
-              value={isLoading ? "—" : (data?.unique_persons ?? 0)}
-              accent="text-emerald-400"
-            />
-            <StatCard
-              icon={UserX}
-              label="Unknown"
-              value={isLoading ? "—" : (data?.unknown_count ?? 0)}
-              accent="text-amber-400"
-            />
-            <StatCard
-              icon={ShieldAlert}
-              label="Spoof attempts"
-              value={isLoading ? "—" : (data?.spoof_count ?? 0)}
-              accent="text-rose-400"
-            />
-          </div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <StatCard
+          icon={Activity}
+          label="Scenario events"
+          value={eventsLoading ? "—" : (events?.total ?? eventsList.length)}
+          accent="text-blue-400"
+        />
+        <StatCard
+          icon={Users}
+          label="Assigned cameras"
+          value={camerasLoading ? "—" : cameras.length}
+          accent="text-emerald-400"
+        />
+        <StatCard
+          icon={ShieldAlert}
+          label={scope.activeLabel}
+          value={camerasLoading ? "—" : enabledCount}
+          accent="text-amber-400"
+        />
+        <StatCard
+          icon={BarChart3}
+          label="Detection classes"
+          value={scopeItems.length}
+          accent="text-purple-400"
+        />
+      </div>
 
-          {/* Charts */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <Panel title="Events by camera" icon={BarChart3}>
-              {isLoading ? (
-                <div className="h-32 rounded animate-pulse bg-zinc-800/40" />
-              ) : (
-                <HBarChart
-                  data={byCameraData}
-                  color="#3b82f6"
-                  emptyLabel="No events in range."
-                />
-              )}
-            </Panel>
-            <Panel title="Events by hour (UTC)" icon={Clock}>
-              {isLoading ? (
-                <div className="h-32 rounded animate-pulse bg-zinc-800/40" />
-              ) : (
-                <HourChart byHour={data?.by_hour} color="#10b981" />
-              )}
-            </Panel>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Panel title="Events by camera" icon={BarChart3}>
+          {eventsLoading ? (
+            <div className="h-32 rounded animate-pulse bg-zinc-800/40" />
+          ) : (
+            <HBarChart
+              data={byCameraData}
+              color="#228B22"
+              emptyLabel="No scenario events in this range yet."
+            />
+          )}
+        </Panel>
+        <Panel title={scope.scopeTitle} icon={Clock}>
+          <div className="space-y-3 text-[12px] text-zinc-400">
+            <p>{scope.blurb}</p>
+            {scopeItems.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {scopeItems.map((item) => (
+                  <span key={item} className="rounded border border-white/10 bg-black px-2 py-1 text-[11px] uppercase tracking-wide">
+                    {String(item).replace(/_/g, " ")}
+                  </span>
+                ))}
+              </div>
+            )}
+            <p className="text-zinc-600">{scope.footnote}</p>
           </div>
-        </>
-      )}
+        </Panel>
+      </div>
     </div>
   );
 }

@@ -1,30 +1,33 @@
 // =============================================================================
-// AI · Home — landing grid of active (licensed + enabled) AI scenarios.
+// AI · Home — landing grid of registered AI scenario plugins.
 // =============================================================================
-// Each card opens the generic ScenarioWorkspace at /ai/{slug}. When nothing is
-// active we surface an empty state pointing the operator at the license screen.
+// Each card opens the generic ScenarioWorkspace at /ai/{slug}. The card shows
+// registered/licensed/enabled state so plugin outages never look like NVR loss.
 // =============================================================================
 
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ScanFace, HardHat, Cpu, ChevronRight } from "lucide-react";
-import { getActiveScenarios } from "../../api/ai";
+import { ScanFace, HardHat, Cpu, ChevronRight, Search } from "lucide-react";
+import { getScenarios } from "../../api/ai";
 
-const ICONS = { "scan-face": ScanFace, "hard-hat": HardHat };
+const ICONS = { "scan-face": ScanFace, "hard-hat": HardHat, search: Search };
 
 const ScenarioCard = ({ scenario, onOpen }) => {
   const Icon = ICONS[scenario.icon] || Cpu;
   const cap = scenario.camera_limit || 0;
   const used = scenario.active_camera_count || 0;
+  const disabled = !scenario.registered;
   return (
     <button
       type="button"
       onClick={() => onOpen(scenario)}
+      disabled={disabled}
       className="group text-left rounded p-4 flex flex-col gap-3 transition-colors"
       style={{
         background: "var(--console-panel)",
         border: "1px solid var(--console-border)",
+        opacity: disabled ? 0.55 : 1,
       }}
     >
       <div className="flex items-start justify-between">
@@ -60,8 +63,20 @@ const ScenarioCard = ({ scenario, onOpen }) => {
         className="font-telemetry text-[11px] leading-relaxed line-clamp-3"
         style={{ color: "var(--console-muted)" }}
       >
-        {scenario.description}
+        {scenario.description || "Plugin scenario"}
       </p>
+
+      <div className="flex flex-wrap gap-1.5">
+        <span className="rounded px-2 py-1 text-[10px] uppercase tracking-wide font-telemetry border border-white/10">
+          {scenario.registered ? "Registered" : "Missing"}
+        </span>
+        <span className="rounded px-2 py-1 text-[10px] uppercase tracking-wide font-telemetry border border-white/10">
+          {scenario.licensed ? "Licensed" : "Unlicensed"}
+        </span>
+        <span className="rounded px-2 py-1 text-[10px] uppercase tracking-wide font-telemetry border border-white/10">
+          {scenario.enabled ? "Enabled" : "Disabled"}
+        </span>
+      </div>
 
       <div
         className="flex items-center justify-between mt-auto pt-2"
@@ -71,11 +86,10 @@ const ScenarioCard = ({ scenario, onOpen }) => {
           className="font-telemetry text-[10px] uppercase tracking-widest"
           style={{ color: "var(--console-muted)" }}
         >
-          Cameras
+          {scenario.version ? `v${scenario.version}` : "Cameras"}
         </span>
         <span className="font-telemetry text-[11px]" style={{ color: "var(--console-text)" }}>
-          {used}
-          {cap > 0 ? ` / ${cap}` : ""}
+          {scenario.version ? `${used}${cap > 0 ? ` / ${cap}` : ""} cams` : `${used}${cap > 0 ? ` / ${cap}` : ""}`}
         </span>
       </div>
     </button>
@@ -86,9 +100,10 @@ const AIHome = () => {
   const navigate = useNavigate();
   const { data: scenarios = [], isLoading } = useQuery({
     queryKey: ["ai-scenarios", "active"],
-    queryFn: getActiveScenarios,
+    queryFn: getScenarios,
   });
 
+  const visibleScenarios = scenarios.filter((s) => s.service_url || (s.proxy_routes || []).length > 0);
   const open = (s) => navigate(`/ai/${s.slug}`);
 
   return (
@@ -104,7 +119,7 @@ const AIHome = () => {
           className="font-telemetry text-[11px] uppercase tracking-widest mt-1"
           style={{ color: "var(--console-muted)" }}
         >
-          Active intelligence modules
+          Plugin-based intelligence scenarios
         </p>
       </div>
 
@@ -121,7 +136,7 @@ const AIHome = () => {
             />
           ))}
         </div>
-      ) : scenarios.length === 0 ? (
+      ) : visibleScenarios.length === 0 ? (
         <div
           className="rounded p-10 flex flex-col items-center justify-center text-center gap-3"
           style={{
@@ -139,18 +154,18 @@ const AIHome = () => {
             className="font-telemetry text-[12px] font-semibold uppercase tracking-wide"
             style={{ color: "var(--console-text)" }}
           >
-            No AI scenarios licensed
+            No AI scenario plugins registered
           </p>
           <p
             className="font-telemetry text-[11px]"
             style={{ color: "var(--console-muted)" }}
           >
-            Enable in Settings → License
+            Start a scenario container or register a scenario manifest.
           </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {scenarios.map((s) => (
+          {visibleScenarios.map((s) => (
             <ScenarioCard key={s.id} scenario={s} onOpen={open} />
           ))}
         </div>

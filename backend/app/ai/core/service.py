@@ -35,6 +35,16 @@ class ScenarioNotOperable(Exception):
 
 
 class AIService:
+    @staticmethod
+    def is_plugin_scenario(scenario: AIScenario) -> bool:
+        manifest = scenario.manifest or {}
+        if not isinstance(manifest, dict):
+            return False
+        container = manifest.get("container") if isinstance(manifest.get("container"), dict) else {}
+        service_url = manifest.get("service_url") or container.get("service_url")
+        proxy_routes = manifest.get("proxy_routes")
+        return bool(service_url and isinstance(proxy_routes, list) and proxy_routes)
+
     # ── License projection ──────────────────────────────────────────────
     @staticmethod
     async def sync_licensing(db: AsyncSession) -> None:
@@ -70,7 +80,10 @@ class AIService:
         rows = (await db.execute(q)).scalars().all()
         if operable_only:
             # OPERABLE = plugin installed (registered) ∧ licensed ∧ operator-enabled.
-            rows = [s for s in rows if s.registered and s.licensed and s.enabled]
+            rows = [
+                s for s in rows
+                if s.registered and s.licensed and s.enabled and AIService.is_plugin_scenario(s)
+            ]
         return rows
 
     @staticmethod
@@ -101,6 +114,8 @@ class AIService:
             raise ScenarioNotOperable(scenario.slug, "not licensed")
         if enabled and not scenario.registered:
             raise ScenarioNotOperable(scenario.slug, "plugin not installed")
+        if enabled and not AIService.is_plugin_scenario(scenario):
+            raise ScenarioNotOperable(scenario.slug, "plugin manifest/service_url not installed")
         scenario.enabled = enabled
         await db.commit()
         await db.refresh(scenario)
@@ -111,6 +126,8 @@ class AIService:
         """Raise if enabling another camera would breach the license cap."""
         if not (scenario.licensed and scenario.enabled):
             raise ScenarioNotOperable(scenario.slug, "not licensed/enabled")
+        if not AIService.is_plugin_scenario(scenario):
+            raise ScenarioNotOperable(scenario.slug, "plugin manifest/service_url not installed")
         if scenario.camera_limit and scenario.camera_limit > 0:
             count = await AIService.active_camera_count(db, scenario.id)
             if count >= scenario.camera_limit:

@@ -457,21 +457,9 @@ app.include_router(license_router)
 if settings.ENABLE_AI_MODULES:
     from app.ai.core.router import router as ai_router
     from app.ai.core.camera_config_router import router as ai_camera_config_router
-    from app.ai.frs.query_router import router as ai_frs_query_router
-    from app.ai.frs.router import router as ai_frs_router
-    from app.ai.frs.recognize_router import router as ai_frs_recognize_router
-    from app.ai.frs.investigate_router import router as ai_frs_investigate_router
-    from app.ai.frs.transit_router import router as ai_frs_transit_router
-    from app.ai.ppe.router import router as ai_ppe_router
 
     app.include_router(ai_router)
     app.include_router(ai_camera_config_router)
-    app.include_router(ai_frs_query_router)
-    app.include_router(ai_frs_router)
-    app.include_router(ai_frs_recognize_router)
-    app.include_router(ai_frs_investigate_router)
-    app.include_router(ai_frs_transit_router)
-    app.include_router(ai_ppe_router)
 app.include_router(schedule_templates_router, prefix="/api")
 app.include_router(spot_output_router, prefix="/api")
 

@@ -12,6 +12,7 @@
 #
 # Scopes restrict what a key can do. Current scopes:
 #   - events:ingest   — POST /api/events/ingest from internal NVR services
+#   - ai:register     — POST /api/ai/scenarios/register from scenario plugins
 #   - cameras:read    — GET /api/cameras for config fetch
 #   - admin           — full access (avoid in production)
 # =============================================================================

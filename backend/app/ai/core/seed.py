@@ -16,93 +16,12 @@ from app.ai.models import AIScenario
 
 logger = logging.getLogger(__name__)
 
-# Static catalog. `grpc_endpoint` is the standalone scenario service address
-# (overridable via env on the bridge, not here). `module_tabs` drives the UI.
-CATALOG = [
-    {
-        "slug": "frs",
-        "name": "Face Recognition",
-        "description": "Detect, recognize and track enrolled faces. Liveness, "
-                       "watchlist alerts, attendance and forensic search.",
-        "category": "security",
-        "icon": "scan-face",
-        "grpc_endpoint": "frs:50051",
-        "module_tabs": ["cameras", "live", "events", "groups", "persons",
-                        "recognize", "investigate", "transit", "attendance",
-                        "tour", "reports"],
-        "event_types": ["face_recognized", "face_unknown", "spoof_detected"],
-        "camera_config_schema": {
-            "fields": [
-                # ── Recognition ──────────────────────────────────────────
-                {"key": "min_confidence", "type": "float", "label": "Match threshold",
-                 "group": "Recognition", "default": 0.6, "min": 0.3, "max": 0.99, "step": 0.01,
-                 "help": "Minimum cosine similarity to call a face a known person."},
-                {"key": "recognition_enabled", "type": "bool", "label": "Recognition",
-                 "group": "Recognition", "default": True,
-                 "help": "Match faces against the enrolled gallery."},
-                {"key": "detection_enabled", "type": "bool", "label": "Detection only",
-                 "group": "Recognition", "default": False,
-                 "help": "Emit face-detected events without identifying."},
-                # ── Liveness / anti-spoof ────────────────────────────────
-                {"key": "liveness_enabled", "type": "bool", "label": "Anti-spoof",
-                 "group": "Liveness", "default": True},
-                {"key": "liveness_threshold", "type": "float", "label": "Liveness threshold",
-                 "group": "Liveness", "default": 0.7, "min": 0.3, "max": 0.99, "step": 0.01},
-                # ── Quality gates ────────────────────────────────────────
-                {"key": "min_face_px", "type": "int", "label": "Min face size (px)",
-                 "group": "Quality", "default": 80, "min": 20, "max": 400, "step": 10},
-                {"key": "dwell_min_frames", "type": "int", "label": "Dwell frames",
-                 "group": "Quality", "default": 5, "min": 1, "max": 30, "step": 1,
-                 "help": "Frames a track must persist before an event fires."},
-                # ── Alerting ─────────────────────────────────────────────
-                {"key": "alert_suppress_seconds", "type": "int", "label": "Alert cooldown (s)",
-                 "group": "Alerting", "default": 300, "min": 0, "max": 3600, "step": 30,
-                 "help": "Minimum gap between repeat alerts for the same person."},
-                # ── Stream ───────────────────────────────────────────────
-                {"key": "fps", "type": "int", "label": "Analyze FPS",
-                 "group": "Stream", "default": 5, "min": 1, "max": 15, "step": 1},
-                {"key": "roi", "type": "roi", "label": "Region of interest",
-                 "group": "Stream"},
-            ]
-        },
-    },
-    {
-        "slug": "ppe",
-        "name": "PPE Compliance",
-        "description": "Detect personal protective equipment per worker — helmet, "
-                       "vest, mask, gloves, goggles, shoes — and flag violations.",
-        "category": "safety",
-        "icon": "hard-hat",
-        "grpc_endpoint": "ppe:50052",
-        "module_tabs": ["cameras", "ppe_detect", "live", "events", "reports"],
-        "event_types": ["ppe_violation", "ppe_compliant"],
-        "camera_config_schema": {
-            "fields": [
-                # ── Compliance ───────────────────────────────────────────
-                {"key": "required_ppe", "type": "multiselect", "label": "Required PPE",
-                 "group": "Compliance",
-                 "options": ["helmet", "vest", "mask", "gloves", "goggles", "safety_shoe"],
-                 "default": ["helmet", "vest"],
-                 "help": "A worker missing any of these is flagged non-compliant."},
-                {"key": "min_confidence", "type": "float", "label": "Detection threshold",
-                 "group": "Compliance", "default": 0.35, "min": 0.2, "max": 0.9, "step": 0.01},
-                # ── Quality gates ────────────────────────────────────────
-                {"key": "min_person_px", "type": "int", "label": "Min person size (px)",
-                 "group": "Quality", "default": 60, "min": 20, "max": 400, "step": 10},
-                {"key": "dwell_min_frames", "type": "int", "label": "Dwell frames",
-                 "group": "Quality", "default": 4, "min": 1, "max": 30, "step": 1},
-                # ── Alerting ─────────────────────────────────────────────
-                {"key": "alert_suppress_seconds", "type": "int", "label": "Alert cooldown (s)",
-                 "group": "Alerting", "default": 300, "min": 0, "max": 3600, "step": 30},
-                # ── Stream ───────────────────────────────────────────────
-                {"key": "fps", "type": "int", "label": "Analyze FPS",
-                 "group": "Stream", "default": 4, "min": 1, "max": 15, "step": 1},
-                {"key": "roi", "type": "roi", "label": "Region of interest",
-                 "group": "Stream"},
-            ]
-        },
-    },
-]
+# Static catalog. All current scenarios (frs, ppe, suspect-search) ship as
+# standalone microservices under scenarios/ and self-register their manifest via
+# POST /api/ai/scenarios/register on boot, so the seed catalog is intentionally
+# empty. Add an entry here only for a scenario the NVR must know about before any
+# plugin has registered (a builtin bootstrap fallback).
+CATALOG: list[dict] = []
 
 
 async def seed_scenarios(db: AsyncSession) -> None:

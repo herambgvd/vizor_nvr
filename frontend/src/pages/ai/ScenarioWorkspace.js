@@ -22,6 +22,8 @@ import {
   CalendarClock,
   BarChart3,
   Search,
+  Briefcase,
+  SlidersHorizontal,
   ArrowLeftRight,
   Route,
 } from "lucide-react";
@@ -43,6 +45,9 @@ const TAB_META = {
   tour: { label: "Tour", icon: Route },
   attendance: { label: "Attendance", icon: CalendarClock },
   reports: { label: "Reports", icon: BarChart3 },
+  search: { label: "Search", icon: Search },
+  jobs: { label: "Jobs", icon: Briefcase },
+  settings: { label: "Settings", icon: SlidersHorizontal },
 };
 
 // Lazy tab components. Keys must match scenario.module_tabs values.
@@ -59,6 +64,9 @@ const TAB_COMPONENTS = {
   tour: lazy(() => import("./tabs/TourTab")),
   attendance: lazy(() => import("./tabs/AttendanceTab")),
   reports: lazy(() => import("./tabs/ReportsTab")),
+  search: lazy(() => import("./tabs/SuspectSearchTab")),
+  jobs: lazy(() => import("./tabs/JobsTab")),
+  settings: lazy(() => import("./tabs/ScenarioSettingsTab")),
 };
 
 const TabSpinner = () => (
@@ -83,7 +91,7 @@ const ScenarioWorkspace = () => {
 
   // Tabs that exist both in this scenario's manifest and our renderer registry.
   const tabs = useMemo(() => {
-    const declared = scenario?.module_tabs || [];
+    const declared = scenario?.tabs || scenario?.module_tabs || [];
     return declared.filter((t) => TAB_COMPONENTS[t]);
   }, [scenario]);
 

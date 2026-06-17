@@ -47,6 +47,21 @@ export default function PlaybackConsole() {
     if (seed && (!prefs.playbackCameras || prefs.playbackCameras.length === 0)) {
       setPrefs({ playbackCameras: [seed] });
     }
+    const dateSeed = searchParams.get("date");
+    const timeSeed = searchParams.get("t");
+    if (dateSeed && /^\d{4}-\d{2}-\d{2}$/.test(dateSeed)) {
+      setDate(dateSeed);
+    }
+    if (timeSeed) {
+      const parsed = new Date(timeSeed);
+      if (!Number.isNaN(parsed.getTime())) {
+        setDate(format(parsed, "yyyy-MM-dd"));
+        setCurrentTime(parsed.getHours() * 3600 + parsed.getMinutes() * 60 + parsed.getSeconds());
+      } else if (/^\d{2}:\d{2}:\d{2}$/.test(timeSeed)) {
+        const [h, m, s] = timeSeed.split(":").map(Number);
+        setCurrentTime(h * 3600 + m * 60 + s);
+      }
+    }
     seededRef.current = true;
   }, [searchParams, prefs.playbackCameras, setPrefs]);
 

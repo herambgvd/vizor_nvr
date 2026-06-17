@@ -1,0 +1,158 @@
+# =============================================================================
+# Vizor NVR — AI Scenario Plugins
+# =============================================================================
+# Usage:
+#   AI_PLUGIN_API_KEY=<key-with-ai:register> docker compose -f docker-compose.yml -f docker-compose.ai.yml up -d --build
+#
+# The NVR remains the VMS core. Each scenario runs as a separate container and
+# registers its scenario.json manifest with the backend on boot.
+# =============================================================================
+
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: gvd_ai_qdrant
+    restart: unless-stopped
+    networks:
+      - internal
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD", "bash", "-lc", "exec 3<>/dev/tcp/127.0.0.1/6333"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  suspect-search:
+    build:
+      context: ./scenarios/suspect-search
+      dockerfile: Dockerfile
+    container_name: gvd_ai_suspect_search
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    environment:
+      SCENARIO_SLUG: suspect-search
+      VIZOR_BASE_URL: http://backend:8000/api
+      VIZOR_API_KEY: ${AI_PLUGIN_API_KEY:-}
+      VIZOR_SERVICE_TOKEN: ${AI_PLUGIN_SERVICE_TOKEN:-dev-ai-service-token}
+      QDRANT_URL: http://qdrant:6333
+      INFERENCE_BACKEND: onnxruntime-gpu
+      DETECTOR_MODEL_PATH: /models/yolo26.onnx
+      REID_MODEL_PATH: /models/person-reid.onnx
+      PORT: 8091
+    networks:
+      - internal
+    volumes:
+      - recordings:/data/recordings:ro
+      - ./models:/models:ro
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8091/health').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  ppe:
+    build:
+      context: ./scenarios/ppe
+      dockerfile: Dockerfile
+    container_name: gvd_ai_ppe
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      SCENARIO_SLUG: ppe
+      VIZOR_BASE_URL: http://backend:8000/api
+      VIZOR_API_KEY: ${AI_PLUGIN_API_KEY:-}
+      VIZOR_SERVICE_TOKEN: ${AI_PLUGIN_SERVICE_TOKEN:-dev-ai-service-token}
+      INFERENCE_BACKEND: onnxruntime-gpu
+      DETECTOR_MODEL_PATH: /models/ppe-detector.onnx
+      POSE_MODEL_PATH: /models/pose.onnx
+      PORT: 8092
+    networks:
+      - internal
+    volumes:
+      - recordings:/data/recordings:ro
+      - ./models:/models:ro
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8092/health').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  frs-db:
+    image: postgres:16-alpine
+    container_name: gvd_ai_frs_db
+    restart: unless-stopped
+    networks:
+      - internal
+    environment:
+      POSTGRES_USER: frs
+      POSTGRES_PASSWORD: ${AI_FRS_DB_PASSWORD:-frs}
+      POSTGRES_DB: frs
+    volumes:
+      - frs_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U frs -d frs"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  frs:
+    build:
+      context: ./scenarios/frs
+      dockerfile: Dockerfile
+    container_name: gvd_ai_frs
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      frs-db:
+        condition: service_healthy
+    environment:
+      SCENARIO_SLUG: frs
+      VIZOR_BASE_URL: http://backend:8000/api
+      VIZOR_API_KEY: ${AI_PLUGIN_API_KEY:-}
+      VIZOR_SERVICE_TOKEN: ${AI_PLUGIN_SERVICE_TOKEN:-dev-ai-service-token}
+      FRS_DATABASE_URL: postgresql+psycopg2://frs:${AI_FRS_DB_PASSWORD:-frs}@frs-db:5432/frs
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_COLLECTION: vizor_frs_faces
+      DATA_PATH: /data/frs
+      INFERENCE_BACKEND: onnxruntime-gpu
+      DETECTOR_MODEL_PATH: /models/face-detector.onnx
+      EMBED_MODEL_PATH: /models/arcface.onnx
+      PORT: 8093
+    networks:
+      - internal
+    volumes:
+      - recordings:/data/recordings:ro
+      - frs_photos:/data/frs
+      - ./models:/models:ro
+    deploy:
+      resources:
+        limits:
+          memory: 3g
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8093/health').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  qdrant_data:
+  frs_db_data:
+  frs_photos:

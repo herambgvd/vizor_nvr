@@ -37,6 +37,78 @@ export const toggleScenario = async (id, enabled) => {
   return r.data;
 };
 
+export const getScenarioHealth = async (slug) => {
+  const r = await apiClient.get(`/ai/scenarios/${slug}/health`);
+  return r.data;
+};
+
+export const proxyScenario = async (
+  slug,
+  path,
+  { method = "GET", data = undefined, params = undefined, headers = undefined, timeout = 120000 } = {},
+) => {
+  const clean = String(path || "").replace(/^\/+/, "");
+  const r = await apiClient.request({
+    url: `/ai/scenarios/${slug}/proxy/${clean}`,
+    method,
+    data,
+    params,
+    headers,
+    timeout,
+  });
+  return r.data;
+};
+
+export const createScenarioSearchJob = async (slug, formData) => (
+  proxyScenario(slug, "/jobs/search", {
+    method: "POST",
+    data: formData,
+    headers: { "Content-Type": "multipart/form-data" },
+  })
+);
+
+export const createScenarioIndexJob = async (slug, payload = {}) => (
+  proxyScenario(slug, "/jobs/index", {
+    method: "POST",
+    data: payload,
+  })
+);
+
+export const createScenarioSimilarSearchJob = async (slug, resultId, payload = {}) => (
+  proxyScenario(slug, `/results/${resultId}/search-similar`, {
+    method: "POST",
+    data: payload,
+  })
+);
+
+export const getScenarioJob = async (slug, jobId) => (
+  proxyScenario(slug, `/jobs/${jobId}`)
+);
+
+export const getScenarioJobResults = async (slug, jobId, params = {}) => (
+  proxyScenario(slug, `/jobs/${jobId}/results`, { params })
+);
+
+export const cancelScenarioJob = async (slug, jobId) => (
+  proxyScenario(slug, `/jobs/${jobId}`, { method: "DELETE" })
+);
+
+export const scenarioThumbnailUrl = async (slug, resultId) => {
+  const token = getAccessToken();
+  let resp;
+  try {
+    resp = await fetch(`${BACKEND_URL}/api/ai/scenarios/${slug}/proxy/results/${resultId}/thumbnail`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+  } catch (_e) {
+    return null;
+  }
+  if (!resp.ok) return null;
+  const blob = await resp.blob();
+  if (!blob || blob.size === 0) return null;
+  return URL.createObjectURL(blob);
+};
+
 // ---------- per-camera config (CameraAIConfig) ----------
 
 export const listScenarioCameras = async (scenarioId) => {
@@ -63,75 +135,59 @@ export const unassignCamera = async (id) => {
   return r.data;
 };
 
+// FRS runs as a standalone scenario microservice (scenarios/frs) that owns its
+// own Postgres gallery, Qdrant face index and photo volume. Every call below
+// goes through the generic scenario proxy, so the NVR gates each request by
+// license + enable. The plugin route paths mirror the former /ai/frs/* paths.
+
+const FRS_SLUG = "frs";
+
 // ---------- FRS — groups ----------
 
-export const listGroups = async () => {
-  const r = await apiClient.get("/ai/frs/groups");
-  return r.data;
-};
+export const listGroups = async () => proxyScenario(FRS_SLUG, "/groups");
 
-export const createGroup = async (payload) => {
-  const r = await apiClient.post("/ai/frs/groups", payload);
-  return r.data;
-};
+export const createGroup = async (payload) =>
+  proxyScenario(FRS_SLUG, "/groups", { method: "POST", data: payload });
 
-export const updateGroup = async (id, patch) => {
-  const r = await apiClient.put(`/ai/frs/groups/${id}`, patch);
-  return r.data;
-};
+export const updateGroup = async (id, patch) =>
+  proxyScenario(FRS_SLUG, `/groups/${id}`, { method: "PUT", data: patch });
 
-export const deleteGroup = async (id) => {
-  const r = await apiClient.delete(`/ai/frs/groups/${id}`);
-  return r.data;
-};
+export const deleteGroup = async (id) =>
+  proxyScenario(FRS_SLUG, `/groups/${id}`, { method: "DELETE" });
 
 // ---------- FRS — persons ----------
 
-export const listPersons = async (params = {}) => {
-  const r = await apiClient.get("/ai/frs/persons", { params });
-  return r.data;
-};
+export const listPersons = async (params = {}) =>
+  proxyScenario(FRS_SLUG, "/persons", { params });
 
-export const createPerson = async (payload) => {
-  const r = await apiClient.post("/ai/frs/persons", payload);
-  return r.data;
-};
+export const createPerson = async (payload) =>
+  proxyScenario(FRS_SLUG, "/persons", { method: "POST", data: payload });
 
-export const getPerson = async (id) => {
-  const r = await apiClient.get(`/ai/frs/persons/${id}`);
-  return r.data;
-};
+export const getPerson = async (id) => proxyScenario(FRS_SLUG, `/persons/${id}`);
 
-export const updatePerson = async (id, patch) => {
-  const r = await apiClient.put(`/ai/frs/persons/${id}`, patch);
-  return r.data;
-};
+export const updatePerson = async (id, patch) =>
+  proxyScenario(FRS_SLUG, `/persons/${id}`, { method: "PUT", data: patch });
 
-export const deletePerson = async (id) => {
-  const r = await apiClient.delete(`/ai/frs/persons/${id}`);
-  return r.data;
-};
+export const deletePerson = async (id) =>
+  proxyScenario(FRS_SLUG, `/persons/${id}`, { method: "DELETE" });
 
 // ---------- FRS — photos ----------
 
 export const uploadPhoto = async (personId, file) => {
   const form = new FormData();
   form.append("file", file);
-  const r = await apiClient.post(`/ai/frs/persons/${personId}/photos`, form, {
+  return proxyScenario(FRS_SLUG, `/persons/${personId}/photos`, {
+    method: "POST",
+    data: form,
     headers: { "Content-Type": "multipart/form-data" },
   });
-  return r.data;
 };
 
-export const listPhotos = async (personId) => {
-  const r = await apiClient.get(`/ai/frs/persons/${personId}/photos`);
-  return r.data;
-};
+export const listPhotos = async (personId) =>
+  proxyScenario(FRS_SLUG, `/persons/${personId}/photos`);
 
-export const deletePhoto = async (id) => {
-  const r = await apiClient.delete(`/ai/frs/photos/${id}`);
-  return r.data;
-};
+export const deletePhoto = async (id) =>
+  proxyScenario(FRS_SLUG, `/photos/${id}`, { method: "DELETE" });
 
 // The photo image endpoint is gated by get_current_user (Authorization header
 // only — no ?token= query support), so a bare <img src> cannot authenticate.
@@ -142,7 +198,7 @@ export const photoImageUrl = async (id) => {
   const token = getAccessToken();
   let resp;
   try {
-    resp = await fetch(`${BACKEND_URL}/api/ai/frs/photos/${id}/image`, {
+    resp = await fetch(`${BACKEND_URL}/api/ai/scenarios/${FRS_SLUG}/proxy/photos/${id}/image`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
   } catch (_e) {
@@ -156,10 +212,8 @@ export const photoImageUrl = async (id) => {
 
 // ---------- FRS — query (events / attendance / reports) ----------
 
-export const listFrsEvents = async (params = {}) => {
-  const r = await apiClient.get("/ai/frs/events", { params });
-  return r.data;
-};
+export const listFrsEvents = async (params = {}) =>
+  proxyScenario(FRS_SLUG, "/events", { params });
 
 // Generic scenario events via the unified NVR event store, filtered by the
 // scenario's source_service (slug). Used by non-FRS scenarios (PPE, future
@@ -174,153 +228,134 @@ export const listScenarioEvents = async (slug, params = {}) => {
   return { items: r.data.events || [], total: r.data.total || 0 };
 };
 
-export const listAttendance = async (params = {}) => {
-  const r = await apiClient.get("/ai/frs/attendance", { params });
-  return r.data;
-};
+export const listAttendance = async (params = {}) =>
+  proxyScenario(FRS_SLUG, "/attendance", { params });
 
-export const attendanceReport = async (params = {}) => {
-  const r = await apiClient.get("/ai/frs/attendance/report", { params });
-  return r.data;
-};
-
-export const frsSummary = async (params = {}) => {
-  const r = await apiClient.get("/ai/frs/summary", { params });
-  return r.data;
-};
+export const attendanceReport = async (params = {}) =>
+  proxyScenario(FRS_SLUG, "/attendance/report", { params });
 
 // ---------- FRS — recognition (image + video) ----------
-// One-shot IMAGE recognition (synchronous) and async VIDEO-file jobs. Both are
-// proxied by the NVR backend through the bridge (HTTP :8099) to the FRS gRPC
-// service. Image returns the result immediately; video submits a job and the
-// caller polls status, then fetches results when state === "completed".
+// One-shot IMAGE recognition (synchronous) and async VIDEO-file jobs, served by
+// the FRS scenario microservice through the scenario proxy. Image returns the
+// result immediately; video submits a job and the caller polls status, then
+// fetches results when state === "JOB_COMPLETED".
 
 export const recognizeImage = async (file) => {
   const form = new FormData();
   form.append("file", file);
-  const r = await apiClient.post("/ai/frs/recognize-image", form, {
+  return proxyScenario(FRS_SLUG, "/recognize-image", {
+    method: "POST",
+    data: form,
     headers: { "Content-Type": "multipart/form-data" },
   });
-  return r.data;
 };
 
 export const detectFaces = async (file) => {
   const form = new FormData();
   form.append("file", file);
-  const r = await apiClient.post("/ai/frs/detect-faces", form, {
+  return proxyScenario(FRS_SLUG, "/detect-faces", {
+    method: "POST",
+    data: form,
     headers: { "Content-Type": "multipart/form-data" },
   });
-  return r.data;
 };
 
 export const submitVideoJob = async (file) => {
   const form = new FormData();
   form.append("file", file);
-  const r = await apiClient.post("/ai/frs/video-jobs", form, {
+  return proxyScenario(FRS_SLUG, "/video-jobs", {
+    method: "POST",
+    data: form,
     headers: { "Content-Type": "multipart/form-data" },
-  });
-  return r.data; // { job_id }
+  }); // { job_id, state }
 };
 
-export const videoJobStatus = async (jobId) => {
-  const r = await apiClient.get(`/ai/frs/video-jobs/${jobId}`);
-  return r.data;
-};
+export const videoJobStatus = async (jobId) =>
+  proxyScenario(FRS_SLUG, `/video-jobs/${jobId}`);
 
-export const videoJobResults = async (jobId) => {
-  const r = await apiClient.get(`/ai/frs/video-jobs/${jobId}/results`);
-  return r.data;
-};
+export const videoJobResults = async (jobId) =>
+  proxyScenario(FRS_SLUG, `/video-jobs/${jobId}/results`);
 
 // ---------- FRS — investigate (forensic snapshot search by query face) ----------
 // Upload a query face image + top_k; the FRS scenario ranks matching snapshots.
-// Proxied by the NVR backend through the bridge — NVR holds no FRS data.
 
 export const createInvestigation = async (file, { top_k = 50 } = {}) => {
   const form = new FormData();
   form.append("file", file);
   form.append("top_k", String(top_k));
-  const r = await apiClient.post("/ai/frs/investigate", form, {
+  return proxyScenario(FRS_SLUG, "/investigate", {
+    method: "POST",
+    data: form,
     headers: { "Content-Type": "multipart/form-data" },
     timeout: 120000,
-  });
-  return r.data; // { hits: [...], total }
+  }); // { hits: [...], total }
 };
 
 // ---------- FRS — tour (cross-camera person timeline) ----------
 
-export const personTimeline = async (personId) => {
-  const r = await apiClient.get(`/ai/frs/tour/timeline/${personId}`);
-  return r.data; // { person_id, entries: [...] }
-};
+export const personTimeline = async (personId) =>
+  proxyScenario(FRS_SLUG, `/tour/timeline/${personId}`); // { person_id, entries: [...] }
 
 // ---------- FRS — transit (rules CRUD + sessions) ----------
 
-export const listTransitRules = async () => {
-  const r = await apiClient.get("/ai/frs/transit/rules");
-  return r.data; // { rules: [...] }
-};
+export const listTransitRules = async () =>
+  proxyScenario(FRS_SLUG, "/transit/rules"); // { rules: [...] }
 
-export const createTransitRule = async (payload) => {
-  const r = await apiClient.post("/ai/frs/transit/rules", payload);
-  return r.data;
-};
+export const createTransitRule = async (payload) =>
+  proxyScenario(FRS_SLUG, "/transit/rules", { method: "POST", data: payload });
 
-export const updateTransitRule = async (id, payload) => {
-  const r = await apiClient.put(`/ai/frs/transit/rules/${id}`, payload);
-  return r.data;
-};
+export const updateTransitRule = async (id, payload) =>
+  proxyScenario(FRS_SLUG, `/transit/rules/${id}`, { method: "PUT", data: payload });
 
-export const deleteTransitRule = async (id) => {
-  const r = await apiClient.delete(`/ai/frs/transit/rules/${id}`);
-  return r.data;
-};
+export const deleteTransitRule = async (id) =>
+  proxyScenario(FRS_SLUG, `/transit/rules/${id}`, { method: "DELETE" });
 
-export const listTransitSessions = async (params = {}) => {
-  const r = await apiClient.get("/ai/frs/transit/sessions", { params });
-  return r.data; // { sessions: [...], total }
-};
+export const listTransitSessions = async (params = {}) =>
+  proxyScenario(FRS_SLUG, "/transit/sessions", { params }); // { sessions: [...], total }
 
 // ---------- PPE — compliance detection (image + video) ----------
-// One-shot IMAGE compliance (synchronous) and async VIDEO-file jobs. Both are
-// proxied by the NVR backend through the bridge (HTTP :8099) to the PPE gRPC
-// service (:50052). Image returns per-person compliance immediately; video
-// submits a job and the caller polls status, then fetches results when
-// state === "JOB_COMPLETED". NVR holds no PPE data — pure proxy.
+// PPE runs as a standalone scenario microservice (scenarios/ppe), registered
+// via its manifest and reached through the generic scenario proxy. The NVR
+// gates each call by license + enable and forwards to the plugin. Image returns
+// per-person compliance immediately; video submits a job and the caller polls
+// status, then fetches results when state === "JOB_COMPLETED".
+
+const PPE_SLUG = "ppe";
 
 export const detectPPE = async (file) => {
   const form = new FormData();
   form.append("file", file);
-  const r = await apiClient.post("/ai/ppe/detect", form, {
+  return proxyScenario(PPE_SLUG, "/detect", {
+    method: "POST",
+    data: form,
     headers: { "Content-Type": "multipart/form-data" },
-  });
-  return r.data; // { persons: [...], width, height, compliant_count, violation_count }
+  }); // { persons: [...], width, height, compliant_count, violation_count }
 };
 
 export const detectPose = async (file) => {
   const form = new FormData();
   form.append("file", file);
-  const r = await apiClient.post("/ai/ppe/detect-pose", form, {
+  return proxyScenario(PPE_SLUG, "/detect-pose", {
+    method: "POST",
+    data: form,
     headers: { "Content-Type": "multipart/form-data" },
-  });
-  return r.data; // { persons: [...], width, height }
+  }); // { persons: [...], width, height }
 };
 
 export const submitPPEVideoJob = async (file) => {
   const form = new FormData();
   form.append("file", file);
-  const r = await apiClient.post("/ai/ppe/video-jobs", form, {
+  return proxyScenario(PPE_SLUG, "/video-jobs", {
+    method: "POST",
+    data: form,
     headers: { "Content-Type": "multipart/form-data" },
-  });
-  return r.data; // { job_id }
+  }); // { job_id, state }
 };
 
-export const ppeVideoJobStatus = async (jobId) => {
-  const r = await apiClient.get(`/ai/ppe/video-jobs/${jobId}`);
-  return r.data;
-};
+export const ppeVideoJobStatus = async (jobId) => (
+  proxyScenario(PPE_SLUG, `/video-jobs/${jobId}`)
+);
 
-export const ppeVideoJobResults = async (jobId) => {
-  const r = await apiClient.get(`/ai/ppe/video-jobs/${jobId}/results`);
-  return r.data;
-};
+export const ppeVideoJobResults = async (jobId) => (
+  proxyScenario(PPE_SLUG, `/video-jobs/${jobId}/results`)
+);

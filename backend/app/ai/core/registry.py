@@ -48,6 +48,16 @@ def validate_manifest(manifest: Dict[str, Any]) -> None:
         # allow kebab/identifier-ish slugs
         if not all(c.isalnum() or c in "-_" for c in slug):
             raise ManifestError(f"invalid slug: {slug!r}")
+    if "tabs" in manifest and "module_tabs" not in manifest:
+        manifest["module_tabs"] = manifest["tabs"]
+    if "proxy_routes" in manifest and not isinstance(manifest["proxy_routes"], list):
+        raise ManifestError("proxy_routes must be a list")
+    if not (
+        manifest.get("service_url")
+        or (isinstance(manifest.get("container"), dict) and manifest["container"].get("service_url"))
+        or manifest.get("grpc_endpoint")
+    ):
+        logger.info("[ai-registry] scenario %s registered without service_url", slug)
 
 
 async def register_manifest(db: AsyncSession, manifest: Dict[str, Any]) -> AIScenario:

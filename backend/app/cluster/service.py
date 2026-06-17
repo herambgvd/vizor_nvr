@@ -344,6 +344,14 @@ class ClusterService:
                 self._node_id,
             )
             return
+        if not settings.CLUSTER_FAILOVER_EVENTS_ENABLED:
+            logger.info(
+                "[cluster] Node %s promotion looked like failover, but "
+                "cluster failover Event Log alerts are disabled for this "
+                "deployment; Event Log emit skipped",
+                self._node_id,
+            )
+            return
 
         # Cooldown: skip emit if we fired the same failover recently. The in-memory
         # timestamp alone resets on every process restart, so a crash/restart
