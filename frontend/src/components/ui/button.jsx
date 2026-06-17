@@ -8,17 +8,17 @@ const buttonVariants = cva(
   "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
   {
     variants: {
-      variant: {
-        default:
-          "bg-gradient-to-b from-blue-500 to-blue-600 text-white shadow-[0_0_20px_rgba(59,130,246,0.35)] hover:from-blue-400 hover:to-blue-500 active:from-blue-600 active:to-blue-700",
+        variant: {
+          default:
+          "bg-[var(--console-accent)] text-[var(--console-accent-foreground)] shadow-[0_0_14px_hsl(var(--ring)/0.20)] hover:brightness-110 active:brightness-90",
         destructive:
-          "bg-rose-500/90 text-white shadow-[0_0_20px_rgba(244,63,94,0.25)] hover:bg-rose-500",
+          "bg-red-600 text-white shadow-[0_0_18px_rgba(239,68,68,0.22)] hover:bg-red-500 active:bg-red-700",
         outline:
-          "border border-border bg-card/40 text-foreground shadow-sm hover:bg-card/70 hover:border-border hover:text-white",
+          "border border-red-600/70 bg-transparent text-red-400 shadow-sm hover:bg-red-600/10 hover:border-red-500 hover:text-red-300",
         secondary:
           "bg-card/70 text-foreground border border-border shadow-sm hover:bg-white/[0.10]",
         ghost: "text-zinc-400 hover:bg-card/70 hover:text-white",
-        link: "text-blue-400 underline-offset-4 hover:underline hover:text-blue-300",
+        link: "text-[var(--console-accent)] underline-offset-4 hover:underline hover:brightness-125",
       },
       size: {
         default: "h-9 px-4 py-2",

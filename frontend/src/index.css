@@ -1,6 +1,6 @@
 /* =============================================================================
  * Vizor — Vercel-style dark theme
- * Near-black surface, subtle zinc panels, blue accent + top-right aurora glow.
+ * Pure black console surface with green actions and red destructive controls.
  * =============================================================================
  */
 
@@ -28,55 +28,55 @@ code, pre, .font-mono {
 @layer base {
   :root,
   .dark {
-    /* Vizor NVR design tokens — Deep Navy canvas, Graphite cards,
-       Cyan/Teal primary accent. All values HSL space-separated so
+    /* Vizor NVR design tokens — black canvas, dark panels,
+       green primary actions. All values HSL space-separated so
        Tailwind v3 `hsl(var(--token) / <alpha>)` works. */
 
     /* Surfaces */
-    --background: 218 50% 8%;        /* #0B1220 Deep Navy */
+    --background: 0 0% 0%;           /* #000000 */
     --foreground: 220 14% 96%;       /* #F3F4F6 Soft White */
 
-    --sidebar: 222 47% 11%;          /* #111827 Dark Slate */
+    --sidebar: 0 0% 0%;
     --sidebar-foreground: 220 14% 96%;
 
-    --card: 217 33% 17%;             /* #1F2937 Graphite */
+    --card: 0 0% 3%;
     --card-foreground: 220 14% 96%;
 
-    --popover: 217 33% 17%;
+    --popover: 0 0% 3%;
     --popover-foreground: 220 14% 96%;
 
-    /* Brand: Cyan/Teal primary, Electric Blue secondary */
-    --primary: 173 80% 40%;          /* #14B8A6 Teal */
+    /* Brand/action colors */
+    --primary: 120 61% 34%;          /* #228B22 Forest Green */
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 217 91% 60%;        /* #3B82F6 Electric Blue */
+    --secondary: 120 61% 34%;
     --secondary-foreground: 0 0% 100%;
 
-    --accent: 173 80% 40%;
+    --accent: 120 61% 34%;
     --accent-foreground: 0 0% 100%;
 
-    --muted: 217 33% 17%;
+    --muted: 0 0% 6%;
     --muted-foreground: 220 9% 65%;  /* #9CA3AF Gray */
 
     /* Semantic */
     --destructive: 0 84% 60%;        /* #EF4444 Red */
     --destructive-foreground: 0 0% 100%;
-    --success: 142 71% 45%;          /* #22C55E Green */
+    --success: 120 61% 34%;          /* #228B22 Forest Green */
     --success-foreground: 0 0% 100%;
     --warning: 38 92% 50%;           /* #F59E0B Amber */
     --warning-foreground: 0 0% 0%;
 
     /* Form + structural */
-    --border: 217 33% 24%;           /* lighter graphite for separators */
-    --input: 217 33% 14%;            /* slightly darker than card */
-    --ring: 173 80% 40%;
+    --border: 0 0% 14%;
+    --input: 0 0% 5%;
+    --ring: 120 61% 34%;
 
     /* Charts — teal, blue, amber, red, green */
-    --chart-1: 173 80% 40%;
-    --chart-2: 217 91% 60%;
+    --chart-1: 120 61% 34%;
+    --chart-2: 120 45% 28%;
     --chart-3: 38 92% 50%;
     --chart-4: 0 84% 60%;
-    --chart-5: 142 71% 45%;
+    --chart-5: 120 61% 34%;
 
     --radius: 0.5rem;
   }
@@ -87,7 +87,7 @@ code, pre, .font-mono {
   body { @apply bg-background text-foreground; }
 
   ::selection {
-    background: hsl(173 80% 40% / 0.35);
+    background: hsl(var(--ring) / 0.35);
     color: hsl(0 0% 100%);
   }
 }
@@ -103,16 +103,12 @@ code, pre, .font-mono {
 ::-webkit-scrollbar-thumb:hover { background: hsl(217 33% 32%); }
 
 /* =============================================================================
- * Aurora — top-right blue gradient glow
+ * Aurora disabled for the simplified black theme
  * =============================================================================
  */
 @layer utilities {
   .aurora {
-    position: fixed;
-    inset: 0;
-    z-index: 0;
-    pointer-events: none;
-    overflow: hidden;
+    display: none;
   }
   .aurora::before {
     content: "";
@@ -125,9 +121,9 @@ code, pre, .font-mono {
     max-height: 1100px;
     background: radial-gradient(
       circle at center,
-      hsl(173 80% 40% / 0.28) 0%,
-      hsl(217 91% 60% / 0.16) 28%,
-      hsl(217 91% 60% / 0.08) 50%,
+      hsl(var(--ring) / 0.18) 0%,
+      hsl(var(--ring) / 0.08) 28%,
+      hsl(var(--ring) / 0.04) 50%,
       transparent 70%
     );
     filter: blur(60px);
@@ -145,8 +141,8 @@ code, pre, .font-mono {
     max-height: 600px;
     background: radial-gradient(
       circle at center,
-      hsl(173 80% 50% / 0.25) 0%,
-      hsl(173 80% 40% / 0.08) 40%,
+      hsl(var(--ring) / 0.16) 0%,
+      hsl(var(--ring) / 0.06) 40%,
       transparent 70%
     );
     filter: blur(40px);
@@ -166,8 +162,8 @@ code, pre, .font-mono {
     background: linear-gradient(
       135deg,
       hsl(0 0% 100%) 0%,
-      hsl(173 80% 60%) 50%,
-      hsl(217 91% 70%) 100%
+      hsl(var(--ring)) 50%,
+      hsl(var(--ring)) 100%
     );
     -webkit-background-clip: text;
     background-clip: text;
@@ -191,16 +187,17 @@ code, pre, .font-mono {
 /* ── Control-room console theme tokens ───────────────────────────── */
 :root {
   --console-bg: #000000;
-  --console-panel: #0a0a0a;
-  --console-raised: #141414;
-  --console-border: #1f1f1f;
+  --console-panel: #000000;
+  --console-raised: #050505;
+  --console-border: #202020;
   --console-text: #e2e8f0;
   --console-muted: #8a8f98;
-  --console-accent: #14b8a6;
-  --console-accent-blue: #3b82f6;
+  --console-accent: #228B22;
+  --console-accent-blue: #228B22;
+  --console-accent-foreground: #ffffff;
   --console-rec: #ef4444;
   --console-alarm: #f59e0b;
-  --console-online: #22c55e;
+  --console-online: #228B22;
   --console-offline: #71717a;
   --console-rail-w: 56px;
   --console-tree-w: 260px;

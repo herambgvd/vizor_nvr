@@ -25,7 +25,6 @@ import {
   Menu,
   X,
   Key,
-  Cpu,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useAuth } from "../context/AuthContext";
@@ -74,11 +73,6 @@ const Layout = () => {
       path: "/events",
       label: "Events",
       icon: Bell,
-    },
-    {
-      path: "/ai",
-      label: "AI",
-      icon: Cpu,
     },
     {
       path: "/bookmarks",

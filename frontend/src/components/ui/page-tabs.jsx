@@ -1,7 +1,7 @@
 // =============================================================================
 // PageTabs — underline tab row used across Storage / Settings / Notifications
 // =============================================================================
-// Dark-theme teal accent, consistent typography. Accepts a `tabs` array of
+// Dark-theme forest green accent, consistent typography. Accepts a `tabs` array of
 // { id, label, icon? } plus controlled value + onValueChange. Pure
 // presentation — caller renders the active panel content.
 // =============================================================================
@@ -38,7 +38,7 @@ const PageTabs = ({ tabs = [], value, onValueChange, className }) => (
           {Icon && <Icon className="h-4 w-4" />}
           {t.label}
           {active && (
-            <span className="absolute left-2 right-2 -bottom-px h-[2px] rounded-full bg-gradient-to-r from-teal-400 to-blue-400" />
+            <span className="absolute left-2 right-2 -bottom-px h-[2px] rounded-full bg-[var(--console-accent)]" />
           )}
         </button>
       );

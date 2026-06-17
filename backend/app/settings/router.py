@@ -21,6 +21,18 @@ router = APIRouter(prefix="/settings", tags=["Settings"])
 svc = SettingsService()
 
 
+@router.get("/public/branding")
+async def public_branding(db: AsyncSession = Depends(get_db)):
+    """Public whitelabel metadata used by login and the app shell."""
+    return {
+        "system_name": await svc.get_value(db, "system_name", "Vizor NVR"),
+        "logo_url": await svc.get_value(db, "brand_logo_url", ""),
+        "favicon_url": await svc.get_value(db, "brand_favicon_url", ""),
+        "background_color": await svc.get_value(db, "theme_background_color", "#000000"),
+        "button_color": await svc.get_value(db, "theme_button_color", "#228B22"),
+    }
+
+
 @router.get("", response_model=List[SettingResponse])
 async def list_settings(
     category: Optional[str] = Query(None),

@@ -19,6 +19,10 @@ import {
   AlertTriangle,
   CheckCircle2,
   Circle,
+  Database,
+  Search,
+  Copy,
+  PlayCircle,
 } from "lucide-react";
 import {
   getCamera,
@@ -34,6 +38,9 @@ import {
   getRelayOutputs,
   triggerRelayOutput,
   getDigitalInputs,
+  getOnvifEdgeRecordings,
+  getOnvifReplayUri,
+  getOnvifMetadataStream,
 } from "../../api/cameras";
 import { Button } from "../ui/button";
 import { Switch } from "../ui/switch";
@@ -97,6 +104,13 @@ const EventsTab = ({ camera, cameraId }) => {
   const [enabled, setEnabled] = useState(!!camera?.onvif_events_enabled);
   const [topics, setTopics] = useState(camera?.onvif_event_topics || []);
 
+  const { data: metadataStream, isLoading: metadataLoading, refetch: refetchMetadata } = useQuery({
+    queryKey: ["onvif-metadata-stream", cameraId],
+    queryFn: () => getOnvifMetadataStream(cameraId),
+    enabled: !!camera?.onvif_host,
+    retry: 1,
+  });
+
   useEffect(() => {
     setEnabled(!!camera?.onvif_events_enabled);
     setTopics(camera?.onvif_event_topics || []);
@@ -152,6 +166,45 @@ const EventsTab = ({ camera, cameraId }) => {
           checked={enabled}
           onCheckedChange={setEnabled}
         />
+      </div>
+
+      <div className="p-4 bg-[var(--console-panel)] rounded-lg border border-[var(--console-border)]">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-white">
+              Profile M Metadata Transport
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Camera-generated metadata stream discovery for analytics/event payloads
+            </p>
+          </div>
+          <Button variant="ghost" size="sm" onClick={() => refetchMetadata()}>
+            <RefreshCw className={cn("h-3.5 w-3.5", metadataLoading && "animate-spin")} />
+          </Button>
+        </div>
+        {metadataLoading ? (
+          <div className="flex items-center gap-2 mt-3 text-xs text-muted-foreground">
+            <RefreshCw className="h-3.5 w-3.5 animate-spin" /> Checking metadata stream…
+          </div>
+        ) : metadataStream?.supported ? (
+          <div className="mt-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <Badge className="bg-[var(--console-accent)] hover:brightness-110 text-[var(--console-accent-foreground)]">Supported</Badge>
+              <Badge variant="outline">Media{metadataStream.media_version}</Badge>
+              {metadataStream.profile_token && (
+                <Badge variant="outline">{metadataStream.profile_token}</Badge>
+              )}
+            </div>
+            <p className="text-xs font-mono text-muted-foreground break-all">
+              {metadataStream.uri}
+            </p>
+          </div>
+        ) : (
+          <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+            <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />
+            {metadataStream?.reason || "No metadata stream reported by camera."}
+          </div>
+        )}
       </div>
 
       {/* Topic filter */}
@@ -217,6 +270,173 @@ const EventsTab = ({ camera, cameraId }) => {
           Save Event Settings
         </Button>
       </div>
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Edge Recordings Tab (Profile G)
+// ---------------------------------------------------------------------------
+
+const EdgeRecordingsTab = ({ camera, cameraId }) => {
+  const now = new Date();
+  const defaultEnd = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+    .toISOString()
+    .slice(0, 16);
+  const defaultStart = new Date(now.getTime() - 60 * 60 * 1000 - now.getTimezoneOffset() * 60000)
+    .toISOString()
+    .slice(0, 16);
+  const [startTime, setStartTime] = useState(defaultStart);
+  const [endTime, setEndTime] = useState(defaultEnd);
+  const [replayByToken, setReplayByToken] = useState({});
+
+  const buildParams = () => ({
+    ...(startTime ? { start_time: new Date(startTime).toISOString() } : {}),
+    ...(endTime ? { end_time: new Date(endTime).toISOString() } : {}),
+  });
+
+  const {
+    data,
+    isFetching,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: ["onvif-edge-recordings", cameraId],
+    queryFn: () => getOnvifEdgeRecordings(cameraId, buildParams()),
+    enabled: false,
+    retry: 1,
+  });
+
+  const replayMutation = useMutation({
+    mutationFn: (token) => getOnvifReplayUri(cameraId, token),
+    onSuccess: (result) => {
+      setReplayByToken((prev) => ({ ...prev, [result.recording_token]: result.uri }));
+      toast.success("Replay URI resolved");
+    },
+    onError: (e) => toast.error(e.response?.data?.detail || "Replay URI not available"),
+  });
+
+  if (!camera?.onvif_host) {
+    return (
+      <div className="text-center py-12 text-muted-foreground">
+        <Database className="h-10 w-10 mx-auto mb-3 text-[var(--console-muted)]" />
+        <p className="text-sm">No ONVIF host configured for this camera.</p>
+      </div>
+    );
+  }
+
+  const recordings = data?.recordings || [];
+
+  const copyText = async (text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success("Copied");
+    } catch (_e) {
+      toast.error("Copy failed");
+    }
+  };
+
+  const formatTime = (value) => {
+    if (!value) return "-";
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return value;
+    return d.toLocaleString();
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-3 items-end">
+        <div className="space-y-1.5">
+          <Label className="text-sm">Start</Label>
+          <input
+            type="datetime-local"
+            value={startTime}
+            onChange={(e) => setStartTime(e.target.value)}
+            className="w-full h-9 px-3 rounded-md bg-[var(--console-panel)] border border-[var(--console-border)] text-sm text-white"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-sm">End</Label>
+          <input
+            type="datetime-local"
+            value={endTime}
+            onChange={(e) => setEndTime(e.target.value)}
+            className="w-full h-9 px-3 rounded-md bg-[var(--console-panel)] border border-[var(--console-border)] text-sm text-white"
+          />
+        </div>
+        <Button onClick={() => refetch()} disabled={isFetching}>
+          {isFetching ? (
+            <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+          ) : (
+            <Search className="h-4 w-4 mr-2" />
+          )}
+          Search
+        </Button>
+      </div>
+
+      {isError && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+          <AlertTriangle className="h-4 w-4 text-amber-400" />
+          {error?.response?.data?.detail || "Could not search camera edge recordings."}
+        </div>
+      )}
+
+      {!data && !isError ? (
+        <div className="text-sm text-muted-foreground py-8 text-center">
+          Search camera-side Profile G storage for recordings in the selected time window.
+        </div>
+      ) : recordings.length === 0 && !isFetching && !isError ? (
+        <div className="text-sm text-muted-foreground py-8 text-center">
+          No edge recordings returned by the camera for this window.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {recordings.map((rec, idx) => {
+            const token = rec.recording_token || `recording-${idx}`;
+            const replayUri = replayByToken[token];
+            return (
+              <div
+                key={`${token}-${rec.track_token || idx}`}
+                className="p-3 rounded-lg bg-[var(--console-panel)] border border-[var(--console-border)]"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-white truncate">{token}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {formatTime(rec.start_time)} - {formatTime(rec.end_time)}
+                    </p>
+                    {rec.track_token && (
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Track: {rec.track_token}
+                      </p>
+                    )}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={replayMutation.isPending}
+                    onClick={() => replayMutation.mutate(token)}
+                  >
+                    <PlayCircle className="h-3.5 w-3.5 mr-1" />
+                    Replay URI
+                  </Button>
+                </div>
+                {replayUri && (
+                  <div className="mt-3 flex items-start gap-2">
+                    <p className="flex-1 text-xs font-mono text-muted-foreground break-all">
+                      {replayUri}
+                    </p>
+                    <Button variant="ghost" size="sm" onClick={() => copyText(replayUri)}>
+                      <Copy className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };
@@ -592,7 +812,7 @@ const DigitalIOTab = ({ camera, cameraId }) => {
                 >
                   <div className="flex items-center gap-3">
                     {isActive ? (
-                      <CheckCircle2 className="h-5 w-5 text-green-500 flex-shrink-0" />
+                      <CheckCircle2 className="h-5 w-5 text-[var(--console-accent)] flex-shrink-0" />
                     ) : (
                       <Circle className="h-5 w-5 text-[var(--console-muted)] flex-shrink-0" />
                     )}
@@ -607,7 +827,7 @@ const DigitalIOTab = ({ camera, cameraId }) => {
                   </div>
                   <Badge
                     variant={isActive ? "default" : "outline"}
-                    className={cn("text-xs", isActive && "bg-green-500 hover:bg-green-500")}
+                    className={cn("text-xs", isActive && "bg-[var(--console-accent)] hover:brightness-110 text-[var(--console-accent-foreground)]")}
                   >
                     {isActive ? "Active" : "Idle"}
                   </Badge>
@@ -741,7 +961,7 @@ const SystemTab = ({ camera, cameraId }) => {
                 {timeData.offset_seconds != null && (
                   <p className={cn(
                     "text-xs mt-0.5",
-                    Math.abs(timeData.offset_seconds) > 5 ? "text-amber-500" : "text-green-500",
+                    Math.abs(timeData.offset_seconds) > 5 ? "text-amber-500" : "text-[var(--console-accent)]",
                   )}>
                     {timeData.offset_seconds > 0 ? "+" : ""}
                     {timeData.offset_seconds}s offset from server
@@ -890,6 +1110,10 @@ export const ONVIFSettingsPanel = ({ cameraId }) => {
             <Zap className="h-3.5 w-3.5" />
             Digital I/O
           </TabsTrigger>
+          <TabsTrigger value="edge" className="gap-1.5 text-xs sm:text-sm">
+            <Database className="h-3.5 w-3.5" />
+            Edge
+          </TabsTrigger>
           <TabsTrigger value="system" className="gap-1.5 text-xs sm:text-sm">
             <Cpu className="h-3.5 w-3.5" />
             System
@@ -905,6 +1129,9 @@ export const ONVIFSettingsPanel = ({ cameraId }) => {
           </TabsContent>
           <TabsContent value="io" className="m-0">
             <DigitalIOTab camera={camera} cameraId={cameraId} />
+          </TabsContent>
+          <TabsContent value="edge" className="m-0">
+            <EdgeRecordingsTab camera={camera} cameraId={cameraId} />
           </TabsContent>
           <TabsContent value="system" className="m-0">
             <SystemTab camera={camera} cameraId={cameraId} />

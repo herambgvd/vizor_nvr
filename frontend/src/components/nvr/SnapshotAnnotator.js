@@ -323,7 +323,7 @@ export default function SnapshotAnnotator({ cameraId, sourceUrl, onClose, onSave
           <div>
             <p className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1.5">Color</p>
             <div className="flex flex-wrap gap-1.5">
-              {["#ef4444", "#f97316", "#eab308", "#22c55e", "#3b82f6", "#ffffff", "#000000"].map((c) => (
+              {["#ef4444", "#f97316", "#eab308", "#228B22", "#3b82f6", "#ffffff", "#000000"].map((c) => (
                 <button
                   key={c}
                   onClick={() => setColor(c)}

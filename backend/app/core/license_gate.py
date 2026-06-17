@@ -30,6 +30,8 @@ logger = logging.getLogger(__name__)
 _ALLOWED_PREFIXES = (
     "/api/auth",
     "/api/license",
+    "/api/system/license",
+    "/api/settings/public/branding",
     "/api/health",
     "/health",
     "/metrics",

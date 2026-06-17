@@ -70,6 +70,10 @@ class SettingsService:
     @staticmethod
     async def set_value(db: AsyncSession, key: str, value: str,
                         category: str = None, is_sensitive: bool = False) -> Settings:
+        meta = DEFAULT_SETTINGS.get(key)
+        if meta:
+            category = category or meta["category"]
+            is_sensitive = is_sensitive or meta.get("sensitive", False)
         setting = await SettingsService.get(db, key)
         if setting:
             setting.value = value
@@ -78,8 +82,14 @@ class SettingsService:
             if is_sensitive:
                 setting.is_sensitive = True
         else:
-            setting = Settings(key=key, value=value, category=category,
-                               is_sensitive=is_sensitive)
+            setting = Settings(
+                key=key,
+                value=value,
+                value_type=meta["type"] if meta else "string",
+                category=category or "general",
+                description=meta["desc"] if meta else None,
+                is_sensitive=is_sensitive,
+            )
             db.add(setting)
         await db.commit()
         await db.refresh(setting)
@@ -88,11 +98,24 @@ class SettingsService:
     @staticmethod
     async def bulk_update(db: AsyncSession, values: Dict[str, str]):
         for key, value in values.items():
+            meta = DEFAULT_SETTINGS.get(key)
             setting = await SettingsService.get(db, key)
             if setting:
                 setting.value = value
+                if meta:
+                    setting.value_type = meta["type"]
+                    setting.category = meta["category"]
+                    setting.description = meta["desc"]
+                    setting.is_sensitive = meta.get("sensitive", setting.is_sensitive)
             else:
-                db.add(Settings(key=key, value=value))
+                db.add(Settings(
+                    key=key,
+                    value=value,
+                    value_type=meta["type"] if meta else "string",
+                    category=meta["category"] if meta else "general",
+                    description=meta["desc"] if meta else None,
+                    is_sensitive=meta.get("sensitive", False) if meta else False,
+                ))
         await db.commit()
 
     @staticmethod

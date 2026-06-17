@@ -182,7 +182,7 @@ export const MotionZoneEditor = ({ cameraId, snapshotUrl }) => {
                   key={`${ri}-${ci}`}
                   className={`cursor-crosshair border border-border transition-colors ${
                     active
-                      ? "bg-green-500/40 hover:bg-green-500/50"
+                      ? "bg-[hsl(var(--ring)/0.40)] hover:bg-[hsl(var(--ring)/0.50)]"
                       : "bg-gray-500/20 hover:bg-gray-500/30"
                   }`}
                   onMouseDown={() => handleMouseDown(ri, ci)}

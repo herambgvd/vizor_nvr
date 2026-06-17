@@ -25,7 +25,6 @@
 import asyncio
 import logging
 from typing import Dict, Optional, Any
-from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +81,8 @@ def _resolve_topic(raw_topic: str) -> Optional[tuple]:
         if "/" not in candidate:
             break
         parts = candidate.rsplit("/", 1)
+    if any(part in raw for part in ("VideoAnalytics", "RuleEngine", "AudioAnalytics")):
+        return ("onvif_metadata", "info", "ONVIF metadata event")
     return None
 
 
@@ -97,23 +98,89 @@ def _extract_topic_from_message(msg: Any) -> Optional[str]:
         return None
 
 
+def _json_safe(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(v) for v in value]
+    try:
+        public = {
+            key: _json_safe(val)
+            for key, val in vars(value).items()
+            if not key.startswith("_")
+        }
+        if public:
+            return public
+    except Exception:
+        pass
+    return str(value)
+
+
+def _as_list(value: Any) -> list:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    if isinstance(value, (str, bytes, dict)):
+        return [value]
+    try:
+        return list(value)
+    except TypeError:
+        return [value]
+
+
+def _simple_items_to_dict(container: Any) -> Dict[str, Any]:
+    out: Dict[str, Any] = {}
+    if not container or not hasattr(container, "SimpleItem"):
+        return out
+    for item in _as_list(container.SimpleItem):
+        name = getattr(item, "Name", None)
+        if not name:
+            continue
+        out[str(name)] = _json_safe(getattr(item, "Value", None))
+    return out
+
+
+def _element_items_to_dict(container: Any) -> Dict[str, Any]:
+    out: Dict[str, Any] = {}
+    if not container or not hasattr(container, "ElementItem"):
+        return out
+    for item in _as_list(container.ElementItem):
+        name = getattr(item, "Name", None)
+        if not name:
+            continue
+        out[str(name)] = _json_safe(getattr(item, "Value", item))
+    return out
+
+
 def _extract_metadata(msg: Any) -> dict:
-    """Extract useful metadata from a ONVIF NotificationMessage."""
-    meta: dict = {}
+    """Extract JSON-safe Profile M/PullPoint metadata from NotificationMessage."""
+    meta: dict = {"onvif": {"source": {}, "data": {}, "elements": {}}}
     try:
         # ProducerReference → camera source reference
         if hasattr(msg, "ProducerReference") and msg.ProducerReference:
             meta["source"] = str(msg.ProducerReference.Address)
+            meta["onvif"]["producer_reference"] = str(msg.ProducerReference.Address)
     except Exception:
         pass
     try:
-        # Message/Data contains key-value SimpleItems
-        data = msg.Message.Message.Data
-        if data and hasattr(data, "SimpleItem"):
-            for item in data.SimpleItem or []:
-                meta[item.Name] = item.Value
+        message = msg.Message.Message
+        source_items = _simple_items_to_dict(getattr(message, "Source", None))
+        data_items = _simple_items_to_dict(getattr(message, "Data", None))
+        element_items = _element_items_to_dict(getattr(message, "Data", None))
+        meta["onvif"]["source"] = source_items
+        meta["onvif"]["data"] = data_items
+        meta["onvif"]["elements"] = element_items
+        # Preserve the previous flat shape for existing event filters/linkages.
+        meta.update(data_items)
     except Exception:
         pass
+    if not meta["onvif"]["source"] and not meta["onvif"]["data"] and not meta["onvif"]["elements"]:
+        meta.pop("onvif", None)
     return meta
 
 

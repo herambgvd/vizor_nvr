@@ -422,7 +422,7 @@ const ResourcesPage = () => {
     refetchInterval: 5_000,
   });
 
-  const { data: sysInfo } = useQuery({
+  const { data: sysInfo, refetch: refetchSysInfo } = useQuery({
     queryKey: ["monitoring-system-info"],
     queryFn: getSystemInfo,
     staleTime: 5 * 60_000,
@@ -465,6 +465,16 @@ const ResourcesPage = () => {
   const gpuMemUsed = resources?.gpu_mem_used_mb ?? 0;
   const gpuMemTotal = resources?.gpu_mem_total_mb ?? 0;
   const gpuTemp = resources?.gpu_temp_c ?? 0;
+  const detectedGpus = sysInfo?.gpus?.length
+    ? sysInfo.gpus
+    : gpuMemTotal > 0
+      ? [{
+          index: 0,
+          name: "NVIDIA GPU",
+          memory_total_mb: gpuMemTotal,
+          vendor: "NVIDIA",
+        }]
+      : [];
   const memPct = resources?.memory_percent ?? 0;
   const memUsed = resources?.memory_used_mb ?? 0;
   const memTotal = resources?.memory_total_mb ?? 0;
@@ -476,10 +486,12 @@ const ResourcesPage = () => {
   const netTotal = netSent + netRecv;
 
   return (
-    <div className="p-4 space-y-4">
-      {/* Section header bar */}
+    <div
+      className="h-full flex flex-col overflow-hidden"
+      style={{ background: "var(--console-bg)", color: "var(--console-text)" }}
+    >
       <div
-        className="flex items-center gap-3 px-4 py-2.5 rounded border"
+        className="flex items-center gap-3 px-4 py-2.5 border-b flex-shrink-0"
         style={{ background: "var(--console-panel)", borderColor: "var(--console-border)" }}
       >
         <span className="w-0.5 h-4 rounded-full flex-shrink-0" style={{ background: "var(--console-accent)" }} />
@@ -487,12 +499,19 @@ const ResourcesPage = () => {
           Live Resources
         </span>
         <div className="flex-1" />
-        <SecondaryBtn onClick={() => refetch()} disabled={isLoading}>
+        <SecondaryBtn
+          onClick={() => {
+            refetch();
+            refetchSysInfo();
+          }}
+          disabled={isLoading}
+        >
           <RefreshCw className={cn("h-3.5 w-3.5 mr-1.5", isLoading && "animate-spin")} />
           Refresh
         </SecondaryBtn>
       </div>
 
+      <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 space-y-4">
       {/* Gauges */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
         <GaugeCard
@@ -612,14 +631,14 @@ const ResourcesPage = () => {
           icon={Zap}
           label="GPU Details"
           right={
-            sysInfo?.gpus?.length > 0 ? (
+            detectedGpus.length > 0 ? (
               <span className="font-telemetry text-[11px] tabular-nums" style={{ color: "var(--console-muted)" }}>
                 {fmt(gpuPct)}%
               </span>
             ) : null
           }
         >
-          {!sysInfo?.gpus || sysInfo.gpus.length === 0 ? (
+          {detectedGpus.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-6 text-center">
               <MonitorCog className="h-8 w-8 mb-2 opacity-20" style={{ color: "var(--console-muted)" }} />
               <p className="font-telemetry text-xs" style={{ color: "var(--console-muted)" }}>
@@ -631,7 +650,7 @@ const ResourcesPage = () => {
             </div>
           ) : (
             <div className="space-y-4">
-              {sysInfo.gpus.map((g) => (
+              {detectedGpus.map((g) => (
                 <div key={g.index} className="space-y-2">
                   <div className="font-telemetry text-[11px] space-y-1.5">
                     <div className="flex items-center justify-between">
@@ -787,6 +806,7 @@ const ResourcesPage = () => {
 
       {/* Diagnostics — admin only */}
       {isAdmin && <DiagnosticsCard />}
+      </div>
     </div>
   );
 };

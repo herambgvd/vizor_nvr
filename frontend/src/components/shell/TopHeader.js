@@ -8,6 +8,7 @@ import {
 import { Avatar, AvatarFallback } from "../ui/avatar";
 import { ChangePasswordDialogTrigger } from "../auth/ChangePasswordDialog";
 import { useAuth } from "../../context/AuthContext";
+import useBranding from "../../hooks/useBranding";
 
 const initials = (name) =>
   !name ? "U" : name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
@@ -15,6 +16,7 @@ const initials = (name) =>
 export default function TopHeader({ title }) {
   const navigate = useNavigate();
   const { user, isAdmin, logout } = useAuth();
+  const branding = useBranding();
 
   const handleLogout = () => {
     logout();
@@ -27,10 +29,18 @@ export default function TopHeader({ title }) {
       style={{ height: "var(--console-header-h)", borderColor: "var(--console-border)" }}
     >
       <div className="flex items-center gap-2">
-        <div className="h-6 w-6 rounded bg-gradient-to-br from-teal-500 to-blue-500 flex items-center justify-center">
-          <Video className="h-3.5 w-3.5 text-white" />
-        </div>
-        <span className="text-sm font-semibold tracking-tight">Vizor</span>
+        {branding.logo_url ? (
+          <img
+            src={branding.logo_url}
+            alt={branding.system_name}
+            className="h-7 w-7 rounded object-contain"
+          />
+        ) : (
+          <div className="h-6 w-6 rounded bg-[var(--console-accent)] flex items-center justify-center">
+            <Video className="h-3.5 w-3.5 text-white" />
+          </div>
+        )}
+        <span className="text-sm font-semibold tracking-tight">{branding.system_name}</span>
       </div>
       <div className="h-4 w-px" style={{ background: "var(--console-border)" }} />
       <span className="text-sm text-zinc-400">{title}</span>

@@ -183,9 +183,17 @@ async def system_info(user: dict = Depends(get_current_user)):
 # ─── License (Phase 7.1) ──────────────────────────────────────────────────────
 
 @router.get("/license/status")
-async def license_status(user: dict = Depends(get_admin_user)):
-    from app.core.licensing import status as _ls
-    return _ls().to_dict()
+async def license_status(
+    user: dict = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Legacy system route backed by the active .lic license service."""
+    from sqlalchemy import func, select
+    from app.cameras.models import Camera
+    from app.license.service import get_license_service
+
+    cam_total = (await db.execute(select(func.count(Camera.id)))).scalar() or 0
+    return get_license_service().snapshot(int(cam_total))
 
 
 @router.post("/license/upload")
@@ -195,16 +203,19 @@ async def license_upload(
     user: dict = Depends(get_admin_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Persist a vendor-signed license.json bundle. The next request to
-    /license/status will re-evaluate it."""
-    from app.core.licensing import _license_path
+    """Legacy upload route backed by the active .lic license service."""
+    from sqlalchemy import func, select
+    from app.cameras.models import Camera
+    from app.license.service import LicenseError, get_license_service
+
     body = await file.read()
     if len(body) > 64_000:
         raise HTTPException(400, "License file too large")
-    lp = _license_path()
-    lp.parent.mkdir(parents=True, exist_ok=True)
-    lp.write_bytes(body)
-    os.chmod(lp, 0o600)
+    blob = body.decode("utf-8", errors="ignore").strip()
+    try:
+        await get_license_service().activate(blob)
+    except LicenseError as e:
+        raise HTTPException(400, str(e))
     await write_audit(
         db, action="license_upload",
         user_id=user["id"], username=user["username"],
@@ -213,8 +224,8 @@ async def license_upload(
         description=f"License file uploaded ({len(body)} bytes)",
     )
     await db.commit()
-    from app.core.licensing import status as _ls
-    return _ls().to_dict()
+    cam_total = (await db.execute(select(func.count(Camera.id)))).scalar() or 0
+    return get_license_service().snapshot(int(cam_total))
 
 
 # ─── NTP (Phase 7.6) ──────────────────────────────────────────────────────────

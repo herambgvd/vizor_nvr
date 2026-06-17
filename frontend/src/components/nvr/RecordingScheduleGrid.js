@@ -33,7 +33,7 @@ const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
 const MODES = {
   continuous: { label: "Continuous", color: "bg-blue-500" },
-  motion: { label: "Motion Only", color: "bg-green-500" },
+  motion: { label: "Motion Only", color: "bg-[var(--console-accent)]" },
   off: { label: "Off", color: "bg-gray-300 dark:bg-gray-600" },
 };
 

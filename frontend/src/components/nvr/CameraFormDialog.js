@@ -6,7 +6,7 @@
 // =============================================================================
 
 import React, { useState, useEffect, useCallback } from "react";
-import { Plus, Trash2, Clock } from "lucide-react";
+import { Plus, Trash2, Clock, Camera, Radio, ShieldCheck } from "lucide-react";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
@@ -199,279 +199,262 @@ export const CameraFormDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-4xl max-h-[92vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle style={{ fontFamily: "Manrope, sans-serif" }}>
-            {isEdit ? "Edit Camera" : "Add New Camera"}
-          </DialogTitle>
-          <DialogDescription>
-            {isEdit
-              ? "Update the camera configuration"
-              : "Add a new IP camera to your network"}
-          </DialogDescription>
-        </DialogHeader>
-
-        <form onSubmit={handleSubmit}>
-          <div className="space-y-4 py-4">
-            {/* Name + Stream URL share a row on wide modal */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="camera-name">Camera Name *</Label>
-                <Input
-                  id="camera-name"
-                  data-testid="camera-name-input"
-                  placeholder="Front Door Camera"
-                  value={form.name}
-                  onChange={(e) => updateField("name", e.target.value)}
-                  required
-                />
-              </div>
-
-              {/* Stream URL — shares row with name on md+ */}
-              <div className="space-y-2">
-                <Label htmlFor="main-stream-url">Stream URL *</Label>
-                <Input
-                  id="main-stream-url"
-                  data-testid="main-stream-url-input"
-                  placeholder="rtsp://192.168.1.100:554/stream1"
-                  value={form.main_stream_url}
-                  onChange={(e) => updateField("main_stream_url", e.target.value)}
-                  required
-                />
-                <p className="text-xs text-muted-foreground">
-                  Example: rtsp://username:password@ip:port/path
-                </p>
-              </div>
-            </div>
-
-            {/* Description */}
-            <div className="space-y-2">
-              <Label htmlFor="description">Description</Label>
-              <Textarea
-                id="description"
-                data-testid="camera-description-input"
-                placeholder="Additional notes about this camera..."
-                value={form.description}
-                onChange={(e) => updateField("description", e.target.value)}
-                rows={2}
-              />
-            </div>
-
-            {/* Enable Camera */}
-            <div className="flex items-center justify-between">
+      <DialogContent className="w-[min(960px,calc(100vw-32px))] max-w-none max-h-[88vh] overflow-hidden !p-0 !gap-0 bg-black/95 border-[var(--console-border)] shadow-[0_24px_90px_rgba(0,0,0,0.9),0_0_42px_hsl(var(--ring)/0.10)]">
+        <form onSubmit={handleSubmit} className="flex max-h-[88vh] flex-col">
+          <DialogHeader className="shrink-0 border-b border-[var(--console-border)] px-5 py-4 pr-12">
+            <div className="flex items-center gap-3">
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-[hsl(var(--ring)/0.20)] text-[var(--console-accent)]">
+                <Camera className="h-4 w-4" />
+              </span>
               <div>
-                <Label htmlFor="is-enabled">Enable Camera</Label>
-                <p className="text-xs text-muted-foreground">
-                  Camera will be monitored when enabled
-                </p>
-              </div>
-              <Switch
-                id="is-enabled"
-                data-testid="camera-enabled-switch"
-                checked={form.is_enabled}
-                onCheckedChange={(checked) =>
-                  updateField("is_enabled", checked)
-                }
-              />
-            </div>
-
-            {/* Recording Mode + FPS on one row on md+ */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="recording-mode">Recording Mode</Label>
-                <Select
-                  value={form.recording_mode || "continuous"}
-                  onValueChange={(val) => updateField("recording_mode", val)}
-                >
-                  <SelectTrigger id="recording-mode">
-                    <SelectValue placeholder="Continuous" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {RECORDING_MODE_OPTIONS.map((opt) => (
-                      <SelectItem key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="recording-fps">Recording FPS</Label>
-                <Select
-                  value={form.recording_fps?.toString() || "original"}
-                  onValueChange={(val) =>
-                    updateField(
-                      "recording_fps",
-                      val === "original" ? null : val,
-                    )
-                  }
-                >
-                  <SelectTrigger
-                    id="recording-fps"
-                    data-testid="recording-fps-select"
-                  >
-                    <SelectValue placeholder="Original (no change)" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {FPS_OPTIONS.map((opt) => (
-                      <SelectItem key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  Lower FPS reduces storage usage. Original keeps the
-                  camera's native frame rate.
-                </p>
+                <DialogTitle className="text-base" style={{ fontFamily: "Manrope, sans-serif" }}>
+                  {isEdit ? "Edit Camera" : "Add New Camera"}
+                </DialogTitle>
+                <DialogDescription className="text-xs">
+                  {isEdit
+                    ? "Update stream, recording, and ONVIF settings"
+                    : "Add RTSP stream details and ONVIF controls in one place"}
+                </DialogDescription>
               </div>
             </div>
+          </DialogHeader>
 
-            {/* Recording Schedule */}
-            <div className="space-y-3 border-t border-border pt-4">
-              <div className="flex items-center justify-between">
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+            <div className="grid grid-cols-1 xl:grid-cols-[1.05fr_0.95fr] gap-4">
+              <section className="rounded-lg border border-[var(--console-border)] bg-[var(--console-panel)] p-4">
+                <div className="mb-4 flex items-center gap-2">
+                  <Radio className="h-4 w-4 text-[var(--console-accent)]" />
+                  <div>
+                    <h3 className="text-sm font-semibold text-[var(--console-text)]">Stream Details</h3>
+                    <p className="text-xs text-muted-foreground">Required connection fields</p>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="camera-name">Camera Name *</Label>
+                      <Input
+                        id="camera-name"
+                        data-testid="camera-name-input"
+                        placeholder="Front Door Camera"
+                        value={form.name}
+                        onChange={(e) => updateField("name", e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="main-stream-url">Stream URL *</Label>
+                      <Input
+                        id="main-stream-url"
+                        data-testid="main-stream-url-input"
+                        placeholder="rtsp://192.168.1.100:554/stream1"
+                        value={form.main_stream_url}
+                        onChange={(e) => updateField("main_stream_url", e.target.value)}
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 md:items-end">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="description">Description</Label>
+                      <Textarea
+                        id="description"
+                        data-testid="camera-description-input"
+                        placeholder="Optional camera notes..."
+                        value={form.description}
+                        onChange={(e) => updateField("description", e.target.value)}
+                        rows={2}
+                        className="min-h-[54px]"
+                      />
+                    </div>
+                    <div className="flex min-w-[190px] items-center justify-between gap-4 rounded-md border border-[var(--console-border)] bg-black/35 px-3 py-2.5">
+                      <div>
+                        <Label htmlFor="is-enabled">Enable Camera</Label>
+                        <p className="text-xs text-muted-foreground">Monitor when saved</p>
+                      </div>
+                      <Switch
+                        id="is-enabled"
+                        data-testid="camera-enabled-switch"
+                        checked={form.is_enabled}
+                        onCheckedChange={(checked) => updateField("is_enabled", checked)}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="rounded-lg border border-[var(--console-border)] bg-[var(--console-panel)] p-4">
+                <div className="mb-4 flex items-center gap-2">
+                  <Clock className="h-4 w-4 text-[var(--console-accent)]" />
+                  <div>
+                    <h3 className="text-sm font-semibold text-[var(--console-text)]">Recording</h3>
+                    <p className="text-xs text-muted-foreground">Mode, FPS, schedule, and ANR</p>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="recording-mode">Recording Mode</Label>
+                      <Select
+                        value={form.recording_mode || "continuous"}
+                        onValueChange={(val) => updateField("recording_mode", val)}
+                      >
+                        <SelectTrigger id="recording-mode">
+                          <SelectValue placeholder="Continuous" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {RECORDING_MODE_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor="recording-fps">Recording FPS</Label>
+                      <Select
+                        value={form.recording_fps?.toString() || "original"}
+                        onValueChange={(val) =>
+                          updateField("recording_fps", val === "original" ? null : val)
+                        }
+                      >
+                        <SelectTrigger id="recording-fps" data-testid="recording-fps-select">
+                          <SelectValue placeholder="Original (no change)" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {FPS_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="flex items-center justify-between gap-3 rounded-md border border-[var(--console-border)] bg-black/35 px-3 py-2.5">
+                      <div>
+                        <Label className="flex items-center gap-2">
+                          Recording Schedule
+                        </Label>
+                        <p className="text-xs text-muted-foreground">Use time windows</p>
+                      </div>
+                      <Switch
+                        data-testid="schedule-enabled-switch"
+                        checked={scheduleEnabled}
+                        onCheckedChange={setScheduleEnabled}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between gap-3 rounded-md border border-[var(--console-border)] bg-black/35 px-3 py-2.5">
+                      <div>
+                        <Label htmlFor="anr-enabled">ANR Backfill</Label>
+                        <p className="text-xs text-muted-foreground">Recover SD-card gaps</p>
+                      </div>
+                      <Switch
+                        id="anr-enabled"
+                        data-testid="anr-enabled-switch"
+                        checked={form.anr_enabled}
+                        onCheckedChange={(checked) => updateField("anr_enabled", checked)}
+                      />
+                    </div>
+                  </div>
+
+                  {scheduleEnabled && (
+                    <div className="space-y-3 rounded-md border border-[var(--console-border)] bg-black/25 p-3">
+                      {periods.map((period, idx) => (
+                        <div key={idx} className="space-y-3 rounded-md border border-[var(--console-border)] bg-black/30 p-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium text-[var(--console-text)]">
+                              Period {idx + 1}
+                            </span>
+                            {periods.length > 1 && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-muted-foreground hover:text-red-400"
+                                onClick={() => removePeriod(idx)}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                          </div>
+
+                          <div className="flex flex-wrap gap-1.5">
+                            {DAY_LABELS.map((label, dayIdx) => (
+                              <label
+                                key={dayIdx}
+                                className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium cursor-pointer transition-colors ${
+                                  period.days.includes(dayIdx)
+                                    ? "bg-[var(--console-accent)] text-[var(--console-accent-foreground)]"
+                                    : "bg-[var(--console-raised)] text-muted-foreground hover:bg-[var(--console-border)]"
+                                }`}
+                              >
+                                <Checkbox
+                                  checked={period.days.includes(dayIdx)}
+                                  onCheckedChange={() => togglePeriodDay(idx, dayIdx)}
+                                  className="sr-only"
+                                />
+                                {label}
+                              </label>
+                            ))}
+                          </div>
+
+                          <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-2">
+                            <div className="space-y-1">
+                              <Label className="text-xs text-muted-foreground">Start</Label>
+                              <Input
+                                type="time"
+                                value={period.start}
+                                onChange={(e) => handlePeriodChange(idx, "start", e.target.value)}
+                                className="h-8 text-sm"
+                              />
+                            </div>
+                            <span className="pb-1.5 text-muted-foreground">to</span>
+                            <div className="space-y-1">
+                              <Label className="text-xs text-muted-foreground">End</Label>
+                              <Input
+                                type="time"
+                                value={period.end}
+                                onChange={(e) => handlePeriodChange(idx, "end", e.target.value)}
+                                className="h-8 text-sm"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+
+                      <Button type="button" variant="outline" size="sm" onClick={addPeriod} className="w-full">
+                        <Plus className="h-3.5 w-3.5 mr-1.5" />
+                        Add Time Period
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </section>
+            </div>
+
+            <section className="mt-4 rounded-lg border border-[var(--console-border)] bg-[var(--console-panel)] p-4">
+              <div className="mb-4 flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4 text-[var(--console-accent)]" />
                 <div>
-                  <Label className="flex items-center gap-2">
-                    <Clock className="h-4 w-4" />
-                    Recording Schedule
-                  </Label>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Automatically start/stop recording on a schedule
+                  <h3 className="text-sm font-semibold text-[var(--console-text)]">ONVIF Configuration</h3>
+                  <p className="text-xs text-muted-foreground">
+                    Required for PTZ, events, imaging, and device management
                   </p>
                 </div>
-                <Switch
-                  data-testid="schedule-enabled-switch"
-                  checked={scheduleEnabled}
-                  onCheckedChange={setScheduleEnabled}
-                />
               </div>
 
-              {scheduleEnabled && (
-                <div className="space-y-3 pl-1">
-                  {periods.map((period, idx) => (
-                    <div
-                      key={idx}
-                      className="border border-border rounded-lg p-3 space-y-3"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium text-[var(--console-text)]">
-                          Period {idx + 1}
-                        </span>
-                        {periods.length > 1 && (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 text-muted-foreground hover:text-red-500"
-                            onClick={() => removePeriod(idx)}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
-                      </div>
-
-                      {/* Days */}
-                      <div className="flex flex-wrap gap-1.5">
-                        {DAY_LABELS.map((label, dayIdx) => (
-                          <label
-                            key={dayIdx}
-                            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium cursor-pointer transition-colors ${
-                              period.days.includes(dayIdx)
-                                ? "bg-[var(--console-accent)] text-white"
-                                : "bg-[var(--console-raised)] text-muted-foreground hover:bg-[var(--console-border)]"
-                            }`}
-                          >
-                            <Checkbox
-                              checked={period.days.includes(dayIdx)}
-                              onCheckedChange={() =>
-                                togglePeriodDay(idx, dayIdx)
-                              }
-                              className="sr-only"
-                            />
-                            {label}
-                          </label>
-                        ))}
-                      </div>
-
-                      {/* Time Range */}
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1">
-                          <Label className="text-xs text-muted-foreground">
-                            Start
-                          </Label>
-                          <Input
-                            type="time"
-                            value={period.start}
-                            onChange={(e) =>
-                              handlePeriodChange(idx, "start", e.target.value)
-                            }
-                            className="h-8 text-sm"
-                          />
-                        </div>
-                        <span className="text-muted-foreground mt-4">—</span>
-                        <div className="flex-1">
-                          <Label className="text-xs text-muted-foreground">End</Label>
-                          <Input
-                            type="time"
-                            value={period.end}
-                            onChange={(e) =>
-                              handlePeriodChange(idx, "end", e.target.value)
-                            }
-                            className="h-8 text-sm"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={addPeriod}
-                    className="w-full"
-                  >
-                    <Plus className="h-3.5 w-3.5 mr-1.5" />
-                    Add Time Period
-                  </Button>
-                </div>
-              )}
-            </div>
-          </div>
-
-            {/* ANR Configuration */}
-            <div className="flex items-center justify-between border-t border-border pt-4">
-              <div>
-                <Label htmlFor="anr-enabled">Automatic Network Replenishment (ANR)</Label>
-                <p className="text-xs text-muted-foreground">
-                  Backfill missing recordings from camera SD card after outages
-                </p>
-              </div>
-              <Switch
-                id="anr-enabled"
-                data-testid="anr-enabled-switch"
-                checked={form.anr_enabled}
-                onCheckedChange={(checked) =>
-                  updateField("anr_enabled", checked)
-                }
-              />
-            </div>
-
-            {/* ONVIF Configuration */}
-            <div className="space-y-3 border-t border-border pt-4">
-              <div>
-                <Label className="text-sm font-medium text-[var(--console-text)]">
-                  ONVIF Configuration
-                </Label>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Required for PTZ, events, imaging, and device management
-                </p>
-              </div>
-
-              <div className="grid grid-cols-3 gap-2">
-                <div className="col-span-2 space-y-1.5">
-                  <Label htmlFor="onvif-host" className="text-xs">ONVIF Host / IP</Label>
+              <div className="grid grid-cols-1 md:grid-cols-[1.3fr_120px_1fr_1fr] gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="onvif-host">Host / IP</Label>
                   <Input
                     id="onvif-host"
                     placeholder="192.168.1.100"
@@ -480,7 +463,7 @@ export const CameraFormDialog = ({
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="onvif-port" className="text-xs">Port</Label>
+                  <Label htmlFor="onvif-port">Port</Label>
                   <Input
                     id="onvif-port"
                     type="number"
@@ -493,11 +476,8 @@ export const CameraFormDialog = ({
                     }
                   />
                 </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1.5">
-                  <Label htmlFor="onvif-user" className="text-xs">Username</Label>
+                  <Label htmlFor="onvif-user">Username</Label>
                   <Input
                     id="onvif-user"
                     placeholder="admin"
@@ -507,10 +487,10 @@ export const CameraFormDialog = ({
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="onvif-pass" className="text-xs">
+                  <Label htmlFor="onvif-pass">
                     Password{" "}
                     {isEdit && (
-                      <span className="text-muted-foreground font-normal">(leave blank to keep)</span>
+                      <span className="text-muted-foreground font-normal">(keep blank)</span>
                     )}
                   </Label>
                   <Input
@@ -523,9 +503,10 @@ export const CameraFormDialog = ({
                   />
                 </div>
               </div>
-            </div>
+            </section>
+          </div>
 
-          <DialogFooter className="gap-2">
+          <DialogFooter className="shrink-0 gap-2 border-t border-[var(--console-border)] bg-black/95 px-5 py-3">
             {isEdit && onDelete && (
               <Button
                 type="button"
@@ -545,8 +526,6 @@ export const CameraFormDialog = ({
             <Button
               data-testid="save-camera-btn"
               type="submit"
-              className="text-white hover:opacity-90"
-              style={{ backgroundColor: 'var(--console-accent)' }}
               disabled={isPending}
             >
               {isPending ? "Saving..." : isEdit ? "Update" : "Add Camera"}

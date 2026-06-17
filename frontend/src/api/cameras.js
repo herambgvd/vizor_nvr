@@ -175,6 +175,31 @@ export const onvifBulkAdd = async (cameras) => {
   return response.data;
 };
 
+export const getOnvifEdgeRecordings = async (cameraId, params = {}) => {
+  const response = await apiClient.get(`/cameras/${cameraId}/onvif/recordings`, {
+    params,
+    timeout: 30000,
+  });
+  return response.data;
+};
+
+export const getOnvifReplayUri = async (cameraId, recordingToken) => {
+  const response = await apiClient.post(
+    `/cameras/${cameraId}/onvif/replay-uri`,
+    { recording_token: recordingToken },
+    { timeout: 15000 },
+  );
+  return response.data;
+};
+
+export const getOnvifMetadataStream = async (cameraId) => {
+  const response = await apiClient.get(
+    `/cameras/${cameraId}/onvif/metadata-stream`,
+    { timeout: 20000 },
+  );
+  return response.data;
+};
+
 // Returns a blob URL to a JPEG snapshot from the camera. Caller is
 // responsible for revokeObjectURL when the URL is no longer needed.
 //

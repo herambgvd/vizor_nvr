@@ -24,9 +24,9 @@ import * as sysApi from "../api/system";
 
 beforeEach(() => { client._calls.length = 0; });
 
-test("getLicenseStatus hits /system/license/status", async () => {
+test("getLicenseStatus hits /license", async () => {
   await sysApi.getLicenseStatus();
-  expect(client._calls[0]).toMatchObject({ method: "GET", url: "/system/license/status" });
+  expect(client._calls[0]).toMatchObject({ method: "GET", url: "/license" });
 });
 
 test("setNTPServer POSTs server name", async () => {

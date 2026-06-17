@@ -23,7 +23,6 @@ import {
   activateLicense,
   clearLicense,
 } from "../../api/license";
-import AIScenariosSection from "./AIScenariosSection";
 
 // ─── Shared primitives ────────────────────────────────────────────────────────
 
@@ -418,9 +417,6 @@ const LicensePage = () => {
           </div>
         )}
 
-
-        {/* AI Scenarios */}
-        <AIScenariosSection />
       </div>
 
       <ConfirmDialog

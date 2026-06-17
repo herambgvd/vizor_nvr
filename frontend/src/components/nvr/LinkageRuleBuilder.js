@@ -430,7 +430,7 @@ export const LinkageRuleBuilder = () => {
                   <span
                     className={`text-xs px-1.5 py-0.5 rounded ${
                       rule.enabled
-                        ? "bg-green-100 text-green-700"
+                        ? "bg-[hsl(var(--ring)/0.20)] text-[var(--console-accent)]"
                         : "bg-card/70 text-muted-foreground"
                     }`}
                   >

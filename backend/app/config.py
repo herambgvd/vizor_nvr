@@ -130,6 +130,9 @@ class Settings:
     PORT: int = int(os.getenv("PORT", "8000"))
     ENV: str = os.getenv("ENV", "development")
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
+    ENABLE_AI_MODULES: bool = (
+        os.getenv("ENABLE_AI_MODULES", "false").lower() == "true"
+    )
 
     # ── Cluster ─────────────────────────────────────────────────────────
     # NVR_NODE_ID: unique identifier for this node; defaults to hostname

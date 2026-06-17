@@ -28,10 +28,12 @@ import {
   TabsTrigger,
 } from "../components/ui/tabs";
 import { toast } from "sonner";
+import useBranding from "../hooks/useBranding";
 
 const Login = () => {
   const navigate = useNavigate();
   const { login, register } = useAuth();
+  const branding = useBranding();
 
   // Form states
   const [isLoading, setIsLoading] = useState(false);
@@ -146,14 +148,22 @@ const Login = () => {
       <div className="relative z-10 w-full max-w-md">
         {/* Brand */}
         <div className="flex flex-col items-center text-center mb-8">
-          <div
-            className="h-14 w-14 rounded-2xl flex items-center justify-center mb-4 shadow-[0_0_48px_rgba(20,184,166,0.5)]"
-            style={{ backgroundColor: "var(--console-accent)" }}
-          >
-            <Video className="h-7 w-7 text-white" />
-          </div>
+          {branding.logo_url ? (
+            <img
+              src={branding.logo_url}
+              alt={branding.system_name}
+              className="h-14 w-14 rounded-2xl object-contain mb-4 shadow-[0_0_48px_rgba(20,184,166,0.35)]"
+            />
+          ) : (
+            <div
+              className="h-14 w-14 rounded-2xl flex items-center justify-center mb-4 shadow-[0_0_48px_rgba(20,184,166,0.5)]"
+              style={{ backgroundColor: "var(--console-accent)" }}
+            >
+              <Video className="h-7 w-7 text-white" />
+            </div>
+          )}
           <h1 className="text-3xl font-semibold tracking-tight">
-            <span className="text-gradient-blue">Vizor</span>
+            <span className="text-gradient-blue">{branding.system_name}</span>
           </h1>
           <p
             className="font-telemetry text-[11px] uppercase tracking-[0.2em] mt-2"
@@ -358,7 +368,7 @@ const Login = () => {
                     Create administrator account
                   </CardTitle>
                   <CardDescription>
-                    Set up the primary admin account for Vizor
+                    Set up the primary admin account for {branding.system_name}
                   </CardDescription>
                 </CardHeader>
                 <form onSubmit={handleRegister}>
@@ -463,7 +473,7 @@ const Login = () => {
             className="h-3.5 w-3.5"
             style={{ color: "var(--console-accent)" }}
           />
-          Vizor NVR · Secure Access
+          {branding.system_name} · Secure Access
         </div>
       </div>
     </div>

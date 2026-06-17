@@ -1,7 +1,7 @@
 import React from "react";
 import { NavLink } from "react-router-dom";
 import {
-  LayoutGrid, Play, Camera, Bell, Bookmark, Settings, Cpu,
+  LayoutGrid, Play, Camera, Bell, Bookmark, Settings,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 
@@ -10,7 +10,6 @@ const ITEMS = [
   { to: "/playback", label: "Playback", icon: Play },
   { to: "/cameras", label: "Cameras", icon: Camera },
   { to: "/events", label: "Events", icon: Bell },
-  { to: "/ai", label: "AI", icon: Cpu },
   { to: "/bookmarks", label: "Bookmarks", icon: Bookmark },
   { to: "/settings", label: "Settings", icon: Settings },
 ];

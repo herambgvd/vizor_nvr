@@ -162,7 +162,7 @@ const CameraCell = React.forwardRef(function CameraCell(
               {camera.name}
             </span>
             {camera.status === "online" && (
-              <span className="w-1.5 h-1.5 rounded-full bg-green-400 flex-shrink-0" />
+              <span className="w-1.5 h-1.5 rounded-full bg-[var(--console-accent)] flex-shrink-0" />
             )}
             {totalSegments > 1 && (
               <span className="ml-auto text-white/50 text-[10px]">

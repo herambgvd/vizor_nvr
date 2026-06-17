@@ -16,12 +16,11 @@ from app.database import get_db
 from app.cameras.models import (
     CameraCreate, CameraUpdate, CameraResponse,
     CameraGroupCreate, CameraGroupUpdate, CameraGroupResponse,
-    StreamUrlsResponse, PTZMoveRequest, PTZPreset,
+    StreamUrlsResponse,
     ONVIFDiscoveryResult,
 )
 from app.cameras.service import CameraService
 from app.cameras.onvif_service import onvif_service
-from app.cameras.twoway_audio_service import twoway_audio_service
 from app.core.dependencies import get_current_user, require_permission, get_admin_user
 from app.core.crypto import decrypt_value
 from app.core.permissions import get_accessible_camera_ids
@@ -30,6 +29,10 @@ from app.core.audit_logger import write_audit, client_ip
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/cameras", tags=["Cameras"])
 svc = CameraService()
+
+
+class ONVIFReplayUriRequest(BaseModel):
+    recording_token: str
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -694,7 +697,7 @@ async def bulk_camera_action(
         {"succeeded": [<id>, ...], "failed": [{"id": ..., "error": ...}, ...]}
     """
     from sqlalchemy import select as sa_select
-    from app.cameras.models import Camera, camera_group_members
+    from app.cameras.models import Camera
 
     body = await request.json()
     action = body.get("action")
@@ -1125,7 +1128,7 @@ async def get_privacy_masks(
 async def update_privacy_masks(
     camera_id: str,
     request: Request,
-    user: dict = Depends(require_permission("manage_cameras")),
+    user: dict = Depends(require_permission("manage_camera")),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -1173,7 +1176,7 @@ async def get_motion_config(
 async def update_motion_config(
     camera_id: str,
     request: Request,
-    user: dict = Depends(require_permission("manage_cameras")),
+    user: dict = Depends(require_permission("manage_camera")),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -1298,6 +1301,101 @@ async def update_onvif_event_config(
     return {"camera_id": camera_id, "enabled": enabled, "topics": topics}
 
 
+@router.get("/{camera_id}/onvif/metadata-stream")
+async def get_onvif_metadata_stream(
+    camera_id: str,
+    user: dict = Depends(require_permission("view_live")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Discover Profile M/T metadata transport URI when exposed by camera."""
+    camera = await svc.get_by_id(db, camera_id)
+    if not camera:
+        raise HTTPException(404, "Camera not found")
+    if not camera.onvif_host:
+        raise HTTPException(400, "Camera has no ONVIF host configured")
+
+    username = decrypt_value(camera.onvif_username) if camera.onvif_username else "admin"
+    password = decrypt_value(camera.onvif_password) if camera.onvif_password else "admin"
+    result = await onvif_service.get_metadata_stream_uri(
+        camera.onvif_host,
+        camera.onvif_port or 80,
+        username,
+        password,
+    )
+    return {"camera_id": camera_id, **result}
+
+
+# ══════════════════════════════════════════════════════════════════════
+# ONVIF Profile G Edge Recording Access
+# ══════════════════════════════════════════════════════════════════════
+
+@router.get("/{camera_id}/onvif/recordings")
+async def list_onvif_edge_recordings(
+    camera_id: str,
+    start_time: Optional[datetime] = Query(None),
+    end_time: Optional[datetime] = Query(None),
+    user: dict = Depends(require_permission("view_playback")),
+    db: AsyncSession = Depends(get_db),
+):
+    """List camera-side Profile G recordings for edge storage/ANR workflows."""
+    camera = await svc.get_by_id(db, camera_id)
+    if not camera:
+        raise HTTPException(404, "Camera not found")
+    if not camera.onvif_host:
+        raise HTTPException(400, "Camera has no ONVIF host configured")
+
+    username = decrypt_value(camera.onvif_username) if camera.onvif_username else "admin"
+    password = decrypt_value(camera.onvif_password) if camera.onvif_password else "admin"
+    recordings = await onvif_service.search_recordings(
+        camera.onvif_host,
+        camera.onvif_port or 80,
+        username,
+        password,
+        start_time,
+        end_time,
+    )
+    return {
+        "camera_id": camera_id,
+        "supported": bool(recordings),
+        "recordings": [
+            {
+                **rec,
+                "start_time": rec.get("start_time").isoformat() if rec.get("start_time") else None,
+                "end_time": rec.get("end_time").isoformat() if rec.get("end_time") else None,
+            }
+            for rec in recordings
+        ],
+    }
+
+
+@router.post("/{camera_id}/onvif/replay-uri")
+async def get_onvif_replay_uri(
+    camera_id: str,
+    body: ONVIFReplayUriRequest,
+    user: dict = Depends(require_permission("view_playback")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Resolve a Profile G replay RTSP URI for a camera-side recording token."""
+    camera = await svc.get_by_id(db, camera_id)
+    if not camera:
+        raise HTTPException(404, "Camera not found")
+    if not camera.onvif_host:
+        raise HTTPException(400, "Camera has no ONVIF host configured")
+
+    username = decrypt_value(camera.onvif_username) if camera.onvif_username else "admin"
+    password = decrypt_value(camera.onvif_password) if camera.onvif_password else "admin"
+    uri = await onvif_service.get_replay_uri(
+        camera.onvif_host,
+        camera.onvif_port or 80,
+        username,
+        password,
+        body.recording_token,
+    )
+    if not uri:
+        raise HTTPException(404, "Replay URI not available for recording token")
+    return {"camera_id": camera_id, "recording_token": body.recording_token, "uri": uri}
+
+
 # ══════════════════════════════════════════════════════════════════════
 # Camera Snapshots
 # ══════════════════════════════════════════════════════════════════════
@@ -1344,7 +1442,7 @@ async def get_camera_thumbnail(
     """Serve latest snapshot JPEG. Falls back to a fresh ffmpeg snapshot
     if no prior snapshot is on disk. Persists the fresh capture so the
     Cameras table doesn't hit ffmpeg on every page render."""
-    from app.cameras.models import Camera, CameraSnapshot
+    from app.cameras.models import CameraSnapshot
     from fastapi.responses import FileResponse
     from sqlalchemy import select as sa_select, desc
     import os as _os
@@ -1491,7 +1589,7 @@ async def trigger_anr(
     camera_id: str,
     body: ANRTriggerRequest,
     background_tasks: BackgroundTasks,
-    user: dict = Depends(require_permission("manage_cameras")),
+    user: dict = Depends(require_permission("manage_camera")),
     db: AsyncSession = Depends(get_db),
 ):
     """Manually trigger ANR backfill for a camera.

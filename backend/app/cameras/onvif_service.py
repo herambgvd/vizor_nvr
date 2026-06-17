@@ -18,6 +18,83 @@ from typing import Optional, List, Dict, Any
 logger = logging.getLogger(__name__)
 
 
+def _as_list(value: Any) -> List[Any]:
+    """Normalize zeep response arrays, single objects, and None to a list."""
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    if isinstance(value, (str, bytes, dict)):
+        return [value]
+    try:
+        return list(value)
+    except TypeError:
+        return [value]
+
+
+def _get_attr(obj: Any, *names: str, default: Any = None) -> Any:
+    for name in names:
+        if isinstance(obj, dict) and name in obj:
+            return obj[name]
+        if hasattr(obj, name):
+            return getattr(obj, name)
+    return default
+
+
+def _optional_str(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    return str(value)
+
+
+def _audio_encoder_summary(config: Any) -> Dict[str, Any]:
+    return {
+        "token": _optional_str(_get_attr(config, "token", "Token")),
+        "name": _optional_str(_get_attr(config, "Name")),
+        "encoding": _optional_str(_get_attr(config, "Encoding")),
+        "bitrate": _get_attr(config, "Bitrate"),
+        "sample_rate": _get_attr(config, "SampleRate"),
+        "use_count": _get_attr(config, "UseCount"),
+    }
+
+
+def _metadata_config_summary(config: Any) -> Dict[str, Any]:
+    events = _get_attr(config, "Events")
+    analytics = _get_attr(config, "Analytics")
+    return {
+        "token": _optional_str(_get_attr(config, "token", "Token")),
+        "name": _optional_str(_get_attr(config, "Name")),
+        "use_count": _get_attr(config, "UseCount"),
+        "events_enabled": events is not None,
+        "analytics_enabled": analytics is not None,
+    }
+
+
+def _datetime_or_default(value: Any, default: Optional[datetime]) -> Optional[datetime]:
+    if value is None:
+        return default
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return default
+    return default
+
+
+def _with_rtsp_credentials(url: str, username: str, password: str) -> str:
+    if not username or "://" not in url:
+        return url
+    from urllib.parse import quote
+    proto, rest = url.split("://", 1)
+    safe_user = quote(username, safe="")
+    safe_pass = quote(password or "", safe="")
+    return f"{proto}://{safe_user}:{safe_pass}@{rest}"
+
+
 # ── Subnet scan fallback (multicast-free ONVIF discovery) ────────────────
 # Common ONVIF service ports across vendors. Order matters — try 80
 # first since 99% of cameras serve there.
@@ -49,13 +126,8 @@ def _autodetect_subnet() -> Optional[str]:
             s.connect(("8.8.8.8", 80))
             host_ip = s.getsockname()[0]
         net = ipaddress.ip_network(f"{host_ip}/24", strict=False)
-        ip_addr = ipaddress.ip_address(host_ip)
 
         # Refuse Docker bridge networks — won't find LAN cameras
-        docker_ranges = [
-            ipaddress.ip_network("172.16.0.0/12"),
-            ipaddress.ip_network("10.0.0.0/8"),  # often Docker overlay
-        ]
         # 192.168 / 10.x outside Docker = real LAN. 172.16-31 = Docker bridge.
         is_docker_bridge = ipaddress.ip_network("172.16.0.0/12").supernet_of(net)
         if is_docker_bridge:
@@ -557,7 +629,7 @@ class ONVIFService:
     async def get_stream_uris_media2(
         self, host: str, port: int = 80,
         username: str = "admin", password: str = "admin",
-    ) -> Optional[Dict[str, Optional[str]]]:
+    ) -> Optional[Dict[str, Any]]:
         """
         Try ONVIF Media2 (Profile T) for stream URIs.
         Returns None if Media2 is not supported.
@@ -569,7 +641,6 @@ class ONVIFService:
             try:
                 cam = ONVIFCamera(host, port, username, password)
                 # Check if Media2 service is available
-                caps = cam.devicemgmt.GetCapabilities()
                 media2_addr = None
                 try:
                     svcs = cam.devicemgmt.GetServices({"IncludeCapability": False})
@@ -589,7 +660,15 @@ class ONVIFService:
                 if not profiles:
                     return None
 
-                uris: Dict[str, Optional[str]] = {"main_stream_url": None, "sub_stream_url": None}
+                uris: Dict[str, Any] = {
+                    "main_stream_url": None,
+                    "sub_stream_url": None,
+                    "metadata_stream_url": None,
+                    "metadata_profile_token": None,
+                    "audio_encoder_configurations": [],
+                    "metadata_configurations": [],
+                    "metadata_supported": False,
+                }
                 for i, profile in enumerate(profiles[:2]):
                     try:
                         uri_resp = media2.GetStreamUri({
@@ -597,16 +676,17 @@ class ONVIFService:
                             "ProfileToken": profile.token,
                         })
                         url = str(uri_resp.Uri) if hasattr(uri_resp, "Uri") else str(uri_resp[0].Uri)
-                        if username and "://" in url:
-                            from urllib.parse import quote
-                            proto, rest = url.split("://", 1)
-                            safe_user = quote(username, safe="")
-                            safe_pass = quote(password, safe="")
-                            url = f"{proto}://{safe_user}:{safe_pass}@{rest}"
+                        url = _with_rtsp_credentials(url, username, password)
                         if i == 0:
                             uris["main_stream_url"] = url
                         else:
                             uris["sub_stream_url"] = url
+                        if (
+                            not uris["metadata_stream_url"]
+                            and getattr(profile, "MetadataConfiguration", None) is not None
+                        ):
+                            uris["metadata_stream_url"] = url
+                            uris["metadata_profile_token"] = str(profile.token)
                     except Exception:
                         pass
 
@@ -618,10 +698,101 @@ class ONVIFService:
                 except Exception:
                     pass
 
+                try:
+                    configs = media2.GetAudioEncoderConfigurations()
+                    uris["audio_encoder_configurations"] = [
+                        _audio_encoder_summary(c)
+                        for c in _as_list(configs)
+                    ]
+                except Exception as e:
+                    logger.debug(f"[{host}] Media2 audio encoder config query failed: {e}")
+
+                try:
+                    configs = media2.GetMetadataConfigurations()
+                    metadata_configs = [
+                        _metadata_config_summary(c)
+                        for c in _as_list(configs)
+                    ]
+                    uris["metadata_configurations"] = metadata_configs
+                    uris["metadata_supported"] = bool(metadata_configs) or bool(uris["metadata_stream_url"])
+                except Exception as e:
+                    logger.debug(f"[{host}] Media2 metadata config query failed: {e}")
+                    uris["metadata_supported"] = bool(uris["metadata_stream_url"])
+
                 return uris
             except Exception as e:
                 logger.debug(f"Media2 query failed for {host}: {e}")
                 return None
+
+        return await asyncio.to_thread(_get)
+
+    async def get_metadata_stream_uri(
+        self, host: str, port: int = 80,
+        username: str = "admin", password: str = "admin",
+    ) -> Dict[str, Any]:
+        """Discover a metadata-capable RTSP URI for Profile M/T metadata transport."""
+        if not _HAS_ONVIF:
+            return {"supported": False, "uri": None, "media_version": None, "reason": "python-onvif-zeep not installed"}
+
+        def _get():
+            try:
+                cam = ONVIFCamera(host, port, username, password)
+
+                try:
+                    media2 = cam.create_media2_service()
+                    profiles = _as_list(media2.GetProfiles({"Type": ["All"]}))
+                    for profile in profiles:
+                        if getattr(profile, "MetadataConfiguration", None) is None:
+                            continue
+                        uri_resp = media2.GetStreamUri({
+                            "StreamSetup": {"Stream": "RTP-Unicast", "Transport": {"Protocol": "RTSP"}},
+                            "ProfileToken": profile.token,
+                        })
+                        url = str(uri_resp.Uri) if hasattr(uri_resp, "Uri") else str(uri_resp[0].Uri)
+                        return {
+                            "supported": True,
+                            "uri": _with_rtsp_credentials(url, username, password),
+                            "media_version": 2,
+                            "profile_token": str(profile.token),
+                            "metadata_config_token": _optional_str(
+                                _get_attr(getattr(profile, "MetadataConfiguration", None), "token", "Token")
+                            ),
+                        }
+                except Exception as e:
+                    logger.debug(f"[{host}] Media2 metadata stream discovery failed: {e}")
+
+                try:
+                    media = cam.create_media_service()
+                    profiles = _as_list(media.GetProfiles())
+                    for profile in profiles:
+                        if getattr(profile, "MetadataConfiguration", None) is None:
+                            continue
+                        uri_resp = media.GetStreamUri({
+                            "StreamSetup": {"Stream": "RTP-Unicast", "Transport": {"Protocol": "RTSP"}},
+                            "ProfileToken": profile.token,
+                        })
+                        url = str(uri_resp.Uri)
+                        return {
+                            "supported": True,
+                            "uri": _with_rtsp_credentials(url, username, password),
+                            "media_version": 1,
+                            "profile_token": str(profile.token),
+                            "metadata_config_token": _optional_str(
+                                _get_attr(getattr(profile, "MetadataConfiguration", None), "token", "Token")
+                            ),
+                        }
+                except Exception as e:
+                    logger.debug(f"[{host}] Media1 metadata stream discovery failed: {e}")
+
+                return {
+                    "supported": False,
+                    "uri": None,
+                    "media_version": None,
+                    "reason": "No ONVIF media profile with MetadataConfiguration found",
+                }
+            except Exception as e:
+                logger.warning(f"[{host}] Metadata stream discovery failed: {e}")
+                return {"supported": False, "uri": None, "media_version": None, "reason": str(e)}
 
         return await asyncio.to_thread(_get)
 
@@ -1301,7 +1472,8 @@ class ONVIFService:
         if not _HAS_ONVIF:
             return {"started": False, "message": "python-onvif-zeep not installed"}
 
-        import tempfile, os as _os
+        import os as _os
+        import tempfile
 
         # Write firmware bytes to a temp file for SOAP attachment
         tmp_path = None
@@ -1398,12 +1570,6 @@ class ONVIFService:
         def _search():
             try:
                 cam = ONVIFCamera(host, port, username, password)
-                # Create recording service if available
-                try:
-                    recording = cam.create_recording_service()
-                except Exception:
-                    logger.debug(f"[{host}] Recording service not available")
-                    return []
 
                 # Build search scope — all sources
                 scope = {
@@ -1417,15 +1583,15 @@ class ONVIFService:
                     scope["StartTime"] = start_time.isoformat()
                     scope["EndTime"] = end_time.isoformat()
 
-                # Some cameras support GetRecordings directly (simpler)
+                # Recording service exposes static recording inventory.
                 try:
+                    recording = cam.create_recording_service()
                     recs = recording.GetRecordings()
                     if recs:
                         out = []
-                        for rec in recs:
+                        for rec in _as_list(recs):
                             info = getattr(rec, "RecordingToken", rec)
                             token = info if isinstance(info, str) else getattr(info, "RecordingToken", str(info))
-                            # Try to get source / time info
                             src = getattr(rec, "Source", None)
                             source_id = getattr(src, "SourceId", None) if src else None
                             out.append({
@@ -1435,18 +1601,23 @@ class ONVIFService:
                                 "end_time": end_time,
                             })
                         return out
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"[{host}] GetRecordings failed or unavailable: {e}")
 
-                # Fallback: FindRecordings (search API)
+                # Search service owns FindRecordings/GetRecordingSearchResults.
                 try:
-                    result = recording.FindRecordings({"Scope": scope})
+                    search = cam.create_search_service()
+                except Exception as e:
+                    logger.debug(f"[{host}] Search service not available: {e}")
+                    return []
+
+                try:
+                    result = search.FindRecordings({"Scope": scope})
                     search_token = getattr(result, "SearchToken", None)
                     if not search_token:
                         return []
 
-                    # Get results
-                    results = recording.GetRecordingSearchResults({
+                    results = search.GetRecordingSearchResults({
                         "SearchToken": search_token,
                         "MinResults": 1,
                         "MaxResults": 100,
@@ -1454,24 +1625,28 @@ class ONVIFService:
                     })
 
                     out = []
-                    for rec in getattr(results, "RecordingResult", []) or []:
+                    for rec in _as_list(getattr(results, "RecordingResult", [])):
                         token = getattr(rec, "RecordingToken", None)
                         if token:
-                            # Try to extract track time ranges
                             tracks = getattr(rec, "TrackList", []) or []
-                            for track in tracks:
+                            if hasattr(tracks, "Track"):
+                                tracks = tracks.Track
+                            for track in _as_list(tracks):
                                 tr = getattr(track, "Track", track)
-                                start = getattr(tr, "StartTime", start_time)
-                                end = getattr(tr, "EndTime", end_time)
-                                if isinstance(start, str):
-                                    start = datetime.fromisoformat(start.replace("Z", "+00:00"))
-                                if isinstance(end, str):
-                                    end = datetime.fromisoformat(end.replace("Z", "+00:00"))
+                                start = _datetime_or_default(getattr(tr, "StartTime", None), start_time)
+                                end = _datetime_or_default(getattr(tr, "EndTime", None), end_time)
                                 out.append({
                                     "recording_token": token,
                                     "track_token": getattr(tr, "TrackToken", None),
                                     "start_time": start,
                                     "end_time": end,
+                                })
+                            if not tracks:
+                                out.append({
+                                    "recording_token": token,
+                                    "track_token": None,
+                                    "start_time": start_time,
+                                    "end_time": end_time,
                                 })
                     return out
                 except Exception as e:

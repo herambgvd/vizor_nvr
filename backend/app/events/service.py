@@ -13,6 +13,8 @@ from app.events.models import Event, EventLinkageRule
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_HIDDEN_EVENT_TYPES = {"camera_online", "cluster_startup"}
+
 
 class EventService:
     """Service for creating, querying, and managing events."""
@@ -94,6 +96,8 @@ class EventService:
             conditions.append(Event.camera_id == camera_id)
         if event_type:
             conditions.append(Event.event_type == event_type)
+        else:
+            conditions.append(Event.event_type.notin_(DEFAULT_HIDDEN_EVENT_TYPES))
         if source_service:
             conditions.append(Event.source_service == source_service)
         if detection_type:
@@ -236,7 +240,10 @@ class EventService:
         db: AsyncSession,
         camera_id: Optional[str] = None,
     ) -> int:
-        query = select(func.count(Event.id)).where(Event.acknowledged == False)
+        query = select(func.count(Event.id)).where(
+            Event.acknowledged == False,
+            Event.event_type.notin_(DEFAULT_HIDDEN_EVENT_TYPES),
+        )
         if camera_id:
             query = query.where(Event.camera_id == camera_id)
         result = await db.execute(query)
@@ -248,6 +255,7 @@ class EventService:
         # By type
         type_result = await db.execute(
             select(Event.event_type, func.count(Event.id))
+            .where(Event.event_type.notin_(DEFAULT_HIDDEN_EVENT_TYPES))
             .group_by(Event.event_type)
         )
         by_type = {row[0]: row[1] for row in type_result.fetchall()}
@@ -255,6 +263,7 @@ class EventService:
         # By severity
         sev_result = await db.execute(
             select(Event.severity, func.count(Event.id))
+            .where(Event.event_type.notin_(DEFAULT_HIDDEN_EVENT_TYPES))
             .group_by(Event.severity)
         )
         by_severity = {row[0]: row[1] for row in sev_result.fetchall()}

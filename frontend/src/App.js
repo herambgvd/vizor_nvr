@@ -8,6 +8,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ThemeProvider } from "./context/ThemeContext";
 import useLicense from "./hooks/useLicense";
+import useBranding from "./hooks/useBranding";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { Toaster } from "./components/ui/sonner";
 import ControlRoomLayout from "./components/shell/ControlRoomLayout";
@@ -57,8 +58,6 @@ const Notifications = lazy(() => import("./pages/Notifications"));
 const Users = lazy(() => import("./pages/Users"));
 const Bookmarks = lazy(() => import("./pages/Bookmarks"));
 const PlaybackConsole = lazy(() => import("./pages/PlaybackConsole"));
-const AIHome = lazy(() => import("./pages/ai/AIHome"));
-const ScenarioWorkspace = lazy(() => import("./pages/ai/ScenarioWorkspace"));
 const LicenseRequired = lazy(() => import("./pages/LicenseRequired"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
@@ -176,9 +175,6 @@ const AppRoutes = () => (
             single-cam Playback retired. /playback/multi kept as alias. */}
         <Route path="playback" element={<PlaybackConsole />} />
         <Route path="events" element={<Events />} />
-        <Route path="ai" element={<AIHome />} />
-        <Route path="ai/:slug" element={<ScenarioWorkspace />} />
-        <Route path="ai/:slug/:tab" element={<ScenarioWorkspace />} />
         <Route path="settings" element={<SettingsLayout />}>
           <Route index element={<Navigate to="configuration" replace />} />
           <Route path="configuration" element={<SettingsConfiguration />} />
@@ -209,6 +205,7 @@ const AppRoutes = () => (
         <Route path="monitoring/storage" element={<Navigate to="/settings/storage" replace />} />
         <Route path="monitoring/audit" element={<Navigate to="/settings/audit" replace />} />
         <Route path="audit" element={<Navigate to="/settings/audit" replace />} />
+        <Route path="ai/*" element={<Navigate to="/" replace />} />
       </Route>
 
       <Route path="*" element={<NotFound />} />
@@ -216,12 +213,18 @@ const AppRoutes = () => (
   </Suspense>
 );
 
+const BrandingBootstrap = () => {
+  useBranding();
+  return null;
+};
+
 // ---------- root ----------
 
 function App() {
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
+        <BrandingBootstrap />
         <ThemeProvider>
           <AuthProvider>
             <BrowserRouter>

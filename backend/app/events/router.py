@@ -47,7 +47,7 @@ async def list_events(
     detection_type: Optional[str] = Query(None),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
-    user: dict = Depends(require_permission("view_cameras")),
+    user: dict = Depends(require_permission("view_live")),
     db: AsyncSession = Depends(get_db),
 ):
     """List events with filters."""
@@ -74,7 +74,7 @@ async def list_events(
 
 @router.get("/stats")
 async def event_stats(
-    user: dict = Depends(require_permission("view_cameras")),
+    user: dict = Depends(require_permission("view_live")),
     db: AsyncSession = Depends(get_db),
 ):
     """Get event statistics."""
@@ -84,7 +84,7 @@ async def event_stats(
 @router.get("/unacknowledged-count")
 async def unacknowledged_count(
     camera_id: Optional[str] = Query(None),
-    user: dict = Depends(require_permission("view_cameras")),
+    user: dict = Depends(require_permission("view_live")),
     db: AsyncSession = Depends(get_db),
 ):
     """Get count of unacknowledged events."""
@@ -99,7 +99,7 @@ async def export_events_csv(
     severity: Optional[str] = Query(None),
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
-    user: dict = Depends(require_permission("view_cameras")),
+    user: dict = Depends(require_permission("view_live")),
     db: AsyncSession = Depends(get_db),
 ):
     """Export events as CSV."""
@@ -138,7 +138,7 @@ async def export_events_csv(
 @router.get("/{event_id}", response_model=EventResponse)
 async def get_event(
     event_id: str,
-    user: dict = Depends(require_permission("view_cameras")),
+    user: dict = Depends(require_permission("view_live")),
     db: AsyncSession = Depends(get_db),
 ):
     """Get a single event."""
@@ -152,7 +152,7 @@ async def get_event(
 async def acknowledge_event(
     event_id: str,
     body: EventAcknowledge,
-    user: dict = Depends(require_permission("view_cameras")),
+    user: dict = Depends(require_permission("view_live")),
     db: AsyncSession = Depends(get_db),
 ):
     """Acknowledge an event."""
@@ -166,7 +166,7 @@ async def acknowledge_event(
 async def acknowledge_all_events(
     camera_id: Optional[str] = Query(None),
     event_type: Optional[str] = Query(None),
-    user: dict = Depends(require_permission("view_cameras")),
+    user: dict = Depends(require_permission("view_live")),
     db: AsyncSession = Depends(get_db),
 ):
     """Acknowledge all matching unacknowledged events."""
@@ -212,7 +212,7 @@ async def delete_event(
 async def mark_false_alarm(
     event_id: str,
     body: EventMarkFalseAlarm,
-    user: dict = Depends(require_permission("view_cameras")),
+    user: dict = Depends(require_permission("view_live")),
     db: AsyncSession = Depends(get_db),
 ):
     """Mark an event as a false alarm."""

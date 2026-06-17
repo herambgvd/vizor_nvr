@@ -200,10 +200,9 @@ class CameraMonitor:
                         if prev_status in ("offline", "error"):
                             camera.status = "online"
                             camera.retry_count = 0
-                            # Suppress duplicate recovery alerts when a camera
-                            # flaps within the cooldown window. State always
-                            # transitions, but we only notify/fire once per
-                            # window so flapping doesn't spam the event log.
+                            # Camera recovery is normal state telemetry, not an
+                            # operator event. Keep status/ANR/notifications, but
+                            # do not write camera_online rows into Event Log.
                             now_mono = time.monotonic()
                             last_fired = self._online_event_fired_at.get(camera.id, 0.0)
                             recovered_recently = (now_mono - last_fired) < ONLINE_EVENT_COOLDOWN_SEC
@@ -226,14 +225,6 @@ class CameraMonitor:
                                     NotificationEvent.CAMERA_ONLINE,
                                     {"camera_id": camera.id, "camera_name": camera.name},
                                     camera_id=camera.id,
-                                )
-                                from app.events.linkage_service import linkage_engine
-                                await linkage_engine.fire_event(
-                                    camera_id=camera.id,
-                                    event_type="camera_online",
-                                    severity="info",
-                                    title=f"Camera online — {camera.name}",
-                                    description=f"Recovered from {prev_status}",
                                 )
                         elif camera.status != "online":
                             camera.status = "online"

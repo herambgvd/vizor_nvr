@@ -273,7 +273,8 @@ class ClusterService:
         Severity rules:
           - "critical" only when a previously-healthy peer leader went stale
             (genuine failover the operator should be paged for).
-          - "info" on cold start / single-node install / no recent peer.
+          - Cold start / single-node install / no recent peer is normal
+            lifecycle telemetry and stays in logs/cluster state, not Event Log.
           - Cooldown: don't re-fire the same event within
             CLUSTER_EVENT_COOLDOWN_SECS so a backend restart loop can't
             spam the alarms panel.
@@ -336,7 +337,15 @@ class ClusterService:
         except Exception as exc:
             logger.error(f"[cluster] Failed to start camera monitor after promotion: {exc}")
 
-        # Cooldown: skip emit if we fired the same event recently. The in-memory
+        if not is_real_failover:
+            logger.info(
+                "[cluster] Node %s claimed leadership on cold start "
+                "(no recent peer heartbeat); Event Log emit skipped",
+                self._node_id,
+            )
+            return
+
+        # Cooldown: skip emit if we fired the same failover recently. The in-memory
         # timestamp alone resets on every process restart, so a crash/restart
         # loop would still spam the alarms panel. Back it with a DB lookup
         # against the events table so the cooldown survives restarts.
@@ -351,7 +360,7 @@ class ClusterService:
             recent = (await db.execute(
                 text(
                     "SELECT COUNT(*) FROM events "
-                    "WHERE event_type IN ('cluster_startup', 'cluster_failover') "
+                    "WHERE event_type = 'cluster_failover' "
                     "AND created_at > (NOW() - make_interval(secs => :secs))"
                 ),
                 {"secs": cooldown_secs},
@@ -366,28 +375,16 @@ class ClusterService:
 
         try:
             from app.events.linkage_service import linkage_engine
-            if is_real_failover:
-                await linkage_engine.fire_event(
-                    camera_id=None,
-                    event_type="cluster_failover",
-                    severity="critical",
-                    title="NVR failover — node promoted to active",
-                    description=(
-                        f"Node {self._node_id} took over from a previously-"
-                        f"healthy peer that stopped sending heartbeats."
-                    ),
-                )
-            else:
-                await linkage_engine.fire_event(
-                    camera_id=None,
-                    event_type="cluster_startup",
-                    severity="info",
-                    title="NVR started as active leader",
-                    description=(
-                        f"Node {self._node_id} claimed leadership on cold start "
-                        f"(no recent peer heartbeat)."
-                    ),
-                )
+            await linkage_engine.fire_event(
+                camera_id=None,
+                event_type="cluster_failover",
+                severity="critical",
+                title="NVR failover — node promoted to active",
+                description=(
+                    f"Node {self._node_id} took over from a previously-"
+                    f"healthy peer that stopped sending heartbeats."
+                ),
+            )
         except Exception:
             pass
 
@@ -464,6 +461,17 @@ class ClusterService:
                 )
                 rows = result.scalars().all()
                 if rows:
+                    now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+                    stale_after_sec = max(self._lease_ttl * 4, self._interval * 4, 60)
+
+                    def is_recent_or_current(node) -> bool:
+                        if node.node_id == self._node_id:
+                            return True
+                        if not node.last_heartbeat_at:
+                            return False
+                        age_sec = (now_naive - node.last_heartbeat_at).total_seconds()
+                        return age_sec <= stale_after_sec
+
                     return [
                         {
                             "node_id": n.node_id,
@@ -482,6 +490,7 @@ class ClusterService:
                             ),
                         }
                         for n in rows
+                        if is_recent_or_current(n)
                     ]
         except Exception as exc:
             logger.debug(f"[cluster] get_nodes DB query failed: {exc}")

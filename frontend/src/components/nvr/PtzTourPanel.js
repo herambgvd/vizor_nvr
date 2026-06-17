@@ -163,7 +163,7 @@ const PtzTourPanel = ({ cameraId, ptzCapable }) => {
 
       <CardContent className="space-y-4">
         {isRunning && (
-          <p className="text-xs text-green-500 font-medium">Tour is running</p>
+          <p className="text-xs text-[var(--console-accent)] font-medium">Tour is running</p>
         )}
 
         {/* Ordered preset list */}

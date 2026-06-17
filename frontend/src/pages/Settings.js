@@ -11,6 +11,8 @@ import {
   Video,
   Database,
   Shield,
+  Image as ImageIcon,
+  Palette,
 } from "lucide-react";
 import {
   getRetentionConfig,
@@ -34,6 +36,49 @@ const inputStyle = {
   border: "1px solid var(--console-border)",
   color: "var(--console-text)",
 };
+
+const DEFAULT_BACKGROUND_COLOR = "#000000";
+const DEFAULT_BUTTON_COLOR = "#228B22";
+const HEX_COLOR = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
+
+const normalizeHexColor = (value, fallback) => {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!HEX_COLOR.test(raw)) return fallback;
+  if (raw.length === 4) {
+    const [, r, g, b] = raw;
+    return `#${r}${r}${g}${g}${b}${b}`.toUpperCase();
+  }
+  return raw.toUpperCase();
+};
+
+const readableTextForHex = (value) => {
+  const hex = normalizeHexColor(value, DEFAULT_BUTTON_COLOR).replace("#", "");
+  const r = parseInt(hex.slice(0, 2), 16);
+  const g = parseInt(hex.slice(2, 4), 16);
+  const b = parseInt(hex.slice(4, 6), 16);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.58 ? "#06120A" : "#FFFFFF";
+};
+
+const readImageAsDataUrl = (file) =>
+  new Promise((resolve, reject) => {
+    if (!file) {
+      resolve("");
+      return;
+    }
+    if (!file.type.startsWith("image/")) {
+      reject(new Error("Please select an image file"));
+      return;
+    }
+    if (file.size > 512 * 1024) {
+      reject(new Error("Image must be 512 KB or smaller"));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("Could not read image"));
+    reader.readAsDataURL(file);
+  });
 
 const TABS = [
   { id: "retention", label: "Retention", icon: Clock },
@@ -364,16 +409,49 @@ const GeneralTab = ({ queryClient }) => {
     mutationFn: (data) => updateSettings(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["settings"] });
+      queryClient.invalidateQueries({ queryKey: ["public-branding"] });
       toast.success("Settings saved");
     },
     onError: (e) => toast.error(e.response?.data?.detail || "Failed"),
   });
 
   const set = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
+  const setImage = async (key, file) => {
+    try {
+      set(key, await readImageAsDataUrl(file));
+    } catch (e) {
+      toast.error(e.message || "Invalid image");
+    }
+  };
+  const saveGeneralSettings = () => {
+    mutation.mutate({
+      settings: {
+        ...form,
+        theme_background_color: normalizeHexColor(
+          form.theme_background_color,
+          DEFAULT_BACKGROUND_COLOR,
+        ),
+        theme_button_color: normalizeHexColor(
+          form.theme_button_color,
+          DEFAULT_BUTTON_COLOR,
+        ),
+      },
+    });
+  };
+
+  const previewBackground = normalizeHexColor(
+    form.theme_background_color,
+    DEFAULT_BACKGROUND_COLOR,
+  );
+  const previewButton = normalizeHexColor(
+    form.theme_button_color,
+    DEFAULT_BUTTON_COLOR,
+  );
+  const previewButtonText = readableTextForHex(previewButton);
 
   return (
     <ConsoleCard icon={SettingsIcon} title="General Settings" description="Application-wide identity and locale preferences.">
-      <div className="space-y-4">
+      <div className="space-y-5">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <FieldGroup label="System Name">
             <ConsoleInput
@@ -390,9 +468,94 @@ const GeneralTab = ({ queryClient }) => {
             />
           </FieldGroup>
         </div>
+
+        <div
+          className="border-t pt-4 space-y-3"
+          style={{ borderColor: "var(--console-border)" }}
+        >
+          <p
+            className="font-telemetry text-[11px] uppercase tracking-wide"
+            style={{ color: "var(--console-muted)" }}
+          >
+            Theme Appearance
+          </p>
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_220px] gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <ColorPicker
+                label="Background Color"
+                help="Main platform background"
+                value={form.theme_background_color ?? DEFAULT_BACKGROUND_COLOR}
+                fallback={DEFAULT_BACKGROUND_COLOR}
+                onChange={(value) => set("theme_background_color", value)}
+              />
+              <ColorPicker
+                label="Button Color"
+                help="Save, update, add-new and primary accents"
+                value={form.theme_button_color ?? DEFAULT_BUTTON_COLOR}
+                fallback={DEFAULT_BUTTON_COLOR}
+                onChange={(value) => set("theme_button_color", value)}
+              />
+            </div>
+            <div
+              className="rounded p-3"
+              style={{
+                background: previewBackground,
+                border: "1px solid var(--console-border)",
+              }}
+            >
+              <div
+                className="rounded p-3"
+                style={{
+                  background: "rgba(0,0,0,0.45)",
+                  border: "1px solid rgba(255,255,255,0.12)",
+                }}
+              >
+                <p className="font-telemetry text-[10px] uppercase tracking-wide text-white/70">
+                  Preview
+                </p>
+                <p className="mt-1 text-sm font-semibold text-white">Camera Console</p>
+                <button
+                  type="button"
+                  className="mt-3 h-[28px] rounded px-3 font-telemetry text-[11px] font-semibold uppercase tracking-wide"
+                  style={{ background: previewButton, color: previewButtonText }}
+                >
+                  Add Camera
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div
+          className="border-t pt-4 space-y-3"
+          style={{ borderColor: "var(--console-border)" }}
+        >
+          <p
+            className="font-telemetry text-[11px] uppercase tracking-wide"
+            style={{ color: "var(--console-muted)" }}
+          >
+            Whitelabel Assets
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <AssetPicker
+              label="Logo"
+              help="Shown in the app header and login screen"
+              value={form.brand_logo_url ?? ""}
+              onFile={(file) => setImage("brand_logo_url", file)}
+              onClear={() => set("brand_logo_url", "")}
+            />
+            <AssetPicker
+              label="Favicon"
+              help="Shown in browser tabs"
+              value={form.brand_favicon_url ?? ""}
+              onFile={(file) => setImage("brand_favicon_url", file)}
+              onClear={() => set("brand_favicon_url", "")}
+            />
+          </div>
+        </div>
         <div>
           <PrimaryButton
-            onClick={() => mutation.mutate({ settings: form })}
+            onClick={saveGeneralSettings}
             disabled={mutation.isPending}
           >
             <Save className="h-3.5 w-3.5 mr-1.5" />
@@ -403,6 +566,112 @@ const GeneralTab = ({ queryClient }) => {
     </ConsoleCard>
   );
 };
+
+const ColorPicker = ({ label, help, value, fallback, onChange }) => {
+  const safeValue = normalizeHexColor(value, fallback);
+  return (
+    <div
+      className="rounded p-3"
+      style={{ background: "var(--console-raised)", border: "1px solid var(--console-border)" }}
+    >
+      <div className="flex items-start gap-3">
+        <div
+          className="h-12 w-12 rounded flex items-center justify-center overflow-hidden"
+          style={{ background: "var(--console-panel)", border: "1px solid var(--console-border)" }}
+        >
+          <input
+            type="color"
+            aria-label={label}
+            value={safeValue}
+            onChange={(e) => onChange(e.target.value.toUpperCase())}
+            className="h-14 w-14 cursor-pointer border-0 bg-transparent p-0"
+          />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="font-telemetry text-[11px] uppercase tracking-wide" style={{ color: "var(--console-text)" }}>
+            {label}
+          </p>
+          <p className="font-telemetry text-[10px]" style={{ color: "var(--console-muted)" }}>
+            {help}
+          </p>
+          <div className="mt-2 flex gap-2">
+            <ConsoleInput
+              value={value ?? fallback}
+              onChange={(e) => onChange(e.target.value)}
+              onBlur={(e) => onChange(normalizeHexColor(e.target.value, fallback))}
+              placeholder={fallback}
+              className="uppercase"
+            />
+            <button
+              type="button"
+              onClick={() => onChange(fallback)}
+              className="h-[30px] px-3 rounded border font-telemetry text-[11px] hover:bg-white/5"
+              style={{
+                background: "var(--console-panel)",
+                borderColor: "var(--console-border)",
+                color: "var(--console-muted)",
+              }}
+            >
+              Reset
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const AssetPicker = ({ label, help, value, onFile, onClear }) => (
+  <div
+    className="rounded p-3"
+    style={{ background: "var(--console-raised)", border: "1px solid var(--console-border)" }}
+  >
+    <div className="flex items-center gap-3">
+      <div
+        className="h-12 w-12 rounded flex items-center justify-center overflow-hidden"
+        style={{ background: "var(--console-panel)", border: "1px solid var(--console-border)" }}
+      >
+        {value ? (
+          <img src={value} alt={label} className="h-full w-full object-contain" />
+        ) : (
+          <ImageIcon className="h-5 w-5" style={{ color: "var(--console-muted)" }} />
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="font-telemetry text-[11px] uppercase tracking-wide" style={{ color: "var(--console-text)" }}>
+          {label}
+        </p>
+        <p className="font-telemetry text-[10px]" style={{ color: "var(--console-muted)" }}>
+          {help}
+        </p>
+      </div>
+    </div>
+    <div className="mt-3 flex flex-wrap gap-2">
+      <label
+        className="inline-flex items-center h-[28px] px-3 rounded font-telemetry text-[11px] border cursor-pointer hover:bg-white/5"
+        style={{ background: "var(--console-panel)", borderColor: "var(--console-border)", color: "var(--console-text)" }}
+      >
+        Choose Image
+        <input
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => onFile(e.target.files?.[0])}
+        />
+      </label>
+      {value && (
+        <button
+          type="button"
+          onClick={onClear}
+          className="inline-flex items-center h-[28px] px-3 rounded font-telemetry text-[11px] border hover:bg-white/5"
+          style={{ background: "var(--console-panel)", borderColor: "var(--console-border)", color: "var(--console-muted)" }}
+        >
+          Clear
+        </button>
+      )}
+    </div>
+  </div>
+);
 
 // ---------- Security ----------
 
@@ -631,15 +900,16 @@ const FieldGroup = ({ label, help, children }) => (
   </div>
 );
 
-const ConsoleInput = (props) => (
+const ConsoleInput = ({ className = "", style, ...props }) => (
   <input
     {...props}
-    className="w-full rounded font-telemetry text-xs h-[30px] px-2 border outline-none focus:ring-1"
+    className={`w-full rounded font-telemetry text-xs h-[30px] px-2 border outline-none focus:ring-1 ${className}`}
     style={{
       background: "var(--console-raised)",
       border: "1px solid var(--console-border)",
       color: "var(--console-text)",
       "--tw-ring-color": "var(--console-accent)",
+      ...style,
     }}
   />
 );
@@ -650,7 +920,7 @@ const PrimaryButton = ({ children, disabled, onClick, type = "button" }) => (
     onClick={onClick}
     disabled={disabled}
     className="inline-flex items-center h-[30px] px-4 rounded font-telemetry text-xs font-semibold uppercase tracking-wide transition-opacity disabled:opacity-50"
-    style={{ background: "var(--console-accent)", color: "#06231f" }}
+    style={{ background: "var(--console-accent)", color: "var(--console-accent-foreground)" }}
   >
     {children}
   </button>

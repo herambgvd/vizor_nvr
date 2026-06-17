@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.responses import JSONResponse, HTMLResponse, Response
 
 from app import __version__
 from app.config import settings
@@ -86,17 +86,17 @@ async def lifespan(application: FastAPI):
     except Exception as _e:
         logger.warning(f"License load failed: {_e}")
 
-    # AI scenarios: seed the catalog (FRS, PPE) then project the signed
-    # license onto each scenario's licensed/camera_limit. Must run after the
-    # license is loaded so unlicensed scenarios start disabled.
-    try:
-        from app.ai.core.seed import seed_scenarios
-        from app.ai.core.service import ai_service
-        async with async_session_maker() as db:
-            await seed_scenarios(db)
-            await ai_service.sync_licensing(db)
-    except Exception as _e:
-        logger.warning(f"AI scenario seed/sync failed: {_e}")
+    # AI scenarios are future add-ons. Keep them opt-in so the current product
+    # ships as a focused NVR; enable later with ENABLE_AI_MODULES=true.
+    if settings.ENABLE_AI_MODULES:
+        try:
+            from app.ai.core.seed import seed_scenarios
+            from app.ai.core.service import ai_service
+            async with async_session_maker() as db:
+                await seed_scenarios(db)
+                await ai_service.sync_licensing(db)
+        except Exception as _e:
+            logger.warning(f"AI scenario seed/sync failed: {_e}")
 
     # TLS: emit a self-signed cert on first boot so HTTPS is usable out of
     # the box. Operator can replace it via POST /api/settings/tls/upload.
@@ -376,22 +376,21 @@ app.add_middleware(InFlightRequestsMiddleware)
 
 
 # ── Prometheus metrics (Phase 8) ─────────────────────────────────────
-# Exposes /metrics for scraping. Default instrumentator captures HTTP
-# request count, latency histogram, in-flight count. Custom NVR-specific
-# metrics (ffmpeg processes, active cameras, event ingest rate) are
-# defined alongside the producing service.
+# Exposes /metrics for scraping. Domain metrics are defined alongside the
+# producing service. Avoid prometheus-fastapi-instrumentator middleware here:
+# with nested FastAPI routers it can see an internal _IncludedRouter object and
+# fail normal API requests while resolving route names.
 try:
-    from prometheus_fastapi_instrumentator import Instrumentator
+    from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
-    Instrumentator(
-        should_group_status_codes=True,
-        should_ignore_untemplated=True,
-        excluded_handlers=["/api/health", "/metrics"],
-    ).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
+    @app.get("/metrics", include_in_schema=False)
+    async def metrics():
+        return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
     logger.info("Prometheus /metrics endpoint enabled")
 except ImportError:
     logger.warning(
-        "prometheus_fastapi_instrumentator not installed; /metrics disabled"
+        "prometheus_client not installed; /metrics disabled"
     )
 
 
@@ -431,14 +430,6 @@ from app.license.router import router as license_router
 from app.cameras.schedule_templates_router import router as schedule_templates_router
 from app.snapshots.router import router as snapshots_router
 from app.spot_output.router import router as spot_output_router
-from app.ai.core.router import router as ai_router
-from app.ai.core.camera_config_router import router as ai_camera_config_router
-from app.ai.frs.query_router import router as ai_frs_query_router
-from app.ai.frs.router import router as ai_frs_router
-from app.ai.frs.recognize_router import router as ai_frs_recognize_router
-from app.ai.frs.investigate_router import router as ai_frs_investigate_router
-from app.ai.frs.transit_router import router as ai_frs_transit_router
-from app.ai.ppe.router import router as ai_ppe_router
 
 app.include_router(auth_router, prefix="/api")
 app.include_router(snapshots_router, prefix="/api")
@@ -463,14 +454,24 @@ app.include_router(api_keys_router)
 app.include_router(events_ingest_router)
 app.include_router(events_sse_router)
 app.include_router(license_router)
-app.include_router(ai_router)
-app.include_router(ai_camera_config_router)
-app.include_router(ai_frs_query_router)
-app.include_router(ai_frs_router)
-app.include_router(ai_frs_recognize_router)
-app.include_router(ai_frs_investigate_router)
-app.include_router(ai_frs_transit_router)
-app.include_router(ai_ppe_router)
+if settings.ENABLE_AI_MODULES:
+    from app.ai.core.router import router as ai_router
+    from app.ai.core.camera_config_router import router as ai_camera_config_router
+    from app.ai.frs.query_router import router as ai_frs_query_router
+    from app.ai.frs.router import router as ai_frs_router
+    from app.ai.frs.recognize_router import router as ai_frs_recognize_router
+    from app.ai.frs.investigate_router import router as ai_frs_investigate_router
+    from app.ai.frs.transit_router import router as ai_frs_transit_router
+    from app.ai.ppe.router import router as ai_ppe_router
+
+    app.include_router(ai_router)
+    app.include_router(ai_camera_config_router)
+    app.include_router(ai_frs_query_router)
+    app.include_router(ai_frs_router)
+    app.include_router(ai_frs_recognize_router)
+    app.include_router(ai_frs_investigate_router)
+    app.include_router(ai_frs_transit_router)
+    app.include_router(ai_ppe_router)
 app.include_router(schedule_templates_router, prefix="/api")
 app.include_router(spot_output_router, prefix="/api")
 

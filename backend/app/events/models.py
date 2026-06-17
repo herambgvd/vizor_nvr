@@ -38,6 +38,7 @@ class EventType(str, Enum):
     ZONE_INTRUSION = "zone_intrusion"                # tns1:RuleEngine/FieldDetector/ObjectInside
     AUDIO_ALARM = "audio_alarm"                      # tns1:AudioAnalytics/Audio/DetectedSound
     FACE_DETECTED = "face_detected"                  # tns1:VideoAnalytics/FaceDetection
+    ONVIF_METADATA = "onvif_metadata"                # Generic camera-generated Profile M metadata
 
 
 class EventSeverity(str, Enum):

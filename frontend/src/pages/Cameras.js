@@ -1346,9 +1346,9 @@ const Cameras = () => {
                                       }
                                     : camera.status === "online"
                                       ? {
-                                          background: "rgba(34,197,94,0.1)",
+                                          background: "hsl(var(--ring) / 0.1)",
                                           color: "var(--console-online)",
-                                          borderColor: "rgba(34,197,94,0.2)",
+                                          borderColor: "hsl(var(--ring) / 0.2)",
                                         }
                                       : {
                                           background: "var(--console-raised)",

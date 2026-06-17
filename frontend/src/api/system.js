@@ -9,12 +9,12 @@ import client from "./client";
 // ── System info ────────────────────────────────────────────────────────────
 export const getSystemInfo = () => client.get("/system/info").then(r => r.data);
 
-// ── License (Phase 7.1 / 7.2) ──────────────────────────────────────────────
-export const getLicenseStatus = () => client.get("/system/license/status").then(r => r.data);
+// ── License (canonical .lic API) ───────────────────────────────────────────
+export const getLicenseStatus = () => client.get("/license").then(r => r.data);
 export const uploadLicense = (file) => {
   const fd = new FormData();
   fd.append("file", file);
-  return client.post("/system/license/upload", fd, {
+  return client.post("/license/activate", fd, {
     headers: { "Content-Type": "multipart/form-data" },
   }).then(r => r.data);
 };

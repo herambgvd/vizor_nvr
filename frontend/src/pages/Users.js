@@ -82,7 +82,7 @@ const SecondaryBtn = ({ children, disabled, onClick, type = "button", className 
     onClick={onClick}
     disabled={disabled}
     className={`inline-flex items-center h-[28px] px-3 rounded font-telemetry text-[11px] border transition-colors hover:bg-white/5 disabled:opacity-50 ${className}`}
-    style={{ background: "var(--console-raised)", borderColor: "var(--console-border)", color: "var(--console-muted)" }}
+    style={{ background: "var(--console-rec)", borderColor: "var(--console-rec)", color: "#fff" }}
   >
     {children}
   </button>
@@ -165,9 +165,9 @@ const StatusBadge = ({ active }) => (
   <span
     className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded font-telemetry text-[11px] font-medium border"
     style={{
-      background: active ? "rgba(34,197,94,0.12)" : "var(--console-raised)",
+      background: active ? "hsl(var(--ring) / 0.12)" : "var(--console-raised)",
       color: active ? "var(--console-online)" : "var(--console-muted)",
-      borderColor: active ? "rgba(34,197,94,0.3)" : "var(--console-border)",
+      borderColor: active ? "hsl(var(--ring) / 0.3)" : "var(--console-border)",
     }}
   >
     <span
@@ -252,10 +252,12 @@ const Users = () => {
   const activeCount = users.filter((u) => u.is_active !== false).length;
 
   return (
-    <div className="p-4 space-y-4">
-      {/* Header bar */}
+    <div
+      className="h-full flex flex-col overflow-hidden"
+      style={{ background: "var(--console-bg)", color: "var(--console-text)" }}
+    >
       <div
-        className="flex items-center gap-3 px-4 py-2.5 rounded border"
+        className="flex items-center gap-3 px-4 py-2.5 border-b flex-shrink-0"
         style={{ background: "var(--console-panel)", borderColor: "var(--console-border)" }}
       >
         <span className="w-0.5 h-4 rounded-full flex-shrink-0" style={{ background: "var(--console-accent)" }} />
@@ -274,17 +276,16 @@ const Users = () => {
         </PrimaryBtn>
       </div>
 
-      {/* Stat pills */}
-      <div className="flex flex-wrap items-center gap-2">
-        <StatPill label="Total" value={total} />
-        <StatPill label="Admins" value={adminCount} />
-        <StatPill label="Active" value={activeCount} />
-      </div>
+      <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 space-y-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <StatPill label="Total" value={total} />
+          <StatPill label="Admins" value={adminCount} />
+          <StatPill label="Active" value={activeCount} />
+        </div>
 
-      {/* Table */}
-      <div className="rounded border overflow-hidden" style={{ borderColor: "var(--console-border)" }}>
-        <div className="overflow-x-auto">
-          <table className="w-full font-telemetry text-[11px]">
+        <div className="rounded border overflow-hidden" style={{ borderColor: "var(--console-border)" }}>
+          <div className="overflow-x-auto">
+            <table className="w-full font-telemetry text-[11px]">
             <thead style={{ background: "var(--console-raised)", borderBottom: "1px solid var(--console-border)" }}>
               <tr>
                 {["Username", "Email", "Role", "Status", "Created", ""].map((h, i) => (
@@ -385,9 +386,9 @@ const Users = () => {
                 })
               )}
             </tbody>
-          </table>
+            </table>
+          </div>
         </div>
-      </div>
 
       {/* Form dialog */}
       <UserFormDialog
@@ -472,6 +473,7 @@ const Users = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      </div>
     </div>
   );
 };

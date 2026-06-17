@@ -20,7 +20,7 @@ class POSTextRequest(BaseModel):
 async def set_pos_text(
     camera_id: str,
     body: POSTextRequest,
-    user: dict = Depends(require_permission("manage_cameras")),
+    user: dict = Depends(require_permission("manage_camera")),
 ):
     """Push POS/ATM text overlay for a camera.
 
@@ -33,7 +33,7 @@ async def set_pos_text(
 @router.delete("/{camera_id}")
 async def clear_pos_text(
     camera_id: str,
-    user: dict = Depends(require_permission("manage_cameras")),
+    user: dict = Depends(require_permission("manage_camera")),
 ):
     """Clear POS text overlay for a camera."""
     pos_overlay_service.clear_text(camera_id)

@@ -122,16 +122,21 @@ class ConnectionManager:
         status: str,
         is_recording: bool,
         camera_name: Optional[str] = None,
+        error_message: Optional[str] = None,
     ):
         """Broadcast camera status update."""
+        data = {
+            "camera_id": camera_id,
+            "camera_name": camera_name,
+            "status": status,
+            "is_recording": is_recording,
+        }
+        if error_message:
+            data["error_message"] = error_message
+
         await self.broadcast("cameras", {
             "type": "camera_status",
-            "data": {
-                "camera_id": camera_id,
-                "camera_name": camera_name,
-                "status": status,
-                "is_recording": is_recording,
-            },
+            "data": data,
         })
 
     async def broadcast_system_event(

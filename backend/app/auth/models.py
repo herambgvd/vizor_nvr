@@ -37,6 +37,7 @@ class PermissionAction(str, Enum):
     DELETE_RECORDINGS = "delete_recordings"
     MANAGE_USERS = "manage_users"
     MANAGE_SETTINGS = "manage_settings"
+    MANAGE_SYSTEM = "manage_system"
     MANAGE_STORAGE = "manage_storage"
     VIEW_AUDIT_LOG = "view_audit_log"
     # Fine-grained permissions added in Phase 6.6 — referenced by routers

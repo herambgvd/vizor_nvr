@@ -28,6 +28,10 @@ DEFAULT_SETTINGS = {
     # General
     "system_name": {"value": "Vizor NVR", "type": "string", "category": "general", "desc": "System display name"},
     "timezone": {"value": "UTC", "type": "string", "category": "general", "desc": "System timezone"},
+    "brand_logo_url": {"value": "", "type": "string", "category": "general", "desc": "Whitelabel logo URL or data URL"},
+    "brand_favicon_url": {"value": "", "type": "string", "category": "general", "desc": "Whitelabel favicon URL or data URL"},
+    "theme_background_color": {"value": "#000000", "type": "string", "category": "general", "desc": "Console background color"},
+    "theme_button_color": {"value": "#228B22", "type": "string", "category": "general", "desc": "Primary button and accent color"},
 
     # Retention
     "retention_enabled": {"value": "true", "type": "bool", "category": "retention", "desc": "Enable auto-deletion"},

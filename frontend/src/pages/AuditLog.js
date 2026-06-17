@@ -91,9 +91,9 @@ const ConsoleInput = ({ className = "", style: extraStyle = {}, ...props }) => (
 // ─── Action badge ─────────────────────────────────────────────────────────────
 
 const ACTION_TONES = {
-  create: { bg: "rgba(34,197,94,0.12)", color: "var(--console-online)", border: "rgba(34,197,94,0.3)" },
+  create: { bg: "hsl(var(--ring) / 0.12)", color: "var(--console-online)", border: "hsl(var(--ring) / 0.3)" },
   update: { bg: "rgba(20,184,166,0.12)", color: "var(--console-accent)", border: "rgba(20,184,166,0.3)" },
-  start:  { bg: "rgba(34,197,94,0.12)", color: "var(--console-online)", border: "rgba(34,197,94,0.3)" },
+  start:  { bg: "hsl(var(--ring) / 0.12)", color: "var(--console-online)", border: "hsl(var(--ring) / 0.3)" },
   stop:   { bg: "rgba(245,158,11,0.12)", color: "var(--console-alarm)", border: "rgba(245,158,11,0.3)" },
   delete: { bg: "rgba(239,68,68,0.12)", color: "var(--console-rec)", border: "rgba(239,68,68,0.3)" },
   login:  { bg: "rgba(139,92,246,0.12)", color: "#a78bfa", border: "rgba(139,92,246,0.3)" },
@@ -240,10 +240,12 @@ const AuditLog = () => {
   const hasFilters = action !== "all" || userFilter || startDate || endDate;
 
   return (
-    <div className="p-4 space-y-4">
-      {/* Header bar */}
+    <div
+      className="h-full flex flex-col overflow-hidden"
+      style={{ background: "var(--console-bg)", color: "var(--console-text)" }}
+    >
       <div
-        className="flex items-center gap-3 px-4 py-2.5 rounded border"
+        className="flex items-center gap-3 px-4 py-2.5 border-b flex-shrink-0"
         style={{ background: "var(--console-panel)", borderColor: "var(--console-border)" }}
       >
         <span className="w-0.5 h-4 rounded-full flex-shrink-0" style={{ background: "var(--console-accent)" }} />
@@ -273,78 +275,78 @@ const AuditLog = () => {
         </div>
       </div>
 
-      {/* Filters */}
-      <div
-        className="flex flex-wrap items-center gap-2 rounded border p-2.5"
-        style={{ background: "var(--console-panel)", borderColor: "var(--console-border)" }}
-      >
-        <Filter className="h-3.5 w-3.5 flex-shrink-0" style={{ color: "var(--console-muted)" }} />
+      <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 space-y-4">
+        <div
+          className="flex flex-wrap items-center gap-2 rounded border p-2.5"
+          style={{ background: "var(--console-panel)", borderColor: "var(--console-border)" }}
+        >
+          <Filter className="h-3.5 w-3.5 flex-shrink-0" style={{ color: "var(--console-muted)" }} />
 
-        <div className="w-52">
-          <SearchableSelect
-            value={action}
-            onChange={(v) => {
-              setAction(v);
-              setPage(1);
-            }}
-            options={[
-              { value: "all", label: "All actions" },
-              ...actions.map((a) => ({ value: a, label: humanizeAction(a) })),
-            ]}
-            placeholder="All actions"
-            searchPlaceholder="Search action…"
-            emptyText="No matching action"
-          />
-        </div>
+          <div className="w-52">
+            <SearchableSelect
+              value={action}
+              onChange={(v) => {
+                setAction(v);
+                setPage(1);
+              }}
+              options={[
+                { value: "all", label: "All actions" },
+                ...actions.map((a) => ({ value: a, label: humanizeAction(a) })),
+              ]}
+              placeholder="All actions"
+              searchPlaceholder="Search action…"
+              emptyText="No matching action"
+            />
+          </div>
 
-        <div className="relative w-48">
-          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 pointer-events-none" style={{ color: "var(--console-muted)" }} />
+          <div className="relative w-48">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 pointer-events-none" style={{ color: "var(--console-muted)" }} />
+            <ConsoleInput
+              value={userFilter}
+              onChange={(e) => {
+                setUserFilter(e.target.value);
+                setPage(1);
+              }}
+              style={{ paddingLeft: "1.75rem" }}
+              placeholder="User…"
+            />
+          </div>
+
           <ConsoleInput
-            value={userFilter}
+            type="date"
+            value={startDate}
             onChange={(e) => {
-              setUserFilter(e.target.value);
+              setStartDate(e.target.value);
               setPage(1);
             }}
-            style={{ paddingLeft: "1.75rem" }}
-            placeholder="User…"
+            style={{ width: "11rem" }}
+            placeholder="From"
           />
-        </div>
-
-        <ConsoleInput
-          type="date"
-          value={startDate}
-          onChange={(e) => {
-            setStartDate(e.target.value);
-            setPage(1);
-          }}
-          style={{ width: "11rem" }}
-          placeholder="From"
-        />
-        <ConsoleInput
-          type="date"
-          value={endDate}
-          onChange={(e) => {
-            setEndDate(e.target.value);
-            setPage(1);
-          }}
-          style={{ width: "11rem" }}
-          placeholder="To"
-        />
-
-        {hasFilters && (
-          <SecondaryBtn
-            onClick={() => {
-              setAction("all");
-              setUserFilter("");
-              setStartDate("");
-              setEndDate("");
+          <ConsoleInput
+            type="date"
+            value={endDate}
+            onChange={(e) => {
+              setEndDate(e.target.value);
               setPage(1);
             }}
-          >
-            Clear
-          </SecondaryBtn>
-        )}
-      </div>
+            style={{ width: "11rem" }}
+            placeholder="To"
+          />
+
+          {hasFilters && (
+            <SecondaryBtn
+              onClick={() => {
+                setAction("all");
+                setUserFilter("");
+                setStartDate("");
+                setEndDate("");
+                setPage(1);
+              }}
+            >
+              Clear
+            </SecondaryBtn>
+          )}
+        </div>
 
       {/* Table */}
       <div className="rounded border overflow-hidden" style={{ borderColor: "var(--console-border)" }}>
@@ -495,6 +497,7 @@ const AuditLog = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      </div>
     </div>
   );
 };
