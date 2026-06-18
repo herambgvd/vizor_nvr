@@ -782,9 +782,9 @@ const SuspectSearchTab = ({ scenario }) => {
           <div className="shrink-0 border-t p-2.5 flex gap-2" style={{ borderColor: "var(--console-border)" }}>
             <button
               type="submit"
-              disabled={loading || blocked || noAssignedCameras}
+              disabled={loading || blocked}
               className="flex-1 inline-flex items-center justify-center gap-2 rounded h-10 text-[13px] font-semibold uppercase tracking-widest disabled:opacity-50"
-              style={{ background: "var(--console-accent)", color: "#050505" }}
+              style={{ background: "var(--console-accent)", color: "#ffffff" }}
             >
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
               {loading ? "Searching" : "Search"}
