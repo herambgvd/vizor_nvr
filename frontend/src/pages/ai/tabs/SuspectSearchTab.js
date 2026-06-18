@@ -1,50 +1,111 @@
+// =============================================================================
+// AI · Suspect Search tab — Eocortex-style visual "search engine" for people.
+//
+// Three columns:
+//   LEFT   — the suspect BUILDER: a clickable person silhouette whose upper /
+//            lower regions get painted from a quick colour palette, garment +
+//            demographic + accessory filters, optional reference image, cameras,
+//            time range, confidence, and the big SEARCH / Reset actions.
+//   CENTER — the result CANVAS: empty / loading / responsive grid of matches.
+//   RIGHT  — context: active filters, movement trajectory, and a tucked-away
+//            "Index archive" background job (the only polled job left).
+//
+// SEARCH is synchronous: scenarioSearch(slug, FormData) → response.items.
+// Find-similar is synchronous: createScenarioSimilarSearchJob → response.items.
+// Only INDEX runs as a polled background job.
+// =============================================================================
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   AlertCircle,
   Camera,
+  ChevronDown,
   Database,
+  Glasses,
+  HardHat,
+  Loader2,
   MapPinned,
   RefreshCw,
+  RotateCcw,
   Search,
+  ShoppingBag,
   Upload,
   XCircle,
 } from "lucide-react";
 import {
   cancelScenarioJob,
   createScenarioIndexJob,
-  createScenarioSearchJob,
   createScenarioSimilarSearchJob,
   getScenarioJob,
   getScenarioJobResults,
   listScenarioCameras,
+  scenarioSearch,
   scenarioThumbnailUrl,
 } from "../../../api/ai";
 
-const inputClass =
-  "h-10 rounded border border-white/10 bg-black px-3 text-[13px] text-zinc-100 outline-none focus:border-[#228B22]";
-
-const colors = ["any", "black", "white", "gray", "red", "orange", "yellow", "green", "blue", "purple", "pink", "brown"];
-const colorHex = {
-  black: "#111827",
-  white: "#f8fafc",
-  gray: "#6b7280",
-  red: "#dc2626",
-  orange: "#f97316",
-  yellow: "#eab308",
-  green: "#228B22",
-  blue: "#2563eb",
-  purple: "#7c3aed",
-  pink: "#db2777",
-  brown: "#8b5a2b",
+// ── Shared style tokens (every colour is a --console-* custom property) ───────
+const inputClass = "h-8 w-full rounded border px-2.5 text-[12px] outline-none";
+const inputStyle = {
+  borderColor: "var(--console-border)",
+  background: "var(--console-raised)",
+  color: "var(--console-text)",
 };
+const labelClass =
+  "block font-telemetry text-[9px] uppercase tracking-widest mb-1";
+const labelStyle = { color: "var(--console-muted)" };
 
 const objectTypes = [
   { key: "person", label: "Person" },
   { key: "bag", label: "Bag" },
-  { key: "helmet", label: "Helmet" },
 ];
 
+// Garment vocabularies — mirror the backend top_type / bottom_type enums.
+const TOP_TYPES = ["any", "shirt", "top", "sweater", "jacket", "coat", "dress"];
+const BOTTOM_TYPES = ["any", "pants", "shorts", "skirt"];
+const GENDERS = ["any", "male", "female"];
+const AGE_BANDS = [
+  "any",
+  "0-2",
+  "3-9",
+  "10-19",
+  "20-29",
+  "30-39",
+  "40-49",
+  "50-59",
+  "60-69",
+  "70+",
+];
+const ACCESSORIES = [
+  { key: "bag", label: "Bag", Icon: ShoppingBag },
+  { key: "hat", label: "Hat", Icon: HardHat },
+  { key: "glasses", label: "Glasses", Icon: Glasses },
+];
+
+// Quick palette of common clothing colours — the operator paints the silhouette.
+const PALETTE = [
+  { name: "black", hex: "#000000" },
+  { name: "white", hex: "#ffffff" },
+  { name: "gray", hex: "#808080" },
+  { name: "red", hex: "#e11d48" },
+  { name: "maroon", hex: "#800000" },
+  { name: "orange", hex: "#f97316" },
+  { name: "yellow", hex: "#eab308" },
+  { name: "green", hex: "#16a34a" },
+  { name: "olive", hex: "#808000" },
+  { name: "teal", hex: "#0d9488" },
+  { name: "blue", hex: "#2563eb" },
+  { name: "navy", hex: "#1e3a5f" },
+  { name: "purple", hex: "#7c3aed" },
+  { name: "pink", hex: "#ec4899" },
+  { name: "brown", hex: "#854d0e" },
+  { name: "beige", hex: "#d9c5a0" },
+];
+
+const DEFAULT_TOP_RGB = "#3b82f6";
+const DEFAULT_BOTTOM_RGB = "#1f2937";
+
+// ── Result thumbnail (auth'd object URL via existing helper) ──────────────────
 const ResultThumb = ({ scenarioSlug, resultId }) => {
   const [url, setUrl] = useState(null);
 
@@ -62,38 +123,119 @@ const ResultThumb = ({ scenarioSlug, resultId }) => {
   }, [scenarioSlug, resultId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="aspect-[4/3] rounded bg-zinc-950 border border-white/10 overflow-hidden flex items-center justify-center">
-      {url ? <img src={url} alt="" className="h-full w-full object-cover" /> : <Camera className="h-5 w-5 text-zinc-700" />}
+    <div
+      className="aspect-[4/3] rounded overflow-hidden flex items-center justify-center border"
+      style={{ borderColor: "var(--console-border)", background: "var(--console-raised)" }}
+    >
+      {url ? (
+        <img src={url} alt="" className="h-full w-full object-cover" />
+      ) : (
+        <Camera className="h-5 w-5" style={{ color: "var(--console-muted)" }} />
+      )}
     </div>
   );
 };
 
-const ColorSelect = ({ label, value, onChange, disabled = false }) => (
-  <label className="block">
-    <span className="block text-[11px] uppercase tracking-wide text-zinc-400 mb-2">{label}</span>
-    <select disabled={disabled} className={`${inputClass} w-full disabled:opacity-45`} value={value} onChange={(e) => onChange(e.target.value)}>
-      {colors.map((name) => <option key={name} value={name}>{name === "any" ? "Any" : name}</option>)}
-    </select>
-  </label>
+// ── Person silhouette — click upper / lower to select, fill shows chosen colour.
+const SuspectSilhouette = ({ region, onRegion, topFill, bottomFill }) => {
+  const ringFor = (r) => (region === r ? "var(--console-accent)" : "var(--console-border)");
+  const baseFill = "var(--console-raised)";
+  return (
+    <svg viewBox="0 0 120 220" className="h-full w-auto" role="img" aria-label="Suspect silhouette">
+      {/* head — neutral, not selectable */}
+      <circle cx="60" cy="26" r="18" fill={baseFill} stroke="var(--console-border)" strokeWidth="2" />
+      {/* UPPER BODY (torso + arms) — selectable "top" */}
+      <g
+        onClick={() => onRegion("top")}
+        style={{ cursor: "pointer" }}
+      >
+        <path
+          d="M60 46
+             C44 46 36 52 32 62
+             L22 104 L34 110 L42 86
+             L42 132 L78 132 L78 86
+             L86 110 L98 104 L88 62
+             C84 52 76 46 60 46 Z"
+          fill={topFill || baseFill}
+          stroke={ringFor("top")}
+          strokeWidth={region === "top" ? 3 : 2}
+        />
+      </g>
+      {/* LOWER BODY (legs) — selectable "bottom" */}
+      <g
+        onClick={() => onRegion("bottom")}
+        style={{ cursor: "pointer" }}
+      >
+        <path
+          d="M42 132 L42 206 L56 206 L60 150 L64 206 L78 206 L78 132 Z"
+          fill={bottomFill || baseFill}
+          stroke={ringFor("bottom")}
+          strokeWidth={region === "bottom" ? 3 : 2}
+        />
+      </g>
+    </svg>
+  );
+};
+
+// ── Visible badge: bordered, muted text, never white-on-white ─────────────────
+const Badge = ({ children, swatch }) => (
+  <span
+    className="inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-telemetry uppercase tracking-wider"
+    style={{
+      borderColor: "var(--console-border)",
+      background: "var(--console-raised)",
+      color: "var(--console-muted)",
+    }}
+  >
+    {swatch ? (
+      <span
+        className="h-2.5 w-2.5 rounded-full"
+        style={{ backgroundColor: swatch, border: "1px solid var(--console-border)" }}
+      />
+    ) : null}
+    {children}
+  </span>
+);
+
+const SectionLabel = ({ children, Icon }) => (
+  <div className="flex items-center gap-1.5 font-telemetry text-[9px] uppercase tracking-widest mb-2" style={labelStyle}>
+    {Icon ? <Icon className="h-3.5 w-3.5" /> : null}
+    {children}
+  </div>
 );
 
 const SuspectSearchTab = ({ scenario }) => {
   const [file, setFile] = useState(null);
-  const [sourceMode, setSourceMode] = useState("upload");
   const [objectType, setObjectType] = useState("person");
-  const [upperColor, setUpperColor] = useState("any");
-  const [lowerColor, setLowerColor] = useState("any");
-  const [dominantColor, setDominantColor] = useState("any");
-  const [sizeBucket, setSizeBucket] = useState("any");
-  const [positionRegion, setPositionRegion] = useState("any");
+
+  // Which silhouette region the colour palette paints.
+  const [region, setRegion] = useState("top");
+
+  // Advanced filters (reference image, cameras, time range, confidence) collapse
+  // by default so the core attribute builder stays short and Search stays reachable.
+  const [showMoreFilters, setShowMoreFilters] = useState(false);
+
+  // STAGE 1 attribute state.
+  const [topType, setTopType] = useState("any");
+  const [topUseColor, setTopUseColor] = useState(false);
+  const [topRgb, setTopRgb] = useState(DEFAULT_TOP_RGB);
+  const [bottomType, setBottomType] = useState("any");
+  const [bottomUseColor, setBottomUseColor] = useState(false);
+  const [bottomRgb, setBottomRgb] = useState(DEFAULT_BOTTOM_RGB);
+  const [gender, setGender] = useState("any");
+  const [ageBand, setAgeBand] = useState("any");
+  const [accessories, setAccessories] = useState(() => new Set());
+
   const [confidence, setConfidence] = useState(0.72);
   const [cameraIds, setCameraIds] = useState("");
   const [assignedCameras, setAssignedCameras] = useState([]);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+
   const [job, setJob] = useState(null);
   const [results, setResults] = useState([]);
   const [resultTotal, setResultTotal] = useState(0);
+  const [searched, setSearched] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [polling, setPolling] = useState(false);
@@ -139,26 +281,63 @@ const SuspectSearchTab = ({ scenario }) => {
     return () => clearInterval(timer);
   }, [job?.job_id, job?.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const isPerson = objectType === "person";
+  const accessoryCsv = useMemo(() => Array.from(accessories).join(","), [accessories]);
+
+  // True when the operator has set ANY filter that lets a no-image search run.
+  const hasAttributeSearch = useMemo(() => {
+    if (isPerson) {
+      if (topType !== "any" || bottomType !== "any") return true;
+      if (topUseColor || bottomUseColor) return true;
+      if (gender !== "any" || ageBand !== "any") return true;
+      if (accessories.size > 0) return true;
+    }
+    if (cameraIds.trim()) return true;
+    if (from || to) return true;
+    return false;
+  }, [isPerson, topType, bottomType, topUseColor, bottomUseColor, gender, ageBand, accessories, cameraIds, from, to]);
+
   const appendFilters = (form) => {
     form.append("object_type", objectType);
     form.append("min_confidence", String(confidence));
     if (cameraIds.trim()) form.append("camera_ids", cameraIds.trim());
     if (from) form.append("start_time", from);
     if (to) form.append("end_time", to);
-    if (upperColor !== "any") form.append("upper_color", upperColor);
-    if (lowerColor !== "any") form.append("lower_color", lowerColor);
-    if (dominantColor !== "any") form.append("dominant_color", dominantColor);
-    if (sizeBucket !== "any") form.append("size_bucket", sizeBucket);
-    if (positionRegion !== "any") form.append("position_region", positionRegion);
+    if (isPerson) {
+      if (topType !== "any") form.append("top_type", topType);
+      if (bottomType !== "any") form.append("bottom_type", bottomType);
+      if (topUseColor) form.append("top_rgb", topRgb);
+      if (bottomUseColor) form.append("bottom_rgb", bottomRgb);
+      if (gender !== "any") form.append("gender", gender);
+      if (ageBand !== "any") form.append("age_band", ageBand);
+      if (accessoryCsv) form.append("accessories", accessoryCsv);
+    }
+  };
+
+  const toggleAccessory = (key) =>
+    setAccessories((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+
+  // Paint the currently-selected silhouette region from the quick palette.
+  const paintRegion = (hex) => {
+    if (region === "top") {
+      setTopRgb(hex);
+      setTopUseColor(true);
+    } else {
+      setBottomRgb(hex);
+      setBottomUseColor(true);
+    }
   };
 
   const submit = async (event) => {
     event.preventDefault();
     setError("");
     setJob(null);
-    const hasAttributeSearch = objectType !== "person" ? dominantColor !== "any" : upperColor !== "any" || lowerColor !== "any";
     if (!file && !hasAttributeSearch) {
-      setError("Reference image or color attributes required.");
+      setError("Set at least one attribute, camera or time filter — or upload a reference image.");
       return;
     }
     const form = new FormData();
@@ -166,16 +345,37 @@ const SuspectSearchTab = ({ scenario }) => {
     appendFilters(form);
     try {
       setLoading(true);
-      const created = await createScenarioSearchJob(scenario.slug, form);
-      setJob(created);
-      setResults([]);
-      setResultTotal(0);
-      if (created?.job_id) await refreshJob(created.job_id);
+      setSearched(true);
+      // Synchronous search — results come back directly, no job + no polling.
+      const response = await scenarioSearch(scenario.slug, form);
+      setResults(response.items || []);
+      setResultTotal(response.total || (response.items || []).length);
     } catch (err) {
-      setError(err?.response?.data?.detail || err.message || "Search job failed.");
+      setError(err?.response?.data?.detail || err.message || "Search failed.");
     } finally {
       setLoading(false);
     }
+  };
+
+  const resetBuilder = () => {
+    setFile(null);
+    setRegion("top");
+    setShowMoreFilters(false);
+    setTopType("any");
+    setTopUseColor(false);
+    setTopRgb(DEFAULT_TOP_RGB);
+    setBottomType("any");
+    setBottomUseColor(false);
+    setBottomRgb(DEFAULT_BOTTOM_RGB);
+    setGender("any");
+    setAgeBand("any");
+    setAccessories(new Set());
+    setConfidence(0.72);
+    setError("");
+    setResults([]);
+    setResultTotal(0);
+    setSearched(false);
+    setJob(null);
   };
 
   const runIndex = async () => {
@@ -183,13 +383,12 @@ const SuspectSearchTab = ({ scenario }) => {
     try {
       setLoading(true);
       const created = await createScenarioIndexJob(scenario.slug, {
-        object_types: "person,bag,helmet",
+        object_types: "person,bag",
         camera_ids: cameraIds.trim(),
         start_time: from,
         end_time: to,
       });
       setJob(created);
-      setResults([]);
       if (created?.job_id) await refreshJob(created.job_id);
     } catch (err) {
       setError(err?.response?.data?.detail || err.message || "Index job failed.");
@@ -204,16 +403,17 @@ const SuspectSearchTab = ({ scenario }) => {
     setError("");
     try {
       setLoading(true);
-      const created = await createScenarioSimilarSearchJob(scenario.slug, resultId, {
+      setSearched(true);
+      // Search-similar is synchronous too — results returned directly, no polling.
+      const response = await createScenarioSimilarSearchJob(scenario.slug, resultId, {
         object_type: result.object_type || objectType,
         min_confidence: confidence,
         camera_ids: cameraIds.trim(),
         start_time: from,
         end_time: to,
       });
-      setJob(created);
-      setResults([]);
-      if (created?.job_id) await refreshJob(created.job_id);
+      setResults(response.items || []);
+      setResultTotal(response.total || (response.items || []).length);
     } catch (err) {
       setError(err?.response?.data?.detail || err.message || "Nested search failed.");
     } finally {
@@ -225,7 +425,6 @@ const SuspectSearchTab = ({ scenario }) => {
   const noAssignedCameras = assignedCameras.length === 0;
   const enabledCameraCount = assignedCameras.filter((item) => item.enabled).length;
   const noEnabledCameras = enabledCameraCount === 0;
-  const isPerson = objectType === "person";
   const selectedCameraIds = useMemo(
     () => new Set(cameraIds.split(",").map((x) => x.trim()).filter(Boolean)),
     [cameraIds],
@@ -245,292 +444,576 @@ const SuspectSearchTab = ({ scenario }) => {
     return `/playback?camera=${encodeURIComponent(cameraId)}&date=${encodeURIComponent(date)}&t=${encodeURIComponent(ts)}`;
   };
 
+  // Pull a usable hex from a result for the colour swatches.
+  const hexOf = (result, ...keys) => {
+    for (const k of keys) {
+      const v = result[k];
+      if (typeof v === "string" && /^#?[0-9a-fA-F]{6}$/.test(v)) {
+        return v.startsWith("#") ? v : `#${v}`;
+      }
+    }
+    return null;
+  };
+
+  const accList = (result) =>
+    Array.isArray(result.accessories)
+      ? result.accessories
+      : typeof result.accessories === "string"
+        ? result.accessories.split(",").map((x) => x.trim()).filter(Boolean)
+        : [];
+
+  const indexRunning = job && !["completed", "failed", "cancelled"].includes(job.status);
+  const matchCount = resultTotal || results.length;
+
+  // Color sent to the silhouette only when that region's colour is "on".
+  const topFill = topUseColor ? topRgb : null;
+  const bottomFill = bottomUseColor ? bottomRgb : null;
+
   return (
-    <div className="p-5 max-w-[1440px]">
-      <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="font-telemetry text-[14px] font-semibold uppercase tracking-wide text-zinc-100">
-            Archive Object Search
-          </h2>
-          <p className="font-telemetry text-[11px] text-zinc-500 mt-1">
-            Eocortex-style archive search for person, bag and helmet by photo, color, size, position and nested result matching.
-          </p>
-        </div>
-        <button
-          type="button"
-          disabled={loading || blocked || noEnabledCameras}
-          onClick={runIndex}
-          className="inline-flex h-10 items-center gap-2 rounded bg-[#228B22] px-4 text-sm text-white disabled:opacity-50"
-        >
-          <Database className="h-4 w-4" />
-          Index Archive
-        </button>
+    <div className="console-root flex flex-col h-full min-h-0 overflow-hidden" style={{ color: "var(--console-text)" }}>
+      {/* Warning banners — kept from original, visible on dark */}
+      <div className="px-4 pt-3 space-y-2 shrink-0">
+        {blocked && (
+          <div className="rounded border p-3 flex gap-2 text-[12px]" style={{ borderColor: "var(--console-rec)", background: "var(--console-raised)", color: "var(--console-rec)" }}>
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            Scenario must be licensed and enabled before search or index jobs can run.
+          </div>
+        )}
+        {!blocked && !noAssignedCameras && noEnabledCameras && (
+          <div className="rounded border p-3 flex gap-2 text-[12px]" style={{ borderColor: "var(--console-border)", background: "var(--console-raised)", color: "var(--console-muted)" }}>
+            <AlertCircle className="h-4 w-4 shrink-0" style={{ color: "var(--console-accent)" }} />
+            All assigned cameras are disabled. Historical indexed data can still be searched; new indexing is paused.
+          </div>
+        )}
       </div>
 
-      {blocked && (
-        <div className="mb-4 rounded border border-red-500/30 bg-red-950/20 p-3 flex gap-2 text-red-200 text-[12px]">
-          <AlertCircle className="h-4 w-4 shrink-0" />
-          Scenario must be licensed and enabled before proxy search jobs can run.
-        </div>
-      )}
-      {!blocked && noAssignedCameras && (
-        <div className="mb-4 rounded border border-yellow-500/30 bg-yellow-950/20 p-3 flex gap-2 text-yellow-100 text-[12px]">
-          <AlertCircle className="h-4 w-4 shrink-0" />
-          Enable Suspect Search on at least one camera from the Cameras tab before indexing or searching.
-        </div>
-      )}
-      {!blocked && !noAssignedCameras && noEnabledCameras && (
-        <div className="mb-4 rounded border border-yellow-500/30 bg-yellow-950/20 p-3 flex gap-2 text-yellow-100 text-[12px]">
-          <AlertCircle className="h-4 w-4 shrink-0" />
-          All assigned cameras are currently disabled. Historical indexed data can be searched, but new indexing is paused.
-        </div>
-      )}
+      <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-[320px_1fr_300px] gap-3 p-4">
 
-      <div className="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-5">
-        <main className="space-y-5">
-          <form
-            onSubmit={submit}
-            className="rounded p-5"
-            style={{ background: "var(--console-panel)", border: "1px solid var(--console-border)" }}
-          >
-            <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-5">
-              <section className="rounded border border-white/10 bg-black p-4 space-y-4">
-                <div>
-                  <span className="block text-[11px] uppercase tracking-wide text-zinc-400 mb-2">Object</span>
-                  <div className="grid grid-cols-3 gap-2">
-                    {objectTypes.map((item) => (
-                      <button
-                        key={item.key}
-                        type="button"
-                        onClick={() => setObjectType(item.key)}
-                        className="h-9 rounded border text-[12px]"
-                        style={{
-                          borderColor: objectType === item.key ? "#228B22" : "rgba(255,255,255,0.1)",
-                          color: objectType === item.key ? "#fff" : "var(--console-muted)",
-                          background: objectType === item.key ? "rgba(34,139,34,0.22)" : "transparent",
-                        }}
-                      >
-                        {item.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+        {/* ════════════════ LEFT — SUSPECT BUILDER ════════════════ */}
+        <form
+          onSubmit={submit}
+          className="rounded border flex flex-col min-h-0"
+          style={{ borderColor: "var(--console-border)", background: "var(--console-panel)" }}
+        >
+          <div className="px-3 py-2.5 border-b flex items-center gap-2" style={{ borderColor: "var(--console-border)" }}>
+            <Search className="h-4 w-4" style={{ color: "var(--console-accent)" }} />
+            <span className="font-telemetry text-[11px] font-semibold uppercase tracking-widest" style={{ color: "var(--console-text)" }}>
+              Build a suspect
+            </span>
+          </div>
 
-                <div className="aspect-[4/3] rounded border border-white/10 bg-zinc-950 flex items-center justify-center overflow-hidden">
-                  {previewUrl ? (
-                    <img src={previewUrl} alt="Reference" className="h-full w-full object-contain" />
-                  ) : (
-                    <div className="text-center text-zinc-600 text-[12px] px-5">
-                      Add photo/crop, or search using attributes only after archive indexing.
-                    </div>
-                  )}
-                </div>
-
-                <label className="inline-flex h-10 w-full items-center justify-center gap-2 rounded bg-[#228B22] px-4 text-sm text-white cursor-pointer">
-                  <Upload className="h-4 w-4" />
-                  Choose Sample
-                  <input type="file" accept="image/*" className="hidden" onChange={(e) => setFile(e.target.files?.[0] || null)} />
-                </label>
-                <div className="text-[12px] text-zinc-400 truncate">{file?.name || "No file selected"}</div>
-              </section>
-
-              <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 content-start">
-                <label className="block">
-                  <span className="block text-[11px] uppercase tracking-wide text-zinc-400 mb-2">Sample Source</span>
-                  <select className={`${inputClass} w-full`} value={sourceMode} onChange={(e) => setSourceMode(e.target.value)}>
-                    <option value="upload">Upload image</option>
-                    <option value="snapshot" disabled>Snapshot from recording</option>
-                    <option value="crop" disabled>Crop from frame</option>
-                  </select>
-                </label>
-                <label className="block">
-                  <span className="block text-[11px] uppercase tracking-wide text-zinc-400 mb-2">Minimum Confidence</span>
-                  <input className={`${inputClass} w-full`} type="number" min="0" max="1" step="0.01" value={confidence} onChange={(e) => setConfidence(e.target.value)} />
-                </label>
-                <label className="block">
-                  <span className="block text-[11px] uppercase tracking-wide text-zinc-400 mb-2">Cameras</span>
-                  <div className="min-h-10 rounded border border-white/10 bg-black p-2 flex flex-wrap gap-1.5">
-                    {assignedCameras.length === 0 ? (
-                      <span className="text-[12px] text-zinc-600">No enabled cameras</span>
-                    ) : assignedCameras.map((cam) => {
-                      const on = selectedCameraIds.has(cam.camera_id);
-                      return (
-                        <button
-                          key={cam.camera_id}
-                          type="button"
-                          onClick={() => toggleCamera(cam.camera_id)}
-                          className="rounded border px-2 py-1 text-[11px]"
-                          style={{
-                            borderColor: on ? "#228B22" : "rgba(255,255,255,0.12)",
-                            background: on ? "rgba(34,139,34,0.22)" : "transparent",
-                            color: on ? "#fff" : "var(--console-muted)",
-                            opacity: cam.enabled ? 1 : 0.72,
-                          }}
-                        >
-                          {cam.camera_name || cam.camera_id}
-                          {!cam.enabled ? " · history" : ""}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </label>
-                <ColorSelect label="Upper Wear" value={upperColor} onChange={setUpperColor} disabled={!isPerson} />
-                <ColorSelect label="Lower Wear" value={lowerColor} onChange={setLowerColor} disabled={!isPerson} />
-                <ColorSelect label={isPerson ? "Any Object Color" : "Object Color"} value={dominantColor} onChange={setDominantColor} />
-                <label className="block">
-                  <span className="block text-[11px] uppercase tracking-wide text-zinc-400 mb-2">Size</span>
-                  <select className={`${inputClass} w-full`} value={sizeBucket} onChange={(e) => setSizeBucket(e.target.value)}>
-                    {["any", "small", "medium", "large"].map((item) => <option key={item} value={item}>{item}</option>)}
-                  </select>
-                </label>
-                <label className="block">
-                  <span className="block text-[11px] uppercase tracking-wide text-zinc-400 mb-2">Position</span>
-                  <select className={`${inputClass} w-full`} value={positionRegion} onChange={(e) => setPositionRegion(e.target.value)}>
-                    {["any", "left", "center", "right", "top", "bottom"].map((item) => <option key={item} value={item}>{item}</option>)}
-                  </select>
-                </label>
-                <div className="hidden xl:block" />
-                <label className="block">
-                  <span className="block text-[11px] uppercase tracking-wide text-zinc-400 mb-2">From</span>
-                  <input className={`${inputClass} w-full`} type="datetime-local" value={from} onChange={(e) => setFrom(e.target.value)} />
-                </label>
-                <label className="block">
-                  <span className="block text-[11px] uppercase tracking-wide text-zinc-400 mb-2">To</span>
-                  <input className={`${inputClass} w-full`} type="datetime-local" value={to} onChange={(e) => setTo(e.target.value)} />
-                </label>
-                <div className="md:col-span-2 xl:col-span-3 rounded border border-white/10 bg-black p-3">
-                  <div className="text-[11px] uppercase tracking-wide text-zinc-400">Engine</div>
-                  <div className="text-[12px] text-zinc-500 mt-1">
-                    Qdrant vector index with ONNX-ready detector/ReID runtime. Current fallback indexes sampled archive frames until YOLO26/ReID model files are mounted.
-                  </div>
-                </div>
-              </section>
+          <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2.5">
+            {/* Object type toggle */}
+            <div>
+              <span className={labelClass} style={labelStyle}>Object</span>
+              <div className="grid grid-cols-2 gap-1.5">
+                {objectTypes.map((item) => {
+                  const on = objectType === item.key;
+                  return (
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={() => setObjectType(item.key)}
+                      className="h-7 rounded border text-[12px]"
+                      style={{
+                        borderColor: on ? "var(--console-accent)" : "var(--console-border)",
+                        color: on ? "var(--console-text)" : "var(--console-muted)",
+                        background: on ? "rgba(34,139,34,0.22)" : "var(--console-raised)",
+                      }}
+                    >
+                      {item.label}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
-            {error && <div className="mt-4 text-[12px] text-red-300">{error}</div>}
-
-            <div className="mt-5 flex flex-wrap gap-2">
-              <button type="submit" disabled={loading || blocked || noAssignedCameras} className="inline-flex items-center gap-2 rounded px-4 h-10 text-sm text-white disabled:opacity-50" style={{ background: "#228B22" }}>
-                <Search className="h-4 w-4" />
-                {loading ? "Working..." : "Search Archive"}
-              </button>
-              {job && !["completed", "failed", "cancelled"].includes(job.status) && (
-                <button
-                  type="button"
-                  onClick={() => cancelScenarioJob(scenario.slug, job.job_id).then(setJob).catch((err) => setError(err?.response?.data?.detail || err.message))}
-                  className="inline-flex items-center gap-2 rounded border border-red-500/40 px-3 h-10 text-[12px] text-red-200"
-                >
-                  <XCircle className="h-4 w-4" />
-                  Cancel
-                </button>
-              )}
-            </div>
-          </form>
-
-          {job && (
-            <section className="rounded p-4 space-y-3" style={{ background: "var(--console-panel)", border: "1px solid var(--console-border)" }}>
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-[12px] text-zinc-300">Job: {job.job_id}</div>
-                  <div className="text-[12px] text-zinc-500 mt-1">
-                    Status: {job.status} · Results: {resultTotal || job.result_count || 0} · Progress: {Math.round((job.progress || 0) * 100)}%
-                  </div>
-                  {job.message && <div className="text-[12px] text-zinc-400 mt-1">{job.message}</div>}
+            {/* Silhouette + palette */}
+            <div style={{ opacity: isPerson ? 1 : 0.45, pointerEvents: isPerson ? "auto" : "none" }}>
+              <div className="flex items-center justify-between mb-1">
+                <span className={labelClass} style={labelStyle}>Paint region</span>
+                <div className="flex gap-1">
+                  {["top", "bottom"].map((r) => (
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={() => setRegion(r)}
+                      className="rounded border px-2 py-0.5 text-[10px] font-telemetry uppercase tracking-wider"
+                      style={{
+                        borderColor: region === r ? "var(--console-accent)" : "var(--console-border)",
+                        background: region === r ? "rgba(34,139,34,0.22)" : "var(--console-raised)",
+                        color: region === r ? "var(--console-text)" : "var(--console-muted)",
+                      }}
+                    >
+                      {r}
+                    </button>
+                  ))}
                 </div>
-                <button type="button" onClick={() => refreshJob().catch((err) => setError(err?.response?.data?.detail || err.message))} className="inline-flex items-center gap-2 rounded border border-white/10 px-3 h-9 text-[12px] text-zinc-200">
-                  <RefreshCw className={`h-4 w-4 ${polling ? "animate-spin" : ""}`} />
-                  Refresh
-                </button>
               </div>
 
-              {results.length === 0 ? (
-                <div className="rounded border border-white/10 bg-black p-8 text-center text-[12px] text-zinc-600">
-                  No matching objects returned yet.
+              <div
+                className="rounded border p-2 flex justify-center"
+                style={{ borderColor: "var(--console-border)", background: "var(--console-raised)" }}
+              >
+                <div style={{ maxHeight: 150 }} className="h-[150px]">
+                  <SuspectSilhouette region={region} onRegion={setRegion} topFill={topFill} bottomFill={bottomFill} />
                 </div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-                  {results.map((result) => {
-                    const url = playbackUrl(result);
-                    const resultId = result.result_id || result.id;
-                    return (
-                      <article key={resultId} className="rounded border border-white/10 bg-black p-3 space-y-3">
-                        <ResultThumb scenarioSlug={scenario.slug} resultId={resultId} />
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <div className="text-[12px] text-zinc-200">{result.camera_name || result.camera_id || "Camera"}</div>
-                            <div className="text-[11px] text-zinc-500">{result.timestamp || result.triggered_at || "-"}</div>
-                          </div>
-                          <div className="rounded bg-[#228B22]/20 px-2 py-1 text-[11px] text-[#8bd98b]">
-                            {typeof result.confidence === "number" ? `${Math.round(result.confidence * 100)}%` : "-"}
-                          </div>
-                        </div>
-                        <div className="flex flex-wrap gap-1 text-[10px] text-zinc-400">
-                          <span className="rounded border border-white/10 px-2 py-1">{result.object_type || objectType}</span>
-                          {["upper_color", "lower_color", "dominant_color"].map((key) => result[key] ? (
-                            <span key={key} className="rounded border border-white/10 px-2 py-1 inline-flex items-center gap-1">
-                              <span className="h-2 w-2 rounded-full" style={{ background: colorHex[result[key]] || "#555" }} />
-                              {result[key]}
-                            </span>
-                          ) : null)}
-                        </div>
-                        <div className="flex gap-2">
-                          {url ? <Link className="flex-1 rounded border border-white/10 px-3 py-2 text-center text-[12px] text-[#228B22]" to={url}>Playback</Link> : null}
-                          <button type="button" onClick={() => searchSimilar(result)} className="flex-1 rounded bg-[#228B22] px-3 py-2 text-[12px] text-white">
-                            Search Similar
-                          </button>
-                        </div>
-                      </article>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
-          )}
-        </main>
+              </div>
 
-        <aside className="rounded p-4 h-fit space-y-4" style={{ background: "var(--console-panel)", border: "1px solid var(--console-border)" }}>
-          <div>
-            <div className="text-[11px] uppercase tracking-wide text-zinc-400">Search Samples</div>
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              {[upperColor, lowerColor, dominantColor].filter((c) => c !== "any").map((name, index) => (
-                <div key={`${name}-${index}`} className="rounded border border-white/10 bg-black p-2">
-                  <div className="h-14 rounded" style={{ background: colorHex[name] || "#333" }} />
-                  <div className="mt-2 text-[11px] capitalize text-zinc-300">{name}</div>
-                </div>
-              ))}
-              {file && (
-                <div className="rounded border border-white/10 bg-black p-2">
-                  <div className="h-14 rounded overflow-hidden">{previewUrl && <img src={previewUrl} alt="" className="h-full w-full object-cover" />}</div>
-                  <div className="mt-2 text-[11px] text-zinc-300 truncate">{file.name}</div>
+              {/* Quick colour swatches */}
+              <div className="mt-1.5 grid grid-cols-8 gap-1">
+                {PALETTE.map((c) => {
+                  const activeHex = region === "top" ? (topUseColor ? topRgb : null) : (bottomUseColor ? bottomRgb : null);
+                  const sel = activeHex && activeHex.toLowerCase() === c.hex.toLowerCase();
+                  return (
+                    <button
+                      key={c.name}
+                      type="button"
+                      title={c.name}
+                      onClick={() => paintRegion(c.hex)}
+                      className="aspect-square rounded"
+                      style={{
+                        backgroundColor: c.hex,
+                        border: sel ? "2px solid var(--console-accent)" : "1px solid var(--console-border)",
+                      }}
+                    />
+                  );
+                })}
+              </div>
+
+              {/* Precise pickers + clear, both regions */}
+              <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+                {[
+                  { key: "top", use: topUseColor, setUse: setTopUseColor, rgb: topRgb, setRgb: setTopRgb },
+                  { key: "bottom", use: bottomUseColor, setUse: setBottomUseColor, rgb: bottomRgb, setRgb: setBottomRgb },
+                ].map((c) => (
+                  <div
+                    key={c.key}
+                    className="rounded border px-2 py-1.5 flex items-center gap-2"
+                    style={{ borderColor: "var(--console-border)", background: "var(--console-raised)" }}
+                  >
+                    <input
+                      type="color"
+                      value={c.rgb}
+                      onChange={(e) => { c.setRgb(e.target.value); c.setUse(true); }}
+                      className="h-6 w-7 rounded border-0 bg-transparent p-0 cursor-pointer"
+                      title={`${c.key} colour`}
+                    />
+                    <span className="font-telemetry text-[9px] uppercase tracking-wider flex-1" style={{ color: c.use ? "var(--console-text)" : "var(--console-muted)" }}>
+                      {c.key}{c.use ? "" : " any"}
+                    </span>
+                    {c.use && (
+                      <button
+                        type="button"
+                        onClick={() => c.setUse(false)}
+                        className="font-telemetry text-[9px] uppercase tracking-wider"
+                        style={{ color: "var(--console-muted)" }}
+                        title="Clear colour"
+                      >
+                        clear
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Garment types */}
+            <div className="grid grid-cols-2 gap-1.5" style={{ opacity: isPerson ? 1 : 0.45, pointerEvents: isPerson ? "auto" : "none" }}>
+              <label className="block">
+                <span className={labelClass} style={labelStyle}>Top type</span>
+                <select className={inputClass} style={inputStyle} value={topType} onChange={(e) => setTopType(e.target.value)}>
+                  {TOP_TYPES.map((t) => <option key={t} value={t}>{t === "any" ? "Any" : t}</option>)}
+                </select>
+              </label>
+              <label className="block">
+                <span className={labelClass} style={labelStyle}>Bottom type</span>
+                <select className={inputClass} style={inputStyle} value={bottomType} onChange={(e) => setBottomType(e.target.value)}>
+                  {BOTTOM_TYPES.map((t) => <option key={t} value={t}>{t === "any" ? "Any" : t}</option>)}
+                </select>
+              </label>
+              <label className="block">
+                <span className={labelClass} style={labelStyle}>Gender</span>
+                <select className={inputClass} style={inputStyle} value={gender} onChange={(e) => setGender(e.target.value)}>
+                  {GENDERS.map((g) => <option key={g} value={g}>{g === "any" ? "Any" : g}</option>)}
+                </select>
+              </label>
+              <label className="block">
+                <span className={labelClass} style={labelStyle}>Age band</span>
+                <select className={inputClass} style={inputStyle} value={ageBand} onChange={(e) => setAgeBand(e.target.value)}>
+                  {AGE_BANDS.map((a) => <option key={a} value={a}>{a === "any" ? "Any" : a}</option>)}
+                </select>
+              </label>
+            </div>
+
+            {/* Accessories */}
+            <div style={{ opacity: isPerson ? 1 : 0.45, pointerEvents: isPerson ? "auto" : "none" }}>
+              <span className={labelClass} style={labelStyle}>Accessories</span>
+              <div className="flex flex-wrap gap-1.5">
+                {ACCESSORIES.map(({ key, label, Icon }) => {
+                  const on = accessories.has(key);
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => toggleAccessory(key)}
+                      className="inline-flex h-7 items-center gap-1.5 rounded border px-2.5 text-[11px]"
+                      style={{
+                        borderColor: on ? "var(--console-accent)" : "var(--console-border)",
+                        background: on ? "rgba(34,139,34,0.22)" : "var(--console-raised)",
+                        color: on ? "var(--console-text)" : "var(--console-muted)",
+                      }}
+                    >
+                      <Icon className="h-3.5 w-3.5" />
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* More filters — reference image, cameras, time range, confidence.
+                Collapsed by default to keep the core attribute builder short. */}
+            <button
+              type="button"
+              onClick={() => setShowMoreFilters((v) => !v)}
+              className="w-full flex items-center justify-between rounded border px-2.5 h-8 text-[10px] font-telemetry uppercase tracking-widest"
+              style={{ borderColor: "var(--console-border)", background: "var(--console-raised)", color: "var(--console-muted)" }}
+              aria-expanded={showMoreFilters}
+            >
+              <span>More filters{(file || selectedCameraIds.size > 0 || from || to) ? " · set" : ""}</span>
+              <ChevronDown
+                className="h-3.5 w-3.5 transition-transform"
+                style={{ transform: showMoreFilters ? "rotate(180deg)" : "none" }}
+              />
+            </button>
+
+            <div className="space-y-2.5" style={{ display: showMoreFilters ? "block" : "none" }}>
+            {/* Optional reference image */}
+            <div>
+              <span className={labelClass} style={labelStyle}>Reference image (optional)</span>
+              <div className="flex items-center gap-2">
+                <label
+                  className="inline-flex h-9 flex-1 items-center justify-center gap-2 rounded border px-3 text-[12px] cursor-pointer"
+                  style={{ borderColor: "var(--console-border)", background: "var(--console-raised)", color: "var(--console-text)" }}
+                >
+                  <Upload className="h-4 w-4" />
+                  {file ? "Replace" : "Choose"}
+                  <input type="file" accept="image/*" className="hidden" onChange={(e) => setFile(e.target.files?.[0] || null)} />
+                </label>
+                {file && (
+                  <button
+                    type="button"
+                    onClick={() => setFile(null)}
+                    className="h-9 rounded border px-2 text-[11px]"
+                    style={{ borderColor: "var(--console-border)", background: "var(--console-raised)", color: "var(--console-muted)" }}
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+              {previewUrl && (
+                <div className="mt-2 h-20 rounded border overflow-hidden" style={{ borderColor: "var(--console-border)", background: "var(--console-raised)" }}>
+                  <img src={previewUrl} alt="Reference" className="h-full w-full object-contain" />
                 </div>
               )}
+              <div className="mt-1 text-[11px] truncate" style={{ color: "var(--console-muted)" }}>
+                {file?.name || "No file selected"}
+              </div>
             </div>
-            {!file && upperColor === "any" && lowerColor === "any" && dominantColor === "any" && (
-              <div className="mt-3 text-[12px] text-zinc-600">Add a photo or choose color attributes.</div>
+
+            {/* Cameras */}
+            <div>
+              <span className={labelClass} style={labelStyle}>Cameras</span>
+              <div
+                className="min-h-9 rounded border p-1.5 flex flex-wrap gap-1.5"
+                style={{ borderColor: "var(--console-border)", background: "var(--console-raised)" }}
+              >
+                {assignedCameras.length === 0 ? (
+                  <span className="text-[11px]" style={{ color: "var(--console-muted)" }}>No assigned cameras</span>
+                ) : assignedCameras.map((cam) => {
+                  const on = selectedCameraIds.has(cam.camera_id);
+                  return (
+                    <button
+                      key={cam.camera_id}
+                      type="button"
+                      onClick={() => toggleCamera(cam.camera_id)}
+                      className="rounded border px-2 py-1 text-[11px]"
+                      style={{
+                        borderColor: on ? "var(--console-accent)" : "var(--console-border)",
+                        background: on ? "rgba(34,139,34,0.22)" : "var(--console-panel)",
+                        color: on ? "var(--console-text)" : "var(--console-muted)",
+                        opacity: cam.enabled ? 1 : 0.72,
+                      }}
+                    >
+                      {cam.camera_name || cam.camera_id}
+                      {!cam.enabled ? " · history" : ""}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Time + confidence */}
+            <div className="grid grid-cols-2 gap-2">
+              <label className="block">
+                <span className={labelClass} style={labelStyle}>From</span>
+                <input className={inputClass} style={inputStyle} type="datetime-local" value={from} onChange={(e) => setFrom(e.target.value)} />
+              </label>
+              <label className="block">
+                <span className={labelClass} style={labelStyle}>To</span>
+                <input className={inputClass} style={inputStyle} type="datetime-local" value={to} onChange={(e) => setTo(e.target.value)} />
+              </label>
+              <label className="block col-span-2">
+                <span className={labelClass} style={labelStyle}>Min confidence</span>
+                <input className={inputClass} style={inputStyle} type="number" min="0" max="1" step="0.01" value={confidence} onChange={(e) => setConfidence(e.target.value)} />
+              </label>
+            </div>
+            </div>
+
+            {error && (
+              <div className="rounded border p-2 text-[11px]" style={{ borderColor: "var(--console-rec)", background: "var(--console-raised)", color: "var(--console-rec)" }}>
+                {error}
+              </div>
             )}
           </div>
 
-          <div className="rounded border border-white/10 bg-black p-3">
-            <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-zinc-400">
-              <MapPinned className="h-4 w-4" />
-              Movement Trajectory
-            </div>
-            {results.length === 0 ? (
-              <div className="mt-4 text-[12px] text-zinc-600">No route until matches are available.</div>
+          {/* Sticky action bar — prominent SEARCH, always reachable */}
+          <div className="shrink-0 border-t p-2.5 flex gap-2" style={{ borderColor: "var(--console-border)" }}>
+            <button
+              type="submit"
+              disabled={loading || blocked || noAssignedCameras}
+              className="flex-1 inline-flex items-center justify-center gap-2 rounded h-10 text-[13px] font-semibold uppercase tracking-widest disabled:opacity-50"
+              style={{ background: "var(--console-accent)", color: "#050505" }}
+            >
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+              {loading ? "Searching" : "Search"}
+            </button>
+            <button
+              type="button"
+              onClick={resetBuilder}
+              className="inline-flex items-center justify-center gap-2 rounded h-10 px-3 border text-[12px]"
+              style={{ borderColor: "var(--console-border)", background: "var(--console-raised)", color: "var(--console-text)" }}
+              title="Reset builder"
+            >
+              <RotateCcw className="h-4 w-4" />
+              Reset
+            </button>
+          </div>
+        </form>
+
+        {/* ════════════════ CENTER — RESULT CANVAS ════════════════ */}
+        <section
+          className="rounded border flex flex-col min-h-0"
+          style={{ borderColor: "var(--console-border)", background: "var(--console-panel)" }}
+        >
+          <div className="px-4 py-2.5 border-b flex items-center justify-between gap-3" style={{ borderColor: "var(--console-border)" }}>
+            <span className="font-telemetry text-[12px] font-semibold uppercase tracking-widest" style={{ color: "var(--console-text)" }}>
+              {searched ? `${matchCount} match${matchCount === 1 ? "" : "es"}` : "Search results"}
+            </span>
+            {searched && !loading && (
+              <span className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
+                Press “Find similar” on a result to refine
+              </span>
+            )}
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-4">
+            {loading ? (
+              <div className="h-full flex flex-col items-center justify-center gap-3">
+                <Loader2 className="h-9 w-9 animate-spin" style={{ color: "var(--console-accent)" }} />
+                <div className="font-telemetry text-[12px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>Searching…</div>
+              </div>
+            ) : !searched ? (
+              <div className="h-full flex flex-col items-center justify-center gap-3 text-center px-6">
+                <Search className="h-14 w-14" style={{ color: "var(--console-border)" }} />
+                <div className="font-telemetry text-[13px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
+                  Build a suspect on the left and press Search
+                </div>
+                <div className="text-[12px] max-w-md" style={{ color: "var(--console-muted)" }}>
+                  Match by garment type and colour, gender, age, accessories, cameras and time — no reference photo required.
+                </div>
+              </div>
+            ) : results.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center gap-3 text-center">
+                <Camera className="h-12 w-12" style={{ color: "var(--console-border)" }} />
+                <div className="font-telemetry text-[12px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
+                  No matches found
+                </div>
+                <div className="text-[12px]" style={{ color: "var(--console-muted)" }}>Try widening the colour, time range or confidence.</div>
+              </div>
             ) : (
-              <div className="mt-4 space-y-3">
-                {results.slice(0, 12).map((result, index) => (
-                  <div key={`${result.result_id || result.id}-route`} className="flex gap-3">
-                    <div className="flex flex-col items-center">
-                      <div className="h-6 w-6 rounded-full bg-[#228B22] text-[11px] text-white flex items-center justify-center">{index + 1}</div>
-                      {index < Math.min(results.length, 12) - 1 && <div className="h-8 w-px bg-white/10" />}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-3">
+                {results.map((result) => {
+                  const url = playbackUrl(result);
+                  const resultId = result.result_id || result.id;
+                  const topHex = hexOf(result, "top_hex", "top_rgb");
+                  const bottomHex = hexOf(result, "bottom_hex", "bottom_rgb");
+                  const domHex = hexOf(result, "dominant_hex");
+                  const accs = accList(result);
+                  return (
+                    <article
+                      key={resultId}
+                      className="rounded border p-3 space-y-3"
+                      style={{ borderColor: "var(--console-border)", background: "var(--console-raised)" }}
+                    >
+                      <ResultThumb scenarioSlug={scenario.slug} resultId={resultId} />
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-[12px] truncate" style={{ color: "var(--console-text)" }}>{result.camera_name || result.camera_id || "Camera"}</div>
+                          <div className="text-[11px] truncate" style={{ color: "var(--console-muted)" }}>{result.timestamp || result.triggered_at || "-"}</div>
+                        </div>
+                        <div className="rounded px-2 py-1 text-[11px] shrink-0 border" style={{ borderColor: "var(--console-accent)", background: "rgba(34,139,34,0.2)", color: "var(--console-text)" }}>
+                          {typeof result.confidence === "number" ? `${Math.round(result.confidence * 100)}%` : "-"}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap gap-1">
+                        <Badge>{result.object_type || objectType}</Badge>
+                        {(result.top_type || topHex) && (
+                          <Badge swatch={topHex || undefined}>{result.top_type || result.top_color || "top"}</Badge>
+                        )}
+                        {(result.bottom_type || bottomHex) && (
+                          <Badge swatch={bottomHex || undefined}>{result.bottom_type || result.bottom_color || "bottom"}</Badge>
+                        )}
+                        {domHex && <Badge swatch={domHex}>colour</Badge>}
+                        {result.gender && <Badge>{result.gender}</Badge>}
+                        {result.age_band && <Badge>{result.age_band}</Badge>}
+                        {accs.map((a) => {
+                          const meta = ACCESSORIES.find((x) => x.key === a);
+                          const Icon = meta?.Icon;
+                          return (
+                            <Badge key={a}>
+                              {Icon ? <Icon className="h-3 w-3" /> : null}
+                              {a}
+                            </Badge>
+                          );
+                        })}
+                      </div>
+
+                      <div className="flex gap-2">
+                        {url ? (
+                          <Link
+                            className="flex-1 rounded border px-3 py-2 text-center text-[12px]"
+                            style={{ borderColor: "var(--console-border)", background: "var(--console-panel)", color: "var(--console-text)" }}
+                            to={url}
+                          >
+                            Playback
+                          </Link>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => searchSimilar(result)}
+                          className="flex-1 rounded px-3 py-2 text-[12px] font-semibold"
+                          style={{ background: "var(--console-accent)", color: "#050505" }}
+                        >
+                          Find similar
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* ════════════════ RIGHT — CONTEXT ════════════════ */}
+        <aside
+          className="rounded border flex flex-col min-h-0"
+          style={{ borderColor: "var(--console-border)", background: "var(--console-panel)" }}
+        >
+          <div className="flex-1 overflow-y-auto p-3 space-y-4">
+            {/* Active filters */}
+            <div>
+              <SectionLabel>Active filters</SectionLabel>
+              <div className="flex flex-wrap gap-1.5">
+                {!isPerson && <Badge>{objectType}</Badge>}
+                {isPerson && topType !== "any" && <Badge>top: {topType}</Badge>}
+                {isPerson && topUseColor && <Badge swatch={topRgb}>top colour</Badge>}
+                {isPerson && bottomType !== "any" && <Badge>bottom: {bottomType}</Badge>}
+                {isPerson && bottomUseColor && <Badge swatch={bottomRgb}>bottom colour</Badge>}
+                {isPerson && gender !== "any" && <Badge>{gender}</Badge>}
+                {isPerson && ageBand !== "any" && <Badge>age {ageBand}</Badge>}
+                {isPerson && Array.from(accessories).map((a) => <Badge key={a}>{a}</Badge>)}
+                {(from || to) && <Badge>time range</Badge>}
+                {selectedCameraIds.size > 0 && <Badge>{selectedCameraIds.size} cam</Badge>}
+                {file && <Badge>reference image</Badge>}
+                {!hasAttributeSearch && !file && (
+                  <span className="text-[12px]" style={{ color: "var(--console-muted)" }}>
+                    No filters set — choose attributes, cameras or a time range.
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Movement trajectory */}
+            <div className="rounded border p-3" style={{ borderColor: "var(--console-border)", background: "var(--console-raised)" }}>
+              <SectionLabel Icon={MapPinned}>Movement trajectory</SectionLabel>
+              {results.length === 0 ? (
+                <div className="text-[12px]" style={{ color: "var(--console-muted)" }}>No route until matches are available.</div>
+              ) : (
+                <div className="space-y-3">
+                  {results.slice(0, 12).map((result, index) => (
+                    <div key={`${result.result_id || result.id}-route`} className="flex gap-3">
+                      <div className="flex flex-col items-center">
+                        <div className="h-6 w-6 rounded-full text-[11px] flex items-center justify-center" style={{ background: "var(--console-accent)", color: "#050505" }}>{index + 1}</div>
+                        {index < Math.min(results.length, 12) - 1 && <div className="h-8 w-px" style={{ background: "var(--console-border)" }} />}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-[12px] truncate" style={{ color: "var(--console-text)" }}>{result.camera_name || result.camera_id || "Camera"}</div>
+                        <div className="text-[11px] truncate" style={{ color: "var(--console-muted)" }}>{result.timestamp || result.triggered_at}</div>
+                      </div>
                     </div>
-                    <div>
-                      <div className="text-[12px] text-zinc-200">{result.camera_name || result.camera_id || "Camera"}</div>
-                      <div className="text-[11px] text-zinc-500">{result.timestamp || result.triggered_at}</div>
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Index archive — minor, tucked at the bottom */}
+          <div className="border-t p-3 space-y-2" style={{ borderColor: "var(--console-border)" }}>
+            <SectionLabel Icon={Database}>Index archive</SectionLabel>
+            <div className="text-[11px]" style={{ color: "var(--console-muted)" }}>
+              Background pass that indexes the archive so attribute search has data.
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={loading || blocked || noEnabledCameras}
+                onClick={runIndex}
+                className="flex-1 inline-flex items-center justify-center gap-2 rounded h-8 border text-[11px] disabled:opacity-50"
+                style={{ borderColor: "var(--console-border)", background: "var(--console-raised)", color: "var(--console-text)" }}
+              >
+                <Database className="h-3.5 w-3.5" />
+                {indexRunning ? "Indexing…" : "Index"}
+              </button>
+              {job && (
+                <button
+                  type="button"
+                  onClick={() => refreshJob().catch((err) => setError(err?.response?.data?.detail || err.message))}
+                  className="inline-flex items-center justify-center rounded h-8 w-8 border"
+                  style={{ borderColor: "var(--console-border)", background: "var(--console-raised)", color: "var(--console-text)" }}
+                  title="Refresh index status"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${polling ? "animate-spin" : ""}`} />
+                </button>
+              )}
+              {indexRunning && (
+                <button
+                  type="button"
+                  onClick={() => cancelScenarioJob(scenario.slug, job.job_id).then(setJob).catch((err) => setError(err?.response?.data?.detail || err.message))}
+                  className="inline-flex items-center justify-center rounded h-8 w-8 border"
+                  style={{ borderColor: "var(--console-rec)", background: "var(--console-raised)", color: "var(--console-rec)" }}
+                  title="Cancel index job"
+                >
+                  <XCircle className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+            {job && (
+              <div className="text-[10px] font-telemetry uppercase tracking-wider" style={{ color: "var(--console-muted)" }}>
+                {job.status} · {Math.round((job.progress || 0) * 100)}%{job.message ? ` · ${job.message}` : ""}
               </div>
             )}
           </div>

@@ -31,6 +31,7 @@ except Exception:  # noqa: BLE001
 
 try:
     from recognition.inference.engine import OnnxEngine
+    from recognition.inference.triton_engine import TritonEngine
     from recognition.inference.align import align_face, denoise_face
     from recognition.inference.augment import generate_photometric_variants
     from recognition.inference.quality import (
@@ -42,18 +43,29 @@ try:
     )
 except Exception as _exc:  # noqa: BLE001
     OnnxEngine = None
+    TritonEngine = None
     print(f"[frs] inference pipeline import failed, histogram fallback only: {_exc}", flush=True)
 
-_ENGINE = None  # lazily-built OnnxEngine singleton
+_ENGINE = None  # lazily-built inference-engine singleton
 
 
 def engine():
-    """Lazy OnnxEngine singleton. None if the inference package failed to import."""
+    """Lazy inference-engine singleton. Backend chosen by INFERENCE_BACKEND:
+    'triton' → shared Triton server (production, batched, scalable);
+    anything else → in-process onnxruntime (dev / single-node small)."""
     global _ENGINE
-    if _ENGINE is not None or OnnxEngine is None:
+    if _ENGINE is not None:
         return _ENGINE
-    _ENGINE = OnnxEngine(config.DETECTOR_MODEL_PATH, config.EMBED_MODEL_PATH,
-                         config.ANTISPOOF_MODEL_PATH, config.FAIRFACE_MODEL_PATH)
+    backend = (config.INFERENCE_BACKEND or "").lower()
+    if backend == "triton" and TritonEngine is not None:
+        _ENGINE = TritonEngine(
+            config.TRITON_URL,
+            has_fairface=bool(config.FAIRFACE_MODEL_PATH),
+            has_antispoof=bool(config.ANTISPOOF_MODEL_PATH),
+        )
+    elif OnnxEngine is not None:
+        _ENGINE = OnnxEngine(config.DETECTOR_MODEL_PATH, config.EMBED_MODEL_PATH,
+                             config.ANTISPOOF_MODEL_PATH, config.FAIRFACE_MODEL_PATH)
     return _ENGINE
 
 

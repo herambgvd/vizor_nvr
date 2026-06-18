@@ -18,7 +18,10 @@ DATA_PATH = Path(os.getenv("DATA_PATH", "/data/frs"))
 QDRANT_URL = os.getenv("QDRANT_URL", "").rstrip("/")
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "vizor_frs_faces")
 
+# Inference backend: 'triton' → shared Triton server (production, batched,
+# scales to 64+ channels); otherwise in-process onnxruntime (dev / small node).
 INFERENCE_BACKEND = os.getenv("INFERENCE_BACKEND", "onnxruntime-gpu")
+TRITON_URL = os.getenv("TRITON_URL", "triton:8000")
 # ONNX models — the exact files Triton served in vizor-gpu: SCRFD detector,
 # ArcFace embedder, optional MiniFASNet antispoofing. Mounted via the models volume.
 DETECTOR_MODEL_PATH = Path(os.getenv("DETECTOR_MODEL_PATH", "/models/scrfd_10g.onnx"))

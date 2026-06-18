@@ -52,36 +52,38 @@ const clampFontSize = (value) => {
   return Math.min(18, Math.max(12, parsed));
 };
 
+// Vercel-style palettes. accent = brand GREEN so primary buttons render green +
+// white text (previously accent was #FFFFFF/#111827 → white/near-white buttons).
 const themePalette = (mode) => (
   mode === "light"
     ? {
         bg: "#FFFFFF",
         panel: "#FFFFFF",
-        raised: "#F8FAFC",
+        raised: "#F7F7F8",
         border: "#E5E7EB",
-        text: "#111827",
-        muted: "#6B7280",
+        text: "#0A0A0A",
+        muted: "#666666",
         input: "#FFFFFF",
         popover: "#FFFFFF",
         hover: "#F3F4F6",
-        active: "#E5E7EB",
-        accent: "#111827",
+        active: "#ECECEF",
+        accent: "#228B22",
         accentText: "#FFFFFF",
         online: "#16A34A",
       }
     : {
         bg: "#000000",
-        panel: "#000000",
-        raised: "#0A0A0A",
-        border: "#262626",
-        text: "#F9FAFB",
-        muted: "#A1A1AA",
-        input: "#0A0A0A",
-        popover: "#050505",
-        hover: "#111111",
-        active: "#171717",
-        accent: "#FFFFFF",
-        accentText: "#000000",
+        panel: "#0A0A0A",
+        raised: "#111111",
+        border: "#333333",
+        text: "#FFFFFF",
+        muted: "#888888",
+        input: "#111111",
+        popover: "#0A0A0A",
+        hover: "#171717",
+        active: "#1F1F1F",
+        accent: "#228B22",
+        accentText: "#FFFFFF",
         online: "#22C55E",
       }
 );
@@ -153,8 +155,10 @@ export default function useBranding() {
     root.style.setProperty("--success", buttonHsl);
     root.style.setProperty("--ring", buttonHsl);
     root.style.setProperty("--console-accent", buttonColor);
-    root.style.setProperty("--console-accent-blue", buttonColor);
+    root.style.setProperty("--console-accent-blue", "#0070f3");
     root.style.setProperty("--console-online", palette.online);
+    root.style.setProperty("--console-raised", palette.raised);
+    root.style.setProperty("--console-faint", themeMode === "light" ? "#999999" : "#666666");
     root.style.setProperty("--console-accent-foreground", buttonText);
   }, [
     branding.system_name,

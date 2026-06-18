@@ -9,14 +9,16 @@ const buttonVariants = cva(
   {
     variants: {
         variant: {
-          default:
-          "bg-[var(--console-accent)] text-[var(--console-accent-foreground)] shadow-[0_0_14px_hsl(var(--ring)/0.20)] hover:brightness-110 active:brightness-90",
+        // Primary = brand green bg + white text, flat (no glow). Reads on both
+        // light and dark themes.
+        default:
+          "bg-[var(--console-accent)] text-white border border-[var(--console-accent)] hover:brightness-110 active:brightness-95",
         destructive:
-          "bg-red-600 text-white shadow-[0_0_18px_rgba(239,68,68,0.22)] hover:bg-red-500 active:bg-red-700",
+          "bg-[var(--console-rec)] text-white border border-[var(--console-rec)] hover:brightness-110 active:brightness-95",
         outline:
-          "border border-red-600/70 bg-transparent text-red-400 shadow-sm hover:bg-red-600/10 hover:border-red-500 hover:text-red-300",
+          "border border-[var(--console-border)] bg-[var(--console-raised)] text-[var(--console-text)] hover:border-[var(--console-muted)]",
         secondary:
-          "bg-card/70 text-foreground border border-border shadow-sm hover:bg-white/[0.10]",
+          "bg-[var(--console-raised)] text-[var(--console-text)] border border-[var(--console-border)] hover:border-[var(--console-muted)]",
         ghost: "text-[var(--console-muted)] hover:bg-[var(--console-hover)] hover:text-[var(--console-text)]",
         link: "text-[var(--console-accent)] underline-offset-4 hover:underline hover:brightness-125",
       },

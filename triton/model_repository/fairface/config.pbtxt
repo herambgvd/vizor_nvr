@@ -1,0 +1,16 @@
+# FairFace age/gender. 18 logits (9 age buckets + 2 gender + race, plugin uses
+# the age/gender slices). Batched across cameras.
+name: "fairface"
+platform: "onnxruntime_onnx"
+max_batch_size: 32
+input [
+  { name: "input" data_type: TYPE_FP32 dims: [ 3, 224, 224 ] }
+]
+output [
+  { name: "output" data_type: TYPE_FP32 dims: [ 18 ] }
+]
+instance_group [ { count: 1 kind: KIND_GPU } ]
+dynamic_batching {
+  preferred_batch_size: [ 4, 8, 16 ]
+  max_queue_delay_microseconds: 3000
+}

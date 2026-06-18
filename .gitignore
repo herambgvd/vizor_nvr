@@ -118,3 +118,9 @@ deepstream/model_repository/**/*.plan
 # AI scenario ONNX model weights (large binaries — fetched via scripts/fetch-frs-models.sh)
 models/*.onnx
 models/**/*.onnx
+
+# Triton model repository — large ONNX weights + generated configs (not in git;
+# ONNX fetched/exported separately, config.pbtxt regenerated per deploy).
+triton/model_repository/**/*.onnx
+triton/model_repository/**/*.engine
+triton/model_repository/**/*.plan

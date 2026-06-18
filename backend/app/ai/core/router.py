@@ -407,7 +407,7 @@ async def _proxy_to_scenario(
     enabled_camera_ids = await _enabled_camera_ids_for_scenario(db, scenario.id)
     assigned_camera_ids = await _assigned_camera_ids_for_scenario(db, scenario.id)
     path_clean = path.strip("/")
-    is_search = path_clean == "jobs/search" or (path_clean.startswith("results/") and path_clean.endswith("/search-similar"))
+    is_search = path_clean in ("search", "jobs/search") or (path_clean.startswith("results/") and path_clean.endswith("/search-similar"))
     if request.method == "POST" and path_clean == "jobs/index" and not enabled_camera_ids:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
@@ -454,7 +454,7 @@ async def _proxy_to_scenario(
     response_headers = {}
     if upstream.headers.get("content-type"):
         response_headers["content-type"] = upstream.headers["content-type"]
-    if request.method == "POST" and path.strip("/") == "jobs/search" and upstream.status_code < 400:
+    if request.method == "POST" and path.strip("/") in ("search", "jobs/search") and upstream.status_code < 400:
         details: dict[str, Any] = {"scenario": slug, "path": path}
         try:
             details["plugin_response"] = upstream.json()

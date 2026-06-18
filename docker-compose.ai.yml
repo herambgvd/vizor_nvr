@@ -9,6 +9,42 @@
 # =============================================================================
 
 services:
+  # Shared inference server for ALL AI scenarios (FRS, PPE, suspect-search …).
+  # Dynamic batching across cameras = high GPU throughput at 64-channel scale,
+  # and inference runs in its own process so plugin GIL is a non-issue. Add a
+  # new scenario = drop its ONNX + config.pbtxt into the model repo.
+  triton:
+    image: nvcr.io/nvidia/tritonserver:24.08-py3
+    container_name: gvd_ai_triton
+    restart: unless-stopped
+    command: >
+      tritonserver
+      --model-repository=/models
+      --model-control-mode=poll
+      --repository-poll-secs=30
+      --log-verbose=0
+      --strict-model-config=false
+    networks:
+      - internal
+    volumes:
+      - ./triton/model_repository:/models:ro
+    shm_size: "1g"
+    deploy:
+      resources:
+        limits:
+          memory: ${TRITON_MEM_LIMIT:-8g}
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "bash", "-lc", "exec 3<>/dev/tcp/127.0.0.1/8000"]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
   qdrant:
     # Pin a version — :latest can change the storage format under a running
     # deployment. Bump deliberately + test.
@@ -60,6 +96,8 @@ services:
         condition: service_started
       suspect-search-db:
         condition: service_healthy
+      triton:
+        condition: service_started
     environment:
       SCENARIO_SLUG: suspect-search
       VIZOR_BASE_URL: http://backend:8000/api
@@ -67,7 +105,9 @@ services:
       VIZOR_SERVICE_TOKEN: ${AI_PLUGIN_SERVICE_TOKEN:-dev-XNrW79MQknM38BVGRkDZWrUQhJsJ2HUBbYfTOkWAZY0}
       QDRANT_URL: http://qdrant:6333
       SUSPECT_SEARCH_DATABASE_URL: postgresql://suspect:${AI_SUSPECT_SEARCH_DB_PASSWORD:-suspect}@suspect-search-db:5432/suspect_search
-      INFERENCE_BACKEND: onnxruntime-gpu
+      # Inference on the shared Triton server (yolo26 + person_reid + clothing_yolos).
+      INFERENCE_BACKEND: ${SUSPECT_INFERENCE_BACKEND:-triton}
+      TRITON_URL: ${TRITON_URL:-triton:8000}
       DETECTOR_MODEL_PATH: /models/yolo26.onnx
       REID_MODEL_PATH: /models/person-reid.onnx
       DETECTOR_CLASS_MAP: 0:person,24:bag,26:bag,28:bag
@@ -78,7 +118,6 @@ services:
       PORT: 8091
     networks:
       - internal
-    gpus: all
     command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8091", "--reload"]
     volumes:
       - ./scenarios/suspect-search:/app
@@ -161,6 +200,8 @@ services:
         condition: service_started
       frs-db:
         condition: service_healthy
+      triton:
+        condition: service_started
     environment:
       SCENARIO_SLUG: frs
       VIZOR_BASE_URL: http://backend:8000/api
@@ -170,17 +211,14 @@ services:
       QDRANT_URL: http://qdrant:6333
       QDRANT_COLLECTION: vizor_frs_faces
       DATA_PATH: /data/frs
-      INFERENCE_BACKEND: onnxruntime-gpu
+      # Inference via the shared Triton server (no in-process GPU). The model
+      # *_PATH vars now only flag which models exist for the status endpoint.
+      INFERENCE_BACKEND: ${FRS_INFERENCE_BACKEND:-triton}
+      TRITON_URL: ${TRITON_URL:-triton:8000}
       DETECTOR_MODEL_PATH: /models/scrfd_10g.onnx
       EMBED_MODEL_PATH: /models/arcface_r50.onnx
       ANTISPOOF_MODEL_PATH: /models/antispoofing.onnx
       FAIRFACE_MODEL_PATH: /models/fairface.onnx
-      # GPU is required for production scale. Set FRS_REQUIRE_GPU=true so the
-      # engine refuses to start on CPU fallback instead of silently crawling.
-      # Leave false for CPU-only dev / small camera counts.
-      FRS_REQUIRE_GPU: ${FRS_REQUIRE_GPU:-false}
-      NVIDIA_VISIBLE_DEVICES: ${FRS_GPU_DEVICES:-all}
-      NVIDIA_DRIVER_CAPABILITIES: compute,utility
       # Live per-camera recognition — pull frames from go2rtc's RTSP restream.
       FRS_LIVE_ENABLED: "true"
       GO2RTC_RTSP_HOST: go2rtc
@@ -193,20 +231,12 @@ services:
     volumes:
       - recordings:/data/recordings:ro
       - frs_photos:/data/frs
-      - ./models:/models:ro
     deploy:
       resources:
         limits:
-          # Right-sized for the inference workload; raise with camera count.
-          memory: ${FRS_MEM_LIMIT:-6g}
-          cpus: "${FRS_CPU_LIMIT:-6}"
-        reservations:
-          # GPU passthrough — requires the NVIDIA container runtime on the host.
-          # Comment this block out on CPU-only hosts (with FRS_REQUIRE_GPU=false).
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+          # Thin Triton client — no GPU, modest CPU for decode/orchestrate.
+          memory: ${FRS_MEM_LIMIT:-4g}
+          cpus: "${FRS_CPU_LIMIT:-4}"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8093/health').read()"]
       interval: 30s

@@ -23,7 +23,9 @@ QDRANT_URL = os.getenv("QDRANT_URL", "").rstrip("/")
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "vizor_suspect_search")
 VECTOR_SIZE = int(os.getenv("VECTOR_SIZE", "768"))
 
+# 'triton' → shared Triton server (production); else in-process onnxruntime (dev).
 INFERENCE_BACKEND = os.getenv("INFERENCE_BACKEND", "onnxruntime-gpu")
+TRITON_URL = os.getenv("TRITON_URL", "triton:8000")
 DETECTOR_MODEL_PATH = Path(os.getenv("DETECTOR_MODEL_PATH", "/models/yolo26.onnx"))
 REID_MODEL_PATH = Path(os.getenv("REID_MODEL_PATH", "/models/person-reid.onnx"))
 DETECTOR_INPUT_SIZE = int(os.getenv("DETECTOR_INPUT_SIZE", "640"))

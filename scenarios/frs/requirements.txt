@@ -8,5 +8,6 @@ opencv-python-headless==4.10.0.84
 qdrant-client==1.12.1
 sqlalchemy==2.0.36
 psycopg2-binary==2.9.10
-onnxruntime-gpu==1.20.1
+onnxruntime==1.20.1
 alembic==1.14.0
+tritonclient[http]==2.50.0

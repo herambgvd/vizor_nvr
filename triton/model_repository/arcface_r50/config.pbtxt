@@ -1,0 +1,15 @@
+# ArcFace R50 512-d face embedder. This ONNX export has a FIXED output shape
+# [1,512] (not -1,512), so Triton can't do request-level dynamic batching on it
+# without a re-export. We run it unbatched (max_batch_size 0) with explicit
+# dims — correct + fast on GPU; multiple instances give concurrency instead.
+# (To enable true batching later: re-export ArcFace with a dynamic batch axis.)
+name: "arcface_r50"
+platform: "onnxruntime_onnx"
+max_batch_size: 0
+input [
+  { name: "input.1" data_type: TYPE_FP32 dims: [ 1, 3, 112, 112 ] }
+]
+output [
+  { name: "683" data_type: TYPE_FP32 dims: [ 1, 512 ] }
+]
+instance_group [ { count: 2 kind: KIND_GPU } ]

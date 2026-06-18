@@ -107,11 +107,11 @@ code, pre, .font-mono {
     --sidebar: 0 0% 0%;
     --sidebar-foreground: 220 14% 96%;
 
-    --card: 0 0% 3%;
-    --card-foreground: 220 14% 96%;
+    --card: 0 0% 4%;                 /* #0A0A0A Vercel off-black card */
+    --card-foreground: 0 0% 100%;
 
-    --popover: 0 0% 3%;
-    --popover-foreground: 220 14% 96%;
+    --popover: 0 0% 4%;
+    --popover-foreground: 0 0% 100%;
 
     /* Brand/action colors */
     --primary: 120 61% 34%;          /* #228B22 Forest Green */
@@ -134,9 +134,9 @@ code, pre, .font-mono {
     --warning: 38 92% 50%;           /* #F59E0B Amber */
     --warning-foreground: 0 0% 0%;
 
-    /* Form + structural */
-    --border: 0 0% 14%;
-    --input: 0 0% 5%;
+    /* Form + structural — Vercel subtle gray #333 border, 1px. */
+    --border: 0 0% 20%;              /* #333333 */
+    --input: 0 0% 7%;                /* #111111 */
     --ring: 120 61% 34%;
 
     /* Charts — teal, blue, amber, red, green */
@@ -146,7 +146,47 @@ code, pre, .font-mono {
     --chart-4: 0 84% 60%;
     --chart-5: 120 61% 34%;
 
-    --radius: 0.5rem;
+    --radius: 0.375rem;              /* 6px — Vercel sharp corners */
+  }
+
+  /* LIGHT theme tokens — clean white surfaces, dark text, subtle gray borders.
+     Mirrors the dark set so shadcn components (bg-background/card/border…) flip
+     correctly when <html> gets the .light class. */
+  .light {
+    --background: 0 0% 100%;         /* #ffffff */
+    --foreground: 0 0% 4%;           /* near-black text */
+
+    --sidebar: 0 0% 100%;
+    --sidebar-foreground: 0 0% 4%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 4%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 4%;
+
+    --primary: 120 61% 34%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 9%;
+
+    --accent: 120 61% 34%;
+    --accent-foreground: 0 0% 100%;
+
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 40%;    /* #666 */
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 120 61% 34%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 0%;
+
+    --border: 0 0% 90%;              /* #e5e7eb-ish */
+    --input: 0 0% 96%;
+    --ring: 120 61% 34%;
   }
 }
 
@@ -252,28 +292,61 @@ code, pre, .font-mono {
   50%      { transform: translate(-4%, 3%) scale(1.05); }
 }
 
-/* ── Control-room console theme tokens ───────────────────────────── */
+/* ── Control-room console theme tokens ───────────────────────────────
+   Vercel aesthetic. Layout/brand tokens are theme-independent; the colour
+   tokens come in a DARK set (default + .dark) and a LIGHT set (.light). The
+   active set is chosen by the .light/.dark class ThemeContext puts on <html>. */
 :root {
-  --console-bg: #000000;
-  --console-panel: #000000;
-  --console-raised: #050505;
-  --console-border: #202020;
-  --console-hover: #101010;
-  --console-active: #171717;
-  --console-text: #e2e8f0;
-  --console-muted: #8a8f98;
-  --console-accent: #228B22;
-  --console-accent-blue: #228B22;
+  /* Theme-independent */
+  --console-accent: #228B22;        /* brand green */
+  --console-accent-blue: #0070f3;   /* vercel blue (info) */
   --console-accent-foreground: #ffffff;
   --console-rec: #ef4444;
   --console-alarm: #f59e0b;
   --console-online: #228B22;
   --console-offline: #71717a;
+  --console-radius: 6px;            /* sharp corners — max 8px */
   --console-rail-w: 56px;
   --console-tree-w: 260px;
   --console-dock-w: 300px;
   --console-header-h: 44px;
   --console-statusbar-h: 28px;
+}
+
+/* DARK colour set — Vercel: pure-black canvas, off-black cards, #333 borders,
+   white headings / #888 body. Default (no class) + explicit .dark. */
+:root,
+:root.dark,
+.dark {
+  --console-bg: #000000;
+  --console-panel: #0A0A0A;
+  --console-raised: #111111;
+  --console-border: #333333;
+  --console-hover: #171717;
+  --console-active: #1f1f1f;
+  --console-text: #ffffff;
+  --console-muted: #888888;
+  --console-faint: #666666;
+  --console-primary-bg: #ffffff;       /* white primary button */
+  --console-primary-bg-hover: #ededed;
+  --console-primary-text: #000000;
+}
+
+/* LIGHT colour set — clean white surfaces, dark text, subtle gray borders. */
+:root.light,
+.light {
+  --console-bg: #ffffff;
+  --console-panel: #ffffff;
+  --console-raised: #f7f7f8;
+  --console-border: #e5e7eb;
+  --console-hover: #f3f4f6;
+  --console-active: #ececef;
+  --console-text: #0a0a0a;
+  --console-muted: #666666;
+  --console-faint: #999999;
+  --console-primary-bg: #000000;       /* black primary button */
+  --console-primary-bg-hover: #333333;
+  --console-primary-text: #ffffff;
 }
 
 /* Operational screens opt out of the aurora gradient via this class on
@@ -284,6 +357,39 @@ code, pre, .font-mono {
 .console-panel { background: var(--console-panel); border-color: var(--console-border); }
 .console-raised { background: var(--console-raised); }
 .font-telemetry { font-family: "Montserrat", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+
+/* ── Buttons (opt-in helpers) ────────────────────────────────────────── */
+/* Primary: brand green bg + white text, flat. Same in both themes. */
+.btn-primary {
+  background: var(--console-accent);
+  color: #ffffff;
+  border: 1px solid var(--console-accent);
+  border-radius: var(--console-radius);
+  font-weight: 500;
+  transition: filter .15s ease;
+}
+.btn-primary:hover { filter: brightness(1.1); }
+.btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Secondary/default: translucent dark, gray border, muted text → white on hover. */
+.btn-secondary {
+  background: var(--console-raised);
+  color: var(--console-muted);
+  border: 1px solid var(--console-border);
+  border-radius: var(--console-radius);
+  transition: border-color .15s ease, color .15s ease;
+}
+.btn-secondary:hover { border-color: #666666; color: var(--console-text); }
+
+/* Accent/info (Vercel blue) + destructive. */
+.btn-accent { background: var(--console-accent-blue); color: #fff; border: 1px solid var(--console-accent-blue); border-radius: var(--console-radius); }
+.btn-accent:hover { background: #0051cb; border-color: #0051cb; }
+.btn-danger { background: var(--console-rec); color: #fff; border: 1px solid var(--console-rec); border-radius: var(--console-radius); }
+
+/* Vercel discipline: cap large radii to a sharp 8px (rounded-full kept for
+   avatars / status dots), and drop glow shadows in favour of flat 1px borders. */
+.console-root [class*="rounded-2xl"], .console-root [class*="rounded-3xl"], .console-root [class*="rounded-xl"] { border-radius: 8px !important; }
+.console-root [class*="shadow-2xl"], .console-root [class*="shadow-xl"], .console-root [class*="shadow-lg"] { box-shadow: none !important; }
 
 /* Theme-aware hover normalization. A few screens still use dark-tailored
    utility classes such as hover:bg-white/5; map them back to the active

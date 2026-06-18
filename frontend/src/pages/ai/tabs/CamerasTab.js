@@ -45,7 +45,7 @@ const Toggle = ({ checked, disabled, onChange }) => (
     disabled={disabled}
     onClick={(e) => { e.stopPropagation(); onChange(!checked); }}
     className="relative inline-flex h-[20px] w-[36px] items-center rounded-full transition-colors disabled:opacity-40 shrink-0"
-    style={{ background: checked ? "var(--console-accent)" : "var(--console-border)" }}
+    style={{ background: checked ? "var(--console-accent, #228B22)" : "var(--console-border, #333333)" }}
   >
     <span className="inline-block h-[14px] w-[14px] rounded-full bg-white transition-transform"
       style={{ transform: checked ? "translateX(19px)" : "translateX(3px)" }} />
@@ -154,9 +154,9 @@ const MultiSelectField = ({ field, value, onChange }) => {
             <button key={opt} type="button" onClick={() => toggle(opt)}
               className="font-telemetry text-[10px] uppercase tracking-wide px-2 py-1 rounded border transition-colors"
               style={{
-                background: on ? "var(--console-accent)" : "var(--console-raised)",
-                borderColor: on ? "var(--console-accent)" : "var(--console-border)",
-                color: on ? "#fff" : "var(--console-muted)",
+                background: on ? "var(--console-accent, #228B22)" : "var(--console-raised, #111111)",
+                borderColor: on ? "var(--console-accent, #228B22)" : "var(--console-border, #333333)",
+                color: on ? "#fff" : "var(--console-muted, #888888)",
               }}>
               {opt}
             </button>

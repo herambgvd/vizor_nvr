@@ -25,13 +25,23 @@ export const ThemeProvider = ({ children }) => {
       if (stored === "dark" || stored === "light") {
         return stored;
       }
-      // Check system preference
-      if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
-        return "dark";
-      }
     }
-    return "light";
+    // Control-room product: default to dark unless the user picked light.
+    return "dark";
   });
+
+  // Apply the active theme to <html> as both a class (.light/.dark — drives the
+  // console + tailwind variable blocks) and persist it. This was missing, so the
+  // toggle changed state but never the DOM → neither theme actually applied.
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.remove("light", "dark");
+    root.classList.add(theme);
+    root.setAttribute("data-theme", theme);
+    try {
+      localStorage.setItem(THEME_KEY, theme);
+    } catch (_e) { /* ignore */ }
+  }, [theme]);
 
   // Listen for system preference changes
   useEffect(() => {

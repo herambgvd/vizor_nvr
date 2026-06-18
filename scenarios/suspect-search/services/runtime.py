@@ -31,6 +31,7 @@ from config.settings import (
     DETECTOR_MODEL_PATH,
     FRAME_INTERVAL_SECONDS,
     INFERENCE_BACKEND,
+    TRITON_URL,
     MANIFEST_PATH,
     MAX_SCAN_FRAMES,
     PORT,
@@ -57,6 +58,16 @@ try:
     import onnxruntime as ort
 except Exception:  # noqa: BLE001
     ort = None
+
+# Shared-Triton inference (production). Falls back to in-process onnxruntime when
+# INFERENCE_BACKEND != 'triton' or the package is unavailable.
+_USE_TRITON = (INFERENCE_BACKEND or "").lower() == "triton"
+try:
+    import inference as triton_infer
+except Exception as _exc:  # noqa: BLE001
+    triton_infer = None
+    if _USE_TRITON:
+        print(f"[suspect-search] triton inference import failed: {_exc}", flush=True)
 
 try:
     from qdrant_client import QdrantClient
@@ -453,6 +464,22 @@ def _onnx_status() -> dict[str, Any]:
     }
 
 
+def _ensure_payload_indexes(client) -> None:
+    """Payload indexes so Stage-1 attribute + time-range filters run efficiently.
+    timestamp is a datetime index (for DatetimeRange); the rest are keyword."""
+    if qmodels is None:
+        return
+    try:
+        client.create_payload_index(QDRANT_COLLECTION, "timestamp", qmodels.PayloadSchemaType.DATETIME)
+    except Exception:  # noqa: BLE001 - already exists
+        pass
+    for field in ("object_type", "camera_id", "top_type", "bottom_type", "gender", "age_band"):
+        try:
+            client.create_payload_index(QDRANT_COLLECTION, field, qmodels.PayloadSchemaType.KEYWORD)
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def _qdrant_client() -> Any | None:
     global QDRANT
     if QDRANT is not None:
@@ -468,6 +495,7 @@ def _qdrant_client() -> Any | None:
                 collection_name=QDRANT_COLLECTION,
                 vectors_config=qmodels.VectorParams(size=VECTOR_SIZE, distance=qmodels.Distance.COSINE),
             )
+            _ensure_payload_indexes(QDRANT)
         else:
             info = QDRANT.get_collection(QDRANT_COLLECTION)
             vectors = getattr(getattr(info, "config", None), "params", None)
@@ -609,6 +637,34 @@ def _dominant_color(image: Image.Image) -> str:
 
 
 def _attributes_from_image(data: bytes, object_type: str = "person") -> dict[str, Any]:
+    # Production: real attributes via Triton (garment type + dominant RGB per
+    # region + gender/age + accessories). RGB is the source of truth; a coarse
+    # palette name is kept only for legacy display/exact-match scoring.
+    if _USE_TRITON and triton_infer is not None:
+        try:
+            a = triton_infer.extract_attributes(data, object_type)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[suspect-search] attribute extraction failed: {exc}", flush=True)
+            a = None
+        if a is not None:
+            top = a.get("top_color") or {}
+            bot = a.get("bottom_color") or {}
+            dom = a.get("dominant_color") or {}
+            return {
+                # New structured attributes (Eocortex-style).
+                "top_type": a.get("top_type"),
+                "bottom_type": a.get("bottom_type"),
+                "top_rgb": top.get("rgb"), "top_hex": top.get("hex"),
+                "bottom_rgb": bot.get("rgb"), "bottom_hex": bot.get("hex"),
+                "dominant_rgb": dom.get("rgb"), "dominant_hex": dom.get("hex"),
+                "gender": a.get("gender"), "age_band": a.get("age_band"),
+                "accessories": a.get("accessories") or [],
+                # Legacy palette-name keys (derived from RGB) for back-compat.
+                "upper_color": _nearest_color(tuple(top.get("rgb") or (0, 0, 0))) if top else "",
+                "lower_color": _nearest_color(tuple(bot.get("rgb") or (0, 0, 0))) if bot else "",
+                "dominant_color": _nearest_color(tuple(dom.get("rgb") or (0, 0, 0))) if dom else "",
+            }
+    # Fallback (no Triton): legacy palette-name heuristic.
     image = Image.open(io.BytesIO(data)).convert("RGB")
     width, height = image.size
     if object_type == "person":
@@ -706,6 +762,16 @@ def _parse_yolo_rows(output: Any, image_size: tuple[int, int], object_types: set
 
 
 def _detect_objects(frame_bytes: bytes, object_types: list[str]) -> list[dict[str, Any]]:
+    allowed_set = set(object_types or ["person", "bag", "helmet"])
+    # Production: shared Triton detector + the existing YOLO row parser / NMS.
+    if _USE_TRITON and triton_infer is not None and np is not None:
+        outputs, size = triton_infer.detect(frame_bytes)
+        if not outputs:
+            return []
+        dets: list[dict[str, Any]] = []
+        for output in outputs:
+            dets.extend(_parse_yolo_rows(output, size, allowed_set))
+        return _nms(dets)
     sess = None
     if np is not None:
         try:
@@ -779,6 +845,12 @@ def _embedding_from_image(data: bytes) -> list[float]:
 
 
 def _reid_embedding(data: bytes) -> list[float]:
+    # Production: shared Triton. Falls back to in-process / histogram.
+    if _USE_TRITON and triton_infer is not None:
+        vec = triton_infer.reid_embedding(data)
+        if vec is not None:
+            return vec
+        return _embedding_from_image(data)
     sess = None
     if np is not None:
         try:
@@ -857,22 +929,108 @@ def _crop_bytes(image: Image.Image, bbox: list[float]) -> bytes:
     return out.getvalue()
 
 
+# ── Perceptual color match (RGB → Lab ΔE) ────────────────────────────────────
+def _rgb_to_lab(rgb):
+    """sRGB [r,g,b] (0-255) → CIE-Lab. Pure-python, no deps."""
+    r, g, b = [v / 255.0 for v in rgb[:3]]
+    def lin(c):
+        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+    r, g, b = lin(r), lin(g), lin(b)
+    x = (r * 0.4124 + g * 0.3576 + b * 0.1805) / 0.95047
+    y = (r * 0.2126 + g * 0.7152 + b * 0.0722)
+    z = (r * 0.0193 + g * 0.1192 + b * 0.9505) / 1.08883
+    def f(t):
+        return t ** (1 / 3) if t > 0.008856 else (7.787 * t + 16 / 116)
+    fx, fy, fz = f(x), f(y), f(z)
+    return (116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz))
+
+
+def _color_match(payload_rgb, query_rgb, tol: float = 25.0) -> float | None:
+    """1.0 if two colors are within ΔE `tol` (perceptually close), scaled down
+    with distance; None if either color missing. ΔE ~25 ≈ 'same color family'."""
+    if not payload_rgb or not query_rgb:
+        return None
+    try:
+        la, lb = _rgb_to_lab(payload_rgb), _rgb_to_lab(query_rgb)
+        de = sum((la[i] - lb[i]) ** 2 for i in range(3)) ** 0.5
+    except Exception:  # noqa: BLE001
+        return None
+    if de <= tol:
+        return 1.0 - 0.5 * (de / tol)        # 1.0 .. 0.5 within tolerance
+    return max(0.0, 0.5 - (de - tol) / 100.0)  # taper off beyond tolerance
+
+
 def _attribute_score(payload: dict[str, Any], filters: dict[str, Any]) -> float:
-    checks = 0
-    hits = 0
+    """Weighted attribute match. Colors use perceptual RGB ΔE; type/gender/age
+    use exact match. Returns 0..1 (1.0 when no attribute filters set)."""
+    checks = 0.0
+    score = 0.0
+    # Perceptual RGB color filters (top / bottom).
+    for q_key, p_key in (("top_rgb", "top_rgb"), ("bottom_rgb", "bottom_rgb")):
+        q = filters.get(q_key)
+        if not q:
+            continue
+        m = _color_match(payload.get(p_key), q)
+        if m is None:
+            continue
+        checks += 1; score += m
+    # Exact-match categorical filters.
+    for key in ("top_type", "bottom_type", "gender", "age_band"):
+        expected = str(filters.get(key) or "").strip().lower()
+        if not expected or expected == "any":
+            continue
+        checks += 1
+        if str(payload.get(key) or "").lower() == expected:
+            score += 1
+    # Accessories — every requested accessory must be present.
+    req_acc = filters.get("accessories") or []
+    if req_acc:
+        have = set(str(a).lower() for a in (payload.get("accessories") or []))
+        checks += 1
+        if all(str(a).lower() in have for a in req_acc):
+            score += 1
+    # Legacy palette-name colors (back-compat).
     for key in ("upper_color", "lower_color", "dominant_color", "position_region", "size_bucket"):
         expected = str(filters.get(key) or "").strip().lower()
         if not expected or expected == "any":
             continue
         checks += 1
         if str(payload.get(key) or "").lower() == expected:
-            hits += 1
-    return 1.0 if checks == 0 else hits / checks
+            score += 1
+    return 1.0 if checks == 0 else score / checks
+
+
+def _parse_rgb(value) -> list[int] | None:
+    """Accept [r,g,b], 'r,g,b', or '#rrggbb' → [r,g,b] ints, else None."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, (list, tuple)) and len(value) >= 3:
+        return [int(value[0]), int(value[1]), int(value[2])]
+    s = str(value).strip()
+    if s.startswith("#") and len(s) == 7:
+        return [int(s[1:3], 16), int(s[3:5], 16), int(s[5:7], 16)]
+    if "," in s:
+        parts = [p.strip() for p in s.split(",")]
+        if len(parts) >= 3:
+            try:
+                return [int(parts[0]), int(parts[1]), int(parts[2])]
+            except ValueError:
+                return None
+    return None
 
 
 def _filters(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "object_type": str(payload.get("object_type") or "person").lower(),
+        # New structured attribute filters (Eocortex-style).
+        "top_type": str(payload.get("top_type") or "").lower(),
+        "bottom_type": str(payload.get("bottom_type") or "").lower(),
+        "top_rgb": _parse_rgb(payload.get("top_rgb") or payload.get("top_color")),
+        "bottom_rgb": _parse_rgb(payload.get("bottom_rgb") or payload.get("bottom_color")),
+        "gender": str(payload.get("gender") or "").lower(),
+        "age_band": str(payload.get("age_band") or "").lower(),
+        "accessories": [a.strip().lower() for a in str(payload.get("accessories") or "").split(",") if a.strip()],
+        # Legacy palette-name filters.
         "upper_color": str(payload.get("upper_color") or "").lower(),
         "lower_color": str(payload.get("lower_color") or "").lower(),
         "dominant_color": str(payload.get("dominant_color") or "").lower(),
@@ -979,6 +1137,19 @@ def _qdrant_filter(filters: dict[str, Any], payload: dict[str, Any]) -> Any | No
         cameras = [x.strip() for x in str(payload["camera_ids"]).split(",") if x.strip()]
         if cameras:
             must.append(qmodels.FieldCondition(key="camera_id", match=qmodels.MatchAny(any=cameras)))
+    # Categorical attribute filters (garment type, gender, age) — pushed into the
+    # Qdrant query so Stage-1 attribute search is efficient on the index.
+    for key in ("top_type", "bottom_type", "gender", "age_band"):
+        val = str(filters.get(key) or "").strip().lower()
+        if val and val != "any":
+            must.append(qmodels.FieldCondition(key=key, match=qmodels.MatchValue(value=val)))
+    # TIME-RANGE FILTER (previously accepted but never applied on the index — the
+    # core bug). Timestamps are ISO strings; lexical range works for ISO-8601.
+    start = str(payload.get("start_time") or "").strip()
+    end = str(payload.get("end_time") or "").strip()
+    if start or end:
+        rng = qmodels.DatetimeRange(gte=start or None, lte=end or None)
+        must.append(qmodels.FieldCondition(key="timestamp", range=rng))
     return qmodels.Filter(must=must) if must else None
 
 
@@ -1074,6 +1245,37 @@ def _job_cancelled(job_id: str) -> bool:
     return JOBS.get(job_id, {}).get("status") == "cancelled"
 
 
+def run_search_sync(reference_bytes: bytes | None, payload: dict[str, Any]) -> dict[str, Any]:
+    """Synchronous suspect search → returns matching sightings immediately.
+
+    The query is a fast Qdrant lookup over the pre-indexed archive (vector +
+    attribute + time + camera filters), so there is no background job to poll —
+    the operator presses Search and gets events back. (Archive INDEXING remains a
+    separate background job; this only searches what is already indexed.)"""
+    result_limit = int(payload.get("result_limit") or 50)
+    filters = _filters(payload)
+    query_vector = None
+    if reference_bytes or payload.get("reference_result_id"):
+        try:
+            query_vector = _query_vector_from_payload(reference_bytes, payload)
+        except Exception as exc:  # noqa: BLE001
+            return {"items": [], "total": 0, "error": f"reference_decode_failed:{exc}"}
+    indexed = (_search_qdrant(query_vector, payload, limit=result_limit) if query_vector
+               else _filter_qdrant(payload, limit=result_limit))
+    return {
+        "items": indexed,
+        "total": len(indexed),
+        "engine": "qdrant_vector_v1" if query_vector else "qdrant_attribute_filter_v1",
+    }
+
+
+async def search(request: Request, _: None = Depends(_require_service_token)) -> JSONResponse:
+    """POST /search — realtime search; returns events directly (no job/polling)."""
+    payload, reference_bytes = await _request_payload(request)
+    out = run_search_sync(reference_bytes, payload)
+    return JSONResponse(out, status_code=200)
+
+
 def _run_search(job_id: str, reference_bytes: bytes | None, payload: dict[str, Any]) -> None:
     query_vector = None
     ref_hist = None
@@ -1087,7 +1289,9 @@ def _run_search(job_id: str, reference_bytes: bytes | None, payload: dict[str, A
 
     result_limit = int(payload.get("result_limit") or 50)
     filters = _filters(payload)
-    has_attribute_filters = any(filters.get(key) for key in ("upper_color", "lower_color", "dominant_color", "position_region", "size_bucket"))
+    has_attribute_filters = any(filters.get(key) for key in (
+        "top_type", "bottom_type", "top_rgb", "bottom_rgb", "gender", "age_band", "accessories",
+        "upper_color", "lower_color", "dominant_color", "position_region", "size_bucket"))
     indexed = _search_qdrant(query_vector, payload, limit=result_limit) if query_vector else _filter_qdrant(payload, limit=result_limit)
     if indexed:
         _set_job(
@@ -1334,6 +1538,15 @@ async def _request_payload(request: Request) -> tuple[dict[str, Any], bytes | No
             "start_time": str(form.get("start_time") or ""),
             "end_time": str(form.get("end_time") or ""),
             "min_confidence": float(form.get("min_confidence") or 0.72),
+            # New Eocortex-style attribute filters.
+            "top_type": str(form.get("top_type") or ""),
+            "bottom_type": str(form.get("bottom_type") or ""),
+            "top_rgb": str(form.get("top_rgb") or form.get("top_color") or ""),
+            "bottom_rgb": str(form.get("bottom_rgb") or form.get("bottom_color") or ""),
+            "gender": str(form.get("gender") or ""),
+            "age_band": str(form.get("age_band") or ""),
+            "accessories": str(form.get("accessories") or ""),
+            # Legacy palette-name filters.
             "upper_color": str(form.get("upper_color") or ""),
             "lower_color": str(form.get("lower_color") or ""),
             "dominant_color": str(form.get("dominant_color") or ""),
@@ -1430,25 +1643,12 @@ def cancel_job(job_id: str, _: None = Depends(_require_service_token)) -> dict:
 
 
 async def search_similar(result_id: str, request: Request, _: None = Depends(_require_service_token)) -> JSONResponse:
+    """Stage-2 refine — find more sightings of the person in `result_id` via ReID.
+    Synchronous (Qdrant lookup): returns events directly, no job/polling."""
     payload, _reference = await _request_payload(request)
     payload["reference_result_id"] = result_id
-    job_id = str(uuid.uuid4())
-    now = datetime.utcnow().isoformat()
-    JOBS[job_id] = {
-        "job_id": job_id,
-        "type": "nested_search",
-        "status": "queued",
-        "progress": 0.0,
-        "result_count": 0,
-        "results": [],
-        "engine": "qdrant_nested_vector_v1",
-        "reference_result_id": result_id,
-        "created_at": now,
-        "updated_at": now,
-    }
-    _persist_job(job_id)
-    threading.Thread(target=_run_search, args=(job_id, None, payload), daemon=True).start()
-    return JSONResponse(JOBS[job_id], status_code=202)
+    out = run_search_sync(None, payload)
+    return JSONResponse(out, status_code=200)
 
 
 def reports_summary(since: str | None = None, _: None = Depends(_require_service_token)) -> dict:

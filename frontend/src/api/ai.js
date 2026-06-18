@@ -59,6 +59,17 @@ export const proxyScenario = async (
   return r.data;
 };
 
+// Realtime search — returns matching events directly ({items, total}); no job,
+// no polling. The primary search path.
+export const scenarioSearch = async (slug, formData) => (
+  proxyScenario(slug, "/search", {
+    method: "POST",
+    data: formData,
+    headers: { "Content-Type": "multipart/form-data" },
+  })
+);
+
+// Legacy async search job (kept for compatibility; UI uses scenarioSearch).
 export const createScenarioSearchJob = async (slug, formData) => (
   proxyScenario(slug, "/jobs/search", {
     method: "POST",

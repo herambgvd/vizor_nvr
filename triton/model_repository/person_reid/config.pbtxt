@@ -1,0 +1,17 @@
+# Person ReID embedder (768-d appearance) for suspect-search stage-2 refine.
+# Both IO dims are dynamic-batch, so Triton dynamic batching collapses per-person
+# embeds across cameras into GPU batches.
+name: "person_reid"
+platform: "onnxruntime_onnx"
+max_batch_size: 32
+input [
+  { name: "input" data_type: TYPE_FP32 dims: [ 3, 256, 128 ] }
+]
+output [
+  { name: "output" data_type: TYPE_FP32 dims: [ 768, 1, 1 ] }
+]
+instance_group [ { count: 1 kind: KIND_GPU } ]
+dynamic_batching {
+  preferred_batch_size: [ 4, 8, 16 ]
+  max_queue_delay_microseconds: 3000
+}

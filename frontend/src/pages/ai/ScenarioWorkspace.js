@@ -26,6 +26,7 @@ import {
   SlidersHorizontal,
   ArrowLeftRight,
   Route,
+  Info,
 } from "lucide-react";
 import { getScenarioBySlug } from "../../api/ai";
 
@@ -48,6 +49,7 @@ const TAB_META = {
   search: { label: "Search", icon: Search },
   jobs: { label: "Jobs", icon: Briefcase },
   settings: { label: "Settings", icon: SlidersHorizontal },
+  info: { label: "Info", icon: Info },
 };
 
 // Lazy tab components. Keys must match scenario.module_tabs values.
@@ -67,6 +69,7 @@ const TAB_COMPONENTS = {
   search: lazy(() => import("./tabs/SuspectSearchTab")),
   jobs: lazy(() => import("./tabs/JobsTab")),
   settings: lazy(() => import("./tabs/ScenarioSettingsTab")),
+  info: lazy(() => import("./tabs/ScenarioSettingsTab")),
 };
 
 const TabSpinner = () => (
@@ -200,8 +203,9 @@ const ScenarioWorkspace = () => {
         </nav>
       </div>
 
-      {/* Tab content */}
-      <div className="flex-1 min-h-0 overflow-auto">
+      {/* Tab content — tabs manage their own internal scroll, so this stays
+          overflow-hidden to avoid a second page-level scrollbar. */}
+      <div className="flex-1 min-h-0 overflow-hidden">
         {ActiveComponent ? (
           <Suspense fallback={<TabSpinner />}>
             <ActiveComponent scenario={scenario} />
