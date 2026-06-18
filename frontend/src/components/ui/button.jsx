@@ -17,7 +17,7 @@ const buttonVariants = cva(
           "border border-red-600/70 bg-transparent text-red-400 shadow-sm hover:bg-red-600/10 hover:border-red-500 hover:text-red-300",
         secondary:
           "bg-card/70 text-foreground border border-border shadow-sm hover:bg-white/[0.10]",
-        ghost: "text-zinc-400 hover:bg-card/70 hover:text-white",
+        ghost: "text-[var(--console-muted)] hover:bg-[var(--console-hover)] hover:text-[var(--console-text)]",
         link: "text-[var(--console-accent)] underline-offset-4 hover:underline hover:brightness-125",
       },
       size: {

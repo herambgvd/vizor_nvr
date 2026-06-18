@@ -20,6 +20,7 @@ import config
 from qdrant import store as qdrant_store
 from db import init_db
 from live import start_live_manager
+from live.retention import start_retention_sweeper
 from registration import register_on_boot
 from routers import (
     groups,
@@ -48,6 +49,8 @@ def _startup() -> None:
     # Live per-camera recognition workers (poll-driven; reconciles to the NVR's
     # enabled-camera set). Safe to start now — the first poll waits LIVE_POLL_SECONDS.
     start_live_manager()
+    # Retention sweeper: purge aged events/snapshots/vectors + retry pending erasures.
+    start_retention_sweeper()
 
 
 if __name__ == "__main__":

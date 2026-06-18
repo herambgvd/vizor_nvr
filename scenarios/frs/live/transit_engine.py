@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import and_, select
 
 from db import session as db_session
+from schemas import utcnow
 from db.models import TransitRule, TransitSession
 
 
@@ -68,7 +69,7 @@ def on_recognition(person_id: str | None, camera_id: str | None, ts: datetime) -
 
 def sweep_overdue(now: datetime | None = None) -> int:
     """Mark open sessions past their deadline as overdue. Returns count flipped."""
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     flipped = 0
     with db_session() as s:
         opens = s.execute(select(TransitSession).where(TransitSession.status == "open")).scalars().all()

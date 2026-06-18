@@ -22,6 +22,73 @@ html, body {
   font-feature-settings: "ss01", "ss02";
 }
 
+html[data-console-font-size="12"] .text-\[9px\] { font-size: 8px; }
+html[data-console-font-size="12"] .text-\[10px\] { font-size: 9px; }
+html[data-console-font-size="12"] .text-\[11px\] { font-size: 10px; }
+html[data-console-font-size="12"] .text-\[12px\] { font-size: 11px; }
+html[data-console-font-size="12"] .text-\[14px\] { font-size: 13px; }
+
+html[data-console-font-size="16"] .text-\[9px\] { font-size: 10px; }
+html[data-console-font-size="16"] .text-\[10px\] { font-size: 11px; }
+html[data-console-font-size="16"] .text-\[11px\] { font-size: 12px; }
+html[data-console-font-size="16"] .text-\[12px\] { font-size: 13px; }
+html[data-console-font-size="16"] .text-\[14px\] { font-size: 15px; }
+
+html[data-console-font-size="18"] .text-\[9px\] { font-size: 11px; }
+html[data-console-font-size="18"] .text-\[10px\] { font-size: 12px; }
+html[data-console-font-size="18"] .text-\[11px\] { font-size: 13px; }
+html[data-console-font-size="18"] .text-\[12px\] { font-size: 14px; }
+html[data-console-font-size="18"] .text-\[14px\] { font-size: 16px; }
+
+.light .text-zinc-100,
+.light .text-zinc-200,
+.light .text-zinc-300 {
+  color: #111827 !important;
+}
+
+.light .text-zinc-400,
+.light .text-zinc-500,
+.light .text-zinc-600 {
+  color: #6B7280 !important;
+}
+
+.light .bg-zinc-950,
+.light .bg-zinc-900,
+.light .bg-zinc-800 {
+  background-color: #FFFFFF !important;
+}
+
+.light .bg-zinc-900\/80,
+.light .bg-zinc-900\/70,
+.light .bg-zinc-900\/60,
+.light .bg-zinc-900\/50,
+.light .bg-zinc-900\/40,
+.light .bg-zinc-800\/60,
+.light .bg-zinc-800\/50,
+.light .bg-zinc-800\/40,
+.light .bg-zinc-700\/60,
+.light .bg-zinc-700\/50,
+.light .bg-zinc-950\/60,
+.light .bg-zinc-950\/40 {
+  background-color: #F8FAFC !important;
+}
+
+.light .border-zinc-700,
+.light .border-zinc-800,
+.light .border-zinc-900,
+.light .border-zinc-700\/60,
+.light .border-zinc-800\/70 {
+  border-color: #E5E7EB !important;
+}
+
+.light .hover\:bg-zinc-800\/50:hover,
+.light .hover\:bg-zinc-700\/50:hover,
+.light .hover\:bg-white\/5:hover,
+.light .hover\:bg-white\/\[0\.04\]:hover,
+.light .hover\:bg-white\/\[0\.02\]:hover {
+  background-color: #F3F4F6 !important;
+}
+
 code, pre, .font-mono {
   font-family: "Source Code Pro", "JetBrains Mono", "Fira Code", monospace;
 }

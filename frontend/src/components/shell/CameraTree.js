@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, ChevronDown, Search, Video } from "lucide-react";
 import { useCamerasQuery } from "../../hooks";
 import { getCameraGroups } from "../../api/cameras";
-import { cn } from "../../lib/utils";
 
 function StatusDot({ status }) {
   const color =
@@ -37,8 +36,15 @@ export default function CameraTree({ onActivate }) {
     for (const g of groups) byGroup.set(g.id, { group: g, cams: [] });
     byGroup.set("__ungrouped__", { group: { id: "__ungrouped__", name: "Ungrouped" }, cams: [] });
     for (const c of filtered) {
-      const gid = c.group_id && byGroup.has(c.group_id) ? c.group_id : "__ungrouped__";
-      byGroup.get(gid).cams.push(c);
+      const gids = Array.isArray(c.group_ids) && c.group_ids.length
+        ? c.group_ids
+        : (c.group_id ? [c.group_id] : []);
+      const validGroups = gids.filter((gid) => byGroup.has(gid));
+      if (validGroups.length === 0) {
+        byGroup.get("__ungrouped__").cams.push(c);
+      } else {
+        validGroups.forEach((gid) => byGroup.get(gid).cams.push(c));
+      }
     }
     return Array.from(byGroup.values()).filter((b) => b.cams.length > 0);
   }, [groups, filtered]);
@@ -57,13 +63,17 @@ export default function CameraTree({ onActivate }) {
     >
       <div className="p-2 border-b" style={{ borderColor: "var(--console-border)" }}>
         <div className="relative">
-          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500" />
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5" style={{ color: "var(--console-muted)" }} />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search cameras…"
-            className="w-full pl-7 pr-2 py-1.5 text-xs rounded bg-black/30 border text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-teal-500"
-            style={{ borderColor: "var(--console-border)" }}
+            className="w-full pl-7 pr-2 py-1.5 text-xs rounded border outline-none"
+            style={{
+              background: "var(--console-raised)",
+              borderColor: "var(--console-border)",
+              color: "var(--console-text)",
+            }}
           />
         </div>
       </div>
@@ -75,7 +85,8 @@ export default function CameraTree({ onActivate }) {
             <div key={group.id}>
               <button
                 onClick={() => toggle(group.id)}
-                className="w-full flex items-center gap-1 px-2 py-1.5 text-[11px] uppercase tracking-wider text-zinc-500 hover:text-zinc-300"
+                className="w-full flex items-center gap-1 px-2 py-1.5 text-[11px] uppercase tracking-wider hover:bg-[var(--console-hover)]"
+                style={{ color: "var(--console-muted)" }}
               >
                 {isCollapsed ? (
                   <ChevronRight className="h-3 w-3" />
@@ -83,7 +94,7 @@ export default function CameraTree({ onActivate }) {
                   <ChevronDown className="h-3 w-3" />
                 )}
                 {group.name}
-                <span className="ml-auto text-zinc-600">{cams.length}</span>
+                <span className="ml-auto opacity-70">{cams.length}</span>
               </button>
               {!isCollapsed &&
                 cams.map((cam) => (
@@ -92,14 +103,12 @@ export default function CameraTree({ onActivate }) {
                     draggable
                     onDragStart={(e) => onDragStart(e, cam)}
                     onDoubleClick={() => onActivate?.(cam)}
-                    className={cn(
-                      "flex items-center gap-2 pl-6 pr-2 py-1.5 text-xs cursor-grab",
-                      "text-zinc-300 hover:bg-white/5",
-                    )}
+                    className="flex items-center gap-2 pl-6 pr-2 py-1.5 text-xs cursor-grab hover:bg-[var(--console-hover)]"
+                    style={{ color: "var(--console-text)" }}
                     title={cam.name}
                   >
                     <StatusDot status={cam.status} />
-                    <Video className="h-3.5 w-3.5 text-zinc-500 flex-shrink-0" />
+                    <Video className="h-3.5 w-3.5 flex-shrink-0" style={{ color: "var(--console-muted)" }} />
                     <span className="truncate">{cam.name}</span>
                   </div>
                 ))}
@@ -107,7 +116,7 @@ export default function CameraTree({ onActivate }) {
           );
         })}
         {buckets.length === 0 && (
-          <p className="px-3 py-4 text-xs text-zinc-600">No cameras.</p>
+          <p className="px-3 py-4 text-xs" style={{ color: "var(--console-muted)" }}>No cameras.</p>
         )}
       </div>
     </div>

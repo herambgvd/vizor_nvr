@@ -31,9 +31,10 @@ except Exception:  # noqa: BLE001
 
 try:
     from recognition.inference.engine import OnnxEngine
-    from recognition.inference.align import align_face
+    from recognition.inference.align import align_face, denoise_face
     from recognition.inference.augment import generate_photometric_variants
     from recognition.inference.quality import (
+        crop_face,
         crop_face_with_margin,
         estimate_pose_from_landmarks,
         face_sharpness,
@@ -160,12 +161,10 @@ def analyze_frame(data: bytes, min_conf: float | None = None, roi=None,
     w, h = image.size
 
     if not (eng and eng.ready):
-        # Fallback: whole-frame histogram embedding, no real detection.
-        vec = _histogram_embedding(data)
-        return {"faces": [{"bbox": None, "bbox_px": None, "confidence": 0.9,
-                           "embedding": vec, "match": _match_vector(vec, threshold),
-                           "liveness": None, "demographics": None}],
-                "width": w, "height": h, "engine": "histogram"}
+        # No real face engine → DO NOT fabricate a histogram "face". Enterprise
+        # accuracy demands real ArcFace; emitting histogram pseudo-matches would
+        # silently enroll/recognize garbage. Return no faces + a clear flag.
+        return {"faces": [], "width": w, "height": h, "engine": "unavailable"}
 
     frame = _bgr_from_bytes(data)
     if frame is None:
@@ -185,15 +184,15 @@ def analyze_frame(data: bytes, min_conf: float | None = None, roi=None,
             ok, _reason = is_face_usable(d["bbox"], w, h, min_face_px=g_min_px)
             if not ok:
                 continue
-            crop_q = crop_face_with_margin(frame, d["bbox"], w, h)
+            crop_q = crop_face(frame, d["bbox"], w, h)  # tight crop (vizor-app parity)
             if face_sharpness(crop_q) < g_min_sharp:
                 continue
             lms_g = d.get("landmarks")
-            if lms_g is not None:
-                yaw_g, pitch_g, _r = estimate_pose_from_landmarks(lms_g)
-                if max(yaw_g, pitch_g) > g_max_pose:
+            if lms_g is not None and np is not None and float(np.asarray(lms_g).sum()) != 0.0:
+                yaw_g, pitch_g, roll_g = estimate_pose_from_landmarks(lms_g)
+                if max(abs(yaw_g), abs(pitch_g), abs(roll_g)) > g_max_pose:
                     continue
-        aligned = align_face(frame, d["bbox"], d.get("landmarks"), w, h)
+        aligned = denoise_face(align_face(frame, d["bbox"], d.get("landmarks"), w, h))
         vec = eng.embed_face(aligned)
         if vec is None:
             continue
@@ -255,14 +254,23 @@ def _point_in_any_roi(px: float, py: float, polygons) -> bool:
     return False
 
 
-def embed_largest_face(data: bytes, gate: bool = False) -> tuple[list[float] | None, dict[str, Any]]:
+def embed_largest_face(data: bytes, gate: bool = False,
+                        denoise: bool = False) -> tuple[list[float] | None, dict[str, Any]]:
     """Real pipeline: decode → SCRFD detect → largest face → (optional quality
     gate) → align → ArcFace 512-d embedding. Returns (vector, meta); vector is
-    None when no usable face is found. Histogram fallback when engine not ready."""
+    None when no usable face is found.
+
+    Matches vizor-app's enrollment/investigation gating exactly:
+      - size gate is size-ONLY (no edge/aspect — those are live-only gates),
+      - sharpness measured on the TIGHT bbox crop (not the margin crop),
+      - pose uses max(|yaw|,|pitch|,|roll|) and is skipped when landmarks absent,
+      - the ArcFace crop is NOT denoised in enroll/query (only the live path
+        denoises). `denoise=True` is passed only by the live analyzer."""
     meta: dict[str, Any] = {"engine": "arcface"}
     eng = engine()
     if not (eng and eng.ready):
-        return _histogram_embedding(data), {"engine": "histogram"}
+        # No real engine → fail rather than enroll a histogram pseudo-face.
+        return None, {"engine": "unavailable", "error": "engine_unavailable"}
     frame = _bgr_from_bytes(data)
     if frame is None:
         return None, {"engine": "arcface", "error": "decode_failed"}
@@ -270,6 +278,9 @@ def embed_largest_face(data: bytes, gate: bool = False) -> tuple[list[float] | N
     dets = eng.detect_faces(frame, conf_thresh=config.DET_CONF_THRESHOLD)
     if not dets:
         return None, {"engine": "arcface", "error": "no_face"}
+    # Enrollment must be unambiguous — reject multi-face photos (vizor-app parity).
+    if gate and len(dets) > 1:
+        return None, {"engine": "arcface", "error": "multiple_faces"}
     det = max(dets, key=lambda d: float((d["bbox"][2] - d["bbox"][0]) * (d["bbox"][3] - d["bbox"][1])))
     bbox = det["bbox"]
     meta["confidence"] = det["confidence"]
@@ -277,18 +288,24 @@ def embed_largest_face(data: bytes, gate: bool = False) -> tuple[list[float] | N
     meta["bbox"] = [float(bbox[0] / w), float(bbox[1] / h), float(bbox[2] / w), float(bbox[3] / h)]
     meta["bbox_px"] = [float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])]
     if gate:
-        ok, reason = is_face_usable(bbox, w, h, min_face_px=config.ENROLL_MIN_FACE_PX)
-        if not ok:
-            return None, {"engine": "arcface", "error": f"quality_{reason}"}
-        crop = crop_face_with_margin(frame, bbox, w, h)
-        sharp = face_sharpness(crop)
+        # Size-only gate (vizor-app enrollment: bw/bh < min_px), NOT is_face_usable.
+        bw, bh = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        if bw < config.ENROLL_MIN_FACE_PX or bh < config.ENROLL_MIN_FACE_PX:
+            return None, {"engine": "arcface", "error": "face_too_small"}
+        # Sharpness on the TIGHT crop (matches vizor-app enrollment.py).
+        tight = crop_face(frame, bbox, w, h)
+        sharp = face_sharpness(tight)
         if sharp < config.ENROLL_MIN_SHARPNESS:
             return None, {"engine": "arcface", "error": "blurry", "sharpness": sharp}
-        yaw, pitch, _roll = estimate_pose_from_landmarks(det["landmarks"])
-        if max(yaw, pitch) > config.ENROLL_MAX_POSE_DEG:
-            return None, {"engine": "arcface", "error": "bad_pose", "yaw": yaw, "pitch": pitch}
+        lms = det.get("landmarks")
+        if lms is not None and np is not None and float(np.asarray(lms).sum()) != 0.0:
+            yaw, pitch, roll = estimate_pose_from_landmarks(lms)
+            if max(abs(yaw), abs(pitch), abs(roll)) > config.ENROLL_MAX_POSE_DEG:
+                return None, {"engine": "arcface", "error": "bad_pose", "yaw": yaw, "pitch": pitch}
         meta["sharpness"] = sharp
     aligned = align_face(frame, bbox, det.get("landmarks"), w, h)
+    if denoise:
+        aligned = denoise_face(aligned)
     vec = eng.embed_face(aligned)
     if vec is None:
         return None, {"engine": "arcface", "error": "embed_failed"}
@@ -296,10 +313,31 @@ def embed_largest_face(data: bytes, gate: bool = False) -> tuple[list[float] | N
     return vec.tolist(), meta
 
 
-def query_embedding(data: bytes) -> list[float]:
-    """512-d embedding for recognition/investigate queries (real or fallback)."""
-    vec, _meta = embed_largest_face(data, gate=False)
-    return vec if vec is not None else _histogram_embedding(data)
+def query_embedding(data: bytes) -> list[float] | None:
+    """512-d ArcFace embedding of a query face for forensic search (vizor-app
+    investigation parity): detect at conf 0.5, retry at 0.2, then fall back to
+    treating the whole image as the face. No quality gate, NO denoise. Returns
+    None only if the engine is unavailable or the image can't be decoded."""
+    eng = engine()
+    if not (eng and eng.ready):
+        return None
+    frame = _bgr_from_bytes(data)
+    if frame is None:
+        return None
+    h, w = frame.shape[:2]
+    dets = eng.detect_faces(frame, conf_thresh=0.5)
+    if not dets:
+        dets = eng.detect_faces(frame, conf_thresh=0.2)
+    if dets:
+        det = max(dets, key=lambda d: float((d["bbox"][2] - d["bbox"][0]) * (d["bbox"][3] - d["bbox"][1])))
+        aligned = align_face(frame, det["bbox"], det.get("landmarks"), w, h)
+    else:
+        # Full-frame fallback — assume the upload is already a tight face crop.
+        aligned = cv2.resize(frame, (112, 112)) if cv2 is not None else None
+        if aligned is None:
+            return None
+    vec = eng.embed_face(aligned)
+    return vec.tolist() if vec is not None else None
 
 
 def augment_points(aligned) -> list[dict]:
@@ -316,10 +354,13 @@ def recognize(data: bytes, min_conf: float | None = None) -> dict[str, Any]:
     per person, keeping the best score."""
     threshold = config.SIMILARITY_THRESHOLD if min_conf is None else float(min_conf)
     vec, meta = embed_largest_face(data, gate=False)
-    vector = vec if vec is not None else _histogram_embedding(data)
     query_bbox = meta.get("bbox")          # normalised query-face box (or None)
     query_bbox_px = meta.get("bbox_px")
-    hits = qdrant_store.search(vector, limit=30)
+    # No real face embedding → no match (never match on a histogram pseudo-vector).
+    if vec is None:
+        return {"matches": [], "match_count": 0, "face_present": False,
+                "bbox": None, "bbox_px": None}
+    hits = qdrant_store.search(vec, limit=30)
     best_by_person: dict[str, dict[str, Any]] = {}
     for h in hits:
         score = float(h.get("score", 0.0))

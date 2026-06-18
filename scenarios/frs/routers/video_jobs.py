@@ -5,6 +5,7 @@ attendance, and exposes a proto-enum job lifecycle the NVR UI polls.
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import threading
 import uuid
@@ -22,7 +23,7 @@ import recognition
 from db import session
 from deps import require_service_token
 from db.models import FRSAttendance, FRSEvent
-from schemas import iso, naive, parse_dt
+from schemas import iso, naive, parse_dt, utcnow
 
 router = APIRouter(tags=["video-jobs"])
 
@@ -39,11 +40,51 @@ def _recordings(params: dict[str, Any]) -> list[dict[str, Any]]:
     return list(resp.json().get("items") or [])
 
 
+# Directories a video-job source path is allowed to live under. Anything outside
+# these (e.g. /etc, /models, mounted secrets) is rejected — the `path`/recording
+# inputs are operator-supplied and must never reach arbitrary host files.
+def _allowed_roots() -> list[Path]:
+    roots = [config.DATA_PATH / "uploads", config.DATA_PATH / "frames"]
+    rec = os.getenv("FRS_RECORDINGS_ROOT", "/data/recordings")
+    if rec:
+        roots.append(Path(rec))
+    out = []
+    for r in roots:
+        try:
+            out.append(r.resolve())
+        except Exception:  # noqa: BLE001
+            pass
+    return out
+
+
+def _safe_source_path(raw: str) -> Path | None:
+    """Resolve `raw` and confirm it sits inside an allowlisted root (defeats
+    ../ traversal and absolute-path escapes). Returns None if disallowed."""
+    if not raw:
+        return None
+    try:
+        p = Path(raw).resolve()
+    except Exception:  # noqa: BLE001
+        return None
+    for root in _allowed_roots():
+        try:
+            if p == root or p.is_relative_to(root):
+                return p
+        except AttributeError:  # py<3.9 fallback
+            if str(p).startswith(str(root)):
+                return p
+    return None
+
+
 def _extract_frame(recording_path: str, offset: int, out_path: Path) -> bool:
-    if not recording_path or not Path(recording_path).exists():
+    safe = _safe_source_path(recording_path)
+    if safe is None or not safe.exists():
         return False
-    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-ss", str(max(0, offset)),
-           "-i", recording_path, "-frames:v", "1", "-vf", "scale=480:-1", "-q:v", "4", "-y", str(out_path)]
+    # Restrict ffmpeg to the local file protocol — blocks SSRF via http(s)/rtsp/
+    # concat/etc. embedded in a crafted path.
+    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error",
+           "-protocol_whitelist", "file", "-ss", str(max(0, offset)),
+           "-i", str(safe), "-frames:v", "1", "-vf", "scale=480:-1", "-q:v", "4", "-y", str(out_path)]
     try:
         proc = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=25, check=False)
         return proc.returncode == 0 and out_path.exists() and out_path.stat().st_size > 0
@@ -68,7 +109,7 @@ def _record_event(camera_id, person_id, person_name, confidence, snapshot_path, 
         )
         s.add(ev)
         if person_id:
-            day_key = (ts or datetime.utcnow()).date().isoformat()
+            day_key = (ts or utcnow()).date().isoformat()
             existing = s.scalar(select(FRSAttendance).where(
                 FRSAttendance.person_id == person_id, FRSAttendance.day_key == day_key))
             if existing:
@@ -122,7 +163,7 @@ def _run_video_job(job_id: str, payload: dict[str, Any], upload_path: Path | Non
                 rec = recognition.recognize(frame_path.read_bytes(), min_conf=min_conf)
             except Exception:
                 continue
-            ts = (start + timedelta(seconds=offset)) if start else datetime.utcnow()
+            ts = (start + timedelta(seconds=offset)) if start else utcnow()
             for m in rec["matches"]:
                 snap = f"/photos/{m['photo_id']}/image" if m.get("photo_id") else None
                 _record_event(camera_id, m["person_id"], m["person_name"], m["confidence"], snap, ts)
@@ -171,7 +212,9 @@ async def submit_video_job(request: Request, _: None = Depends(require_service_t
         upload_path.parent.mkdir(parents=True, exist_ok=True)
         upload_path.write_bytes(blob)
     elif payload.get("path"):
-        upload_path = Path(payload["path"])
+        upload_path = _safe_source_path(payload["path"])
+        if upload_path is None:
+            raise HTTPException(400, "path is outside the allowed recordings directory")
     JOBS[job_id] = {"job_id": job_id, "state": "JOB_QUEUED", "progress": 0.0,
                     "frames_processed": 0, "frames_total": 0, "result_count": 0, "events": []}
     threading.Thread(target=_run_video_job, args=(job_id, payload, upload_path), daemon=True).start()

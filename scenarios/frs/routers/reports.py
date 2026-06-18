@@ -9,8 +9,9 @@ from fastapi.responses import Response
 from sqlalchemy import and_, func, select
 
 import config
+from qdrant import store as qdrant_store
 from db import session
-from deps import require_service_token
+from deps import require_service_token, allowed_camera_ids
 from db.models import FRSAttendance, FRSEvent, FRSFeedback, FRSPerson
 from schemas import event_dict, iso, naive
 
@@ -56,30 +57,48 @@ def list_feedback(event_id: Optional[str] = None, is_correct: Optional[bool] = N
 
 
 def _purge_snapshots(events) -> None:
-    """Best-effort delete of an event's live snapshot files (full + face crop)."""
-    import os
+    """Delete each event's snapshot files AND its forensic snapshot vector
+    (point id == event id) so a deleted event leaves no biometric residue."""
+    from deps import purge_snapshot_files
+    purge_snapshot_files(events)
     for ev in events:
-        for path in (ev.snapshot_path, (ev.attributes or {}).get("face_snapshot") if ev.attributes else None):
-            if not path or "key=live:" not in str(path):
-                continue
-            key = str(path).split("key=live:", 1)[1]
-            f = config.DATA_PATH / "snapshots" / f"{key}.jpg"
-            try:
-                if f.exists():
-                    os.remove(f)
-            except OSError:
-                pass
+        try:
+            qdrant_store.client() and qdrant_store.delete_by(
+                "event_id", str(ev.id), collection=qdrant_store.SNAPSHOTS_COLLECTION)
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _apply_camera_scope(conds: list, column, requested, allowed: Optional[list[str]]) -> bool:
+    """Constrain a query to cameras the operator may read (S1 camera-scope auth).
+
+    `allowed` comes from the proxy (deps.allowed_camera_ids):
+      None  → no scoping (called outside the proxy) — apply only the requested filter.
+      []    → scoped to nothing → signal "return no rows" (returns False).
+      [...] → intersect the requested cameras with the allowed set.
+    Returns False when the effective scope is empty (route should short-circuit)."""
+    req = list(requested) if requested else None
+    if allowed is None:
+        if req:
+            conds.append(column.in_(req))
+        return True
+    effective = [c for c in req if c in set(allowed)] if req else list(allowed)
+    if not effective:
+        return False
+    conds.append(column.in_(effective))
+    return True
 
 
 @router.get("/events")
 def list_events(camera_id: Optional[list[str]] = Query(None), person_id: Optional[str] = None,
                 event_type: Optional[str] = None, since: Optional[datetime] = None,
                 until: Optional[datetime] = None, limit: int = Query(50, ge=1, le=500),
-                offset: int = Query(0, ge=0), _: None = Depends(require_service_token)) -> dict:
+                offset: int = Query(0, ge=0), _: None = Depends(require_service_token),
+                allowed: Optional[list[str]] = Depends(allowed_camera_ids)) -> dict:
     with session() as s:
         conds = []
-        if camera_id:
-            conds.append(FRSEvent.camera_id.in_(camera_id))
+        if not _apply_camera_scope(conds, FRSEvent.camera_id, camera_id, allowed):
+            return {"items": [], "total": 0, "limit": limit, "offset": offset}
         if person_id:
             conds.append(FRSEvent.person_id == person_id)
         if event_type:
@@ -145,13 +164,15 @@ def bulk_delete_events(body: dict = Body(...), _: None = Depends(require_service
 def list_attendance(person_id: Optional[str] = None, camera_id: Optional[str] = None,
                     since: Optional[datetime] = None, until: Optional[datetime] = None,
                     limit: int = Query(50, ge=1, le=500), offset: int = Query(0, ge=0),
-                    _: None = Depends(require_service_token)) -> dict:
+                    _: None = Depends(require_service_token),
+                    allowed: Optional[list[str]] = Depends(allowed_camera_ids)) -> dict:
     with session() as s:
         conds = []
+        if not _apply_camera_scope(conds, FRSAttendance.camera_id,
+                                   [camera_id] if camera_id else None, allowed):
+            return {"items": [], "total": 0, "limit": limit, "offset": offset}
         if person_id:
             conds.append(FRSAttendance.person_id == person_id)
-        if camera_id:
-            conds.append(FRSAttendance.camera_id == camera_id)
         if since:
             conds.append(FRSAttendance.check_in_at >= naive(since))
         if until:
@@ -178,17 +199,21 @@ def list_attendance(person_id: Optional[str] = None, camera_id: Optional[str] = 
 
 @router.get("/attendance/report")
 def attendance_report(day_from: str = Query(...), day_to: str = Query(...),
-                      _: None = Depends(require_service_token)) -> dict:
+                      _: None = Depends(require_service_token),
+                      allowed: Optional[list[str]] = Depends(allowed_camera_ids)) -> dict:
     if day_from > day_to:
         raise HTTPException(400, "day_from must not be after day_to")
     with session() as s:
+        conds = [FRSAttendance.day_key >= day_from, FRSAttendance.day_key <= day_to]
+        if not _apply_camera_scope(conds, FRSAttendance.camera_id, None, allowed):
+            return {"items": [], "day_from": day_from, "day_to": day_to}
         stmt = (select(
             FRSAttendance.person_id, FRSPerson.full_name,
             func.count(func.distinct(FRSAttendance.day_key)).label("days_present"),
             func.min(FRSAttendance.check_in_at).label("first_seen"),
             func.max(func.coalesce(FRSAttendance.check_out_at, FRSAttendance.check_in_at)).label("last_seen"),
         ).outerjoin(FRSPerson, FRSPerson.id == FRSAttendance.person_id)
-         .where(and_(FRSAttendance.day_key >= day_from, FRSAttendance.day_key <= day_to))
+         .where(and_(*conds))
          .group_by(FRSAttendance.person_id, FRSPerson.full_name)
          .order_by(func.count(func.distinct(FRSAttendance.day_key)).desc()))
         rows = [{
@@ -200,9 +225,14 @@ def attendance_report(day_from: str = Query(...), day_to: str = Query(...),
 
 @router.get("/reports/summary")
 def reports_summary(since: Optional[datetime] = None, until: Optional[datetime] = None,
-                    _: None = Depends(require_service_token)) -> dict:
+                    _: None = Depends(require_service_token),
+                    allowed: Optional[list[str]] = Depends(allowed_camera_ids)) -> dict:
     with session() as s:
         conds = []
+        scoped = _apply_camera_scope(conds, FRSEvent.camera_id, None, allowed)
+        if not scoped:
+            return {"total_events": 0, "unique_persons": 0, "unknown_count": 0,
+                    "spoof_count": 0, "by_camera": [], "by_hour": []}
         if since:
             conds.append(FRSEvent.triggered_at >= naive(since))
         if until:
@@ -230,10 +260,14 @@ def reports_summary(since: Optional[datetime] = None, until: Optional[datetime] 
 
 @router.get("/live")
 def live(camera_id: Optional[list[str]] = Query(None), limit: int = Query(50, ge=1, le=200),
-         _: None = Depends(require_service_token)) -> dict:
+         _: None = Depends(require_service_token),
+         allowed: Optional[list[str]] = Depends(allowed_camera_ids)) -> dict:
     with session() as s:
+        conds = []
+        if not _apply_camera_scope(conds, FRSEvent.camera_id, camera_id, allowed):
+            return {"items": []}
         q = select(FRSEvent)
-        if camera_id:
-            q = q.where(FRSEvent.camera_id.in_(camera_id))
+        if conds:
+            q = q.where(and_(*conds))
         rows = s.execute(q.order_by(FRSEvent.triggered_at.desc()).limit(limit)).scalars().all()
         return {"items": [event_dict(e) for e in rows]}

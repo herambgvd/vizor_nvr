@@ -9,3 +9,4 @@ qdrant-client==1.12.1
 sqlalchemy==2.0.36
 psycopg2-binary==2.9.10
 onnxruntime-gpu==1.20.1
+alembic==1.14.0

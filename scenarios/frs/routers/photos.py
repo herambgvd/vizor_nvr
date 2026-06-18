@@ -16,9 +16,15 @@ from sqlalchemy import select
 
 from qdrant import store as qdrant_store
 import recognition
+import config
 from config import ALLOWED_CONTENT, DATA_PATH, MAX_PHOTO_BYTES
+from schemas import utcnow
+
+
+def naive_iso() -> str:
+    return utcnow().isoformat()
 from db import session
-from deps import recount_person, require_service_token
+from deps import recount_person, require_service_token, looks_like_image
 from db.models import FRSPerson, FRSPhoto
 from schemas import photo_dict
 
@@ -39,6 +45,10 @@ async def add_photo(person_id: str, file: UploadFile = File(...), _: None = Depe
         raise HTTPException(400, "empty upload")
     if len(data) > MAX_PHOTO_BYTES:
         raise HTTPException(413, f"photo exceeds {MAX_PHOTO_BYTES // (1024 * 1024)} MB limit")
+    # Verify the BYTES are actually an image — a spoofed Content-Type must not let
+    # a non-image (script, payload) be stored as a .jpg.
+    if not looks_like_image(data):
+        raise HTTPException(415, "uploaded file is not a valid JPEG/PNG/WEBP image")
 
     photo_id = str(uuid.uuid4())
     photo_dir = DATA_PATH / "persons" / person_id
@@ -48,14 +58,29 @@ async def add_photo(person_id: str, file: UploadFile = File(...), _: None = Depe
 
     enroll_status, embedding_id, quality, error = "enrolled", photo_id, None, None
     try:
+        # Enrollment path: gated, NO denoise (vizor-app embeds the raw aligned crop).
         vector, meta = recognition.embed_largest_face(data, gate=recognition.engine_ready())
         if vector is None:
             raise ValueError(meta.get("error", "no_usable_face"))
+        # Duplicate guard (vizor-app parity): reject if this face already belongs
+        # to a DIFFERENT person at cosine >= DUPLICATE_COSINE.
+        dup = qdrant_store.search(vector, limit=1)
+        if dup:
+            top = dup[0]
+            if (float(top.get("score", 0.0)) >= config.DUPLICATE_COSINE
+                    and top.get("person_id") and top.get("person_id") != person_id):
+                raise ValueError("duplicate_face")
         quality = float(meta.get("confidence") or 0.9)
+        enrolled_at = naive_iso()
+        # Main + augment points share type:"photo" (vizor-app keeps augments as
+        # "photo"); point_key lets us delete all of a photo's vectors together.
         base_payload = {"person_id": person_id, "person_name": person_name,
-                        "photo_id": photo_id, "point_key": photo_id}
-        qdrant_store.upsert(photo_id, vector, {**base_payload, "type": "photo", "synthetic": False})
-        # Augment only when the real engine produced an aligned crop.
+                        "photo_id": photo_id, "point_key": photo_id,
+                        "type": "photo", "enrolled_at": enrolled_at}
+        # The MAIN vector must land — if Qdrant rejects it the person would never
+        # match, so fail the enrollment loudly instead of reporting false success.
+        if not qdrant_store.upsert(photo_id, vector, dict(base_payload)):
+            raise RuntimeError("vector_store_unavailable")
         aligned = meta.get("aligned")
         eng = recognition.engine()
         for variant in recognition.augment_points(aligned):
@@ -63,13 +88,20 @@ async def add_photo(person_id: str, file: UploadFile = File(...), _: None = Depe
             if vec is None:
                 continue
             qdrant_store.upsert(str(uuid.uuid4()), vec.tolist(),
-                                {**base_payload, "type": "augment", "synthetic": True,
-                                 "augment": variant["tag"]})
+                                {**base_payload, "synthetic": True, "augment": variant["tag"]})
     except Exception as exc:  # noqa: BLE001
         enroll_status, embedding_id, quality, error = "failed", None, None, str(exc)
+        # Roll back partial state: drop any vectors that did land + the orphan file.
+        qdrant_store.delete_by("point_key", photo_id)
+        try:
+            (photo_dir / f"{photo_id}.jpg").unlink(missing_ok=True)
+        except OSError:
+            pass
 
     with session() as s:
-        ph = FRSPhoto(id=photo_id, person_id=person_id, storage_key=rel_key,
+        # On failure the orphan file was removed above → don't keep a dangling key.
+        ph = FRSPhoto(id=photo_id, person_id=person_id,
+                      storage_key=rel_key if enroll_status == "enrolled" else None,
                       status=enroll_status, embedding_id=embedding_id,
                       quality_score=quality, error=error)
         s.add(ph); s.commit()

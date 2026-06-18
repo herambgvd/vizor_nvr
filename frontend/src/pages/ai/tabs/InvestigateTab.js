@@ -1,17 +1,23 @@
 // =============================================================================
 // AI · Investigate tab (FRS) — forensic snapshot search by query face.
 // =============================================================================
-// Upload a query face image + top_k, submit to POST /api/ai/frs/investigate
-// (proxied through the bridge to the FRS scenario), and render the ranked hits
-// as a grid: snapshot thumbnail (best-effort via the shared snapshotUrl helper,
-// placeholder on miss), person name, match score %, camera, and timestamp.
+// Upload a query face image + similarity threshold + max results, submit to
+// POST /api/ai/frs/investigate (proxied through the bridge to the FRS scenario),
+// and render the ranked hits as a card grid: snapshot thumbnail (best-effort via
+// the shared snapshotUrl helper, placeholder on miss), match score %, person
+// name, and timestamp.
+//
+// Layout mirrors vizor-app's InvestigatePage: a 3/7 split — LEFT is the query
+// form (drag-drop dropzone, name, similarity slider, max results, Search/Reset),
+// RIGHT is the results pane (header + animated card grid). Past investigations
+// live in a right-side history drawer; clicking one loads its stored results.
 //
 // NVR stays thin — all search logic + data live in the FRS scenario. This tab
 // only POSTs the image and renders the JSON the bridge returns.
 // =============================================================================
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Search,
   Upload,
@@ -19,15 +25,16 @@ import {
   ImageOff,
   X,
   UserCircle2,
-  Video,
   Clock,
   History,
+  RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 
-import { createInvestigation, listInvestigations, getInvestigation } from "../../../api/ai";
-import { snapshotUrl } from "./frsShared";
+import { createInvestigation, listInvestigations, getInvestigation, scenarioSnapshotUrl } from "../../../api/ai";
+
+const FRS_SLUG = "frs";
 
 const inputStyle = {
   background: "var(--console-raised)",
@@ -56,42 +63,50 @@ function scoreColor(score) {
   return "var(--console-rec)";
 }
 
-// Best-effort snapshot thumbnail. The FRS snapshot_key is a bare storage key;
-// snapshotUrl resolves it to a servable URL — fall back to a placeholder when
-// it cannot be served.
-function HitThumb({ snapshotKey }) {
-  const [errored, setErrored] = useState(false);
-  const url = snapshotUrl(snapshotKey);
-  if (!url || errored) {
+// Hit thumbnail. Investigate hits are captured live SIGHTINGS — the face
+// snapshot lives behind the service-token-gated scenario proxy, so a bare
+// <img src> can't authenticate. Fetch the bytes with the bearer token via
+// scenarioSnapshotUrl and render the object URL (revoked on unmount).
+function HitThumb({ snapshotPath }) {
+  const [url, setUrl] = useState(null);
+  useEffect(() => {
+    if (!snapshotPath) { setUrl(null); return undefined; }
+    let active = true;
+    let obj = null;
+    scenarioSnapshotUrl(FRS_SLUG, snapshotPath).then((u) => {
+      if (!active) { if (u) URL.revokeObjectURL(u); return; }
+      obj = u;
+      setUrl(u);
+    });
+    return () => { active = false; if (obj) URL.revokeObjectURL(obj); };
+  }, [snapshotPath]);
+
+  if (!url) {
     return (
       <div
-        className="w-full aspect-video flex items-center justify-center"
+        className="w-full aspect-square flex items-center justify-center"
         style={{ background: "var(--console-raised)" }}
       >
         <ImageOff className="h-6 w-6" style={{ color: "var(--console-muted)" }} />
       </div>
     );
   }
-  return (
-    <img
-      src={url}
-      alt="snapshot"
-      loading="lazy"
-      onError={() => setErrored(true)}
-      className="w-full aspect-video object-cover"
-    />
-  );
+  return <img src={url} alt="match" loading="lazy" className="w-full aspect-square object-cover" />;
 }
 
 const HitCard = ({ hit }) => (
   <div
-    className="rounded overflow-hidden flex flex-col"
-    style={{ background: "var(--console-panel)", border: "1px solid var(--console-border)" }}
+    className="rounded overflow-hidden flex flex-col transition-all hover:-translate-y-0.5"
+    style={{
+      background: "var(--console-panel)",
+      border: "1px solid var(--console-border)",
+      animation: "frsFadeIn 300ms ease-out",
+    }}
   >
     <div className="relative">
-      <HitThumb snapshotKey={hit.snapshot_key} />
+      <HitThumb snapshotPath={hit.snapshot_path} />
       <span
-        className="absolute top-1.5 right-1.5 font-telemetry text-[10px] uppercase tracking-widest px-1.5 py-0.5 rounded"
+        className="absolute top-1.5 right-1.5 font-telemetry text-[11px] font-semibold uppercase tracking-widest px-1.5 py-0.5 rounded"
         style={{ background: "rgba(0,0,0,0.7)", color: scoreColor(hit.score) }}
       >
         {fmtScore(hit.score)}
@@ -107,47 +122,118 @@ const HitCard = ({ hit }) => (
           {hit.person_name || (hit.person_id ? `Person ${String(hit.person_id).slice(0, 8)}` : "Unknown")}
         </span>
       </div>
-      <div className="flex items-center gap-1.5 min-w-0 font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
-        <Video className="h-3 w-3 shrink-0" />
-        <span className="truncate">{hit.camera_name || "—"}</span>
-      </div>
       <div className="flex items-center gap-1.5 font-telemetry text-[10px]" style={{ color: "var(--console-muted)" }}>
         <Clock className="h-3 w-3 shrink-0" />
-        <span>{fmtTime(hit.timestamp)}</span>
+        <span>{fmtTime(hit.timestamp || hit.created_at)}</span>
       </div>
     </div>
   </div>
 );
 
+// ── Right-side history drawer ───────────────────────────────────────────────
+function HistoryDrawer({ open, onClose, onSelect }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["frs-investigations"],
+    queryFn: () => listInvestigations(50),
+    enabled: open,
+  });
+  const jobs = data?.items || [];
+
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-40 flex">
+      <div className="flex-1" style={{ background: "rgba(0,0,0,0.4)" }} onClick={onClose} />
+      <div
+        className="w-full max-w-md shadow-xl flex flex-col"
+        style={{ background: "var(--console-panel)", borderLeft: "1px solid var(--console-border)" }}
+      >
+        <div
+          className="px-4 py-3 flex items-center justify-between shrink-0"
+          style={{ borderBottom: "1px solid var(--console-border)" }}
+        >
+          <div className="flex items-center gap-2">
+            <History className="h-4 w-4" style={{ color: "var(--console-muted)" }} />
+            <span className="font-telemetry text-[12px] font-semibold uppercase tracking-widest" style={{ color: "var(--console-text)" }}>
+              History
+            </span>
+            <span className="font-telemetry text-[11px]" style={{ color: "var(--console-muted)" }}>
+              ({jobs.length})
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="h-7 w-7 inline-flex items-center justify-center rounded hover:opacity-70"
+            style={{ color: "var(--console-muted)" }}
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {isLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-5 w-5 animate-spin" style={{ color: "var(--console-muted)" }} />
+            </div>
+          ) : jobs.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-2 py-16">
+              <History className="h-7 w-7" style={{ color: "var(--console-muted)" }} />
+              <span className="font-telemetry text-[11px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
+                No investigations yet
+              </span>
+            </div>
+          ) : (
+            jobs.map((j) => (
+              <button
+                key={j.id}
+                type="button"
+                onClick={() => { onSelect(j.id); onClose(); }}
+                className="w-full text-left px-4 py-3 flex flex-col gap-0.5 hover:bg-white/[0.04] transition-colors"
+                style={{ borderBottom: "1px solid var(--console-border)" }}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="flex-1 font-telemetry text-[12px] font-medium truncate" style={{ color: "var(--console-text)" }}>
+                    {j.name || `Search ${String(j.id).slice(0, 8)}`}
+                  </span>
+                  <span
+                    className="font-telemetry text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded"
+                    style={{ background: "var(--console-raised)", color: "var(--console-muted)" }}
+                  >
+                    {j.status || "done"}
+                  </span>
+                </div>
+                <span className="font-telemetry text-[10px]" style={{ color: "var(--console-muted)" }}>
+                  {j.result_count ?? 0} match{(j.result_count ?? 0) === 1 ? "" : "es"} · {fmtTime(j.created_at)}
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const DEFAULT_THRESHOLD = 0.6;
+const DEFAULT_MAX_RESULTS = 100;
+
 const InvestigateTab = () => {
+  const qc = useQueryClient();
   const fileRef = useRef(null);
   const [file, setFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
-  const [topK, setTopK] = useState(50);
-  const [minScore, setMinScore] = useState(0.6);   // client-side similarity filter
-  const [showHistory, setShowHistory] = useState(false);
-  const [historyHits, setHistoryHits] = useState(null);  // hits loaded from a past job
+  const [dragOver, setDragOver] = useState(false);
+  const [name, setName] = useState("");
+  const [threshold, setThreshold] = useState(DEFAULT_THRESHOLD); // similarity filter
+  const [maxResults, setMaxResults] = useState(DEFAULT_MAX_RESULTS);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [loadedJob, setLoadedJob] = useState(null); // job loaded from history
 
-  const { data: history } = useQuery({
-    queryKey: ["frs-investigations"],
-    queryFn: () => listInvestigations(50),
-    enabled: showHistory,
-  });
-
-  const loadHistory = async (jobId) => {
-    try {
-      const job = await getInvestigation(jobId);
-      setHistoryHits(job.results || []);
-      setShowHistory(false);
-    } catch {
-      toast.error("Couldn't load investigation");
-    }
-  };
-
+  // Preview object URL lifecycle.
   useEffect(() => {
     if (!file) {
       setPreviewUrl(null);
-      return;
+      return undefined;
     }
     const url = URL.createObjectURL(file);
     setPreviewUrl(url);
@@ -155,51 +241,91 @@ const InvestigateTab = () => {
   }, [file]);
 
   const mut = useMutation({
-    mutationFn: () => createInvestigation(file, { top_k: Number(topK) || 50 }),
-    onError: (e) =>
-      toast.error(e?.response?.data?.detail || "Investigation failed"),
+    mutationFn: () =>
+      createInvestigation(file, { top_k: Number(maxResults) || DEFAULT_MAX_RESULTS }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["frs-investigations"] }),
+    onError: (e) => toast.error(e?.response?.data?.detail || "Investigation failed"),
   });
 
-  const onPick = (e) => {
-    const f = e.target.files?.[0];
-    if (f) {
-      setFile(f);
-      mut.reset();
+  const setQueryFile = useCallback((f) => {
+    if (!f) return;
+    if (!f.type?.startsWith("image/")) {
+      toast.error("Please drop an image file");
+      return;
     }
+    setFile(f);
+    setLoadedJob(null);
+    mut.reset();
+  }, [mut]);
+
+  const onPick = (e) => {
+    setQueryFile(e.target.files?.[0]);
     e.target.value = "";
   };
 
-  const clear = () => {
+  const onDrop = (e) => {
+    e.preventDefault();
+    setDragOver(false);
+    setQueryFile(e.dataTransfer?.files?.[0]);
+  };
+
+  const reset = () => {
     setFile(null);
+    setName("");
+    setThreshold(DEFAULT_THRESHOLD);
+    setMaxResults(DEFAULT_MAX_RESULTS);
+    setLoadedJob(null);
     mut.reset();
   };
 
-  const submit = () => {
+  const submit = (e) => {
+    e?.preventDefault?.();
     if (!file) {
       toast.error("Choose a query face image first");
       return;
     }
-    setHistoryHits(null);   // fresh search overrides any loaded history result
+    setLoadedJob(null); // fresh search overrides any loaded history result
     mut.mutate();
   };
 
-  const rawHits = historyHits != null ? historyHits : (mut.data?.hits || []);
+  const loadHistory = async (jobId) => {
+    try {
+      const job = await getInvestigation(jobId);
+      setFile(null);
+      mut.reset();
+      setLoadedJob(job);
+    } catch {
+      toast.error("Couldn't load investigation");
+    }
+  };
+
+  // Active result set: a loaded history job, else the live mutation result.
+  const activeJob = loadedJob;
+  const rawHits = loadedJob
+    ? (loadedJob.results || loadedJob.hits || [])
+    : (mut.data?.hits || []);
   const hits = useMemo(
-    () => rawHits.filter((h) => (h.score == null) || Number(h.score) >= minScore),
-    [rawHits, minScore],
+    () => rawHits.filter((h) => h.score == null || Number(h.score) >= threshold),
+    [rawHits, threshold],
   );
 
+  const hasResults = loadedJob != null || mut.isSuccess;
+  const headerTitle = activeJob?.name || (mut.isSuccess ? "Results" : "Results");
+  const headerStatus = activeJob?.status || (mut.isSuccess ? "completed" : null);
+
   return (
-    <div className="p-6 flex flex-col gap-4">
-      {/* query bar */}
-      <div className="flex items-center gap-2">
+    <div className="p-4 flex flex-col min-h-0" style={{ height: "100%" }}>
+      <style>{`@keyframes frsFadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}`}</style>
+
+      {/* Header */}
+      <div className="flex items-center gap-2 mb-3">
         <Search className="h-4 w-4" style={{ color: "var(--console-accent)" }} />
         <span className="font-telemetry text-[11px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
           Forensic Search
         </span>
         <button
           type="button"
-          onClick={() => setShowHistory((v) => !v)}
+          onClick={() => setHistoryOpen(true)}
           className="ml-auto inline-flex items-center gap-1.5 font-telemetry text-[10px] uppercase tracking-widest px-2.5 py-1 rounded border"
           style={{ background: "var(--console-raised)", borderColor: "var(--console-border)", color: "var(--console-muted)" }}
         >
@@ -207,140 +333,201 @@ const InvestigateTab = () => {
         </button>
       </div>
 
-      {showHistory && (
-        <div className="rounded p-3 flex flex-col gap-1.5 max-h-56 overflow-auto"
-          style={{ background: "var(--console-panel)", border: "1px solid var(--console-border)" }}>
-          <span className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
-            Past investigations · {(history?.items || []).length}
-          </span>
-          {(history?.items || []).length === 0 ? (
-            <span className="font-telemetry text-[11px] py-2" style={{ color: "var(--console-muted)" }}>No past searches.</span>
-          ) : (
-            (history.items || []).map((j) => (
-              <button key={j.id} type="button" onClick={() => loadHistory(j.id)}
-                className="flex items-center justify-between gap-2 px-2 py-1.5 rounded text-left hover:brightness-125"
-                style={{ background: "var(--console-raised)" }}>
-                <span className="font-telemetry text-[11px] truncate" style={{ color: "var(--console-text)" }}>
-                  {j.name || `Search ${String(j.id).slice(0, 8)}`}
-                </span>
-                <span className="font-telemetry text-[10px] shrink-0" style={{ color: "var(--console-muted)" }}>
-                  {j.result_count ?? 0} hits · {fmtTime(j.created_at)}
-                </span>
-              </button>
-            ))
-          )}
-        </div>
-      )}
-
-      <div
-        className="rounded p-4 flex flex-wrap items-center gap-4"
-        style={{ background: "var(--console-panel)", border: "1px solid var(--console-border)" }}
-      >
-        {/* query preview / picker */}
-        {previewUrl ? (
-          <div className="relative h-28 w-28 rounded overflow-hidden shrink-0" style={{ border: "1px solid var(--console-border)" }}>
-            <img src={previewUrl} alt="query" className="h-full w-full object-cover" />
-            <button
-              type="button"
-              onClick={clear}
-              className="absolute top-1 right-1 h-6 w-6 inline-flex items-center justify-center rounded"
-              style={{ background: "rgba(0,0,0,0.65)", color: "#fff" }}
-              title="Clear"
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-10 gap-4 min-h-0">
+        {/* LEFT — query form (30%) */}
+        <form
+          onSubmit={submit}
+          className="lg:col-span-3 rounded-lg p-4 flex flex-col gap-3 overflow-y-auto"
+          style={{ background: "var(--console-panel)", border: "1px solid var(--console-border)" }}
+        >
+          {/* Query image dropzone */}
+          <div className="flex flex-col gap-1.5">
+            <label className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
+              Query face
+            </label>
+            <div
+              onClick={() => fileRef.current?.click()}
+              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={onDrop}
+              className="relative h-40 rounded-md flex items-center justify-center overflow-hidden cursor-pointer transition-colors"
+              style={{
+                border: `2px dashed ${dragOver ? "var(--console-accent)" : "var(--console-border)"}`,
+                background: dragOver ? "var(--console-raised)" : "var(--console-raised)",
+              }}
             >
-              <X className="h-3 w-3" />
-            </button>
+              {previewUrl ? (
+                <>
+                  <img src={previewUrl} alt="query" className="h-full w-full object-contain" />
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setFile(null); mut.reset(); }}
+                    className="absolute top-1.5 right-1.5 h-6 w-6 inline-flex items-center justify-center rounded"
+                    style={{ background: "rgba(0,0,0,0.65)", color: "#fff" }}
+                    title="Clear"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </>
+              ) : (
+                <span className="flex flex-col items-center gap-1.5 font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
+                  <Upload className="h-5 w-5" />
+                  Drop image or click
+                </span>
+              )}
+            </div>
+            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPick} />
           </div>
-        ) : (
+
+          {/* Name */}
+          <div className="flex flex-col gap-1.5">
+            <label className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
+              Name
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Optional label"
+              className="rounded px-2.5 py-1.5 font-telemetry text-[12px] outline-none"
+              style={inputStyle}
+            />
+          </div>
+
+          {/* Similarity threshold slider */}
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between">
+              <label className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
+                Similarity
+              </label>
+              <span className="font-telemetry text-[11px]" style={{ color: "var(--console-text)" }}>
+                {Number(threshold).toFixed(2)}
+              </span>
+            </div>
+            <input
+              type="range"
+              min={0.3}
+              max={0.95}
+              step={0.01}
+              value={threshold}
+              onChange={(e) => setThreshold(parseFloat(e.target.value))}
+              className="w-full"
+              style={{ accentColor: "var(--console-accent)" }}
+            />
+          </div>
+
+          {/* Max results */}
+          <div className="flex flex-col gap-1.5">
+            <label className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
+              Max results
+            </label>
+            <input
+              type="number"
+              min={1}
+              max={1000}
+              value={maxResults}
+              onChange={(e) => setMaxResults(e.target.value)}
+              className="rounded px-2.5 py-1.5 font-telemetry text-[12px] outline-none"
+              style={inputStyle}
+            />
+          </div>
+
+          {/* Actions */}
+          <button
+            type="submit"
+            disabled={mut.isPending || !file}
+            className="inline-flex items-center justify-center gap-1.5 font-telemetry text-[10px] uppercase tracking-widest px-4 py-2 rounded disabled:opacity-50"
+            style={{ background: "var(--console-accent)", color: "#fff" }}
+          >
+            {mut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
+            Search
+          </button>
           <button
             type="button"
-            onClick={() => fileRef.current?.click()}
-            className="h-28 w-28 rounded flex flex-col items-center justify-center gap-1.5 shrink-0"
-            style={{ border: "1px dashed var(--console-border)", background: "var(--console-raised)", color: "var(--console-muted)" }}
+            onClick={reset}
+            className="inline-flex items-center justify-center gap-1.5 font-telemetry text-[10px] uppercase tracking-widest px-4 py-2 rounded border"
+            style={{ background: "var(--console-raised)", borderColor: "var(--console-border)", color: "var(--console-muted)" }}
           >
-            <Upload className="h-5 w-5" />
-            <span className="font-telemetry text-[9px] uppercase tracking-widest">Query face</span>
+            <RotateCcw className="h-3.5 w-3.5" /> Reset
           </button>
-        )}
-        <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPick} />
+        </form>
 
-        <div className="flex flex-col gap-1.5">
-          <label className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
-            Top results
-          </label>
-          <input
-            type="number"
-            min={1}
-            max={500}
-            value={topK}
-            onChange={(e) => setTopK(e.target.value)}
-            className="w-24 rounded px-2.5 py-1.5 font-telemetry text-[12px] outline-none"
-            style={inputStyle}
-          />
-        </div>
-
-        <div className="flex flex-col gap-1.5 min-w-[180px]">
-          <div className="flex items-center justify-between">
-            <label className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
-              Min similarity
-            </label>
-            <span className="font-telemetry text-[11px]" style={{ color: "var(--console-text)" }}>{minScore.toFixed(2)}</span>
-          </div>
-          <input type="range" min={0.3} max={0.95} step={0.01} value={minScore}
-            onChange={(e) => setMinScore(parseFloat(e.target.value))}
-            className="w-full" style={{ accentColor: "var(--console-accent)" }} />
-        </div>
-
-        <button
-          type="button"
-          onClick={submit}
-          disabled={mut.isPending || !file}
-          className="inline-flex items-center gap-1.5 font-telemetry text-[10px] uppercase tracking-widest px-4 py-2 rounded disabled:opacity-50"
-          style={{ background: "var(--console-accent)", color: "#fff" }}
+        {/* RIGHT — results pane (70%) */}
+        <div
+          className="lg:col-span-7 rounded-lg flex flex-col min-h-0 overflow-hidden"
+          style={{ background: "var(--console-panel)", border: "1px solid var(--console-border)" }}
         >
-          {mut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
-          Search
-        </button>
+          {/* Results header */}
+          <div
+            className="px-4 py-3 flex items-center justify-between shrink-0"
+            style={{ borderBottom: "1px solid var(--console-border)" }}
+          >
+            <div className="min-w-0">
+              <div className="font-telemetry text-[12px] font-semibold truncate" style={{ color: "var(--console-text)" }}>
+                {headerTitle}
+              </div>
+              <div className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
+                {hasResults
+                  ? `${hits.length} match${hits.length === 1 ? "" : "es"} · similarity ${Number(threshold).toFixed(2)}`
+                  : "Upload a query face to search recorded snapshots"}
+              </div>
+            </div>
+            {headerStatus && (
+              <span
+                className="font-telemetry text-[9px] uppercase tracking-widest px-2 py-0.5 rounded shrink-0"
+                style={{ background: "var(--console-raised)", color: "var(--console-muted)" }}
+              >
+                {headerStatus}
+              </span>
+            )}
+          </div>
 
-        {mut.isSuccess && (
-          <span className="ml-auto font-telemetry text-[11px]" style={{ color: "var(--console-muted)" }}>
-            {hits.length} hit{hits.length === 1 ? "" : "s"}
-          </span>
-        )}
+          {/* Results body */}
+          <div className="flex-1 min-h-0 overflow-y-auto p-3">
+            {mut.isPending ? (
+              <div className="h-full flex flex-col items-center justify-center gap-3">
+                <Loader2 className="h-6 w-6 animate-spin" style={{ color: "var(--console-accent)" }} />
+                <span className="font-telemetry text-[11px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
+                  Searching for matches…
+                </span>
+              </div>
+            ) : mut.isError ? (
+              <div className="h-full flex flex-col items-center justify-center gap-2">
+                <ImageOff className="h-6 w-6" style={{ color: "var(--console-rec)" }} />
+                <span className="font-telemetry text-[11px] uppercase tracking-widest" style={{ color: "var(--console-rec)" }}>
+                  Search failed
+                </span>
+              </div>
+            ) : hasResults && hits.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center gap-2">
+                <Search className="h-6 w-6" style={{ color: "var(--console-muted)" }} />
+                <span className="font-telemetry text-[11px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
+                  No matches above {Number(threshold).toFixed(2)} similarity
+                </span>
+              </div>
+            ) : hasResults ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
+                {hits.map((h, i) => (
+                  <HitCard key={h.id || h.photo_id || `${h.snapshot_path}-${i}`} hit={h} />
+                ))}
+              </div>
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center gap-2">
+                <Search className="h-6 w-6" style={{ color: "var(--console-muted)" }} />
+                <span className="font-telemetry text-[11px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
+                  Run an investigation to see matches here
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
-      {/* results */}
-      {mut.isPending ? (
-        <div className="flex items-center justify-center py-16">
-          <Loader2 className="h-5 w-5 animate-spin" style={{ color: "var(--console-muted)" }} />
-        </div>
-      ) : mut.isError ? (
-        <div className="flex flex-col items-center justify-center gap-2 py-16 rounded" style={{ background: "var(--console-panel)", border: "1px dashed var(--console-border)" }}>
-          <ImageOff className="h-6 w-6" style={{ color: "var(--console-rec)" }} />
-          <span className="font-telemetry text-[11px] uppercase tracking-widest" style={{ color: "var(--console-rec)" }}>
-            Search failed
-          </span>
-        </div>
-      ) : (mut.isSuccess || historyHits != null) && hits.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-2 py-16 rounded" style={{ background: "var(--console-panel)", border: "1px dashed var(--console-border)" }}>
-          <Search className="h-6 w-6" style={{ color: "var(--console-muted)" }} />
-          <span className="font-telemetry text-[11px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
-            No matches above {minScore.toFixed(2)} similarity
-          </span>
-        </div>
-      ) : (mut.isSuccess || historyHits != null) ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-          {hits.map((h, i) => (
-            <HitCard key={h.id || `${h.snapshot_key}-${i}`} hit={h} />
-          ))}
-        </div>
-      ) : (
-        <div className="flex flex-col items-center justify-center gap-2 py-16 rounded" style={{ background: "var(--console-panel)", border: "1px dashed var(--console-border)" }}>
-          <Search className="h-6 w-6" style={{ color: "var(--console-muted)" }} />
-          <span className="font-telemetry text-[11px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
-            Upload a query face to search recorded snapshots
-          </span>
-        </div>
-      )}
+      <HistoryDrawer
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        onSelect={loadHistory}
+      />
     </div>
   );
 };

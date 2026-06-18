@@ -37,19 +37,37 @@ DUPLICATE_COSINE = float(os.getenv("FRS_DUP_COSINE", "0.92"))
 ENROLL_MIN_FACE_PX = int(os.getenv("FRS_MIN_FACE_PX", "80"))
 ENROLL_MAX_POSE_DEG = float(os.getenv("FRS_MAX_POSE_DEG", "45"))
 ENROLL_MIN_SHARPNESS = float(os.getenv("FRS_MIN_SHARPNESS", "50"))
-# Live quality gates — reject garbage faces, but tuned looser than vizor-gpu's
-# studio defaults because NVR cameras are often wide/top-down with smaller,
-# angled faces. Override per-deploy via env if the scene is close/frontal.
-LIVE_MIN_FACE_PX = int(os.getenv("FRS_LIVE_MIN_FACE_PX", "18"))
-LIVE_MAX_POSE_DEG = float(os.getenv("FRS_LIVE_MAX_POSE_DEG", "65"))
-LIVE_MIN_SHARPNESS = float(os.getenv("FRS_LIVE_MIN_SHARPNESS", "20"))
-LIVE_DET_CONF = float(os.getenv("FRS_LIVE_DET_CONF", "0.45"))
+# Live quality gates — vizor-gpu / vizor-app defaults (proven-accurate). These
+# are the platform defaults; per-camera config in the UI can loosen them for
+# wide/top-down scenes. Do NOT lower the defaults — looser gates admit tiny /
+# angled / blurry faces that pollute voting and recognition.
+LIVE_MIN_FACE_PX = int(os.getenv("FRS_LIVE_MIN_FACE_PX", "80"))
+LIVE_MAX_POSE_DEG = float(os.getenv("FRS_LIVE_MAX_POSE_DEG", "40"))
+LIVE_MIN_SHARPNESS = float(os.getenv("FRS_LIVE_MIN_SHARPNESS", "60"))
+LIVE_DET_CONF = float(os.getenv("FRS_LIVE_DET_CONF", "0.5"))
+# Multi-frame consensus before emitting an event (vizor-gpu default = 5). Firing
+# on a single frame produces flickery, low-confidence matches.
+LIVE_VOTE_MIN_FRAMES = int(os.getenv("FRS_LIVE_VOTE_MIN_FRAMES", "5"))
+LIVE_HIGH_CONF_SCORE = float(os.getenv("FRS_LIVE_HIGH_CONF_SCORE", "0.75"))
+# Skip recognition on a frame where the face moved > this fraction of its bbox
+# side (likely motion-blurred); the track stays alive so sharp frames vote.
+LIVE_MOTION_BLUR_MAX_DISP_RATIO = float(os.getenv("FRS_LIVE_MOTION_BLUR_MAX_DISP_RATIO", "0.35"))
 
 # ArcFace embeddings are 512-d. (The histogram fallback also emits 512-d so the
 # Qdrant collection vector size is stable whether or not models are mounted.)
 VECTOR_SIZE = 512
 MAX_PHOTO_BYTES = 15 * 1024 * 1024
 ALLOWED_CONTENT = {"image/jpeg", "image/jpg", "image/png", "image/webp"}
+
+# ── Data retention (GDPR storage-limitation) ─────────────────────────────────
+# Events + their snapshot files + snapshot vectors older than this are purged by
+# a background sweeper. 0 disables purging (keep forever). Enrolled gallery
+# photos/persons are NEVER auto-purged — only sightings/events.
+RETENTION_EVENT_DAYS = int(os.getenv("FRS_RETENTION_EVENT_DAYS", "90"))
+RETENTION_SWEEP_HOURS = float(os.getenv("FRS_RETENTION_SWEEP_HOURS", "6"))
+RETENTION_BATCH = int(os.getenv("FRS_RETENTION_BATCH", "2000"))
+# Surface disk pressure in /health when usage on DATA_PATH exceeds this %.
+DISK_WARN_PERCENT = float(os.getenv("FRS_DISK_WARN_PERCENT", "90"))
 
 # ── Live recognition (per-camera RTSP workers) ───────────────────────────────
 LIVE_ENABLED = os.getenv("FRS_LIVE_ENABLED", "true").lower() in ("1", "true", "yes", "on")
@@ -58,9 +76,11 @@ LIVE_ENABLED = os.getenv("FRS_LIVE_ENABLED", "true").lower() in ("1", "true", "y
 GO2RTC_RTSP_HOST = os.getenv("GO2RTC_RTSP_HOST", "go2rtc")
 GO2RTC_RTSP_PORT = int(os.getenv("GO2RTC_RTSP_PORT", "8554"))
 LIVE_POLL_SECONDS = int(os.getenv("FRS_LIVE_POLL_SECONDS", "15"))   # camera catalogue refresh
-LIVE_DEFAULT_FPS = float(os.getenv("FRS_LIVE_FPS", "3"))            # analysed frames/sec
+LIVE_DEFAULT_FPS = float(os.getenv("FRS_LIVE_FPS", "5"))            # analysed frames/sec (vizor-gpu default)
 LIVE_ALERT_COOLDOWN = int(os.getenv("FRS_LIVE_ALERT_COOLDOWN", "300"))  # per-person event gap (s)
-LIVE_USE_SUBSTREAM = os.getenv("FRS_LIVE_SUBSTREAM", "true").lower() in ("1", "true", "yes", "on")
+# Pull the MAIN stream for analysis by default — sub-streams are too low-res for
+# reliable face detection/recognition. Flip to true only for constrained setups.
+LIVE_USE_SUBSTREAM = os.getenv("FRS_LIVE_SUBSTREAM", "false").lower() in ("1", "true", "yes", "on")
 
 VERSION = "0.2.0"
 

@@ -37,6 +37,7 @@ import {
   CalendarClock,
   LayoutGrid,
   List,
+  FolderPlus,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useCamerasQuery, useCameraMutations } from "../hooks";
@@ -59,6 +60,9 @@ import {
   reorderCameras,
   getLatestHealth,
   getCameraGroups,
+  createCameraGroup,
+  updateCameraGroup,
+  deleteCameraGroup,
   bulkCameraAction,
 } from "../api/cameras";
 import {
@@ -109,6 +113,11 @@ import {
 import { cn, maskStreamUrl } from "../lib/utils";
 
 const PAGE_SIZES = [10, 25, 50, 100];
+const DEFAULT_GROUP_COLOR = "#228B22";
+const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
+const safeGroupColor = (value) => (
+  HEX_COLOR_RE.test(value || "") ? value : DEFAULT_GROUP_COLOR
+);
 
 // ── Health helpers ────────────────────────────────────────────────────────────
 const healthTone = (h) => {
@@ -424,6 +433,13 @@ const Cameras = () => {
   const [retentionInput, setRetentionInput] = useState("");
   const [showMoveToGroup, setShowMoveToGroup] = useState(false);
   const [moveGroupId, setMoveGroupId] = useState("");
+  const [showGroupManager, setShowGroupManager] = useState(false);
+  const [editingGroup, setEditingGroup] = useState(null);
+  const [groupForm, setGroupForm] = useState({
+    name: "",
+    description: "",
+    color: DEFAULT_GROUP_COLOR,
+  });
 
   // Fetch schedule templates for bulk apply
   const { data: scheduleTemplates = [] } = useQuery({
@@ -471,6 +487,16 @@ const Cameras = () => {
       return true;
     });
   }, [orderedCameras, search, statusFilter, groupFilter]);
+
+  const cameraCountByGroupId = useMemo(() => {
+    const counts = new Map();
+    cameras.forEach((camera) => {
+      (camera.group_ids || []).forEach((groupId) => {
+        counts.set(groupId, (counts.get(groupId) || 0) + 1);
+      });
+    });
+    return counts;
+  }, [cameras]);
 
   // Apply sort (default = preserve display_order)
   const sorted = useMemo(() => {
@@ -561,6 +587,51 @@ const Cameras = () => {
   // ── Mutations ────────────────────────────────────────────────────────────
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: ["cameras"] });
+  const invalidateGroups = () => {
+    invalidate();
+    queryClient.invalidateQueries({ queryKey: ["camera-groups"] });
+  };
+
+  const resetGroupForm = () => {
+    setEditingGroup(null);
+    setGroupForm({ name: "", description: "", color: DEFAULT_GROUP_COLOR });
+  };
+
+  const openGroupEditor = (group = null) => {
+    setEditingGroup(group);
+    setGroupForm({
+      name: group?.name || "",
+      description: group?.description || "",
+      color: group?.color || DEFAULT_GROUP_COLOR,
+    });
+    setShowGroupManager(true);
+  };
+
+  const groupSaveMutation = useMutation({
+    mutationFn: (payload) => (
+      editingGroup
+        ? updateCameraGroup(editingGroup.id, payload)
+        : createCameraGroup(payload)
+    ),
+    onSuccess: () => {
+      toast.success(editingGroup ? "Group updated" : "Group created");
+      resetGroupForm();
+      invalidateGroups();
+    },
+    onError: (e) => toast.error(e.response?.data?.detail || "Could not save group"),
+  });
+
+  const groupDeleteMutation = useMutation({
+    mutationFn: (groupId) => deleteCameraGroup(groupId),
+    onSuccess: () => {
+      toast.success("Group deleted");
+      resetGroupForm();
+      if (groupFilter !== "all") setGroupFilter("all");
+      if (moveGroupId) setMoveGroupId("");
+      invalidateGroups();
+    },
+    onError: (e) => toast.error(e.response?.data?.detail || "Could not delete group"),
+  });
 
   const bulkDeleteMutation = useMutation({
     mutationFn: (ids) => bulkDeleteCameras(ids),
@@ -664,7 +735,7 @@ const Cameras = () => {
       toast.success(`Moved ${res?.succeeded?.length ?? 0} cameras to group`);
       setShowMoveToGroup(false);
       setMoveGroupId("");
-      invalidate();
+      invalidateGroups();
     },
     onError: () => toast.error("Move to group failed"),
   });
@@ -915,12 +986,28 @@ const Cameras = () => {
           </Select>
         )}
 
+        {canManage && (
+          <button
+            type="button"
+            className="h-[30px] px-3 rounded text-xs border font-telemetry inline-flex items-center gap-1.5 transition-colors hover:bg-[var(--console-hover)]"
+            style={{
+              borderColor: "var(--console-border)",
+              color: "var(--console-text)",
+              background: "var(--console-raised)",
+            }}
+            onClick={() => openGroupEditor()}
+          >
+            <FolderPlus className="h-3.5 w-3.5" />
+            Groups
+          </button>
+        )}
+
         {someSelected && canOperate && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                className="h-[30px] px-3 rounded text-xs border font-telemetry transition-colors hover:bg-white/5"
+                className="h-[30px] px-3 rounded text-xs border font-telemetry transition-colors hover:bg-[var(--console-hover)]"
                 style={{
                   borderColor: "var(--console-accent)",
                   color: "var(--console-accent)",
@@ -991,7 +1078,7 @@ const Cameras = () => {
             <>
               <button
                 type="button"
-                className="h-[30px] px-3 rounded text-xs border font-telemetry inline-flex items-center gap-1.5 transition-colors hover:bg-white/5"
+                className="h-[30px] px-3 rounded text-xs border font-telemetry inline-flex items-center gap-1.5 transition-colors hover:bg-[var(--console-hover)]"
                 style={{
                   borderColor: "var(--console-border)",
                   color: "var(--console-muted)",
@@ -1387,7 +1474,7 @@ const Cameras = () => {
                               <DropdownMenuTrigger asChild>
                                 <button
                                   type="button"
-                                  className="p-1.5 rounded hover:bg-white/5 transition"
+                                  className="p-1.5 rounded hover:bg-[var(--console-hover)] transition"
                                   style={{ color: "var(--console-muted)" }}
                                 >
                                   <MoreVertical className="h-3.5 w-3.5" />
@@ -1546,7 +1633,7 @@ const Cameras = () => {
                   type="button"
                   disabled={page <= 1}
                   onClick={() => setPage((p) => p - 1)}
-                  className="px-2 py-1 rounded border disabled:opacity-30 hover:bg-white/5 transition"
+                  className="px-2 py-1 rounded border disabled:opacity-30 hover:bg-[var(--console-hover)] transition"
                   style={{
                     borderColor: "var(--console-border)",
                     color: "var(--console-muted)",
@@ -1559,7 +1646,7 @@ const Cameras = () => {
                   type="button"
                   disabled={page >= totalPages}
                   onClick={() => setPage((p) => p + 1)}
-                  className="px-2 py-1 rounded border disabled:opacity-30 hover:bg-white/5 transition"
+                  className="px-2 py-1 rounded border disabled:opacity-30 hover:bg-[var(--console-hover)] transition"
                   style={{
                     borderColor: "var(--console-border)",
                     color: "var(--console-muted)",
@@ -1589,7 +1676,7 @@ const Cameras = () => {
         >
           {canOperate && (
             <button
-              className="w-full text-left flex items-center gap-2 px-3 py-2 rounded hover:bg-white/5"
+              className="w-full text-left flex items-center gap-2 px-3 py-2 rounded hover:bg-[var(--console-hover)]"
               onClick={() => {
                 inlineToggle(contextMenu.camera);
                 setContextMenu(null);
@@ -1604,7 +1691,7 @@ const Cameras = () => {
           )}
           {canOperate && (
             <button
-              className="w-full text-left flex items-center gap-2 px-3 py-2 rounded hover:bg-white/5"
+              className="w-full text-left flex items-center gap-2 px-3 py-2 rounded hover:bg-[var(--console-hover)]"
               onClick={() => {
                 mutations.test.mutate(contextMenu.camera.id);
                 setContextMenu(null);
@@ -1614,7 +1701,7 @@ const Cameras = () => {
             </button>
           )}
           <button
-            className="w-full text-left flex items-center gap-2 px-3 py-2 rounded hover:bg-white/5"
+            className="w-full text-left flex items-center gap-2 px-3 py-2 rounded hover:bg-[var(--console-hover)]"
             onClick={() => {
               navigate(`/cameras/${contextMenu.camera.id}`);
               setContextMenu(null);
@@ -1624,7 +1711,7 @@ const Cameras = () => {
           </button>
           {canManage && (
             <button
-              className="w-full text-left flex items-center gap-2 px-3 py-2 rounded hover:bg-white/5"
+              className="w-full text-left flex items-center gap-2 px-3 py-2 rounded hover:bg-[var(--console-hover)]"
               onClick={() => {
                 openEdit(contextMenu.camera);
                 setContextMenu(null);
@@ -1651,6 +1738,160 @@ const Cameras = () => {
         </div>
       )}
 
+      {/* ── Camera group manager ─────────────────────────────────────────── */}
+      <Dialog
+        open={showGroupManager}
+        onOpenChange={(open) => {
+          setShowGroupManager(open);
+          if (!open) resetGroupForm();
+        }}
+      >
+        <DialogContent className="w-[min(900px,calc(100vw-32px))] max-w-none">
+          <DialogHeader>
+            <DialogTitle>Camera Groups</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-4">
+            <div
+              className="rounded border overflow-hidden"
+              style={{ borderColor: "var(--console-border)", background: "var(--console-panel)" }}
+            >
+              <div
+                className="px-3 py-2 border-b font-telemetry text-[11px] uppercase tracking-wide"
+                style={{ borderColor: "var(--console-border)", color: "var(--console-muted)" }}
+              >
+                Existing groups
+              </div>
+              <div className="max-h-[360px] overflow-y-auto">
+                {groups.length === 0 ? (
+                  <div className="p-6 text-sm" style={{ color: "var(--console-muted)" }}>
+                    No groups created yet. Create a group to organize cameras.
+                  </div>
+                ) : (
+                  groups.map((group) => {
+                    const active = editingGroup?.id === group.id;
+                    return (
+                      <div
+                        key={group.id}
+                        className="flex items-center gap-3 px-3 py-2 border-b last:border-b-0"
+                        style={{
+                          borderColor: "var(--console-border)",
+                          background: active ? "var(--console-hover)" : "transparent",
+                        }}
+                      >
+                        <span
+                          className="h-3 w-3 rounded-full shrink-0"
+                          style={{ background: safeGroupColor(group.color) }}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium truncate" style={{ color: "var(--console-text)" }}>
+                            {group.name}
+                          </p>
+                          <p className="text-[11px] truncate" style={{ color: "var(--console-muted)" }}>
+                            {(cameraCountByGroupId.get(group.id) || 0)} camera{(cameraCountByGroupId.get(group.id) || 0) === 1 ? "" : "s"}
+                            {group.description ? ` · ${group.description}` : ""}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          className="h-7 px-2 rounded text-[11px] border hover:bg-[var(--console-hover)]"
+                          style={{ borderColor: "var(--console-border)", color: "var(--console-text)" }}
+                          onClick={() => openGroupEditor(group)}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="h-7 px-2 rounded text-[11px] border hover:bg-rose-500/10"
+                          style={{ borderColor: "var(--console-border)", color: "var(--console-rec)" }}
+                          disabled={groupDeleteMutation.isPending}
+                          onClick={() => {
+                            if (window.confirm(`Delete group "${group.name}"? Cameras will not be deleted.`)) {
+                              groupDeleteMutation.mutate(group.id);
+                            }
+                          }}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            <div
+              className="rounded border p-4 space-y-3"
+              style={{ borderColor: "var(--console-border)", background: "var(--console-panel)" }}
+            >
+              <div>
+                <p className="font-telemetry text-[11px] uppercase tracking-wide" style={{ color: "var(--console-text)" }}>
+                  {editingGroup ? "Edit group" : "New group"}
+                </p>
+                <p className="text-[12px]" style={{ color: "var(--console-muted)" }}>
+                  Use groups for filtering, permissions and bulk movement.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[11px] uppercase tracking-wide" style={{ color: "var(--console-muted)" }}>
+                  Group name
+                </label>
+                <Input
+                  value={groupForm.name}
+                  onChange={(e) => setGroupForm((prev) => ({ ...prev, name: e.target.value }))}
+                  placeholder="Example: Ground Floor"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[11px] uppercase tracking-wide" style={{ color: "var(--console-muted)" }}>
+                  Description
+                </label>
+                <Input
+                  value={groupForm.description}
+                  onChange={(e) => setGroupForm((prev) => ({ ...prev, description: e.target.value }))}
+                  placeholder="Optional"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[11px] uppercase tracking-wide" style={{ color: "var(--console-muted)" }}>
+                  Color
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={safeGroupColor(groupForm.color)}
+                    onChange={(e) => setGroupForm((prev) => ({ ...prev, color: e.target.value }))}
+                    className="h-9 w-12 rounded border bg-transparent"
+                    style={{ borderColor: "var(--console-border)" }}
+                  />
+                  <Input
+                    value={groupForm.color}
+                    onChange={(e) => setGroupForm((prev) => ({ ...prev, color: e.target.value }))}
+                    placeholder="#228B22"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-between gap-2 pt-2">
+                <Button variant="outline" onClick={resetGroupForm}>
+                  Clear
+                </Button>
+                <Button
+                  disabled={!groupForm.name.trim() || groupSaveMutation.isPending}
+                  onClick={() =>
+                    groupSaveMutation.mutate({
+                      name: groupForm.name.trim(),
+                      description: groupForm.description.trim() || null,
+                      color: safeGroupColor(groupForm.color),
+                    })
+                  }
+                >
+                  {editingGroup ? "Update Group" : "Create Group"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* ── Move to group dialog ──────────────────────────────────────────── */}
       <Dialog open={showMoveToGroup} onOpenChange={setShowMoveToGroup}>
         <DialogContent>
@@ -1658,20 +1899,38 @@ const Cameras = () => {
             <DialogTitle>Move {selectedIds.size} camera{selectedIds.size !== 1 ? "s" : ""} to group</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
-            <Select value={moveGroupId} onValueChange={setMoveGroupId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select a group…" />
-              </SelectTrigger>
-              <SelectContent>
-                {groups.map((g) => (
-                  <SelectItem key={g.id} value={g.id}>
-                    {g.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {groups.length === 0 ? (
+              <div
+                className="rounded border p-3 text-sm"
+                style={{ borderColor: "var(--console-border)", color: "var(--console-muted)" }}
+              >
+                No groups available. Create a group first.
+              </div>
+            ) : (
+              <Select value={moveGroupId} onValueChange={setMoveGroupId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a group…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {groups.map((g) => (
+                    <SelectItem key={g.id} value={g.id}>
+                      {g.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
           <div className="flex justify-end gap-2 mt-2">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setShowMoveToGroup(false);
+                openGroupEditor();
+              }}
+            >
+              Manage Groups
+            </Button>
             <Button variant="outline" onClick={() => setShowMoveToGroup(false)}>Cancel</Button>
             <Button
               disabled={!moveGroupId || bulkMoveGroupMutation.isPending}

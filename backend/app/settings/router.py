@@ -25,17 +25,24 @@ svc = SettingsService()
 async def public_branding(db: AsyncSession = Depends(get_db)):
     """Public whitelabel metadata used by login and the app shell."""
     theme_mode = await svc.get_value(db, "theme_mode", "dark")
-    background_default = "#FFFFFF" if theme_mode == "light" else "#000000"
-    text_default = "#111827" if theme_mode == "light" else "#E2E8F0"
+    font_size_raw = await svc.get_value(db, "theme_font_size", "14")
+    try:
+        font_size = min(18, max(12, int(font_size_raw)))
+    except (TypeError, ValueError):
+        font_size = 14
+    light = theme_mode == "light"
     return {
         "system_name": await svc.get_value(db, "system_name", "Vizor NVR"),
         "logo_url": await svc.get_value(db, "brand_logo_url", ""),
         "favicon_url": await svc.get_value(db, "brand_favicon_url", ""),
-        "theme_mode": theme_mode,
-        "background_color": background_default,
-        "button_color": await svc.get_value(db, "theme_button_color", "#228B22"),
-        "text_color": await svc.get_value(db, "theme_text_color", text_default),
-        "font_size": await svc.get_value(db, "theme_font_size", "14"),
+        "theme_mode": "light" if light else "dark",
+        # Fixed enterprise palette. Keep these keys for frontend/backward
+        # compatibility, but do not read old custom color settings here.
+        "background_color": "#FFFFFF" if light else "#000000",
+        "button_color": "#111827" if light else "#FFFFFF",
+        "text_color": "#111827" if light else "#F9FAFB",
+        "hover_color": "#F3F4F6" if light else "#111111",
+        "font_size": str(font_size),
     }
 
 

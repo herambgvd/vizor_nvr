@@ -27,21 +27,31 @@ class AuthService:
 
     @staticmethod
     async def seed_roles(db: AsyncSession) -> None:
-        """Create the three default roles if missing. Called at startup."""
+        """Create the three default roles if missing, and reconcile system roles
+        with any newly-added default permissions (so upgrades that introduce a
+        permission grant it to existing system roles). Called at startup."""
         for role_name in RoleName:
-            exists = await db.execute(
+            existing = (await db.execute(
                 select(Role).where(Role.name == role_name.value)
-            )
-            if exists.scalar_one_or_none():
+            )).scalar_one_or_none()
+            defaults = ROLE_DEFAULTS[role_name]
+            if existing is None:
+                db.add(Role(
+                    name=role_name.value,
+                    description=f"System {role_name.value} role",
+                    permissions=defaults,
+                    is_system=True,
+                ))
+                logger.info(f"Seeded role: {role_name.value}")
                 continue
-            role = Role(
-                name=role_name.value,
-                description=f"System {role_name.value} role",
-                permissions=ROLE_DEFAULTS[role_name],
-                is_system=True,
-            )
-            db.add(role)
-            logger.info(f"Seeded role: {role_name.value}")
+            # Union-in any default perms the system role is missing (e.g. new
+            # AI/biometric perms added in an upgrade). Custom additions are kept.
+            if existing.is_system:
+                current = list(existing.permissions or [])
+                missing = [p for p in defaults if p not in current]
+                if missing:
+                    existing.permissions = current + missing
+                    logger.info(f"Granted new perms to '{role_name.value}': {missing}")
         await db.commit()
 
     @staticmethod

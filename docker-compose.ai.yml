@@ -10,13 +10,19 @@
 
 services:
   qdrant:
-    image: qdrant/qdrant:latest
+    # Pin a version — :latest can change the storage format under a running
+    # deployment. Bump deliberately + test.
+    image: qdrant/qdrant:v1.18.0
     container_name: gvd_ai_qdrant
     restart: unless-stopped
     networks:
       - internal
     volumes:
       - qdrant_data:/qdrant/storage
+    deploy:
+      resources:
+        limits:
+          memory: ${QDRANT_MEM_LIMIT:-4g}
     healthcheck:
       test: ["CMD", "bash", "-lc", "exec 3<>/dev/tcp/127.0.0.1/6333"]
       interval: 30s
@@ -58,7 +64,7 @@ services:
       SCENARIO_SLUG: suspect-search
       VIZOR_BASE_URL: http://backend:8000/api
       VIZOR_API_KEY: ${AI_PLUGIN_API_KEY:-}
-      VIZOR_SERVICE_TOKEN: ${AI_PLUGIN_SERVICE_TOKEN:-dev-ai-service-token}
+      VIZOR_SERVICE_TOKEN: ${AI_PLUGIN_SERVICE_TOKEN:-dev-XNrW79MQknM38BVGRkDZWrUQhJsJ2HUBbYfTOkWAZY0}
       QDRANT_URL: http://qdrant:6333
       SUSPECT_SEARCH_DATABASE_URL: postgresql://suspect:${AI_SUSPECT_SEARCH_DB_PASSWORD:-suspect}@suspect-search-db:5432/suspect_search
       INFERENCE_BACKEND: onnxruntime-gpu
@@ -82,7 +88,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2g
+          memory: ${SUSPECT_MEM_LIMIT:-4g}
+          cpus: "${SUSPECT_CPU_LIMIT:-4}"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8091/health').read()"]
       interval: 30s
@@ -102,7 +109,7 @@ services:
       SCENARIO_SLUG: ppe
       VIZOR_BASE_URL: http://backend:8000/api
       VIZOR_API_KEY: ${AI_PLUGIN_API_KEY:-}
-      VIZOR_SERVICE_TOKEN: ${AI_PLUGIN_SERVICE_TOKEN:-dev-ai-service-token}
+      VIZOR_SERVICE_TOKEN: ${AI_PLUGIN_SERVICE_TOKEN:-dev-XNrW79MQknM38BVGRkDZWrUQhJsJ2HUBbYfTOkWAZY0}
       INFERENCE_BACKEND: onnxruntime-gpu
       DETECTOR_MODEL_PATH: /models/ppe-detector.onnx
       POSE_MODEL_PATH: /models/pose.onnx
@@ -115,7 +122,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2g
+          memory: ${PPE_MEM_LIMIT:-4g}
+          cpus: "${PPE_CPU_LIMIT:-4}"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8092/health').read()"]
       interval: 30s
@@ -157,7 +165,7 @@ services:
       SCENARIO_SLUG: frs
       VIZOR_BASE_URL: http://backend:8000/api
       VIZOR_API_KEY: ${AI_PLUGIN_API_KEY:-}
-      VIZOR_SERVICE_TOKEN: ${AI_PLUGIN_SERVICE_TOKEN:-dev-ai-service-token}
+      VIZOR_SERVICE_TOKEN: ${AI_PLUGIN_SERVICE_TOKEN:-dev-XNrW79MQknM38BVGRkDZWrUQhJsJ2HUBbYfTOkWAZY0}
       FRS_DATABASE_URL: postgresql+psycopg2://frs:${AI_FRS_DB_PASSWORD:-frs}@frs-db:5432/frs
       QDRANT_URL: http://qdrant:6333
       QDRANT_COLLECTION: vizor_frs_faces
@@ -167,10 +175,18 @@ services:
       EMBED_MODEL_PATH: /models/arcface_r50.onnx
       ANTISPOOF_MODEL_PATH: /models/antispoofing.onnx
       FAIRFACE_MODEL_PATH: /models/fairface.onnx
+      # GPU is required for production scale. Set FRS_REQUIRE_GPU=true so the
+      # engine refuses to start on CPU fallback instead of silently crawling.
+      # Leave false for CPU-only dev / small camera counts.
+      FRS_REQUIRE_GPU: ${FRS_REQUIRE_GPU:-false}
+      NVIDIA_VISIBLE_DEVICES: ${FRS_GPU_DEVICES:-all}
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
       # Live per-camera recognition — pull frames from go2rtc's RTSP restream.
       FRS_LIVE_ENABLED: "true"
       GO2RTC_RTSP_HOST: go2rtc
       GO2RTC_RTSP_PORT: "8554"
+      FRS_RECORDINGS_ROOT: /data/recordings
+      FRS_RETENTION_EVENT_DAYS: ${FRS_RETENTION_EVENT_DAYS:-90}
       PORT: 8093
     networks:
       - internal
@@ -181,7 +197,16 @@ services:
     deploy:
       resources:
         limits:
-          memory: 3g
+          # Right-sized for the inference workload; raise with camera count.
+          memory: ${FRS_MEM_LIMIT:-6g}
+          cpus: "${FRS_CPU_LIMIT:-6}"
+        reservations:
+          # GPU passthrough — requires the NVIDIA container runtime on the host.
+          # Comment this block out on CPU-only hosts (with FRS_REQUIRE_GPU=false).
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8093/health').read()"]
       interval: 30s

@@ -97,6 +97,19 @@ def _loop():
         time.sleep(config.LIVE_POLL_SECONDS)
 
 
+def live_status() -> dict:
+    """Snapshot of worker liveness for /health: how many workers exist, how many
+    are alive, and how many decoded a frame within the last 60s ("active")."""
+    now = time.time()
+    with _LOCK:
+        workers = list(_WORKERS.values())
+    alive = sum(1 for w in workers if w.is_alive())
+    active = sum(1 for w in workers
+                 if w.is_alive() and (now - getattr(w, "last_frame_ts", 0.0)) < 60.0)
+    return {"enabled": config.LIVE_ENABLED, "expected": len(workers),
+            "alive": alive, "active": active}
+
+
 def start_live_manager():
     """Launch the reconcile loop on a daemon thread (no-op if disabled)."""
     if not config.LIVE_ENABLED:

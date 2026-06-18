@@ -31,4 +31,18 @@ def generate_photometric_variants(aligned: np.ndarray) -> list[dict]:
         lut = np.array([((i / 255.0) ** inv) * 255 for i in range(256)], dtype=np.uint8)
         variants.append({"image": cv2.LUT(aligned, lut), "tag": tag})
 
+    # Horizontal flip — face symmetry, boosts recall across yaw (vizor-app parity).
+    variants.append({"image": cv2.flip(aligned, 1), "tag": "flip"})
+
+    # Multi-scale crops — widen recall across distance (vizor-app parity:
+    # INTER_CUBIC resize, BORDER_REFLECT_101 padding, pad = round(H*0.12)).
+    H, W = aligned.shape[:2]
+    m = round(H * 0.06)
+    if H - 2 * m > 8 and W - 2 * m > 8:
+        tight = aligned[m:H - m, m:W - m]
+        variants.append({"image": cv2.resize(tight, (W, H), interpolation=cv2.INTER_CUBIC), "tag": "scale_tight"})
+    pad = round(H * 0.12)
+    loose = cv2.copyMakeBorder(aligned, pad, pad, pad, pad, cv2.BORDER_REFLECT_101)
+    variants.append({"image": cv2.resize(loose, (W, H), interpolation=cv2.INTER_CUBIC), "tag": "scale_loose"})
+
     return variants

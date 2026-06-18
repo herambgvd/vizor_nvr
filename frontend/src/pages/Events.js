@@ -111,6 +111,12 @@ const SEVERITY_CONFIG = {
   },
 };
 
+const inputStyle = {
+  background: "var(--console-raised)",
+  borderColor: "var(--console-border)",
+  color: "var(--console-text)",
+};
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getEventIcon(type) {
@@ -126,17 +132,20 @@ function severityOf(s) {
 
 /** Compact label used inside the filter bar */
 const FilterLabel = ({ children }) => (
-  <span className="text-[10px] font-medium uppercase tracking-widest text-zinc-500 mb-0.5 block">
+  <span className="text-[10px] font-medium uppercase tracking-widest mb-0.5 block" style={{ color: "var(--console-muted)" }}>
     {children}
   </span>
 );
 
 /** Severity stat chip shown in the header */
 const SeverityChip = ({ label, count, barClass }) => (
-  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded border border-zinc-700/60 bg-zinc-900/60 text-xs font-telemetry">
+  <div
+    className="flex items-center gap-1.5 px-2.5 py-1 rounded border text-xs font-telemetry"
+    style={{ background: "var(--console-raised)", borderColor: "var(--console-border)" }}
+  >
     <span className={cn("h-2 w-2 rounded-sm flex-shrink-0", barClass)} />
-    <span className="text-zinc-400">{label}</span>
-    <span className="text-zinc-200 font-medium">{count}</span>
+    <span style={{ color: "var(--console-muted)" }}>{label}</span>
+    <span className="font-medium" style={{ color: "var(--console-text)" }}>{count}</span>
   </div>
 );
 
@@ -421,15 +430,18 @@ const Events = () => {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col h-full min-h-0 overflow-hidden bg-background text-foreground">
+    <div className="flex flex-col h-full min-h-0 overflow-hidden" style={{ background: "var(--console-bg)", color: "var(--console-text)" }}>
 
       {/* ── Console header ─────────────────────────────────────────────────── */}
-      <div className="flex-shrink-0 px-4 py-3 border-b border-zinc-800 bg-zinc-900/80 backdrop-blur-sm">
+      <div
+        className="flex-shrink-0 px-4 py-3 border-b backdrop-blur-sm"
+        style={{ background: "var(--console-panel)", borderColor: "var(--console-border)" }}
+      >
         <div className="flex items-center gap-4 flex-wrap">
           {/* Title */}
           <div className="flex items-center gap-2.5 flex-shrink-0">
             <Bell className="h-4 w-4 text-teal-400" />
-            <span className="text-xs font-medium tracking-[0.18em] uppercase text-zinc-200 font-telemetry">
+            <span className="text-xs font-medium tracking-[0.18em] uppercase font-telemetry" style={{ color: "var(--console-text)" }}>
               Event Log
             </span>
             {unackCount > 0 && (
@@ -514,7 +526,8 @@ const Events = () => {
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 text-xs text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50"
+                className="h-7 text-xs hover:bg-[var(--console-hover)]"
+                style={{ color: "var(--console-muted)" }}
               onClick={handleExportCSV}
             >
               <Download className="h-3.5 w-3.5 mr-1" />
@@ -525,15 +538,19 @@ const Events = () => {
       </div>
 
       {/* ── Filter bar ─────────────────────────────────────────────────────── */}
-      <div className="flex-shrink-0 px-4 py-2.5 border-b border-zinc-800 bg-zinc-900/50">
+      <div
+        className="flex-shrink-0 px-4 py-2.5 border-b"
+        style={{ background: "var(--console-panel)", borderColor: "var(--console-border)" }}
+      >
         <div className="flex items-center gap-2 flex-wrap">
-          <Filter className="h-3.5 w-3.5 text-zinc-500 flex-shrink-0" />
+          <Filter className="h-3.5 w-3.5 flex-shrink-0" style={{ color: "var(--console-muted)" }} />
 
           {/* Free-text search */}
           <div className="relative flex-shrink-0">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-zinc-500 pointer-events-none" />
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 pointer-events-none" style={{ color: "var(--console-muted)" }} />
             <Input
-              className="pl-6 h-7 w-44 text-xs bg-zinc-800/60 border-zinc-700 placeholder:text-zinc-600 focus:border-teal-500/50"
+              className="pl-6 h-7 w-44 text-xs"
+              style={inputStyle}
               placeholder="Search title, type, camera…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -544,7 +561,7 @@ const Events = () => {
             value={eventType}
             onValueChange={(v) => { setEventType(v); setPage(1); }}
           >
-            <SelectTrigger className="h-7 w-36 text-xs bg-zinc-800/60 border-zinc-700 focus:border-teal-500/50">
+            <SelectTrigger className="h-7 w-36 text-xs" style={inputStyle}>
               <SelectValue placeholder="Event type" />
             </SelectTrigger>
             <SelectContent>
@@ -561,7 +578,7 @@ const Events = () => {
             value={severity}
             onValueChange={(v) => { setSeverity(v); setPage(1); }}
           >
-            <SelectTrigger className="h-7 w-28 text-xs bg-zinc-800/60 border-zinc-700 focus:border-teal-500/50">
+            <SelectTrigger className="h-7 w-28 text-xs" style={inputStyle}>
               <SelectValue placeholder="Severity" />
             </SelectTrigger>
             <SelectContent>
@@ -577,7 +594,7 @@ const Events = () => {
             value={cameraId}
             onValueChange={(v) => { setCameraId(v); setPage(1); }}
           >
-            <SelectTrigger className="h-7 w-36 text-xs bg-zinc-800/60 border-zinc-700 focus:border-teal-500/50">
+            <SelectTrigger className="h-7 w-36 text-xs" style={inputStyle}>
               <SelectValue placeholder="Camera" />
             </SelectTrigger>
             <SelectContent>
@@ -594,7 +611,7 @@ const Events = () => {
             value={acknowledged}
             onValueChange={(v) => { setAcknowledged(v); setPage(1); }}
           >
-            <SelectTrigger className="h-7 w-32 text-xs bg-zinc-800/60 border-zinc-700 focus:border-teal-500/50">
+            <SelectTrigger className="h-7 w-32 text-xs" style={inputStyle}>
               <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
@@ -606,13 +623,15 @@ const Events = () => {
 
           <Input
             type="datetime-local"
-            className="h-7 w-40 text-xs bg-zinc-800/60 border-zinc-700 focus:border-teal-500/50"
+            className="h-7 w-40 text-xs"
+            style={inputStyle}
             value={startDate}
             onChange={(e) => { setStartDate(e.target.value); setPage(1); }}
           />
           <Input
             type="datetime-local"
-            className="h-7 w-40 text-xs bg-zinc-800/60 border-zinc-700 focus:border-teal-500/50"
+            className="h-7 w-40 text-xs"
+            style={inputStyle}
             value={endDate}
             onChange={(e) => { setEndDate(e.target.value); setPage(1); }}
           />
@@ -623,11 +642,16 @@ const Events = () => {
       <div className="flex-1 flex min-h-0 overflow-hidden">
 
         {/* ── LEFT: Event list ─────────────────────────────────────────────── */}
-        <div className="flex flex-col border-r border-zinc-800 bg-zinc-950/60"
-          style={{ width: "420px", minWidth: "280px", maxWidth: "520px", flexShrink: 0 }}>
+        <div
+          className="flex flex-col border-r"
+          style={{ width: "420px", minWidth: "280px", maxWidth: "520px", flexShrink: 0, background: "var(--console-panel)", borderColor: "var(--console-border)" }}
+        >
 
           {/* List header */}
-          <div className="flex-shrink-0 flex items-center gap-2 px-3 py-2 border-b border-zinc-800 bg-zinc-900/70">
+          <div
+            className="flex-shrink-0 flex items-center gap-2 px-3 py-2 border-b"
+            style={{ background: "var(--console-raised)", borderColor: "var(--console-border)" }}
+          >
             <input
               type="checkbox"
               aria-label="Select all on page"
@@ -635,7 +659,7 @@ const Events = () => {
               checked={allOnPageSelected}
               onChange={toggleSelectAllOnPage}
             />
-            <span className="text-[10px] uppercase tracking-widest text-zinc-500 font-telemetry">
+            <span className="text-[10px] uppercase tracking-widest font-telemetry" style={{ color: "var(--console-muted)" }}>
               {total > 0 ? `${total} events` : "No events"}
               {searchQuery.trim() && events.length !== rawEvents.length
                 ? ` · ${events.length} shown`
@@ -646,11 +670,11 @@ const Events = () => {
           {/* Scrollable event rows */}
           <div className="flex-1 overflow-y-auto">
             {isLoading ? (
-              <div className="flex items-center justify-center py-16 text-xs text-zinc-500">
+              <div className="flex items-center justify-center py-16 text-xs" style={{ color: "var(--console-muted)" }}>
                 Loading events…
               </div>
             ) : events.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 text-zinc-500 gap-2">
+              <div className="flex flex-col items-center justify-center py-16 gap-2" style={{ color: "var(--console-muted)" }}>
                 <Bell className="h-7 w-7 opacity-30" />
                 <span className="text-xs">No events found</span>
               </div>
@@ -665,12 +689,12 @@ const Events = () => {
                     type="button"
                     onClick={() => setSelectedEvent(event)}
                     className={cn(
-                      "w-full flex items-stretch text-left border-b border-zinc-800/70",
-                      "hover:bg-zinc-800/50 transition-colors focus:outline-none",
+                      "w-full flex items-stretch text-left border-b transition-colors focus:outline-none hover:bg-[var(--console-hover)]",
                       isSelected && "bg-teal-500/10 border-l-2 border-l-teal-500",
                       !isSelected && !event.acknowledged && "bg-rose-500/[0.03]",
                       selectedIds.has(event.id) && !isSelected && "bg-teal-500/[0.05]",
                     )}
+                    style={{ borderColor: "var(--console-border)" }}
                   >
                     {/* Severity accent bar */}
                     {!isSelected && (
@@ -697,12 +721,12 @@ const Events = () => {
                       {/* Row 1: type + timestamp */}
                       <span className="flex items-center justify-between gap-1 mb-1">
                         <span className="flex items-center gap-1.5 min-w-0">
-                          <Icon className="h-3.5 w-3.5 flex-shrink-0 text-zinc-400" />
-                          <span className="text-[11px] font-medium text-zinc-200 truncate capitalize">
+                          <Icon className="h-3.5 w-3.5 flex-shrink-0" style={{ color: "var(--console-muted)" }} />
+                          <span className="text-[11px] font-medium truncate capitalize" style={{ color: "var(--console-text)" }}>
                             {(event.event_type || "").replace(/_/g, " ")}
                           </span>
                         </span>
-                        <span className="text-[10px] text-zinc-500 font-telemetry flex-shrink-0">
+                        <span className="text-[10px] font-telemetry flex-shrink-0" style={{ color: "var(--console-muted)" }}>
                           {event.triggered_at
                             ? format(new Date(event.triggered_at), "MMM dd HH:mm:ss")
                             : "—"}
@@ -710,7 +734,7 @@ const Events = () => {
                       </span>
                       {/* Row 2: camera + status badge */}
                       <span className="flex items-center justify-between gap-1">
-                        <span className="text-[10px] text-zinc-500 truncate">
+                        <span className="text-[10px] truncate" style={{ color: "var(--console-muted)" }}>
                           {getCameraName(event.camera_id)}
                         </span>
                         <span className="flex items-center gap-1 flex-shrink-0">
@@ -734,7 +758,7 @@ const Events = () => {
                       </span>
                       {/* Row 3: title if present */}
                       {event.title && (
-                        <span className="block text-[10px] text-zinc-400 truncate mt-0.5">
+                        <span className="block text-[10px] truncate mt-0.5" style={{ color: "var(--console-muted)" }}>
                           {event.title}
                         </span>
                       )}
@@ -789,15 +813,19 @@ const Events = () => {
 
           {/* Pagination */}
           {totalPages > 1 && (
-            <div className="flex-shrink-0 flex items-center justify-between border-t border-zinc-800 px-3 py-2 bg-zinc-900/60">
-              <span className="text-[10px] text-zinc-500 font-telemetry">
+            <div
+              className="flex-shrink-0 flex items-center justify-between border-t px-3 py-2"
+              style={{ background: "var(--console-raised)", borderColor: "var(--console-border)" }}
+            >
+              <span className="text-[10px] font-telemetry" style={{ color: "var(--console-muted)" }}>
                 Page {page}/{totalPages}
               </span>
               <div className="flex gap-1">
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-6 w-6 p-0 text-zinc-400 hover:text-zinc-200"
+                  className="h-6 w-6 p-0 hover:bg-[var(--console-hover)]"
+                  style={{ color: "var(--console-muted)" }}
                   disabled={page <= 1}
                   onClick={() => setPage((p) => p - 1)}
                 >
@@ -806,7 +834,8 @@ const Events = () => {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-6 w-6 p-0 text-zinc-400 hover:text-zinc-200"
+                  className="h-6 w-6 p-0 hover:bg-[var(--console-hover)]"
+                  style={{ color: "var(--console-muted)" }}
                   disabled={page >= totalPages}
                   onClick={() => setPage((p) => p + 1)}
                 >
@@ -818,25 +847,31 @@ const Events = () => {
         </div>
 
         {/* ── RIGHT: Detail panel ───────────────────────────────────────────── */}
-        <div className="flex-1 min-w-0 flex flex-col min-h-0 bg-zinc-950/40">
+        <div
+          className="flex-1 min-w-0 flex flex-col min-h-0"
+          style={{ background: "var(--console-bg)" }}
+        >
           {!selectedEvent ? (
             /* Empty state */
-            <div className="flex flex-col items-center justify-center h-full text-zinc-600 gap-3">
+            <div className="flex flex-col items-center justify-center h-full gap-3" style={{ color: "var(--console-muted)" }}>
               <Bell className="h-10 w-10 opacity-20" />
-              <p className="text-sm font-medium text-zinc-500">No event selected</p>
-              <p className="text-xs text-zinc-600">Click a row to view details</p>
+              <p className="text-sm font-medium">No event selected</p>
+              <p className="text-xs opacity-75">Click a row to view details</p>
             </div>
           ) : (
             <div className="flex flex-col h-full min-h-0">
               {/* Panel header */}
-              <div className="flex-shrink-0 flex items-center justify-between px-4 py-2.5 border-b border-zinc-800 bg-zinc-900/70">
+              <div
+                className="flex-shrink-0 flex items-center justify-between px-4 py-2.5 border-b"
+                style={{ background: "var(--console-panel)", borderColor: "var(--console-border)" }}
+              >
                 <div className="flex items-center gap-2">
                   {(() => {
                     const sev = severityOf(selectedEvent.severity);
                     return (
                       <>
                         <span className={cn("h-2 w-2 rounded-sm", sev.bar)} />
-                        <span className="text-xs font-medium text-zinc-200 capitalize">
+                        <span className="text-xs font-medium capitalize" style={{ color: "var(--console-text)" }}>
                           {(selectedEvent.event_type || "").replace(/_/g, " ")}
                         </span>
                         <Badge className={cn("text-[10px] px-1.5 py-0", sev.badge)}>
@@ -848,7 +883,8 @@ const Events = () => {
                 </div>
                 <button
                   type="button"
-                  className="text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors"
+                  className="text-[11px] transition-colors hover:opacity-80"
+                  style={{ color: "var(--console-muted)" }}
                   onClick={() => setSelectedEvent(null)}
                 >
                   Dismiss
@@ -887,7 +923,7 @@ const Events = () => {
               </div>
 
               {/* Metadata grid */}
-              <div className="flex-shrink-0 divide-y divide-zinc-800/60">
+              <div className="flex-shrink-0 divide-y" style={{ borderColor: "var(--console-border)" }}>
                 {[
                   ["Event Type", (selectedEvent.event_type || "").replace(/_/g, " ")],
                   ["Date / Time", selectedEvent.triggered_at
@@ -899,7 +935,7 @@ const Events = () => {
                   ["Status", null], // rendered specially
                 ].map(([k, v]) => (
                   <div key={k} className="grid grid-cols-[130px_1fr] px-4 py-2 text-sm">
-                    <span className="text-[10px] uppercase tracking-wider text-zinc-500 self-center font-telemetry">
+                    <span className="text-[10px] uppercase tracking-wider self-center font-telemetry" style={{ color: "var(--console-muted)" }}>
                       {k}
                     </span>
                     {k === "Status" ? (
@@ -919,7 +955,7 @@ const Events = () => {
                         )}
                       </span>
                     ) : (
-                      <span className="text-xs text-zinc-200 truncate capitalize self-center">
+                      <span className="text-xs truncate capitalize self-center" style={{ color: "var(--console-text)" }}>
                         {v}
                       </span>
                     )}
@@ -927,31 +963,32 @@ const Events = () => {
                 ))}
                 {selectedEvent.description && (
                   <div className="px-4 py-2">
-                    <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-telemetry block mb-1">
+                    <span className="text-[10px] uppercase tracking-wider font-telemetry block mb-1" style={{ color: "var(--console-muted)" }}>
                       Description
                     </span>
-                    <p className="text-xs text-zinc-300">{selectedEvent.description}</p>
+                    <p className="text-xs" style={{ color: "var(--console-text)" }}>{selectedEvent.description}</p>
                   </div>
                 )}
                 {selectedEvent.note && (
                   <div className="px-4 py-2">
-                    <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-telemetry block mb-1">
+                    <span className="text-[10px] uppercase tracking-wider font-telemetry block mb-1" style={{ color: "var(--console-muted)" }}>
                       Note
                     </span>
-                    <p className="text-xs text-zinc-300">{selectedEvent.note}</p>
+                    <p className="text-xs" style={{ color: "var(--console-text)" }}>{selectedEvent.note}</p>
                   </div>
                 )}
               </div>
 
               {/* Acknowledge note textarea (only if unacked) */}
               {!selectedEvent.acknowledged && (
-                <div className="flex-shrink-0 px-4 py-3 border-t border-zinc-800">
+                <div className="flex-shrink-0 px-4 py-3 border-t" style={{ borderColor: "var(--console-border)" }}>
                   <Textarea
                     placeholder="Add a note before acknowledging (optional)…"
                     value={ackNote}
                     onChange={(e) => setAckNote(e.target.value)}
                     rows={2}
-                    className="text-xs bg-zinc-800/60 border-zinc-700 resize-none"
+                    className="text-xs resize-none"
+                    style={{ background: "var(--console-raised)", borderColor: "var(--console-border)", color: "var(--console-text)" }}
                   />
                 </div>
               )}
@@ -959,11 +996,15 @@ const Events = () => {
               </div>{/* /scrollable content */}
 
               {/* Action buttons */}
-              <div className="flex-shrink-0 flex flex-wrap gap-2 px-4 py-3 border-t border-zinc-800 bg-zinc-900/40">
+              <div
+                className="flex-shrink-0 flex flex-wrap gap-2 px-4 py-3 border-t"
+                style={{ background: "var(--console-panel)", borderColor: "var(--console-border)" }}
+              >
                 {!selectedEvent.acknowledged && (
                   <Button
                     size="sm"
-                    className="h-7 text-xs bg-teal-600 hover:bg-teal-500 text-white"
+                    className="h-7 text-xs hover:opacity-90"
+                    style={{ background: "var(--console-accent)", color: "var(--console-accent-foreground)" }}
                     onClick={() =>
                       ackMutation.mutate({ id: selectedEvent.id, note: ackNote || null })
                     }
@@ -977,7 +1018,8 @@ const Events = () => {
                   <Button
                     size="sm"
                     variant="outline"
-                    className="h-7 text-xs border-zinc-700 text-zinc-300 hover:text-white hover:bg-zinc-700"
+                    className="h-7 text-xs hover:bg-[var(--console-hover)]"
+                    style={{ borderColor: "var(--console-border)", color: "var(--console-text)" }}
                     onClick={() =>
                       falseAlarmMutation.mutate({ id: selectedEvent.id, note: ackNote || null })
                     }
@@ -991,7 +1033,8 @@ const Events = () => {
                   <Button
                     size="sm"
                     variant="outline"
-                    className="h-7 text-xs border-zinc-700 text-blue-300 hover:text-blue-200 hover:bg-blue-500/10 hover:border-blue-500/50"
+                    className="h-7 text-xs hover:bg-[var(--console-hover)]"
+                    style={{ borderColor: "var(--console-border)", color: "var(--console-text)" }}
                     onClick={() =>
                       navigate(`/playback?camera=${selectedEvent.camera_id}`)
                     }
@@ -1004,7 +1047,8 @@ const Events = () => {
                   <Button
                     size="sm"
                     variant="outline"
-                    className="h-7 text-xs border-zinc-700 text-zinc-300 hover:text-white hover:bg-zinc-700"
+                    className="h-7 text-xs hover:bg-[var(--console-hover)]"
+                    style={{ borderColor: "var(--console-border)", color: "var(--console-text)" }}
                     onClick={() => setLiveOpen(true)}
                   >
                     <Eye className="h-3.5 w-3.5 mr-1" />
@@ -1030,9 +1074,12 @@ const Events = () => {
 
       {/* ── Live-view dialog ──────────────────────────────────────────────────── */}
       <Dialog open={liveOpen} onOpenChange={setLiveOpen}>
-        <DialogContent className="max-w-3xl bg-zinc-900 border-zinc-700">
+        <DialogContent
+          className="max-w-3xl"
+          style={{ background: "var(--console-panel)", borderColor: "var(--console-border)", color: "var(--console-text)" }}
+        >
           <DialogHeader>
-            <DialogTitle className="text-sm font-medium text-zinc-200">
+            <DialogTitle className="text-sm font-medium" style={{ color: "var(--console-text)" }}>
               Live View — {selectedEvent ? getCameraName(selectedEvent.camera_id) : ""}
             </DialogTitle>
           </DialogHeader>
@@ -1056,15 +1103,18 @@ const Events = () => {
         open={!!confirmDelete}
         onOpenChange={(open) => !open && setConfirmDelete(null)}
       >
-        <DialogContent className="max-w-md bg-zinc-900 border-zinc-700">
+        <DialogContent
+          className="max-w-md"
+          style={{ background: "var(--console-panel)", borderColor: "var(--console-border)", color: "var(--console-text)" }}
+        >
           <DialogHeader>
-            <DialogTitle className="text-sm font-medium text-zinc-200">
+            <DialogTitle className="text-sm font-medium" style={{ color: "var(--console-text)" }}>
               Confirm delete
             </DialogTitle>
           </DialogHeader>
           {confirmDelete && (
             <div className="space-y-4 text-sm">
-              <p className="text-zinc-400">
+              <p style={{ color: "var(--console-muted)" }}>
                 {confirmDelete.mode === "single" &&
                   "This event will be permanently removed. This cannot be undone."}
                 {confirmDelete.mode === "bulk" &&
@@ -1076,7 +1126,8 @@ const Events = () => {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-7 text-xs border-zinc-700 text-zinc-300"
+                  className="h-7 text-xs hover:bg-[var(--console-hover)]"
+                  style={{ borderColor: "var(--console-border)", color: "var(--console-text)" }}
                   onClick={() => setConfirmDelete(null)}
                 >
                   Cancel

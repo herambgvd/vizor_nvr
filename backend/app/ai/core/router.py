@@ -7,6 +7,7 @@
 # =============================================================================
 from __future__ import annotations
 
+import hmac
 import logging
 import re
 import uuid
@@ -23,6 +24,7 @@ from app.config import settings
 from app.core.audit_logger import client_ip, write_audit
 from app.database import get_db
 from app.core.dependencies import get_current_user, require_permission
+from app.core.permissions import has_permission
 from app.auth.api_keys import require_scope
 from app.ai.models import CameraAIConfig, ScenarioResponse, ScenarioToggle
 from app.ai.core.service import ai_service, ScenarioNotOperable
@@ -87,7 +89,9 @@ def _to_response(scenario, active_count: int) -> ScenarioResponse:
 def _require_plugin_service_token(x_vizor_service_token: str | None = Header(None)) -> None:
     if not settings.AI_PLUGIN_SERVICE_TOKEN:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "AI plugin service token not configured")
-    if x_vizor_service_token != settings.AI_PLUGIN_SERVICE_TOKEN:
+    # Constant-time compare so the shared secret can't be probed via timing.
+    if not x_vizor_service_token or not hmac.compare_digest(
+            str(x_vizor_service_token), str(settings.AI_PLUGIN_SERVICE_TOKEN)):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid AI plugin service token")
 
 
@@ -335,6 +339,45 @@ async def scenario_health(
         return {"slug": slug, "status": "unreachable", "detail": str(exc)}
 
 
+def _required_face_permission(method: str, path: str) -> str | None:
+    """RBAC for biometric actions. Returns the PermissionAction the caller must
+    hold, or None for unprivileged routes. Enroll/delete mutate the gallery
+    (manage_ai_faces); investigate/recognize search faces (search_ai_faces)."""
+    p = path.strip("/")
+    m = method.upper()
+    if m == "POST" and p.startswith("persons/") and p.endswith("/photos"):
+        return "manage_ai_faces"
+    if m == "DELETE" and (p.startswith("persons/") or p.startswith("photos/")):
+        return "manage_ai_faces"
+    if m in ("POST", "PUT") and (p == "persons" or p.startswith("persons/")
+                                 or p == "groups" or p.startswith("groups/")):
+        return "manage_ai_faces"
+    if m == "POST" and p in ("investigate", "recognize"):
+        return "search_ai_faces"
+    return None
+
+
+def _biometric_audit_action(method: str, path: str) -> tuple[str, str] | None:
+    """Classify a proxied request as a biometric-data access worth auditing.
+    Returns (audit_action, description) or None. Covers face-image views,
+    forensic search, enrollment, and erasure across face scenarios."""
+    p = path.strip("/")
+    m = method.upper()
+    # Forensic search over captured faces.
+    if m == "POST" and p == "investigate":
+        return ("ai_face_investigate", "forensic face search")
+    # Recognize a face against the gallery.
+    if m == "POST" and p == "recognize":
+        return ("ai_face_recognize", "face recognition query")
+    # Enrollment (adding a face to the gallery).
+    if m == "POST" and p.startswith("persons/") and p.endswith("/photos"):
+        return ("ai_face_enroll", "enrolled a face photo")
+    # Erasure of a person (right-to-erasure of biometrics).
+    if m == "DELETE" and p.startswith("persons/"):
+        return ("ai_face_person_delete", f"deleted person + biometrics ({p})")
+    return None
+
+
 async def _proxy_to_scenario(
     slug: str,
     path: str,
@@ -352,6 +395,12 @@ async def _proxy_to_scenario(
     manifest = _manifest(scenario)
     if not is_proxy_route_allowed(manifest, request.method, path):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "proxy route not allowed by scenario manifest")
+    # Biometric RBAC: enroll/delete/search on a face scenario need elevated perms.
+    if slug == "frs":
+        needed = _required_face_permission(request.method, path)
+        if needed and not await has_permission(db, user, needed):
+            raise HTTPException(status.HTTP_403_FORBIDDEN,
+                                f"requires '{needed}' permission")
     service_url = _service_url(scenario)
     if not service_url:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "scenario service_url not configured")
@@ -421,6 +470,24 @@ async def _proxy_to_scenario(
             resource_id=slug,
             description=f"AI scenario search job created for {slug}",
             details=details,
+        )
+        await db.commit()
+    # Biometric audit trail (GDPR/BIPA): record who viewed/searched/mutated face
+    # data and when. Reads of face images and forensic searches are logged too,
+    # not just mutations — regulators require access logging for biometric data.
+    audited = _biometric_audit_action(request.method, path)
+    if audited and upstream.status_code < 400:
+        action, desc = audited
+        await write_audit(
+            db,
+            action=action,
+            user_id=str(user.get("id") or ""),
+            username=str(user.get("username") or ""),
+            ip_address=client_ip(request),
+            resource_type="ai_scenario",
+            resource_id=slug,
+            description=f"[{slug}] {desc}",
+            details={"scenario": slug, "method": request.method, "path": path},
         )
         await db.commit()
     return Response(

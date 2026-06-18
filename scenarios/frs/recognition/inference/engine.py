@@ -29,6 +29,23 @@ from .preprocess import postprocess_arcface, preprocess_arcface
 
 
 _PROVIDERS = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+# Production must run on GPU. With FRS_REQUIRE_GPU=true the engine refuses to load
+# on CPU fallback rather than silently delivering single-digit aggregate fps.
+_REQUIRE_GPU = os.environ.get("FRS_REQUIRE_GPU", "false").lower() in ("1", "true", "yes", "on")
+# Bound ORT thread pools so 50 worker threads don't each spawn N_cpu intra-op
+# threads and thrash every core. Tunable via env.
+_INTRA = int(os.environ.get("FRS_ORT_INTRA_THREADS", "2"))
+_INTER = int(os.environ.get("FRS_ORT_INTER_THREADS", "1"))
+
+
+def _session_options():
+    if ort is None:
+        return None
+    so = ort.SessionOptions()
+    so.intra_op_num_threads = max(1, _INTRA)
+    so.inter_op_num_threads = max(1, _INTER)
+    so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+    return so
 
 
 class OnnxEngine:
@@ -56,11 +73,24 @@ class OnnxEngine:
         if ort is None or not path.exists():
             return None
         try:
-            sess = ort.InferenceSession(str(path), providers=_PROVIDERS)
+            sess = ort.InferenceSession(str(path), sess_options=_session_options(),
+                                        providers=_PROVIDERS)
+            active = sess.get_providers()
+            if _REQUIRE_GPU and "CUDAExecutionProvider" not in active:
+                # Fail LOUD: GPU was required but ORT fell back to CPU (missing
+                # CUDA libs / no GPU passthrough). Don't silently crawl.
+                raise RuntimeError(
+                    f"FRS_REQUIRE_GPU is set but CUDA provider is not active for "
+                    f"{key} (providers={active}). Check GPU passthrough + CUDA libs.")
+            if "CUDAExecutionProvider" not in active:
+                print(f"[frs] WARNING: {key} running on CPU fallback (providers={active}) "
+                      f"— not viable at scale; set GPU passthrough.", flush=True)
             self._sessions[key] = sess
             return sess
         except Exception as exc:  # noqa: BLE001
             self._load_errors[key] = str(exc)
+            if _REQUIRE_GPU:
+                raise
             return None
 
     def detector(self):

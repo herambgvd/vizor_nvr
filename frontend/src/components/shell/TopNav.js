@@ -30,8 +30,8 @@ export default function TopNav() {
             cn(
               "relative flex items-center gap-1.5 px-2.5 h-8 rounded-md text-[12px] transition-colors",
               isActive
-                ? "text-white bg-white/5"
-                : "text-zinc-500 hover:text-zinc-200 hover:bg-white/5",
+                ? "bg-[var(--console-hover)] text-[var(--console-text)]"
+                : "text-[var(--console-muted)] hover:bg-[var(--console-hover)] hover:text-[var(--console-text)]",
             )
           }
         >

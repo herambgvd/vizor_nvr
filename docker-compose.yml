@@ -107,7 +107,7 @@ services:
       # on the host (--network host) so reach it via host.docker.internal.
       BRIDGE_HTTP_URL: ${BRIDGE_HTTP_URL:-http://host.docker.internal:8099}
       ENABLE_AI_MODULES: ${ENABLE_AI_MODULES:-true}
-      AI_PLUGIN_SERVICE_TOKEN: ${AI_PLUGIN_SERVICE_TOKEN:-dev-ai-service-token}
+      AI_PLUGIN_SERVICE_TOKEN: ${AI_PLUGIN_SERVICE_TOKEN:-dev-XNrW79MQknM38BVGRkDZWrUQhJsJ2HUBbYfTOkWAZY0}
       AI_PLUGIN_PROXY_TIMEOUT: ${AI_PLUGIN_PROXY_TIMEOUT:-30}
       DATABASE_URL: postgresql+asyncpg://${DB_USER:-nvr}:${DB_PASSWORD}@db:5432/gvd_nvr
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required}

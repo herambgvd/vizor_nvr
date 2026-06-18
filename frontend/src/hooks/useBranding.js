@@ -8,21 +8,10 @@ const DEFAULT_BRANDING = {
   favicon_url: "",
   theme_mode: "dark",
   background_color: "#000000",
-  button_color: "#228B22",
-  text_color: "#E2E8F0",
+  button_color: "#FFFFFF",
+  text_color: "#F9FAFB",
+  hover_color: "#111111",
   font_size: "14",
-};
-
-const HEX_COLOR = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
-
-const normalizeHex = (value, fallback) => {
-  const raw = typeof value === "string" ? value.trim() : "";
-  if (!HEX_COLOR.test(raw)) return fallback;
-  if (raw.length === 4) {
-    const [, r, g, b] = raw;
-    return `#${r}${r}${g}${g}${b}${b}`.toUpperCase();
-  }
-  return raw.toUpperCase();
 };
 
 const hexToRgb = (hex) => {
@@ -57,17 +46,45 @@ const hexToHslToken = (hex) => {
   return `${Math.round(h)} ${Math.round(s * 100)}% ${Math.round(l * 100)}%`;
 };
 
-const readableTextFor = (hex) => {
-  const { r, g, b } = hexToRgb(hex);
-  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  return luminance > 0.58 ? "#06120A" : "#FFFFFF";
-};
-
 const clampFontSize = (value) => {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed)) return 14;
   return Math.min(18, Math.max(12, parsed));
 };
+
+const themePalette = (mode) => (
+  mode === "light"
+    ? {
+        bg: "#FFFFFF",
+        panel: "#FFFFFF",
+        raised: "#F8FAFC",
+        border: "#E5E7EB",
+        text: "#111827",
+        muted: "#6B7280",
+        input: "#FFFFFF",
+        popover: "#FFFFFF",
+        hover: "#F3F4F6",
+        active: "#E5E7EB",
+        accent: "#111827",
+        accentText: "#FFFFFF",
+        online: "#16A34A",
+      }
+    : {
+        bg: "#000000",
+        panel: "#000000",
+        raised: "#0A0A0A",
+        border: "#262626",
+        text: "#F9FAFB",
+        muted: "#A1A1AA",
+        input: "#0A0A0A",
+        popover: "#050505",
+        hover: "#111111",
+        active: "#171717",
+        accent: "#FFFFFF",
+        accentText: "#000000",
+        online: "#22C55E",
+      }
+);
 
 export const getBranding = async () => {
   const response = await apiClient.get("/settings/public/branding");
@@ -96,45 +113,19 @@ export default function useBranding() {
     link.href = faviconUrl || "/favicon.ico";
 
     const themeMode = branding.theme_mode === "light" ? "light" : "dark";
-    const palette = themeMode === "light"
-      ? {
-          bg: "#FFFFFF",
-          panel: "#FFFFFF",
-          raised: "#F5F7FA",
-          border: "#D7DEE8",
-          muted: "#64748B",
-          input: "#FFFFFF",
-          popover: "#FFFFFF",
-          hover: "#EEF2F7",
-          active: "#E4EAF2",
-        }
-      : {
-          bg: "#000000",
-          panel: "#000000",
-          raised: "#050505",
-          border: "#202020",
-          muted: "#8A8F98",
-          input: "#050505",
-          popover: "#000000",
-          hover: "#101010",
-          active: "#171717",
-        };
-    const buttonColor = normalizeHex(
-      branding.button_color,
-      DEFAULT_BRANDING.button_color,
-    );
-    const textColor = normalizeHex(
-      branding.text_color,
-      themeMode === "light" ? "#111827" : DEFAULT_BRANDING.text_color,
-    );
+    const palette = themePalette(themeMode);
+    const buttonColor = palette.accent;
+    const textColor = palette.text;
+    const hoverColor = palette.hover;
     const root = document.documentElement;
     const bgHsl = hexToHslToken(palette.bg);
     const buttonHsl = hexToHslToken(buttonColor);
-    const buttonText = readableTextFor(buttonColor);
+    const buttonText = palette.accentText;
     const fontSize = clampFontSize(branding.font_size);
 
     root.classList.toggle("light", themeMode === "light");
     root.classList.toggle("dark", themeMode === "dark");
+    root.dataset.consoleFontSize = String(fontSize);
     root.style.setProperty("--console-font-size", `${fontSize}px`);
     root.style.fontSize = `${fontSize}px`;
     root.style.setProperty("--background", bgHsl);
@@ -152,7 +143,7 @@ export default function useBranding() {
     root.style.setProperty("--console-panel", palette.panel);
     root.style.setProperty("--console-raised", palette.raised);
     root.style.setProperty("--console-border", palette.border);
-    root.style.setProperty("--console-hover", palette.hover);
+    root.style.setProperty("--console-hover", hoverColor);
     root.style.setProperty("--console-active", palette.active);
     root.style.setProperty("--console-text", textColor);
     root.style.setProperty("--console-muted", palette.muted);
@@ -163,14 +154,12 @@ export default function useBranding() {
     root.style.setProperty("--ring", buttonHsl);
     root.style.setProperty("--console-accent", buttonColor);
     root.style.setProperty("--console-accent-blue", buttonColor);
-    root.style.setProperty("--console-online", buttonColor);
+    root.style.setProperty("--console-online", palette.online);
     root.style.setProperty("--console-accent-foreground", buttonText);
   }, [
     branding.system_name,
     branding.favicon_url,
     branding.theme_mode,
-    branding.button_color,
-    branding.text_color,
     branding.font_size,
   ]);
 

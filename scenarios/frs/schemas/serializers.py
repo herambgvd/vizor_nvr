@@ -11,6 +11,13 @@ from typing import Any, Optional
 from db.models import FRSEvent, FRSGroup, FRSPerson, FRSPhoto
 
 
+def utcnow() -> datetime:
+    """Single source of truth for 'now': naive UTC. All FRS timestamps are stored
+    naive-UTC in Postgres and stamped +00:00 on the wire by iso(), so the whole
+    plugin is timezone-consistent regardless of the host/DB server timezone."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
 def iso(dt: Optional[datetime]) -> Optional[str]:
     if dt is None:
         return None

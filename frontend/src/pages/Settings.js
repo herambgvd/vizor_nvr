@@ -12,7 +12,6 @@ import {
   Database,
   Shield,
   Image as ImageIcon,
-  Palette,
 } from "lucide-react";
 import {
   getRetentionConfig,
@@ -37,45 +36,26 @@ const inputStyle = {
   color: "var(--console-text)",
 };
 
-const DEFAULT_BUTTON_COLOR = "#228B22";
-const DEFAULT_TEXT_COLOR_DARK = "#E2E8F0";
-const DEFAULT_TEXT_COLOR_LIGHT = "#111827";
-const DEFAULT_FONT_SIZE = 14;
-const HEX_COLOR = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
-
-const normalizeHexColor = (value, fallback) => {
-  const raw = typeof value === "string" ? value.trim() : "";
-  if (!HEX_COLOR.test(raw)) return fallback;
-  if (raw.length === 4) {
-    const [, r, g, b] = raw;
-    return `#${r}${r}${g}${g}${b}${b}`.toUpperCase();
-  }
-  return raw.toUpperCase();
-};
-
-const readableTextForHex = (value) => {
-  const hex = normalizeHexColor(value, DEFAULT_BUTTON_COLOR).replace("#", "");
-  const r = parseInt(hex.slice(0, 2), 16);
-  const g = parseInt(hex.slice(2, 4), 16);
-  const b = parseInt(hex.slice(4, 6), 16);
-  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  return luminance > 0.58 ? "#06120A" : "#FFFFFF";
-};
-
-const normalizeFontSize = (value) => {
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed)) return DEFAULT_FONT_SIZE;
-  return Math.min(18, Math.max(12, parsed));
-};
-
 const themeDefaults = (mode) => {
   const light = mode === "light";
   return {
     mode: light ? "light" : "dark",
     background: light ? "#FFFFFF" : "#000000",
-    text: light ? DEFAULT_TEXT_COLOR_LIGHT : DEFAULT_TEXT_COLOR_DARK,
-    panel: light ? "#F5F7FA" : "#050505",
+    text: light ? "#111827" : "#F9FAFB",
+    muted: light ? "#6B7280" : "#A1A1AA",
+    hover: light ? "#F3F4F6" : "#111111",
+    panel: light ? "#FFFFFF" : "#000000",
+    raised: light ? "#F8FAFC" : "#0A0A0A",
+    border: light ? "#E5E7EB" : "#262626",
+    accent: light ? "#111827" : "#FFFFFF",
+    accentText: light ? "#FFFFFF" : "#000000",
   };
+};
+
+const normalizeFontSize = (value) => {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return 14;
+  return Math.min(18, Math.max(12, parsed));
 };
 
 const readImageAsDataUrl = (file) =>
@@ -144,8 +124,10 @@ const Settings = () => {
               key={id}
               type="button"
               onClick={() => setTab(id)}
-              className="relative flex items-center gap-1.5 px-4 py-2.5 font-telemetry text-[11px] uppercase tracking-wide whitespace-nowrap transition-colors hover:bg-white/5"
-              style={{ color: active ? "var(--console-accent)" : "var(--console-muted)" }}
+              className="relative flex items-center gap-1.5 px-4 py-2.5 font-telemetry text-[11px] uppercase tracking-wide whitespace-nowrap transition-colors hover:bg-[var(--console-hover)]"
+              style={{
+                color: active ? "var(--console-accent)" : "var(--console-muted)",
+              }}
             >
               <Icon className="h-3.5 w-3.5 flex-shrink-0" />
               {label}
@@ -443,35 +425,27 @@ const GeneralTab = ({ queryClient }) => {
   };
   const saveGeneralSettings = () => {
     const themeMode = form.theme_mode === "light" ? "light" : "dark";
-    const defaults = themeDefaults(themeMode);
-    const { theme_background_color: _legacyBackgroundColor, ...generalSettings } = form;
+    const {
+      theme_background_color: _legacyBackgroundColor,
+      theme_button_color: _legacyButtonColor,
+      theme_text_color: _legacyTextColor,
+      theme_hover_color: _legacyHoverColor,
+      ...generalSettings
+    } = form;
     mutation.mutate({
       settings: {
         ...generalSettings,
         theme_mode: themeMode,
-        theme_button_color: normalizeHexColor(
-          form.theme_button_color,
-          DEFAULT_BUTTON_COLOR,
-        ),
-        theme_text_color: normalizeHexColor(
-          form.theme_text_color,
-          defaults.text,
-        ),
         theme_font_size: String(normalizeFontSize(form.theme_font_size)),
       },
     });
   };
 
   const themeMode = form.theme_mode === "light" ? "light" : "dark";
+  const fontSize = normalizeFontSize(form.theme_font_size);
   const previewTheme = themeDefaults(themeMode);
   const previewBackground = previewTheme.background;
-  const previewText = normalizeHexColor(form.theme_text_color, previewTheme.text);
-  const previewButton = normalizeHexColor(
-    form.theme_button_color,
-    DEFAULT_BUTTON_COLOR,
-  );
-  const previewButtonText = readableTextForHex(previewButton);
-  const previewFontSize = normalizeFontSize(form.theme_font_size);
+  const previewText = previewTheme.text;
 
   return (
     <ConsoleCard icon={SettingsIcon} title="General Settings" description="Application-wide identity and locale preferences.">
@@ -503,8 +477,14 @@ const GeneralTab = ({ queryClient }) => {
           >
             Theme Appearance
           </p>
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_240px] gap-4">
-            <div className="grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-4 gap-4">
+          <div
+            className="rounded p-4 space-y-4"
+            style={{
+              background: "var(--console-raised)",
+              border: "1px solid var(--console-border)",
+            }}
+          >
+            <div className="grid grid-cols-1 xl:grid-cols-[280px_360px_1fr] gap-4">
               <ThemeModePicker
                 value={themeMode}
                 onChange={(value) => {
@@ -512,54 +492,45 @@ const GeneralTab = ({ queryClient }) => {
                   setForm((prev) => ({
                     ...prev,
                     theme_mode: next.mode,
-                    theme_text_color: prev.theme_text_color ? normalizeHexColor(prev.theme_text_color, next.text) : next.text,
                   }));
                 }}
               />
-              <ColorPicker
-                label="Button Color"
-                help="Save, update, add-new and primary accents"
-                value={form.theme_button_color ?? DEFAULT_BUTTON_COLOR}
-                fallback={DEFAULT_BUTTON_COLOR}
-                onChange={(value) => set("theme_button_color", value)}
-              />
-              <ColorPicker
-                label="Text Color"
-                help="Primary text across the platform"
-                value={form.theme_text_color ?? previewTheme.text}
-                fallback={previewTheme.text}
-                onChange={(value) => set("theme_text_color", value)}
-              />
               <FontSizePicker
-                value={previewFontSize}
+                value={fontSize}
                 onChange={(value) => set("theme_font_size", String(value))}
               />
-            </div>
-            <div
-              className="rounded p-3"
-              style={{
-                background: previewBackground,
-                border: "1px solid var(--console-border)",
-              }}
-            >
               <div
-                className="rounded p-3"
+                className="rounded p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
                 style={{
-                  background: previewTheme.panel,
-                  border: `1px solid ${previewTheme.mode === "light" ? "#D7DEE8" : "rgba(255,255,255,0.12)"}`,
+                  background: previewBackground,
+                  border: `1px solid ${previewTheme.border}`,
+                  fontSize: `${fontSize}px`,
                 }}
               >
-                <p className="font-telemetry text-[10px] uppercase tracking-wide" style={{ color: previewTheme.mode === "light" ? "#64748B" : "rgba(255,255,255,0.7)" }}>
-                  Preview
-                </p>
-                <p className="mt-1 font-semibold" style={{ color: previewText, fontSize: `${previewFontSize}px` }}>Camera Console</p>
-                <button
-                  type="button"
-                  className="mt-3 h-[28px] rounded px-3 font-telemetry text-[11px] font-semibold uppercase tracking-wide"
-                  style={{ background: previewButton, color: previewButtonText }}
-                >
-                  Add Camera
-                </button>
+                <div className="min-w-0">
+                  <p className="font-telemetry text-[10px] uppercase tracking-wide" style={{ color: previewTheme.muted }}>
+                    Fixed Enterprise Palette
+                  </p>
+                  <p className="mt-1 text-sm font-semibold" style={{ color: previewText }}>Camera Console</p>
+                  <p className="mt-1 font-telemetry text-[10px]" style={{ color: previewTheme.muted }}>
+                    Text, buttons, hover states and borders are locked; only text scale is adjustable.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    className="h-[30px] rounded px-3 font-telemetry text-[11px] font-semibold uppercase tracking-wide"
+                    style={{ background: previewTheme.accent, color: previewTheme.accentText }}
+                  >
+                    Add Camera
+                  </button>
+                  <div
+                    className="h-[30px] rounded px-3 inline-flex items-center font-telemetry text-[10px]"
+                    style={{ background: previewTheme.hover, color: previewText, border: `1px solid ${previewTheme.border}` }}
+                  >
+                    Hover preview
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -610,7 +581,7 @@ const ThemeModePicker = ({ value, onChange }) => {
   const current = value === "light" ? "light" : "dark";
   return (
     <div
-      className="rounded p-3"
+      className="rounded p-3 min-h-[118px]"
       style={{ background: "var(--console-raised)", border: "1px solid var(--console-border)" }}
     >
       <p className="font-telemetry text-[11px] uppercase tracking-wide" style={{ color: "var(--console-text)" }}>
@@ -649,96 +620,57 @@ const ThemeModePicker = ({ value, onChange }) => {
 const FontSizePicker = ({ value, onChange }) => {
   const current = normalizeFontSize(value);
   const sizes = [
-    [12, "Small"],
-    [14, "Normal"],
-    [16, "Large"],
-    [18, "XL"],
+    [12, "Small", "Dense"],
+    [14, "Normal", "Default"],
+    [16, "Large", "Comfort"],
+    [18, "XL", "Control room"],
   ];
 
   return (
     <div
-      className="rounded p-3"
+      className="rounded p-3 min-h-[118px]"
       style={{ background: "var(--console-raised)", border: "1px solid var(--console-border)" }}
     >
-      <p className="font-telemetry text-[11px] uppercase tracking-wide" style={{ color: "var(--console-text)" }}>
-        Font Size
-      </p>
-      <p className="font-telemetry text-[10px]" style={{ color: "var(--console-muted)" }}>
-        Platform text scale
-      </p>
-      <div className="mt-3 grid grid-cols-4 gap-1.5">
-        {sizes.map(([size, label]) => {
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="font-telemetry text-[11px] uppercase tracking-wide" style={{ color: "var(--console-text)" }}>
+            Font Size
+          </p>
+          <p className="font-telemetry text-[10px]" style={{ color: "var(--console-muted)" }}>
+            Platform text scale
+          </p>
+        </div>
+        <span
+          className="rounded px-2 py-1 font-telemetry text-[10px]"
+          style={{ background: "var(--console-panel)", color: "var(--console-muted)", border: "1px solid var(--console-border)" }}
+        >
+          {current}px
+        </span>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        {sizes.map(([size, label, hint]) => {
           const active = current === size;
           return (
             <button
               key={size}
               type="button"
               onClick={() => onChange(size)}
-              className="h-[34px] rounded border font-telemetry text-[10px] font-semibold uppercase tracking-wide"
+              className="h-[38px] rounded border px-2 text-left transition-colors hover:bg-[var(--console-hover)]"
               style={{
                 background: active ? "var(--console-accent)" : "var(--console-panel)",
                 borderColor: active ? "var(--console-accent)" : "var(--console-border)",
                 color: active ? "var(--console-accent-foreground)" : "var(--console-text)",
               }}
             >
-              {label}
+              <span className="block font-telemetry text-[10px] font-semibold uppercase tracking-wide">
+                {label}
+              </span>
+              <span className="block font-telemetry text-[9px] opacity-70">
+                {hint}
+              </span>
             </button>
           );
         })}
-      </div>
-    </div>
-  );
-};
-
-const ColorPicker = ({ label, help, value, fallback, onChange }) => {
-  const safeValue = normalizeHexColor(value, fallback);
-  return (
-    <div
-      className="rounded p-3"
-      style={{ background: "var(--console-raised)", border: "1px solid var(--console-border)" }}
-    >
-      <div className="flex items-start gap-3">
-        <div
-          className="h-12 w-12 rounded flex items-center justify-center overflow-hidden"
-          style={{ background: "var(--console-panel)", border: "1px solid var(--console-border)" }}
-        >
-          <input
-            type="color"
-            aria-label={label}
-            value={safeValue}
-            onChange={(e) => onChange(e.target.value.toUpperCase())}
-            className="h-14 w-14 cursor-pointer border-0 bg-transparent p-0"
-          />
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="font-telemetry text-[11px] uppercase tracking-wide" style={{ color: "var(--console-text)" }}>
-            {label}
-          </p>
-          <p className="font-telemetry text-[10px]" style={{ color: "var(--console-muted)" }}>
-            {help}
-          </p>
-          <div className="mt-2 flex gap-2">
-            <ConsoleInput
-              value={value ?? fallback}
-              onChange={(e) => onChange(e.target.value)}
-              onBlur={(e) => onChange(normalizeHexColor(e.target.value, fallback))}
-              placeholder={fallback}
-              className="uppercase"
-            />
-            <button
-              type="button"
-              onClick={() => onChange(fallback)}
-              className="h-[30px] px-3 rounded border font-telemetry text-[11px] hover:bg-white/5"
-              style={{
-                background: "var(--console-panel)",
-                borderColor: "var(--console-border)",
-                color: "var(--console-muted)",
-              }}
-            >
-              Reset
-            </button>
-          </div>
-        </div>
       </div>
     </div>
   );
@@ -771,7 +703,7 @@ const AssetPicker = ({ label, help, value, onFile, onClear }) => (
     </div>
     <div className="mt-3 flex flex-wrap gap-2">
       <label
-        className="inline-flex items-center h-[28px] px-3 rounded font-telemetry text-[11px] border cursor-pointer hover:bg-white/5"
+        className="inline-flex items-center h-[28px] px-3 rounded font-telemetry text-[11px] border cursor-pointer transition-colors hover:bg-[var(--console-hover)]"
         style={{ background: "var(--console-panel)", borderColor: "var(--console-border)", color: "var(--console-text)" }}
       >
         Choose Image
@@ -786,7 +718,7 @@ const AssetPicker = ({ label, help, value, onFile, onClear }) => (
         <button
           type="button"
           onClick={onClear}
-          className="inline-flex items-center h-[28px] px-3 rounded font-telemetry text-[11px] border hover:bg-white/5"
+          className="inline-flex items-center h-[28px] px-3 rounded font-telemetry text-[11px] border transition-colors hover:bg-[var(--console-hover)]"
           style={{ background: "var(--console-panel)", borderColor: "var(--console-border)", color: "var(--console-muted)" }}
         >
           Clear

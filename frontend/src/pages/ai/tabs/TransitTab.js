@@ -1,13 +1,19 @@
 // =============================================================================
-// AI · Transit tab (FRS) — transit rules (CRUD) + transit sessions.
+// AI · Transit tab (FRS) — entry→exit dwell-time tracking for recognized faces.
 // =============================================================================
-// Rules: name, entry camera, one-or-more exit cameras, window (minutes), enabled
-// toggle. CRUD proxies through /api/ai/frs/transit/rules to the FRS scenario.
-// Sessions: a read-only table of open/closed/overdue transit sessions with a
-// status filter, fed by /api/ai/frs/transit/sessions.
+// Mirrors the vizor-app Transit layout: a single page with two sub-tabs.
 //
-// NVR stays thin — rules + sessions live in the FRS scenario db. Camera ids are
-// NVR camera ids (the bridge maps cameras↔streams by id).
+//   SESSIONS  — KPI cards (open / overdue / closed) + a table of transit
+//               sessions (person, rule, status badge, opened, closed, duration)
+//               with a status filter.
+//   RULES     — a "create rule" form (name, entry camera, exit cameras, window
+//               minutes, enabled) + a table of existing rules with edit/delete.
+//
+// NVR stays thin — rules + sessions live in the FRS scenario db, reached through
+// the scenario proxy (api/ai). Rule shape per scenarios/frs/routers/transit.py:
+//   rule    = { id, name, config, enabled }  (camera pairing lives in config)
+//   session = { id, rule_id, person_id, status, started_at, ended_at, attributes }
+// Camera ids are NVR camera ids (the bridge maps cameras↔streams by id).
 // =============================================================================
 
 import React, { useMemo, useState } from "react";
@@ -27,6 +33,7 @@ import {
   Power,
   PowerOff,
   ListChecks,
+  Clock,
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -61,6 +68,10 @@ const STATUS_COLOR = {
   overdue: "var(--console-rec)",
 };
 
+// The backend nests the camera pairing inside `config`; older rows may have the
+// fields flat. Read defensively from either place.
+const ruleCfg = (rule) => ({ ...(rule || {}), ...((rule && rule.config) || {}) });
+
 function fmtTime(iso) {
   if (!iso) return "—";
   try {
@@ -70,10 +81,10 @@ function fmtTime(iso) {
   }
 }
 
-function fmtDuration(openedAt, closedAt) {
-  if (!openedAt) return "—";
-  const start = new Date(openedAt).getTime();
-  const end = closedAt ? new Date(closedAt).getTime() : Date.now();
+function fmtDuration(startedAt, endedAt) {
+  if (!startedAt) return "—";
+  const start = new Date(startedAt).getTime();
+  const end = endedAt ? new Date(endedAt).getTime() : Date.now();
   if (Number.isNaN(start) || Number.isNaN(end) || end < start) return "—";
   const secs = Math.floor((end - start) / 1000);
   const h = Math.floor(secs / 3600);
@@ -128,17 +139,36 @@ const StatusBadge = ({ status }) => {
   );
 };
 
+const SubTab = ({ active, onClick, icon: Icon, label, count }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className="inline-flex items-center gap-1.5 font-telemetry text-[11px] uppercase tracking-widest px-3 py-2 border-b-2 -mb-px transition-colors"
+    style={{
+      borderColor: active ? "var(--console-accent)" : "transparent",
+      color: active ? "var(--console-text)" : "var(--console-muted)",
+    }}
+  >
+    <Icon className="h-3.5 w-3.5" />
+    {label}
+    {typeof count === "number" && (
+      <span className="font-telemetry text-[10px]" style={{ color: "var(--console-muted)" }}>· {count}</span>
+    )}
+  </button>
+);
+
 // ---------------------------------------------------------------------------
-// rule create / edit form
+// rule create / edit form (modal)
 // ---------------------------------------------------------------------------
 
 const RuleForm = ({ initial, cameras, onClose, qc }) => {
   const editing = !!initial;
+  const cfg = ruleCfg(initial);
   const [form, setForm] = useState({
-    name: initial?.name || "",
-    entry_camera: initial?.entry_camera || "",
-    exit_cameras: initial?.exit_cameras || [],
-    window_minutes: initial?.window_minutes ?? 15,
+    name: cfg.name || "",
+    entry_camera: cfg.entry_camera || "",
+    exit_cameras: cfg.exit_cameras || [],
+    window_minutes: cfg.window_minutes ?? 15,
     enabled: initial?.enabled ?? true,
   });
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
@@ -153,12 +183,15 @@ const RuleForm = ({ initial, cameras, onClose, qc }) => {
 
   const mut = useMutation({
     mutationFn: () => {
-      const payload = {
-        name: form.name.trim(),
+      const config = {
         entry_camera: form.entry_camera,
         exit_cameras: form.exit_cameras,
         window_minutes: Number(form.window_minutes) || 0,
+      };
+      const payload = {
+        name: form.name.trim(),
         enabled: !!form.enabled,
+        config,
       };
       return editing ? updateTransitRule(initial.id, payload) : createTransitRule(payload);
     },
@@ -177,10 +210,12 @@ const RuleForm = ({ initial, cameras, onClose, qc }) => {
     mut.mutate();
   };
 
+  const exitCandidates = cameras.filter((c) => c.id !== form.entry_camera);
+
   return (
-    <Modal title={editing ? "Edit transit rule" : "Add transit rule"} onClose={onClose}>
-      <Field label="Name">
-        <input className={inputCls} style={inputStyle} value={form.name} onChange={(e) => set("name", e.target.value)} autoFocus />
+    <Modal title={editing ? "Edit transit rule" : "New transit rule"} onClose={onClose}>
+      <Field label="Rule name">
+        <input className={inputCls} style={inputStyle} placeholder="Gate A → Gate B transit" value={form.name} onChange={(e) => set("name", e.target.value)} autoFocus />
       </Field>
       <Field label="Entry camera">
         <select className={inputCls} style={inputStyle} value={form.entry_camera} onChange={(e) => set("entry_camera", e.target.value)}>
@@ -192,17 +227,17 @@ const RuleForm = ({ initial, cameras, onClose, qc }) => {
           ))}
         </select>
       </Field>
-      <Field label="Exit cameras">
+      <Field label={`Exit cameras (any of) · selected ${form.exit_cameras.length}`}>
         <div
           className="rounded p-2 max-h-40 overflow-auto flex flex-col gap-1"
           style={{ background: "var(--console-raised)", border: "1px solid var(--console-border)" }}
         >
-          {cameras.length === 0 ? (
+          {exitCandidates.length === 0 ? (
             <span className="font-telemetry text-[11px]" style={{ color: "var(--console-muted)" }}>
-              No cameras
+              No cameras available
             </span>
           ) : (
-            cameras.map((c) => {
+            exitCandidates.map((c) => {
               const checked = form.exit_cameras.includes(c.id);
               return (
                 <button
@@ -229,8 +264,8 @@ const RuleForm = ({ initial, cameras, onClose, qc }) => {
         </div>
       </Field>
       <div className="grid grid-cols-2 gap-3 items-end">
-        <Field label="Window (minutes)">
-          <input type="number" min={1} className={inputCls} style={inputStyle} value={form.window_minutes} onChange={(e) => set("window_minutes", e.target.value)} />
+        <Field label="Deadline (minutes)">
+          <input type="number" min={1} max={1440} className={inputCls} style={inputStyle} value={form.window_minutes} onChange={(e) => set("window_minutes", e.target.value)} />
         </Field>
         <button
           type="button"
@@ -261,13 +296,15 @@ const RuleForm = ({ initial, cameras, onClose, qc }) => {
 };
 
 // ---------------------------------------------------------------------------
-// rule row
+// RULES sub-tab
 // ---------------------------------------------------------------------------
 
-const RuleRow = ({ rule, camName, onEdit, qc }) => {
+const RulesPanel = ({ rules, rulesLoading, cameras, camName, qc }) => {
   const confirm = useConfirm();
+  const [modal, setModal] = useState(null); // null | "create" | rule
+
   const delMut = useMutation({
-    mutationFn: () => deleteTransitRule(rule.id),
+    mutationFn: (id) => deleteTransitRule(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["frs-transit-rules"] });
       toast.success("Rule deleted");
@@ -275,55 +312,286 @@ const RuleRow = ({ rule, camName, onEdit, qc }) => {
     onError: (e) => toast.error(e?.response?.data?.detail || "Failed to delete rule"),
   });
 
-  const onDelete = () => {
-    confirm({ title: `Delete transit rule "${rule.name}"?`, confirmText: "Delete", danger: true })
-      .then((ok) => { if (ok) delMut.mutate(); });
+  const onDelete = (rule) => {
+    confirm({
+      title: "Delete rule?",
+      description: `"${rule.name}" — open sessions stay until they close.`,
+      confirmText: "Delete",
+      danger: true,
+    }).then((ok) => { if (ok) delMut.mutate(rule.id); });
   };
 
   return (
-    <div
-      className="rounded p-3 flex items-center gap-3"
-      style={{ background: "var(--console-panel)", border: "1px solid var(--console-border)" }}
-    >
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="font-telemetry text-[12px] font-semibold truncate" style={{ color: "var(--console-text)" }}>
-            {rule.name}
-          </span>
-          <span
-            className="font-telemetry text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded border"
-            style={{
-              background: "var(--console-raised)",
-              borderColor: "var(--console-border)",
-              color: rule.enabled ? "var(--console-accent)" : "var(--console-muted)",
-            }}
-          >
-            {rule.enabled ? "Enabled" : "Disabled"}
-          </span>
-        </div>
-        <div className="font-telemetry text-[10px] uppercase tracking-widest mt-0.5 truncate" style={{ color: "var(--console-muted)" }}>
-          {camName(rule.entry_camera)} → {(rule.exit_cameras || []).map(camName).join(", ") || "—"} · {rule.window_minutes}m
-        </div>
+    <div className="flex flex-col gap-4">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <p className="font-telemetry text-[11px] max-w-2xl leading-relaxed" style={{ color: "var(--console-muted)" }}>
+          Define entry→exit camera pairs with a deadline. A person recognized at the entry camera
+          must reach any exit camera within the window — otherwise the session goes overdue.
+        </p>
+        <button
+          type="button"
+          onClick={() => setModal("create")}
+          className="inline-flex items-center gap-1.5 font-telemetry text-[10px] uppercase tracking-widest px-3 py-1.5 rounded shrink-0"
+          style={{ background: "var(--console-accent)", color: "#fff" }}
+        >
+          <Plus className="h-3.5 w-3.5" />
+          New rule
+        </button>
       </div>
-      <button type="button" onClick={() => onEdit(rule)} className="h-7 w-7 inline-flex items-center justify-center rounded border" style={{ background: "var(--console-raised)", borderColor: "var(--console-border)", color: "var(--console-muted)" }} title="Edit">
-        <Pencil className="h-3.5 w-3.5" />
-      </button>
-      <button type="button" onClick={onDelete} disabled={delMut.isPending} className="h-7 w-7 inline-flex items-center justify-center rounded border disabled:opacity-50" style={{ background: "var(--console-raised)", borderColor: "var(--console-border)", color: "var(--console-rec)" }} title="Delete">
-        {delMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-      </button>
+
+      {rulesLoading ? (
+        <div className="flex items-center justify-center py-10">
+          <Loader2 className="h-5 w-5 animate-spin" style={{ color: "var(--console-muted)" }} />
+        </div>
+      ) : rules.length === 0 ? (
+        <div className="flex flex-col items-center justify-center gap-2 py-12 rounded" style={{ background: "var(--console-panel)", border: "1px dashed var(--console-border)" }}>
+          <ArrowLeftRight className="h-7 w-7" style={{ color: "var(--console-muted)" }} />
+          <span className="font-telemetry text-[11px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
+            No transit rules yet
+          </span>
+          <span className="font-telemetry text-[10px]" style={{ color: "var(--console-muted)" }}>
+            Create one to enforce entry→exit dwell time for recognized faces.
+          </span>
+        </div>
+      ) : (
+        <div className="rounded overflow-hidden" style={{ border: "1px solid var(--console-border)" }}>
+          <table className="w-full text-left">
+            <thead>
+              <tr
+                className="font-telemetry text-[10px] uppercase tracking-wider"
+                style={{ background: "var(--console-raised)", color: "var(--console-muted)" }}
+              >
+                <th className="px-3 py-2 font-medium">Name</th>
+                <th className="px-3 py-2 font-medium">Entry</th>
+                <th className="px-3 py-2 font-medium">Exits</th>
+                <th className="px-3 py-2 font-medium">Window</th>
+                <th className="px-3 py-2 font-medium">Status</th>
+                <th className="px-3 py-2 font-medium text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rules.map((r) => {
+                const cfg = ruleCfg(r);
+                return (
+                  <tr key={r.id} className="border-t hover:bg-white/[0.02] transition-colors" style={{ borderColor: "var(--console-border)" }}>
+                    <td className="px-3 py-2 font-telemetry text-[12px] font-semibold truncate max-w-[160px]" style={{ color: "var(--console-text)" }}>
+                      {r.name}
+                    </td>
+                    <td className="px-3 py-2 font-telemetry text-[12px] truncate max-w-[140px]" style={{ color: "var(--console-muted)" }}>
+                      {camName(cfg.entry_camera)}
+                    </td>
+                    <td className="px-3 py-2 font-telemetry text-[12px] truncate max-w-[180px]" style={{ color: "var(--console-muted)" }}>
+                      {(cfg.exit_cameras || []).map(camName).join(", ") || "—"}
+                    </td>
+                    <td className="px-3 py-2 font-telemetry text-[12px] tabular-nums whitespace-nowrap" style={{ color: "var(--console-text)" }}>
+                      <span className="inline-flex items-center gap-1">
+                        <Clock className="h-3 w-3" style={{ color: "var(--console-muted)" }} />
+                        {cfg.window_minutes ?? "—"}m
+                      </span>
+                    </td>
+                    <td className="px-3 py-2">
+                      <span
+                        className="font-telemetry text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded border"
+                        style={{
+                          background: "var(--console-raised)",
+                          borderColor: "var(--console-border)",
+                          color: r.enabled ? "var(--console-accent)" : "var(--console-muted)",
+                        }}
+                      >
+                        {r.enabled ? "Enabled" : "Disabled"}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-right whitespace-nowrap">
+                      <button type="button" onClick={() => setModal(r)} className="h-7 w-7 inline-flex items-center justify-center rounded border" style={{ background: "var(--console-raised)", borderColor: "var(--console-border)", color: "var(--console-muted)" }} title="Edit">
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <button type="button" onClick={() => onDelete(r)} disabled={delMut.isPending} className="h-7 w-7 ml-1.5 inline-flex items-center justify-center rounded border disabled:opacity-50" style={{ background: "var(--console-raised)", borderColor: "var(--console-border)", color: "var(--console-rec)" }} title="Delete">
+                        {delMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {modal && (
+        <RuleForm
+          initial={modal === "create" ? null : modal}
+          cameras={cameras}
+          qc={qc}
+          onClose={() => setModal(null)}
+        />
+      )}
     </div>
   );
 };
 
 // ---------------------------------------------------------------------------
-// tab
+// SESSIONS sub-tab
+// ---------------------------------------------------------------------------
+
+const SessionsPanel = ({ ruleName }) => {
+  const [statusFilter, setStatusFilter] = useState("");
+
+  const sessionParams = useMemo(() => {
+    const p = { limit: 200, offset: 0 };
+    if (statusFilter) p.status = statusFilter;
+    return p;
+  }, [statusFilter]);
+
+  // KPI cards always reflect totals across all statuses, independent of the
+  // active filter — so fetch an unfiltered set for the counts.
+  const { data: allData } = useQuery({
+    queryKey: ["frs-transit-sessions", { limit: 500, offset: 0 }],
+    queryFn: () => listTransitSessions({ limit: 500, offset: 0 }),
+    placeholderData: keepPreviousData,
+  });
+  const allSessions = allData?.sessions || [];
+
+  const { data: sessionsData, isLoading: sessionsLoading } = useQuery({
+    queryKey: ["frs-transit-sessions", sessionParams],
+    queryFn: () => listTransitSessions(sessionParams),
+    placeholderData: keepPreviousData,
+  });
+  const sessions = sessionsData?.sessions || [];
+
+  const stats = useMemo(() => {
+    const s = { open: 0, overdue: 0, closed: 0 };
+    allSessions.forEach((sess) => {
+      if (sess.status in s) s[sess.status] += 1;
+    });
+    return s;
+  }, [allSessions]);
+
+  const KPI_CARDS = [
+    { key: "open", label: "Open", value: stats.open, color: "var(--console-accent)" },
+    { key: "overdue", label: "Overdue", value: stats.overdue, color: "var(--console-rec)" },
+    { key: "closed", label: "Closed", value: stats.closed, color: "var(--console-online)" },
+  ];
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* KPI cards */}
+      <div className="grid grid-cols-3 gap-3">
+        {KPI_CARDS.map((kpi) => (
+          <div
+            key={kpi.key}
+            className="rounded-lg p-3 flex flex-col gap-1"
+            style={{ background: "var(--console-panel)", border: "1px solid var(--console-border)" }}
+          >
+            <div className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
+              {kpi.label}
+            </div>
+            <div className="font-telemetry text-2xl font-semibold tabular-nums" style={{ color: kpi.color }}>
+              {kpi.value}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Status filter */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {STATUS_OPTIONS.map((o) => {
+          const active = statusFilter === o.value;
+          return (
+            <button
+              key={o.value || "all"}
+              type="button"
+              onClick={() => setStatusFilter(o.value)}
+              className="font-telemetry text-[10px] uppercase tracking-widest px-3 py-1.5 rounded border transition-colors"
+              style={{
+                background: active ? "var(--console-accent)" : "var(--console-raised)",
+                borderColor: active ? "var(--console-accent)" : "var(--console-border)",
+                color: active ? "#fff" : "var(--console-muted)",
+              }}
+            >
+              {o.label}
+            </button>
+          );
+        })}
+        <span className="ml-auto font-telemetry text-[11px]" style={{ color: "var(--console-muted)" }}>
+          {sessionsData?.total ?? sessions.length} session{(sessionsData?.total ?? sessions.length) === 1 ? "" : "s"}
+        </span>
+      </div>
+
+      {/* Sessions table */}
+      <div className="rounded overflow-hidden" style={{ border: "1px solid var(--console-border)" }}>
+        <table className="w-full text-left">
+          <thead>
+            <tr
+              className="font-telemetry text-[10px] uppercase tracking-wider"
+              style={{ background: "var(--console-raised)", color: "var(--console-muted)" }}
+            >
+              <th className="px-3 py-2 font-medium">Person</th>
+              <th className="px-3 py-2 font-medium">Rule</th>
+              <th className="px-3 py-2 font-medium">Status</th>
+              <th className="px-3 py-2 font-medium">Opened</th>
+              <th className="px-3 py-2 font-medium">Closed</th>
+              <th className="px-3 py-2 font-medium">Duration</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sessionsLoading ? (
+              Array.from({ length: 6 }).map((_, i) => (
+                <tr key={i} className="border-t" style={{ borderColor: "var(--console-border)" }}>
+                  <td colSpan={6} className="px-3 py-3">
+                    <div className="h-5 rounded animate-pulse bg-zinc-800/60" />
+                  </td>
+                </tr>
+              ))
+            ) : sessions.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="px-3 py-12 text-center">
+                  <ListChecks className="h-8 w-8 mx-auto mb-2" style={{ color: "var(--console-muted)" }} />
+                  <p className="font-telemetry text-[11px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
+                    No transit sessions
+                  </p>
+                  <p className="font-telemetry text-[10px] mt-1" style={{ color: "var(--console-muted)" }}>
+                    Sessions appear as recognized faces hit configured entry cameras.
+                  </p>
+                </td>
+              </tr>
+            ) : (
+              sessions.map((s) => (
+                <tr key={s.id} className="border-t hover:bg-white/[0.02] transition-colors" style={{ borderColor: "var(--console-border)" }}>
+                  <td className="px-3 py-2 font-telemetry text-[12px] truncate max-w-[160px]" style={{ color: "var(--console-text)" }}>
+                    {s.person_id ? `Person ${String(s.person_id).slice(0, 8)}` : "—"}
+                  </td>
+                  <td className="px-3 py-2 font-telemetry text-[12px] truncate max-w-[160px]" style={{ color: "var(--console-text)" }}>
+                    {ruleName(s.rule_id)}
+                  </td>
+                  <td className="px-3 py-2">
+                    <StatusBadge status={s.status} />
+                  </td>
+                  <td className="px-3 py-2 font-telemetry text-[11px] whitespace-nowrap" style={{ color: "var(--console-muted)" }}>
+                    {fmtTime(s.started_at)}
+                  </td>
+                  <td className="px-3 py-2 font-telemetry text-[11px] whitespace-nowrap" style={{ color: "var(--console-muted)" }}>
+                    {fmtTime(s.ended_at)}
+                  </td>
+                  <td className="px-3 py-2 font-telemetry text-[11px] whitespace-nowrap" style={{ color: "var(--console-muted)" }}>
+                    {fmtDuration(s.started_at, s.ended_at)}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// tab shell
 // ---------------------------------------------------------------------------
 
 const TransitTab = () => {
   const qc = useQueryClient();
-  const [showAdd, setShowAdd] = useState(false);
-  const [editRule, setEditRule] = useState(null);
-  const [statusFilter, setStatusFilter] = useState("");
+  const [sub, setSub] = useState("sessions"); // "sessions" | "rules"
 
   const { data: cameras = [] } = useQuery({
     queryKey: ["cameras", "all"],
@@ -343,181 +611,38 @@ const TransitTab = () => {
     queryFn: listTransitRules,
   });
   const rules = rulesData?.rules || [];
-
-  const sessionParams = useMemo(() => {
-    const p = { limit: 100, offset: 0 };
-    if (statusFilter) p.status = statusFilter;
-    return p;
-  }, [statusFilter]);
-
-  const { data: sessionsData, isLoading: sessionsLoading } = useQuery({
-    queryKey: ["frs-transit-sessions", sessionParams],
-    queryFn: () => listTransitSessions(sessionParams),
-    placeholderData: keepPreviousData,
-  });
-  const sessions = sessionsData?.sessions || [];
   const ruleName = (id) => rules.find((r) => r.id === id)?.name || id || "—";
 
-  const sessionStats = useMemo(() => {
-    const s = { open: 0, overdue: 0, closed: 0 };
-    sessions.forEach((sess) => {
-      if (sess.status in s) s[sess.status] += 1;
-    });
-    return s;
-  }, [sessions]);
-
-  const KPI_CARDS = [
-    { key: "open", label: "Open", value: sessionStats.open, color: "var(--console-accent)" },
-    { key: "overdue", label: "Overdue", value: sessionStats.overdue, color: "var(--console-rec)" },
-    { key: "closed", label: "Closed", value: sessionStats.closed, color: "var(--console-online)" },
-  ];
-
   return (
-    <div className="p-6 flex flex-col gap-6">
-      {/* Rules section */}
-      <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-2">
-            <ArrowLeftRight className="h-4 w-4" style={{ color: "var(--console-accent)" }} />
-            <span className="font-telemetry text-[11px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
-              Transit Rules · {rules.length}
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowAdd(true)}
-            className="inline-flex items-center gap-1.5 font-telemetry text-[10px] uppercase tracking-widest px-3 py-1.5 rounded"
-            style={{ background: "var(--console-accent)", color: "#fff" }}
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Add rule
-          </button>
-        </div>
-
-        {rulesLoading ? (
-          <div className="flex items-center justify-center py-10">
-            <Loader2 className="h-5 w-5 animate-spin" style={{ color: "var(--console-muted)" }} />
-          </div>
-        ) : rules.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-2 py-10 rounded" style={{ background: "var(--console-panel)", border: "1px dashed var(--console-border)" }}>
-            <ArrowLeftRight className="h-6 w-6" style={{ color: "var(--console-muted)" }} />
-            <span className="font-telemetry text-[11px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
-              No transit rules
-            </span>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
-            {rules.map((r) => (
-              <RuleRow key={r.id} rule={r} camName={camName} onEdit={setEditRule} qc={qc} />
-            ))}
-          </div>
-        )}
+    <div className="p-6 flex flex-col gap-5">
+      {/* Header */}
+      <div className="flex items-center gap-2">
+        <ArrowLeftRight className="h-4 w-4" style={{ color: "var(--console-accent)" }} />
+        <span className="font-telemetry text-[13px] font-semibold uppercase tracking-widest" style={{ color: "var(--console-text)" }}>
+          Transit
+        </span>
+        <span className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
+          · Entry→exit dwell-time tracking
+        </span>
       </div>
 
-      {/* Sessions section */}
-      <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-2">
-            <ListChecks className="h-4 w-4" style={{ color: "var(--console-accent)" }} />
-            <span className="font-telemetry text-[11px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
-              Transit Sessions · {sessionsData?.total ?? sessions.length}
-            </span>
-          </div>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="rounded px-2.5 py-1.5 font-telemetry text-[12px] outline-none"
-            style={inputStyle}
-          >
-            {STATUS_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="grid grid-cols-3 gap-3">
-          {KPI_CARDS.map((kpi) => (
-            <div
-              key={kpi.key}
-              className="rounded-lg p-3 flex flex-col gap-1"
-              style={{ background: "var(--console-panel)", border: "1px solid var(--console-border)" }}
-            >
-              <div className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
-                {kpi.label}
-              </div>
-              <div className="font-telemetry text-2xl font-semibold tabular-nums" style={{ color: kpi.color }}>
-                {kpi.value}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div className="rounded overflow-hidden" style={{ border: "1px solid var(--console-border)" }}>
-          <table className="w-full text-left">
-            <thead>
-              <tr
-                className="font-telemetry text-[10px] uppercase tracking-wider"
-                style={{ background: "var(--console-raised)", color: "var(--console-muted)" }}
-              >
-                <th className="px-3 py-2 font-medium">Person</th>
-                <th className="px-3 py-2 font-medium">Rule</th>
-                <th className="px-3 py-2 font-medium">Status</th>
-                <th className="px-3 py-2 font-medium">Opened</th>
-                <th className="px-3 py-2 font-medium">Closed</th>
-                <th className="px-3 py-2 font-medium">Duration</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sessionsLoading ? (
-                Array.from({ length: 6 }).map((_, i) => (
-                  <tr key={i} className="border-t" style={{ borderColor: "var(--console-border)" }}>
-                    <td colSpan={6} className="px-3 py-3">
-                      <div className="h-5 rounded animate-pulse bg-zinc-800/60" />
-                    </td>
-                  </tr>
-                ))
-              ) : sessions.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="px-3 py-12 text-center">
-                    <ListChecks className="h-8 w-8 mx-auto mb-2" style={{ color: "var(--console-muted)" }} />
-                    <p className="font-telemetry text-[11px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
-                      No transit sessions
-                    </p>
-                  </td>
-                </tr>
-              ) : (
-                sessions.map((s) => (
-                  <tr key={s.id} className="border-t hover:bg-white/[0.02] transition-colors" style={{ borderColor: "var(--console-border)" }}>
-                    <td className="px-3 py-2 font-telemetry text-[12px] truncate max-w-[160px]" style={{ color: "var(--console-text)" }}>
-                      {s.person_id ? `Person ${String(s.person_id).slice(0, 8)}` : "—"}
-                    </td>
-                    <td className="px-3 py-2 font-telemetry text-[12px] truncate max-w-[160px]" style={{ color: "var(--console-text)" }}>
-                      {ruleName(s.rule_id)}
-                    </td>
-                    <td className="px-3 py-2">
-                      <StatusBadge status={s.status} />
-                    </td>
-                    <td className="px-3 py-2 font-telemetry text-[11px] whitespace-nowrap" style={{ color: "var(--console-muted)" }}>
-                      {fmtTime(s.opened_at)}
-                    </td>
-                    <td className="px-3 py-2 font-telemetry text-[11px] whitespace-nowrap" style={{ color: "var(--console-muted)" }}>
-                      {fmtTime(s.closed_at)}
-                    </td>
-                    <td className="px-3 py-2 font-telemetry text-[11px] whitespace-nowrap" style={{ color: "var(--console-muted)" }}>
-                      {fmtDuration(s.opened_at, s.closed_at)}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+      {/* Sub-tab switch */}
+      <div className="flex items-center gap-1 border-b" style={{ borderColor: "var(--console-border)" }}>
+        <SubTab active={sub === "sessions"} onClick={() => setSub("sessions")} icon={ListChecks} label="Sessions" />
+        <SubTab active={sub === "rules"} onClick={() => setSub("rules")} icon={ArrowLeftRight} label="Rules" count={rules.length} />
       </div>
 
-      {showAdd && <RuleForm cameras={cameras} qc={qc} onClose={() => setShowAdd(false)} />}
-      {editRule && <RuleForm initial={editRule} cameras={cameras} qc={qc} onClose={() => setEditRule(null)} />}
+      {sub === "sessions" ? (
+        <SessionsPanel ruleName={ruleName} />
+      ) : (
+        <RulesPanel
+          rules={rules}
+          rulesLoading={rulesLoading}
+          cameras={cameras}
+          camName={camName}
+          qc={qc}
+        />
+      )}
     </div>
   );
 };

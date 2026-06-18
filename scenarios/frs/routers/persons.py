@@ -5,16 +5,16 @@ import os
 import shutil
 from typing import Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy import func, or_, select
 
 from qdrant import store as qdrant_store
 from config import DATA_PATH
 from db import session
-from deps import require_service_token
+from deps import require_service_token, purge_person_biometrics
 from db.models import FRSPerson, FRSGroup, FRSPhoto
-from schemas import person_dict
+from schemas import person_dict, PersonCreate, PersonUpdate
 
 router = APIRouter(tags=["persons"])
 
@@ -42,16 +42,14 @@ def list_persons(limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge
 
 
 @router.post("/persons", status_code=201)
-def create_person(body: dict = Body(...), _: None = Depends(require_service_token)) -> dict:
-    if not body.get("full_name"):
-        raise HTTPException(400, "full_name required")
+def create_person(body: PersonCreate, _: None = Depends(require_service_token)) -> dict:
     with session() as s:
-        if body.get("group_id") and not s.get(FRSGroup, body["group_id"]):
+        if body.group_id and not s.get(FRSGroup, body.group_id):
             raise HTTPException(400, "group not found")
         p = FRSPerson(
-            full_name=body["full_name"], external_id=body.get("external_id"),
-            group_id=body.get("group_id"), category=body.get("category") or "standard",
-            priority=int(body.get("priority") or 0), attributes=body.get("attributes"),
+            full_name=body.full_name, external_id=body.external_id,
+            group_id=body.group_id, category=body.category,
+            priority=body.priority, attributes=body.attributes,
         )
         s.add(p); s.commit(); s.refresh(p)
         return person_dict(p)
@@ -67,31 +65,32 @@ def get_person(person_id: str, _: None = Depends(require_service_token)) -> dict
 
 
 @router.put("/persons/{person_id}")
-def update_person(person_id: str, body: dict = Body(...), _: None = Depends(require_service_token)) -> dict:
+def update_person(person_id: str, body: PersonUpdate, _: None = Depends(require_service_token)) -> dict:
     with session() as s:
         p = s.get(FRSPerson, person_id)
         if not p:
             raise HTTPException(404, "person not found")
-        if body.get("group_id") and not s.get(FRSGroup, body["group_id"]):
+        if body.group_id and not s.get(FRSGroup, body.group_id):
             raise HTTPException(400, "group not found")
-        for k in ("full_name", "external_id", "group_id", "category", "priority", "attributes"):
-            if k in body:
-                setattr(p, k, body[k])
+        # Only patch fields the client actually sent (exclude_unset).
+        for k, v in body.model_dump(exclude_unset=True).items():
+            setattr(p, k, v)
         s.commit(); s.refresh(p)
         return person_dict(p)
 
 
 @router.delete("/persons/{person_id}", status_code=204)
 def delete_person(person_id: str, _: None = Depends(require_service_token)):
+    """Right-to-erasure: purge ALL biometric traces of this person — gallery
+    vectors, live-sighting vectors, snapshot files, events, attendance, photos,
+    and the on-disk photo directory — in one transaction (GDPR/BIPA)."""
     with session() as s:
         p = s.get(FRSPerson, person_id)
         if not p:
             raise HTTPException(404, "person not found")
-        for ph in s.execute(select(FRSPhoto).where(FRSPhoto.person_id == person_id)).scalars().all():
-            s.delete(ph)
-        s.delete(p); s.commit()
-    # Remove all face vectors for this person (main + augment points).
-    qdrant_store.delete_by("person_id", person_id)
+        purge_person_biometrics(s, person_id)   # events + attendance + photos + vectors + snapshot files
+        s.delete(p)
+        s.commit()
     photo_dir = DATA_PATH / "persons" / person_id
     if photo_dir.exists():
         shutil.rmtree(photo_dir, ignore_errors=True)

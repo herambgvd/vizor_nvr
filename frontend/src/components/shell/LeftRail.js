@@ -31,8 +31,8 @@ export default function LeftRail() {
             cn(
               "relative flex flex-col items-center justify-center w-11 h-12 rounded-md text-[9px] gap-1 transition-colors",
               isActive
-                ? "text-white bg-white/5"
-                : "text-zinc-500 hover:text-zinc-200 hover:bg-white/5",
+                ? "bg-[var(--console-hover)] text-[var(--console-text)]"
+                : "text-[var(--console-muted)] hover:bg-[var(--console-hover)] hover:text-[var(--console-text)]",
             )
           }
         >

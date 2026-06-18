@@ -44,6 +44,10 @@ class PermissionAction(str, Enum):
     ACKNOWLEDGE_EVENTS = "acknowledge_events"
     MANAGE_ROLES = "manage_roles"
     MANAGE_GROUPS = "manage_groups"
+    # AI / biometric face data (FRS). Mutating the gallery (enroll/delete) and
+    # forensic search are privileged — biometric data is regulated.
+    MANAGE_AI_FACES = "manage_ai_faces"     # enroll / delete person / delete photo
+    SEARCH_AI_FACES = "search_ai_faces"     # investigate / recognize
 
 
 # Default permission sets per role
@@ -55,6 +59,7 @@ ROLE_DEFAULTS = {
         PermissionAction.CONTROL_RECORDING.value,
         PermissionAction.CONTROL_PTZ.value,
         PermissionAction.EXPORT_CLIPS.value,
+        PermissionAction.SEARCH_AI_FACES.value,   # operators may search, not enroll/delete
     ],
     RoleName.VIEWER: [
         PermissionAction.VIEW_LIVE.value,

@@ -51,26 +51,26 @@ export default function TopHeader({ title }) {
       <div className="ml-auto flex items-center gap-2">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="flex items-center gap-2 px-2 py-1 rounded hover:bg-white/5">
+            <button className="flex items-center gap-2 px-2 py-1 rounded hover:bg-[var(--console-hover)]">
               <Avatar className="h-7 w-7">
                 <AvatarFallback className="bg-gradient-to-br from-blue-500 to-cyan-500 text-white text-[11px]">
                   {initials(user?.username)}
                 </AvatarFallback>
               </Avatar>
-              <span className="text-xs text-zinc-300 hidden md:block">{user?.username}</span>
-              <ChevronDown className="h-3.5 w-3.5 text-zinc-500" />
+              <span className="text-xs hidden md:block" style={{ color: "var(--console-text)" }}>{user?.username}</span>
+              <ChevronDown className="h-3.5 w-3.5" style={{ color: "var(--console-muted)" }} />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-52 console-panel border-border">
-            <DropdownMenuLabel className="text-zinc-400 text-[11px] uppercase tracking-wider">
+            <DropdownMenuLabel className="text-[11px] uppercase tracking-wider" style={{ color: "var(--console-muted)" }}>
               {isAdmin ? "Administrator" : user?.role_name || "User"}
             </DropdownMenuLabel>
-            <DropdownMenuSeparator className="bg-white/10" />
-            <DropdownMenuItem onClick={() => navigate("/settings")} className="focus:bg-white/5 focus:text-white">
+            <DropdownMenuSeparator style={{ background: "var(--console-border)" }} />
+            <DropdownMenuItem onClick={() => navigate("/settings")} className="focus:bg-[var(--console-hover)] focus:text-[var(--console-text)]">
               <SettingsIcon className="h-4 w-4 mr-2" /> Settings
             </DropdownMenuItem>
             <ChangePasswordDialogTrigger />
-            <DropdownMenuSeparator className="bg-white/10" />
+            <DropdownMenuSeparator style={{ background: "var(--console-border)" }} />
             <DropdownMenuItem
               onClick={handleLogout}
               className="text-rose-400 focus:bg-rose-500/10 focus:text-rose-300"
