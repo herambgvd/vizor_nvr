@@ -14,6 +14,7 @@ html, body {
   margin: 0;
   background: hsl(var(--background));
   color: hsl(var(--foreground));
+  font-size: var(--console-font-size, 14px);
   font-family: "Montserrat", -apple-system,
     BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -190,6 +191,8 @@ code, pre, .font-mono {
   --console-panel: #000000;
   --console-raised: #050505;
   --console-border: #202020;
+  --console-hover: #101010;
+  --console-active: #171717;
   --console-text: #e2e8f0;
   --console-muted: #8a8f98;
   --console-accent: #228B22;
@@ -214,3 +217,32 @@ code, pre, .font-mono {
 .console-panel { background: var(--console-panel); border-color: var(--console-border); }
 .console-raised { background: var(--console-raised); }
 .font-telemetry { font-family: "Montserrat", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+
+/* Theme-aware hover normalization. A few screens still use dark-tailored
+   utility classes such as hover:bg-white/5; map them back to the active
+   platform palette so light mode does not look washed out or contradictory. */
+.console-root .hover\:bg-white\/5:hover,
+.console-root .hover\:bg-card\/20:hover,
+.console-root .hover\:bg-card\/30:hover,
+.console-root .hover\:bg-card\/60:hover,
+.console-root .hover\:bg-card:hover {
+  background-color: var(--console-hover) !important;
+}
+
+.console-root .hover\:bg-\[var\(--console-border\)\]:hover,
+.console-root .hover\:bg-\[var\(--console-raised\)\]:hover {
+  background-color: var(--console-hover) !important;
+}
+
+.console-root .hover\:text-white:hover,
+.console-root .hover\:text-zinc-200:hover,
+.console-root .hover\:text-\[var\(--console-text\)\]:hover {
+  color: var(--console-text) !important;
+}
+
+.console-root button:hover,
+.console-root a:hover,
+.console-root label.cursor-pointer:hover,
+.console-root [role="button"]:hover {
+  border-color: color-mix(in srgb, var(--console-accent) 55%, var(--console-border)) !important;
+}

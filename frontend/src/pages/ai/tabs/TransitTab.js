@@ -38,6 +38,7 @@ import {
   deleteTransitRule,
   listTransitSessions,
 } from "../../../api/ai";
+import { useConfirm } from "../../../components/ui/confirm";
 import { getAllCameras } from "../../../api/cameras";
 
 const inputStyle = {
@@ -264,6 +265,7 @@ const RuleForm = ({ initial, cameras, onClose, qc }) => {
 // ---------------------------------------------------------------------------
 
 const RuleRow = ({ rule, camName, onEdit, qc }) => {
+  const confirm = useConfirm();
   const delMut = useMutation({
     mutationFn: () => deleteTransitRule(rule.id),
     onSuccess: () => {
@@ -274,7 +276,8 @@ const RuleRow = ({ rule, camName, onEdit, qc }) => {
   });
 
   const onDelete = () => {
-    if (window.confirm(`Delete transit rule "${rule.name}"?`)) delMut.mutate();
+    confirm({ title: `Delete transit rule "${rule.name}"?`, confirmText: "Delete", danger: true })
+      .then((ok) => { if (ok) delMut.mutate(); });
   };
 
   return (
@@ -355,6 +358,20 @@ const TransitTab = () => {
   const sessions = sessionsData?.sessions || [];
   const ruleName = (id) => rules.find((r) => r.id === id)?.name || id || "—";
 
+  const sessionStats = useMemo(() => {
+    const s = { open: 0, overdue: 0, closed: 0 };
+    sessions.forEach((sess) => {
+      if (sess.status in s) s[sess.status] += 1;
+    });
+    return s;
+  }, [sessions]);
+
+  const KPI_CARDS = [
+    { key: "open", label: "Open", value: sessionStats.open, color: "var(--console-accent)" },
+    { key: "overdue", label: "Overdue", value: sessionStats.overdue, color: "var(--console-rec)" },
+    { key: "closed", label: "Closed", value: sessionStats.closed, color: "var(--console-online)" },
+  ];
+
   return (
     <div className="p-6 flex flex-col gap-6">
       {/* Rules section */}
@@ -418,6 +435,23 @@ const TransitTab = () => {
               </option>
             ))}
           </select>
+        </div>
+
+        <div className="grid grid-cols-3 gap-3">
+          {KPI_CARDS.map((kpi) => (
+            <div
+              key={kpi.key}
+              className="rounded-lg p-3 flex flex-col gap-1"
+              style={{ background: "var(--console-panel)", border: "1px solid var(--console-border)" }}
+            >
+              <div className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
+                {kpi.label}
+              </div>
+              <div className="font-telemetry text-2xl font-semibold tabular-nums" style={{ color: kpi.color }}>
+                {kpi.value}
+              </div>
+            </div>
+          ))}
         </div>
 
         <div className="rounded overflow-hidden" style={{ border: "1px solid var(--console-border)" }}>

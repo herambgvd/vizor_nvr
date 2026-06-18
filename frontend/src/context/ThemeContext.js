@@ -1,5 +1,6 @@
 // =============================================================================
-// ThemeContext — Dark mode toggle with localStorage persistence
+// ThemeContext — legacy compatibility wrapper.
+// Platform theme is now driven by Settings -> public branding -> CSS variables.
 // =============================================================================
 
 import React, { createContext, useContext, useState, useEffect } from "react";
@@ -31,14 +32,6 @@ export const ThemeProvider = ({ children }) => {
     }
     return "light";
   });
-
-  // Apply theme to document
-  useEffect(() => {
-    const root = window.document.documentElement;
-    root.classList.remove("light", "dark");
-    root.classList.add(theme);
-    localStorage.setItem(THEME_KEY, theme);
-  }, [theme]);
 
   // Listen for system preference changes
   useEffect(() => {

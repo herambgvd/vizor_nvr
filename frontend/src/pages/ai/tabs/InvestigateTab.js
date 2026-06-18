@@ -10,8 +10,8 @@
 // only POSTs the image and renders the JSON the bridge returns.
 // =============================================================================
 
-import React, { useEffect, useRef, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   Search,
   Upload,
@@ -21,11 +21,12 @@ import {
   UserCircle2,
   Video,
   Clock,
+  History,
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 
-import { createInvestigation } from "../../../api/ai";
+import { createInvestigation, listInvestigations, getInvestigation } from "../../../api/ai";
 import { snapshotUrl } from "./frsShared";
 
 const inputStyle = {
@@ -123,6 +124,25 @@ const InvestigateTab = () => {
   const [file, setFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [topK, setTopK] = useState(50);
+  const [minScore, setMinScore] = useState(0.6);   // client-side similarity filter
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyHits, setHistoryHits] = useState(null);  // hits loaded from a past job
+
+  const { data: history } = useQuery({
+    queryKey: ["frs-investigations"],
+    queryFn: () => listInvestigations(50),
+    enabled: showHistory,
+  });
+
+  const loadHistory = async (jobId) => {
+    try {
+      const job = await getInvestigation(jobId);
+      setHistoryHits(job.results || []);
+      setShowHistory(false);
+    } catch {
+      toast.error("Couldn't load investigation");
+    }
+  };
 
   useEffect(() => {
     if (!file) {
@@ -159,10 +179,15 @@ const InvestigateTab = () => {
       toast.error("Choose a query face image first");
       return;
     }
+    setHistoryHits(null);   // fresh search overrides any loaded history result
     mut.mutate();
   };
 
-  const hits = mut.data?.hits || [];
+  const rawHits = historyHits != null ? historyHits : (mut.data?.hits || []);
+  const hits = useMemo(
+    () => rawHits.filter((h) => (h.score == null) || Number(h.score) >= minScore),
+    [rawHits, minScore],
+  );
 
   return (
     <div className="p-6 flex flex-col gap-4">
@@ -172,7 +197,40 @@ const InvestigateTab = () => {
         <span className="font-telemetry text-[11px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
           Forensic Search
         </span>
+        <button
+          type="button"
+          onClick={() => setShowHistory((v) => !v)}
+          className="ml-auto inline-flex items-center gap-1.5 font-telemetry text-[10px] uppercase tracking-widest px-2.5 py-1 rounded border"
+          style={{ background: "var(--console-raised)", borderColor: "var(--console-border)", color: "var(--console-muted)" }}
+        >
+          <History className="h-3.5 w-3.5" /> History
+        </button>
       </div>
+
+      {showHistory && (
+        <div className="rounded p-3 flex flex-col gap-1.5 max-h-56 overflow-auto"
+          style={{ background: "var(--console-panel)", border: "1px solid var(--console-border)" }}>
+          <span className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
+            Past investigations · {(history?.items || []).length}
+          </span>
+          {(history?.items || []).length === 0 ? (
+            <span className="font-telemetry text-[11px] py-2" style={{ color: "var(--console-muted)" }}>No past searches.</span>
+          ) : (
+            (history.items || []).map((j) => (
+              <button key={j.id} type="button" onClick={() => loadHistory(j.id)}
+                className="flex items-center justify-between gap-2 px-2 py-1.5 rounded text-left hover:brightness-125"
+                style={{ background: "var(--console-raised)" }}>
+                <span className="font-telemetry text-[11px] truncate" style={{ color: "var(--console-text)" }}>
+                  {j.name || `Search ${String(j.id).slice(0, 8)}`}
+                </span>
+                <span className="font-telemetry text-[10px] shrink-0" style={{ color: "var(--console-muted)" }}>
+                  {j.result_count ?? 0} hits · {fmtTime(j.created_at)}
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+      )}
 
       <div
         className="rounded p-4 flex flex-wrap items-center gap-4"
@@ -220,6 +278,18 @@ const InvestigateTab = () => {
           />
         </div>
 
+        <div className="flex flex-col gap-1.5 min-w-[180px]">
+          <div className="flex items-center justify-between">
+            <label className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
+              Min similarity
+            </label>
+            <span className="font-telemetry text-[11px]" style={{ color: "var(--console-text)" }}>{minScore.toFixed(2)}</span>
+          </div>
+          <input type="range" min={0.3} max={0.95} step={0.01} value={minScore}
+            onChange={(e) => setMinScore(parseFloat(e.target.value))}
+            className="w-full" style={{ accentColor: "var(--console-accent)" }} />
+        </div>
+
         <button
           type="button"
           onClick={submit}
@@ -250,14 +320,14 @@ const InvestigateTab = () => {
             Search failed
           </span>
         </div>
-      ) : mut.isSuccess && hits.length === 0 ? (
+      ) : (mut.isSuccess || historyHits != null) && hits.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-2 py-16 rounded" style={{ background: "var(--console-panel)", border: "1px dashed var(--console-border)" }}>
           <Search className="h-6 w-6" style={{ color: "var(--console-muted)" }} />
           <span className="font-telemetry text-[11px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
-            No matching snapshots
+            No matches above {minScore.toFixed(2)} similarity
           </span>
         </div>
-      ) : mut.isSuccess ? (
+      ) : (mut.isSuccess || historyHits != null) ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
           {hits.map((h, i) => (
             <HitCard key={h.id || `${h.snapshot_key}-${i}`} hit={h} />

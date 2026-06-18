@@ -114,3 +114,7 @@ data/.machine_id
 deepstream/model_repository/**/*.onnx
 deepstream/model_repository/**/*.engine
 deepstream/model_repository/**/*.plan
+
+# AI scenario ONNX model weights (large binaries — fetched via scripts/fetch-frs-models.sh)
+models/*.onnx
+models/**/*.onnx

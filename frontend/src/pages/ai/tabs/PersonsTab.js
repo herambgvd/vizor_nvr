@@ -34,6 +34,7 @@ import {
   ShieldCheck,
   ShieldAlert,
   Clock,
+  RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -46,8 +47,10 @@ import {
   listPhotos,
   uploadPhoto,
   deletePhoto,
+  retryPhoto,
   photoImageUrl,
 } from "../../../api/ai";
+import { useConfirm } from "../../../components/ui/confirm";
 
 const CATEGORIES = ["standard", "vip", "monitored", "restricted", "banned"];
 const PAGE_SIZE = 24;
@@ -157,17 +160,23 @@ const PersonForm = ({ initial, groups, onClose, qc }) => {
     group_id: initial?.group_id || "",
     category: initial?.category || "standard",
     priority: initial?.priority ?? 0,
+    gender: initial?.attributes?.gender || "",
+    age: initial?.attributes?.age || "",
   });
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
   const mut = useMutation({
     mutationFn: () => {
+      const attributes = { ...(initial?.attributes || {}) };
+      if (form.gender) attributes.gender = form.gender; else delete attributes.gender;
+      if (form.age !== "" && form.age != null) attributes.age = Number(form.age); else delete attributes.age;
       const payload = {
         full_name: form.full_name.trim(),
         external_id: form.external_id.trim() || null,
         group_id: form.group_id || null,
         category: form.category,
         priority: Number(form.priority) || 0,
+        attributes,
       };
       return editing ? updatePerson(initial.id, payload) : createPerson(payload);
     },
@@ -220,6 +229,18 @@ const PersonForm = ({ initial, groups, onClose, qc }) => {
           <input type="number" min={0} max={10} className={inputCls} style={inputStyle} value={form.priority} onChange={(e) => set("priority", e.target.value)} />
         </Field>
       </div>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Gender">
+          <select className={inputCls} style={inputStyle} value={form.gender} onChange={(e) => set("gender", e.target.value)}>
+            <option value="">— unset —</option>
+            <option value="male">male</option>
+            <option value="female">female</option>
+          </select>
+        </Field>
+        <Field label="Age">
+          <input type="number" min={0} max={120} className={inputCls} style={inputStyle} value={form.age} onChange={(e) => set("age", e.target.value)} placeholder="optional" />
+        </Field>
+      </div>
 
       <div className="flex justify-end gap-2 pt-1">
         <button type="button" onClick={onClose} className="font-telemetry text-[10px] uppercase tracking-widest px-3 py-1.5 rounded border" style={{ background: "var(--console-raised)", borderColor: "var(--console-border)", color: "var(--console-muted)" }}>
@@ -245,15 +266,20 @@ const PHOTO_STATUS_COLOR = {
 };
 
 const PhotoCard = ({ photo, qc, personId }) => {
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["frs-photos", personId] });
+    qc.invalidateQueries({ queryKey: ["frs-person", personId] });
+    qc.invalidateQueries({ queryKey: ["frs-persons"] });
+  };
   const delMut = useMutation({
     mutationFn: () => deletePhoto(photo.id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["frs-photos", personId] });
-      qc.invalidateQueries({ queryKey: ["frs-person", personId] });
-      qc.invalidateQueries({ queryKey: ["frs-persons"] });
-      toast.success("Photo deleted");
-    },
+    onSuccess: () => { invalidate(); toast.success("Photo deleted"); },
     onError: (e) => toast.error(e?.response?.data?.detail || "Failed to delete photo"),
+  });
+  const retryMut = useMutation({
+    mutationFn: () => retryPhoto(photo.id),
+    onSuccess: () => { invalidate(); toast.success("Re-enrollment triggered"); },
+    onError: (e) => toast.error(e?.response?.data?.detail || "Retry failed"),
   });
 
   const color = PHOTO_STATUS_COLOR[photo.status] || "var(--console-muted)";
@@ -262,16 +288,30 @@ const PhotoCard = ({ photo, qc, personId }) => {
     <div className="rounded overflow-hidden flex flex-col" style={{ border: "1px solid var(--console-border)", background: "var(--console-raised)" }}>
       <div className="relative">
         <PhotoThumb photoId={photo.id} className="w-full aspect-square" />
-        <button
-          type="button"
-          onClick={() => delMut.mutate()}
-          disabled={delMut.isPending}
-          className="absolute top-1 right-1 h-6 w-6 inline-flex items-center justify-center rounded disabled:opacity-50"
-          style={{ background: "rgba(0,0,0,0.6)", color: "#fff" }}
-          title="Delete photo"
-        >
-          {delMut.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
-        </button>
+        <div className="absolute top-1 right-1 flex gap-1">
+          {photo.status === "failed" && (
+            <button
+              type="button"
+              onClick={() => retryMut.mutate()}
+              disabled={retryMut.isPending}
+              className="h-6 w-6 inline-flex items-center justify-center rounded disabled:opacity-50"
+              style={{ background: "rgba(0,0,0,0.6)", color: "var(--console-accent)" }}
+              title="Retry enrollment"
+            >
+              {retryMut.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3" />}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => delMut.mutate()}
+            disabled={delMut.isPending}
+            className="h-6 w-6 inline-flex items-center justify-center rounded disabled:opacity-50"
+            style={{ background: "rgba(0,0,0,0.6)", color: "#fff" }}
+            title="Delete photo"
+          >
+            {delMut.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+          </button>
+        </div>
         <span
           className="absolute bottom-1 left-1 font-telemetry text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded"
           style={{ background: "rgba(0,0,0,0.65)", color }}
@@ -304,6 +344,7 @@ const PhotoCard = ({ photo, qc, personId }) => {
 
 const PersonDrawer = ({ person, groups, onClose, qc }) => {
   const fileRef = useRef(null);
+  const confirm = useConfirm();
   const [editing, setEditing] = useState(false);
 
   const { data: photos = [], isLoading: photosLoading } = useQuery({
@@ -332,14 +373,28 @@ const PersonDrawer = ({ person, groups, onClose, qc }) => {
     onError: (e) => toast.error(e?.response?.data?.detail || "Failed to delete person"),
   });
 
+  const [dragOver, setDragOver] = useState(false);
+  const uploadMany = (files) => {
+    const imgs = Array.from(files || []).filter((f) => f.type.startsWith("image/"));
+    imgs.forEach((f) => uploadMut.mutate(f));
+  };
   const onPick = (e) => {
-    const file = e.target.files?.[0];
-    if (file) uploadMut.mutate(file);
+    uploadMany(e.target.files);
     e.target.value = "";
+  };
+  const onDrop = (e) => {
+    e.preventDefault();
+    setDragOver(false);
+    uploadMany(e.dataTransfer?.files);
   };
 
   const onDeletePerson = () => {
-    if (window.confirm(`Delete ${person.full_name}? All photos and enrollment are removed.`)) delMut.mutate();
+    confirm({
+      title: `Delete ${person.full_name}?`,
+      description: "All photos and enrollment are permanently removed.",
+      confirmText: "Delete",
+      danger: true,
+    }).then((ok) => { if (ok) delMut.mutate(); });
   };
 
   const groupName = groups.find((g) => g.id === person.group_id)?.name;
@@ -390,7 +445,7 @@ const PersonDrawer = ({ person, groups, onClose, qc }) => {
 
         {/* actions */}
         <div className="px-5 py-3 flex items-center gap-2" style={{ borderBottom: "1px solid var(--console-border)" }}>
-          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPick} />
+          <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={onPick} />
           <button
             type="button"
             onClick={() => fileRef.current?.click()}
@@ -411,10 +466,16 @@ const PersonDrawer = ({ person, groups, onClose, qc }) => {
           </button>
         </div>
 
-        {/* photos grid */}
-        <div className="flex-1 overflow-auto p-5">
+        {/* photos grid — drop zone */}
+        <div
+          className="flex-1 overflow-auto p-5 transition-colors"
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={onDrop}
+          style={dragOver ? { background: "rgba(45,212,191,0.06)", outline: "1px dashed var(--console-accent)", outlineOffset: "-8px" } : undefined}
+        >
           <p className="font-telemetry text-[10px] uppercase tracking-widest mb-3" style={{ color: "var(--console-muted)" }}>
-            Photos · {photos.length}
+            Photos · {photos.length} <span style={{ opacity: 0.6 }}>· drag &amp; drop to add</span>
           </p>
           {photosLoading ? (
             <div className="flex items-center justify-center py-12">
@@ -447,30 +508,83 @@ const PersonDrawer = ({ person, groups, onClose, qc }) => {
 };
 
 // ---------------------------------------------------------------------------
-// person row
+// person avatar (authenticated; person.thumbnail_key is a photo id)
 // ---------------------------------------------------------------------------
 
-const PersonRow = ({ person, groupName, onOpen }) => (
+const PersonAvatar = ({ photoId, className }) => {
+  const [url, setUrl] = useState(null);
+  useEffect(() => {
+    if (!photoId) {
+      setUrl(null);
+      return undefined;
+    }
+    let active = true;
+    let objUrl = null;
+    photoImageUrl(photoId).then((u) => {
+      if (!active) {
+        if (u) URL.revokeObjectURL(u);
+        return;
+      }
+      objUrl = u;
+      setUrl(u);
+    });
+    return () => {
+      active = false;
+      if (objUrl) URL.revokeObjectURL(objUrl);
+    };
+  }, [photoId]);
+
+  if (!url) {
+    return (
+      <div className={className} style={{ background: "var(--console-raised)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <UserCircle2 className="h-10 w-10" style={{ color: "var(--console-muted)" }} />
+      </div>
+    );
+  }
+  return <img src={url} alt="" className={className} style={{ objectFit: "cover" }} />;
+};
+
+// ---------------------------------------------------------------------------
+// person card (grid)
+// ---------------------------------------------------------------------------
+
+const CATEGORY_TINT = {
+  vip: "#a855f7",
+  monitored: "#f59e0b",
+  restricted: "#fb923c",
+  banned: "var(--console-rec)",
+};
+
+const PersonCard = ({ person, groupName, onOpen }) => (
   <button
     type="button"
     onClick={() => onOpen(person)}
-    className="text-left rounded p-3 flex items-center gap-3 transition-colors hover:brightness-110"
+    className="group text-left rounded-lg overflow-hidden flex flex-col transition-transform hover:-translate-y-0.5"
     style={{ background: "var(--console-panel)", border: "1px solid var(--console-border)" }}
   >
-    <div className="h-9 w-9 rounded flex items-center justify-center shrink-0" style={{ background: "var(--console-raised)" }}>
-      <UserCircle2 className="h-5 w-5" style={{ color: "var(--console-accent)" }} />
+    <div className="relative">
+      <PersonAvatar photoId={person.thumbnail_key} className="w-full aspect-square" />
+      <span
+        className="absolute top-1 left-1 h-2 w-2 rounded-full ring-2 ring-black/40"
+        style={{ background: ENROLL_META[person.enrollment_status]?.color || "var(--console-muted)" }}
+        title={ENROLL_META[person.enrollment_status]?.label || "Unenrolled"}
+      />
+      {CATEGORY_TINT[person.category] && (
+        <span
+          className="absolute top-1 right-1 h-2 w-2 rounded-full ring-2 ring-black/40"
+          style={{ background: CATEGORY_TINT[person.category] }}
+          title={person.category}
+        />
+      )}
     </div>
-    <div className="min-w-0 flex-1">
-      <div className="font-telemetry text-[12px] font-semibold truncate" style={{ color: "var(--console-text)" }}>
+    <div className="px-2 py-1.5 flex flex-col min-w-0">
+      <div className="font-telemetry text-[11px] font-semibold truncate" style={{ color: "var(--console-text)" }}>
         {person.full_name}
       </div>
-      <div className="font-telemetry text-[10px] uppercase tracking-widest truncate" style={{ color: "var(--console-muted)" }}>
-        {person.category}
-        {groupName ? ` · ${groupName}` : ""}
-        {person.external_id ? ` · ${person.external_id}` : ""}
+      <div className="font-telemetry text-[9px] uppercase tracking-widest truncate" style={{ color: "var(--console-muted)" }}>
+        {groupName || "No group"}
       </div>
     </div>
-    <EnrollBadge status={person.enrollment_status} />
   </button>
 );
 
@@ -581,9 +695,9 @@ const PersonsTab = () => {
           </span>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 gap-2.5">
           {items.map((p) => (
-            <PersonRow key={p.id} person={p} groupName={groupName(p.group_id)} onOpen={(pp) => setOpenPersonId(pp.id)} />
+            <PersonCard key={p.id} person={p} groupName={groupName(p.group_id)} onOpen={(pp) => setOpenPersonId(pp.id)} />
           ))}
         </div>
       )}

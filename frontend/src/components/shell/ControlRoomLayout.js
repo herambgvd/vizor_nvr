@@ -2,7 +2,6 @@ import React from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { LiveEventProvider } from "../nvr/LiveEventDrawer";
-import LeftRail from "./LeftRail";
 import TopHeader from "./TopHeader";
 import StatusBar from "./StatusBar";
 import AlarmDock from "./AlarmDock";
@@ -53,7 +52,6 @@ export default function ControlRoomLayout() {
       <div className="console-root h-screen w-screen flex flex-col overflow-hidden">
         <TopHeader title={title} />
         <div className="flex-1 min-h-0 flex">
-          <LeftRail />
           <div className="flex-1 min-w-0">
             <PanelGroup direction="horizontal">
               {showTree && (

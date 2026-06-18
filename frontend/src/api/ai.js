@@ -89,8 +89,16 @@ export const getScenarioJobResults = async (slug, jobId, params = {}) => (
   proxyScenario(slug, `/jobs/${jobId}/results`, { params })
 );
 
+export const listScenarioJobs = async (slug, params = {}) => (
+  proxyScenario(slug, "/jobs", { params })
+);
+
 export const cancelScenarioJob = async (slug, jobId) => (
   proxyScenario(slug, `/jobs/${jobId}`, { method: "DELETE" })
+);
+
+export const scenarioReportsSummary = async (slug, params = {}) => (
+  proxyScenario(slug, "/reports/summary", { params })
 );
 
 export const scenarioThumbnailUrl = async (slug, resultId) => {
@@ -189,6 +197,9 @@ export const listPhotos = async (personId) =>
 export const deletePhoto = async (id) =>
   proxyScenario(FRS_SLUG, `/photos/${id}`, { method: "DELETE" });
 
+export const retryPhoto = async (id) =>
+  proxyScenario(FRS_SLUG, `/photos/${id}/retry`, { method: "POST" });
+
 // The photo image endpoint is gated by get_current_user (Authorization header
 // only — no ?token= query support), so a bare <img src> cannot authenticate.
 // Fetch the bytes with the bearer token and hand back an object URL. The caller
@@ -210,10 +221,40 @@ export const photoImageUrl = async (id) => {
   return URL.createObjectURL(blob);
 };
 
+// Event snapshots live in the FRS plugin and are gated by the service token via
+// the scenario proxy — a bare <img src> can't authenticate. The plugin stores
+// snapshot_path as a plugin-relative path ("/snapshot?key=..."). Fetch the bytes
+// through the proxy with the bearer token and return an object URL (caller must
+// URL.revokeObjectURL on unmount).
+export const scenarioSnapshotUrl = async (slug, snapshotPath) => {
+  if (!snapshotPath) return null;
+  const token = getAccessToken();
+  const clean = String(snapshotPath).replace(/^\/+/, "");
+  let resp;
+  try {
+    resp = await fetch(`${BACKEND_URL}/api/ai/scenarios/${slug}/proxy/${clean}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+  } catch (_e) {
+    return null;
+  }
+  if (!resp.ok) return null;
+  const blob = await resp.blob();
+  if (!blob || blob.size === 0) return null;
+  return URL.createObjectURL(blob);
+};
+
 // ---------- FRS — query (events / attendance / reports) ----------
 
 export const listFrsEvents = async (params = {}) =>
   proxyScenario(FRS_SLUG, "/events", { params });
+
+export const deleteFrsEvent = async (eventId) =>
+  proxyScenario(FRS_SLUG, `/events/${eventId}`, { method: "DELETE" });
+
+// Bulk delete: pass { ids: [...] } or { all_matching: true, camera_id, event_type, since, until }.
+export const bulkDeleteFrsEvents = async (body) =>
+  proxyScenario(FRS_SLUG, "/events/delete", { method: "POST", data: body });
 
 // Generic scenario events via the unified NVR event store, filtered by the
 // scenario's source_service (slug). Used by non-FRS scenarios (PPE, future
@@ -233,6 +274,12 @@ export const listAttendance = async (params = {}) =>
 
 export const attendanceReport = async (params = {}) =>
   proxyScenario(FRS_SLUG, "/attendance/report", { params });
+
+export const frsReportsSummary = async (params = {}) =>
+  proxyScenario(FRS_SLUG, "/reports/summary", { params });
+
+export const submitFrsFeedback = async (body) =>
+  proxyScenario(FRS_SLUG, "/feedback", { method: "POST", data: body });
 
 // ---------- FRS — recognition (image + video) ----------
 // One-shot IMAGE recognition (synchronous) and async VIDEO-file jobs, served by
@@ -288,8 +335,14 @@ export const createInvestigation = async (file, { top_k = 50 } = {}) => {
     data: form,
     headers: { "Content-Type": "multipart/form-data" },
     timeout: 120000,
-  }); // { hits: [...], total }
+  }); // { job_id, hits: [...], total }
 };
+
+export const listInvestigations = async (limit = 50) =>
+  proxyScenario(FRS_SLUG, "/investigations", { params: { limit } });
+
+export const getInvestigation = async (jobId) =>
+  proxyScenario(FRS_SLUG, `/investigations/${jobId}`);
 
 // ---------- FRS — tour (cross-camera person timeline) ----------
 

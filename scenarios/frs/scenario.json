@@ -24,13 +24,16 @@
   "module_tabs": ["cameras", "live", "events", "groups", "persons", "recognize", "investigate", "transit", "attendance", "tour", "reports", "settings"],
   "camera_config_schema": {
     "fields": [
-      {"key": "min_confidence", "type": "float", "label": "Match threshold", "group": "Recognition", "default": 0.6, "min": 0.3, "max": 0.99, "step": 0.01, "help": "Minimum cosine similarity to call a face a known person."},
+      {"key": "min_confidence", "type": "float", "label": "Match threshold", "group": "Recognition", "default": 0.45, "min": 0.3, "max": 0.99, "step": 0.01, "help": "Minimum cosine similarity to call a face a known person. Lower for small/angled faces."},
       {"key": "recognition_enabled", "type": "bool", "label": "Recognition", "group": "Recognition", "default": true, "help": "Match faces against the enrolled gallery."},
       {"key": "detection_enabled", "type": "bool", "label": "Detection only", "group": "Recognition", "default": false, "help": "Emit face-detected events without identifying."},
       {"key": "liveness_enabled", "type": "bool", "label": "Anti-spoof", "group": "Liveness", "default": true},
       {"key": "liveness_threshold", "type": "float", "label": "Liveness threshold", "group": "Liveness", "default": 0.7, "min": 0.3, "max": 0.99, "step": 0.01},
-      {"key": "min_face_px", "type": "int", "label": "Min face size (px)", "group": "Quality", "default": 80, "min": 20, "max": 400, "step": 10},
-      {"key": "dwell_min_frames", "type": "int", "label": "Dwell frames", "group": "Quality", "default": 5, "min": 1, "max": 30, "step": 1, "help": "Frames a track must persist before an event fires."},
+      {"key": "det_conf", "type": "float", "label": "Detector confidence", "group": "Quality", "default": 0.5, "min": 0.2, "max": 0.9, "step": 0.05, "help": "SCRFD face-detector confidence floor."},
+      {"key": "min_face_px", "type": "int", "label": "Min face size (px)", "group": "Quality", "default": 28, "min": 12, "max": 400, "step": 4, "help": "Smaller = catch far/small faces (lower recognition quality)."},
+      {"key": "min_sharpness", "type": "int", "label": "Min sharpness", "group": "Quality", "default": 25, "min": 0, "max": 200, "step": 5, "help": "Reject blurry crops (Laplacian variance)."},
+      {"key": "max_pose_deg", "type": "int", "label": "Max pose (deg)", "group": "Quality", "default": 60, "min": 20, "max": 90, "step": 5, "help": "Reject faces turned more than this (yaw/pitch)."},
+      {"key": "dwell_min_frames", "type": "int", "label": "Dwell frames", "group": "Quality", "default": 1, "min": 1, "max": 30, "step": 1, "help": "Frames a track must persist before an event fires."},
       {"key": "alert_suppress_seconds", "type": "int", "label": "Alert cooldown (s)", "group": "Alerting", "default": 300, "min": 0, "max": 3600, "step": 30, "help": "Minimum gap between repeat alerts for the same person."},
       {"key": "fps", "type": "int", "label": "Analyze FPS", "group": "Stream", "default": 5, "min": 1, "max": 15, "step": 1},
       {"key": "roi", "type": "roi", "label": "Region of interest", "group": "Stream"}
@@ -56,6 +59,7 @@
     { "method": "GET", "path": "/persons/{person_id}/photos" },
 
     { "method": "DELETE", "path": "/photos/{photo_id}" },
+    { "method": "POST", "path": "/photos/{photo_id}/retry" },
     { "method": "GET", "path": "/photos/{photo_id}/image" },
 
     { "method": "POST", "path": "/recognize-image" },
@@ -66,6 +70,8 @@
     { "method": "GET", "path": "/video-jobs/{job_id}/results" },
 
     { "method": "POST", "path": "/investigate" },
+    { "method": "GET", "path": "/investigations" },
+    { "method": "GET", "path": "/investigations/{job_id}" },
     { "method": "GET", "path": "/tour/timeline/{person_id}" },
 
     { "method": "POST", "path": "/transit/rules" },
@@ -75,10 +81,14 @@
     { "method": "GET", "path": "/transit/sessions" },
 
     { "method": "GET", "path": "/events" },
+    { "method": "DELETE", "path": "/events/{event_id}" },
+    { "method": "POST", "path": "/events/delete" },
     { "method": "GET", "path": "/attendance" },
     { "method": "GET", "path": "/attendance/report" },
     { "method": "GET", "path": "/reports/summary" },
-    { "method": "GET", "path": "/live" }
+    { "method": "GET", "path": "/live" },
+    { "method": "POST", "path": "/feedback" },
+    { "method": "GET", "path": "/feedback" }
   ],
   "resource_requirements": {
     "gpu": "required",

@@ -5,7 +5,7 @@ const Toaster = ({
 }) => {
   return (
     <Sonner
-      theme="dark"
+      theme="system"
       position="bottom-right"
       closeButton
       duration={3500}

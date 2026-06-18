@@ -5,11 +5,22 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg \
+    && apt-get install -y --no-install-recommends ffmpeg libgl1 libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
-COPY app.py scenario.json ./
+
+# Application — thin entrypoint + one package per concern.
+COPY scenario.json app.py ./
+COPY config ./config
+COPY db ./db
+COPY schemas ./schemas
+COPY qdrant ./qdrant
+COPY recognition ./recognition
+COPY registration ./registration
+COPY deps ./deps
+COPY live ./live
+COPY routers ./routers
 
 EXPOSE 8093
 CMD ["python", "app.py"]

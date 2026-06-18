@@ -10,13 +10,14 @@
 // Client-side CSV export for whichever view is active.
 // =============================================================================
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import {
   CalendarDays,
   ChevronLeft,
   ChevronRight,
   Download,
+  ImageOff,
   Loader2,
   Users,
 } from "lucide-react";
@@ -28,6 +29,7 @@ import {
   attendanceReport,
   getScenarioCameras,
 } from "../../../api/frs";
+import { scenarioSnapshotUrl } from "../../../api/ai";
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
 import { cn } from "../../../lib/utils";
@@ -87,6 +89,59 @@ function downloadCsv(filename, headers, rows) {
   URL.revokeObjectURL(url);
 }
 
+// Authenticated <img> for plugin-relative snapshot paths. `fetcher` returns an
+// object URL (revoked on unmount). Mirrors EventsTab's AuthImage.
+function AuthImage({ fetcher, deps, className, fallback }) {
+  const [url, setUrl] = useState(null);
+  const [err, setErr] = useState(false);
+  useEffect(() => {
+    let active = true;
+    let obj = null;
+    setUrl(null); setErr(false);
+    if (!fetcher) { setErr(true); return undefined; }
+    fetcher().then((u) => {
+      if (!active) { if (u) URL.revokeObjectURL(u); return; }
+      if (u) { obj = u; setUrl(u); } else setErr(true);
+    }).catch(() => active && setErr(true));
+    return () => { active = false; if (obj) URL.revokeObjectURL(obj); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+  if (err) return fallback || null;
+  if (!url) {
+    return (
+      <div className={`${className} flex items-center justify-center`} style={{ background: "var(--console-raised)" }}>
+        <Loader2 className="h-3.5 w-3.5 animate-spin text-zinc-500" />
+      </div>
+    );
+  }
+  return <img src={url} alt="" className={className} style={{ objectFit: "cover" }} />;
+}
+
+// Small attendance face thumbnail (check-in / check-out snapshot) with a muted
+// placeholder when no snapshot is available — never breaks the row.
+function FaceThumb({ snapshot, slug }) {
+  const placeholder = (
+    <div
+      className="h-9 w-9 rounded flex items-center justify-center border shrink-0"
+      style={{
+        borderColor: "var(--console-border)",
+        background: "var(--console-raised)",
+      }}
+    >
+      <ImageOff className="h-3.5 w-3.5 text-zinc-600" />
+    </div>
+  );
+  if (!snapshot || !slug) return placeholder;
+  return (
+    <AuthImage
+      fetcher={() => scenarioSnapshotUrl(slug, snapshot)}
+      deps={[slug, snapshot]}
+      className="h-9 w-9 rounded border shrink-0"
+      fallback={placeholder}
+    />
+  );
+}
+
 function ViewToggle({ view, setView }) {
   const tabs = [
     { id: "log", label: "Log", icon: CalendarDays },
@@ -124,7 +179,7 @@ function ViewToggle({ view, setView }) {
 
 // ── Log view ────────────────────────────────────────────────────────────────
 
-function LogView({ since, until, camMap }) {
+function LogView({ since, until, camMap, slug }) {
   const [page, setPage] = useState(0);
 
   const params = useMemo(() => {
@@ -235,10 +290,16 @@ function LogView({ since, until, camMap }) {
                     {a.day_key}
                   </td>
                   <td className="px-3 py-2 text-xs text-zinc-300 font-telemetry">
-                    {fmtClock(a.check_in_at)}
+                    <div className="flex items-center gap-2">
+                      <FaceThumb snapshot={a.check_in_snapshot} slug={slug} />
+                      <span>{fmtClock(a.check_in_at)}</span>
+                    </div>
                   </td>
                   <td className="px-3 py-2 text-xs text-zinc-300 font-telemetry">
-                    {fmtClock(a.check_out_at)}
+                    <div className="flex items-center gap-2">
+                      <FaceThumb snapshot={a.check_out_snapshot} slug={slug} />
+                      <span>{fmtClock(a.check_out_at)}</span>
+                    </div>
                   </td>
                   <td className="px-3 py-2 text-xs text-zinc-300 max-w-[160px] truncate">
                     {camMap[a.camera_id] || a.camera_id || "—"}
@@ -474,7 +535,7 @@ export default function AttendanceTab({ scenario }) {
       </div>
 
       {view === "log" ? (
-        <LogView since={since} until={until} camMap={camMap} />
+        <LogView since={since} until={until} camMap={camMap} slug={scenario?.slug || "frs"} />
       ) : (
         <ReportView since={since} until={until} />
       )}

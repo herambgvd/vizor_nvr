@@ -19,6 +19,8 @@ import {
   CheckCircle2,
   Power,
   Trash2,
+  Search,
+  VideoOff,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -52,6 +54,7 @@ const Toggle = ({ checked, disabled, onChange }) => (
 
 const STREAM_COLORS = {
   running: "var(--console-accent)",
+  starting: "#f59e0b",
   stopped: "var(--console-muted)",
   error: "var(--console-rec)",
 };
@@ -66,6 +69,23 @@ const StreamBadge = ({ state }) => {
       {state}
     </span>
   );
+};
+
+// Live camera snapshot via go2rtc. Falls back to a camera-off placeholder.
+const CameraSnap = ({ cameraId, className }) => {
+  const [bust] = React.useState(() => Date.now());
+  const [ok, setOk] = React.useState(true);
+  const src = cameraId
+    ? `${BACKEND_URL}/go2rtc/api/frame.jpeg?src=${String(cameraId).toLowerCase()}&t=${bust}`
+    : null;
+  if (!src || !ok) {
+    return (
+      <div className={className} style={{ background: "var(--console-raised)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <VideoOff className="h-4 w-4" style={{ color: "var(--console-muted)" }} />
+      </div>
+    );
+  }
+  return <img src={src} alt="" className={className} style={{ objectFit: "cover" }} onError={() => setOk(false)} />;
 };
 
 // ---------------------------------------------------------------------------
@@ -243,20 +263,49 @@ const Field = ({ field, value, onChange, cameraId }) => (
 
 const ConfigPanel = ({ camera, config, scenario, scenarioId, qc }) => {
   const fields = scenario?.camera_config_schema?.fields || [];
+  const isFrs = (scenario?.slug || "frs") === "frs";
   const assigned = !!config;
   const [draft, setDraft] = useState(() => ({ ...(config?.config || {}) }));
 
   useEffect(() => {
-    setDraft({ ...(config?.config || {}) });
-  }, [config?.id, camera?.id]);  // reload when selection / config changes
+    const c = { ...(config?.config || {}) };
+    fields.forEach((field) => {
+      if (c[field.key] === undefined && field.default !== undefined) {
+        c[field.key] = field.default;
+      }
+    });
+    // FRS has two mutually exclusive modes. Other scenarios should use their
+    // manifest defaults without inheriting face-recognition config keys.
+    if (isFrs && c.recognition_enabled === undefined && c.detection_enabled === undefined) {
+      c.recognition_enabled = true;
+      c.detection_enabled = false;
+    }
+    setDraft(c);
+  }, [config?.id, camera?.id, fields, isFrs]);  // reload when selection / config changes
 
-  const setField = (key, val) => setDraft((d) => ({ ...d, [key]: val }));
+  // Recognition and detection-only are mutually exclusive modes — exactly one
+  // must be active. Toggling one ON forces the other OFF; turning the active one
+  // OFF flips to the other (never lets both end up off).
+  const setField = (key, val) =>
+    setDraft((d) => {
+      const next = { ...d, [key]: val };
+      if (isFrs && key === "recognition_enabled") {
+        next.detection_enabled = !val;
+      } else if (isFrs && key === "detection_enabled") {
+        next.recognition_enabled = !val;
+      }
+      return next;
+    });
 
-  // Group fields by `group` (insertion order preserved).
+  // Split ROI (goes to the visual right column) from scalar settings (left).
+  const roiFields = useMemo(() => fields.filter((f) => f.type === "roi"), [fields]);
+
+  // Group the non-ROI settings by `group` (insertion order preserved).
   const groups = useMemo(() => {
     const out = [];
     const idx = {};
     for (const f of fields) {
+      if (f.type === "roi") continue;
       const g = f.group || "General";
       if (!(g in idx)) { idx[g] = out.length; out.push([g, []]); }
       out[idx[g]][1].push(f);
@@ -288,23 +337,32 @@ const ConfigPanel = ({ camera, config, scenario, scenarioId, qc }) => {
   });
 
   const pending = enableMut.isPending || saveMut.isPending;
+  // Dirty = draft differs from the saved config (only meaningful once assigned).
+  const dirty = useMemo(
+    () => assigned && JSON.stringify(draft) !== JSON.stringify(config?.config || {}),
+    [assigned, draft, config]
+  );
 
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center justify-between pb-3 mb-3" style={{ borderBottom: "1px solid var(--console-border)" }}>
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className="h-9 w-9 rounded flex items-center justify-center shrink-0" style={{ background: "var(--console-raised)" }}>
-            <CameraIcon className="h-4 w-4" style={{ color: "var(--console-accent)" }} />
-          </div>
+        <div className="flex items-center gap-3 min-w-0">
+          <CameraSnap cameraId={camera.id} className="h-12 w-20 rounded shrink-0" />
           <div className="min-w-0">
             <div className="font-telemetry text-[13px] font-semibold uppercase tracking-wide truncate" style={{ color: "var(--console-text)" }}>
               {camera.name || camera.id}
             </div>
-            <div className="flex items-center gap-2">
-              {assigned ? <StreamBadge state={config.stream_state || "stopped"} /> : (
+            <div className="flex items-center gap-2 mt-0.5">
+              {assigned ? <StreamBadge state={config.enabled ? (config.stream_state === "running" || config.stream_state === "error" ? config.stream_state : "starting") : "stopped"} /> : (
                 <span className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
                   Not assigned
+                </span>
+              )}
+              {dirty && (
+                <span className="font-telemetry text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded"
+                  style={{ background: "rgba(245,158,11,0.15)", color: "#f59e0b" }}>
+                  Unsaved
                 </span>
               )}
             </div>
@@ -330,23 +388,55 @@ const ConfigPanel = ({ camera, config, scenario, scenarioId, qc }) => {
         </div>
       )}
 
-      {/* Grouped config */}
-      <div className="flex-1 overflow-y-auto pr-1 flex flex-col gap-5">
-        {groups.map(([group, gfields]) => (
-          <div key={group} className="flex flex-col gap-3">
-            <div className="font-telemetry text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--console-accent)" }}>
-              {group}
+      {/* Two-column body: settings (left, scrollable) + ROI/preview (right). */}
+      <div className="flex-1 min-h-0 flex gap-4">
+        {/* LEFT — scalar settings, grouped + scrollable */}
+        <div className="flex-1 min-w-0 flex flex-col min-h-0">
+          <div className="relative flex-1 min-h-0">
+            <div className="absolute inset-0 overflow-y-auto pr-2 flex flex-col gap-5">
+              {groups.map(([group, gfields]) => (
+                <div key={group} className="flex flex-col gap-3">
+                  <div className="font-telemetry text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--console-accent)" }}>
+                    {group}
+                  </div>
+                  {gfields.map((f) => (
+                    <Field key={f.key} field={f} value={draft[f.key]} onChange={(v) => setField(f.key, v)} cameraId={camera.id} />
+                  ))}
+                </div>
+              ))}
+              <div className="h-1" />
             </div>
-            {gfields.map((f) => (
-              <Field key={f.key} field={f} value={draft[f.key]} onChange={(v) => setField(f.key, v)} cameraId={camera.id} />
-            ))}
+            {/* bottom fade — signals more content below the fold */}
+            <div className="pointer-events-none absolute bottom-0 left-0 right-2 h-6"
+              style={{ background: "linear-gradient(to top, var(--console-panel), transparent)" }} />
           </div>
-        ))}
+        </div>
+
+        {/* RIGHT — ROI editor (or a live preview when the scenario has no ROI) */}
+        <div className="w-[42%] shrink-0 flex flex-col min-h-0 rounded-lg border overflow-hidden"
+          style={{ borderColor: "var(--console-border)", background: "var(--console-raised)" }}>
+          <div className="px-3 py-2 font-telemetry text-[10px] font-semibold uppercase tracking-widest shrink-0"
+            style={{ color: "var(--console-accent)", borderBottom: "1px solid var(--console-border)" }}>
+            {roiFields.length ? "Region of interest" : "Live preview"}
+          </div>
+          <div className="flex-1 min-h-0 overflow-y-auto p-3 flex flex-col gap-3">
+            {roiFields.length ? (
+              roiFields.map((f) => (
+                <Field key={f.key} field={f} value={draft[f.key]} onChange={(v) => setField(f.key, v)} cameraId={camera.id} />
+              ))
+            ) : (
+              <CameraSnap cameraId={camera.id} className="w-full aspect-video rounded" />
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Footer action */}
-      <div className="flex justify-end pt-3 mt-3" style={{ borderTop: "1px solid var(--console-border)" }}>
-        <button type="button" disabled={pending}
+      <div className="flex items-center justify-between pt-3 mt-3" style={{ borderTop: "1px solid var(--console-border)" }}>
+        <span className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
+          {assigned ? (dirty ? "Unsaved changes" : "All changes saved") : "Enable to start analysing"}
+        </span>
+        <button type="button" disabled={pending || (assigned && !dirty)}
           onClick={() => (assigned ? saveMut.mutate() : enableMut.mutate())}
           className="inline-flex items-center gap-1.5 font-telemetry text-[11px] uppercase tracking-widest px-4 py-2 rounded transition-opacity disabled:opacity-50"
           style={{ background: "var(--console-accent)", color: "#06231f" }}>
@@ -363,10 +453,18 @@ const ConfigPanel = ({ camera, config, scenario, scenarioId, qc }) => {
 // main — 40:60 split
 // ---------------------------------------------------------------------------
 
+const FILTERS = [
+  { key: "all", label: "All" },
+  { key: "assigned", label: "Assigned" },
+  { key: "unassigned", label: "Free" },
+];
+
 const CamerasTab = ({ scenario }) => {
   const scenarioId = scenario?.id;
   const qc = useQueryClient();
   const [selectedId, setSelectedId] = useState(null);
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState("all");
 
   const { data: cameras = [], isLoading: camsLoading } = useQuery({
     queryKey: ["all-cameras"],
@@ -376,6 +474,9 @@ const CamerasTab = ({ scenario }) => {
     queryKey: ["scenario-cameras", scenarioId],
     queryFn: () => listScenarioCameras(scenarioId),
     enabled: !!scenarioId,
+    // Poll so the worker's stream_state (stopped → running) reflects without a
+    // manual refresh after enabling a camera.
+    refetchInterval: 8000,
   });
 
   const camList = useMemo(
@@ -388,60 +489,124 @@ const CamerasTab = ({ scenario }) => {
     return m;
   }, [configs]);
 
-  // default selection = first camera
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return camList.filter((cam) => {
+      const cfg = configByCam[cam.id];
+      if (filter === "assigned" && !cfg) return false;
+      if (filter === "unassigned" && cfg) return false;
+      if (q && !`${cam.name || ""} ${cam.id}`.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [camList, configByCam, search, filter]);
+
+  // default selection = first visible camera
   useEffect(() => {
-    if (!selectedId && camList.length) setSelectedId(camList[0].id);
-  }, [camList, selectedId]);
+    if ((!selectedId || !filtered.some((c) => c.id === selectedId)) && filtered.length) {
+      setSelectedId(filtered[0].id);
+    }
+  }, [filtered, selectedId]);
 
   const assignedCount = configs.filter((c) => c.enabled !== false).length;
   const cap = scenario?.camera_limit || 0;
+  const capFrac = cap > 0 ? Math.min(1, assignedCount / cap) : 0;
   const selectedCam = camList.find((c) => c.id === selectedId) || null;
 
   return (
     <div className="flex gap-4 h-[calc(100vh-220px)] min-h-[480px]">
-      {/* LEFT 25% — camera list */}
-      <div className="w-1/4 flex flex-col rounded border overflow-hidden"
+      {/* LEFT — camera list */}
+      <div className="w-[300px] shrink-0 flex flex-col rounded-lg border overflow-hidden"
         style={{ borderColor: "var(--console-border)", background: "var(--console-panel)" }}>
-        <div className="flex items-center justify-between px-3 py-2.5" style={{ borderBottom: "1px solid var(--console-border)" }}>
-          <span className="font-telemetry text-[10px] uppercase tracking-widest flex items-center gap-1.5" style={{ color: "var(--console-muted)" }}>
-            <CheckCircle2 className="h-3.5 w-3.5" style={{ color: "var(--console-accent)" }} /> Cameras
-          </span>
-          <span className="font-telemetry text-[11px]" style={{ color: "var(--console-text)" }}>
-            {assignedCount}{cap > 0 ? ` / ${cap}` : ""}
-          </span>
+        {/* header + capacity meter */}
+        <div className="px-3 pt-2.5 pb-2 flex flex-col gap-2" style={{ borderBottom: "1px solid var(--console-border)" }}>
+          <div className="flex items-center justify-between">
+            <span className="font-telemetry text-[10px] uppercase tracking-widest flex items-center gap-1.5" style={{ color: "var(--console-muted)" }}>
+              <CheckCircle2 className="h-3.5 w-3.5" style={{ color: "var(--console-accent)" }} /> Cameras
+            </span>
+            <span className="font-telemetry text-[11px]" style={{ color: "var(--console-text)" }}>
+              {assignedCount}{cap > 0 ? ` / ${cap}` : ""} <span style={{ color: "var(--console-muted)" }}>assigned</span>
+            </span>
+          </div>
+          {cap > 0 && (
+            <div className="h-1 rounded-full overflow-hidden" style={{ background: "var(--console-raised)" }}>
+              <div className="h-full rounded-full transition-all" style={{ width: `${capFrac * 100}%`, background: capFrac >= 1 ? "var(--console-rec)" : "var(--console-accent)" }} />
+            </div>
+          )}
+          {/* search */}
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5" style={{ color: "var(--console-muted)" }} />
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search cameras"
+              className="w-full rounded pl-7 pr-2 py-1.5 font-telemetry text-[11px] outline-none"
+              style={{ background: "var(--console-raised)", border: "1px solid var(--console-border)", color: "var(--console-text)" }} />
+          </div>
+          {/* filter chips */}
+          <div className="flex items-center gap-1.5">
+            {FILTERS.map((f) => {
+              const on = filter === f.key;
+              return (
+                <button key={f.key} type="button" onClick={() => setFilter(f.key)}
+                  className="font-telemetry text-[9px] uppercase tracking-widest px-2 py-1 rounded border transition-colors"
+                  style={{
+                    background: on ? "var(--console-accent)" : "var(--console-raised)",
+                    borderColor: on ? "var(--console-accent)" : "var(--console-border)",
+                    color: on ? "#06231f" : "var(--console-muted)",
+                  }}>
+                  {f.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
+        {/* list */}
         <div className="flex-1 overflow-y-auto">
           {camsLoading ? (
             <div className="p-4 font-telemetry text-[11px]" style={{ color: "var(--console-muted)" }}>Loading…</div>
-          ) : camList.length === 0 ? (
-            <div className="p-4 font-telemetry text-[11px]" style={{ color: "var(--console-muted)" }}>No cameras. Add one in the Cameras page.</div>
-          ) : camList.map((cam) => {
+          ) : filtered.length === 0 ? (
+            <div className="p-4 font-telemetry text-[11px]" style={{ color: "var(--console-muted)" }}>
+              {camList.length === 0 ? "No cameras. Add one in the Cameras page." : "No cameras match."}
+            </div>
+          ) : filtered.map((cam) => {
             const cfg = configByCam[cam.id];
             const active = selectedId === cam.id;
+            // Enabled but worker not yet reporting "running" → "starting" (amber),
+            // not a confusing "stopped".
+            let statusLabel = "not assigned";
+            let statusColor = "var(--console-muted)";
+            if (cfg) {
+              if (!cfg.enabled) {
+                statusLabel = "disabled";
+              } else if (cfg.stream_state === "running") {
+                statusLabel = "running"; statusColor = STREAM_COLORS.running;
+              } else if (cfg.stream_state === "error") {
+                statusLabel = "error"; statusColor = STREAM_COLORS.error;
+              } else {
+                statusLabel = "starting"; statusColor = "#f59e0b";
+              }
+            }
             return (
               <button key={cam.id} type="button" onClick={() => setSelectedId(cam.id)}
-                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left transition-colors"
+                className="w-full flex items-center gap-2.5 px-2.5 py-2 text-left transition-colors hover:brightness-110"
                 style={{
                   background: active ? "var(--console-raised)" : "transparent",
                   borderBottom: "1px solid var(--console-border)",
                   borderLeft: active ? "2px solid var(--console-accent)" : "2px solid transparent",
                 }}>
-                <CameraIcon className="h-4 w-4 shrink-0" style={{ color: cfg?.enabled ? "var(--console-accent)" : "var(--console-muted)" }} />
+                <CameraSnap cameraId={cam.id} className="h-10 w-14 rounded shrink-0" />
                 <div className="min-w-0 flex-1">
                   <div className="font-telemetry text-[12px] truncate" style={{ color: "var(--console-text)" }}>{cam.name || cam.id}</div>
-                  <div className="font-telemetry text-[9px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
-                    {cfg ? (cfg.enabled ? (cfg.stream_state || "stopped") : "disabled") : "not assigned"}
+                  <div className="font-telemetry text-[9px] uppercase tracking-widest flex items-center gap-1" style={{ color: "var(--console-muted)" }}>
+                    <span className="h-1.5 w-1.5 rounded-full" style={{ background: statusColor }} />
+                    {statusLabel}
                   </div>
                 </div>
-                {cfg?.enabled && <span className="h-2 w-2 rounded-full shrink-0" style={{ background: "var(--console-accent)" }} />}
               </button>
             );
           })}
         </div>
       </div>
 
-      {/* RIGHT 75% — config */}
-      <div className="w-3/4 rounded border p-4 overflow-hidden"
+      {/* RIGHT — config */}
+      <div className="flex-1 rounded-lg border p-4 overflow-hidden"
         style={{ borderColor: "var(--console-border)", background: "var(--console-panel)" }}>
         {selectedCam ? (
           <ConfigPanel
@@ -453,8 +618,9 @@ const CamerasTab = ({ scenario }) => {
             qc={qc}
           />
         ) : (
-          <div className="h-full flex items-center justify-center font-telemetry text-[11px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
-            Select a camera
+          <div className="h-full flex flex-col items-center justify-center gap-2" style={{ color: "var(--console-muted)" }}>
+            <CameraIcon className="h-7 w-7" />
+            <span className="font-telemetry text-[11px] uppercase tracking-widest">Select a camera</span>
           </div>
         )}
       </div>

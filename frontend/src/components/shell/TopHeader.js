@@ -9,6 +9,7 @@ import { Avatar, AvatarFallback } from "../ui/avatar";
 import { ChangePasswordDialogTrigger } from "../auth/ChangePasswordDialog";
 import { useAuth } from "../../context/AuthContext";
 import useBranding from "../../hooks/useBranding";
+import TopNav from "./TopNav";
 
 const initials = (name) =>
   !name ? "U" : name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
@@ -43,7 +44,9 @@ export default function TopHeader({ title }) {
         <span className="text-sm font-semibold tracking-tight">{branding.system_name}</span>
       </div>
       <div className="h-4 w-px" style={{ background: "var(--console-border)" }} />
-      <span className="text-sm text-zinc-400">{title}</span>
+
+      {/* Primary navigation — horizontal, frees the left gutter for content. */}
+      <TopNav />
 
       <div className="ml-auto flex items-center gap-2">
         <DropdownMenu>

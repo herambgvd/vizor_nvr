@@ -233,6 +233,79 @@ async def internal_recording_catalog(
     }
 
 
+@router.get("/internal/cameras")
+async def internal_camera_catalog(
+    enabled_only: bool = Query(True),
+    x_vizor_scenario: str | None = Header(None),
+    _service=Depends(_require_plugin_service_token),
+    db: AsyncSession = Depends(get_db),
+):
+    """Live-camera catalog for trusted scenario plugins.
+
+    Returns the cameras a scenario is enabled (or assigned) on, with each
+    camera's per-camera AI config. Plugins use this to spin up live-stream
+    workers — they pull frames from go2rtc at rtsp://go2rtc:8554/{camera_id}
+    (or the _sub variant). Metadata + config only; no credentials are exposed.
+    """
+    if not x_vizor_scenario:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Vizor-Scenario header required")
+    scenario = await ai_service.get_scenario_by_slug(db, x_vizor_scenario)
+    if not scenario:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "scenario not found")
+
+    from app.cameras.models import Camera  # local import — avoid import cycle
+
+    q = select(CameraAIConfig).where(CameraAIConfig.scenario_id == scenario.id)
+    if enabled_only:
+        q = q.where(CameraAIConfig.enabled.is_(True))
+    configs = (await db.execute(q)).scalars().all()
+
+    cam_ids = [c.camera_id for c in configs]
+    cam_rows = {}
+    if cam_ids:
+        rows = (await db.execute(select(Camera).where(Camera.id.in_(cam_ids)))).scalars().all()
+        cam_rows = {str(c.id): c for c in rows}
+
+    items = []
+    for cfg in configs:
+        cam = cam_rows.get(str(cfg.camera_id))
+        items.append({
+            "config_id": cfg.id,
+            "camera_id": cfg.camera_id,
+            "camera_name": getattr(cam, "name", None),
+            "enabled": cfg.enabled,
+            "config": cfg.config or {},
+            "stream_state": cfg.stream_state,
+            # go2rtc stream ids (the plugin builds rtsp://go2rtc:8554/<id>).
+            "stream_id": str(cfg.camera_id),
+            "sub_stream_id": f"{cfg.camera_id}_sub",
+        })
+    return {"items": items, "total": len(items)}
+
+
+@router.put("/internal/camera-configs/{config_id}/state")
+async def internal_report_stream_state(
+    config_id: str,
+    body: dict,
+    x_vizor_scenario: str | None = Header(None),
+    _service=Depends(_require_plugin_service_token),
+    db: AsyncSession = Depends(get_db),
+):
+    """Service-token variant of stream-state reporting — lets an unattended
+    scenario plugin report its per-camera worker state (running/stopped/error)
+    without a logged-in operator. Mirrors PUT /camera-configs/{id}/state."""
+    state = str(body.get("state") or "").strip()
+    if state not in ("running", "stopped", "error"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid state")
+    from app.ai.core.camera_config_service import camera_config_service
+    config = await camera_config_service.set_stream_state(
+        db, config_id, state, body.get("error")
+    )
+    if config is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "camera config not found")
+    return {"ok": True, "config_id": config_id, "state": state}
+
+
 @router.get("/scenarios/{slug}/health")
 async def scenario_health(
     slug: str,

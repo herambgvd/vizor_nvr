@@ -37,8 +37,10 @@ const inputStyle = {
   color: "var(--console-text)",
 };
 
-const DEFAULT_BACKGROUND_COLOR = "#000000";
 const DEFAULT_BUTTON_COLOR = "#228B22";
+const DEFAULT_TEXT_COLOR_DARK = "#E2E8F0";
+const DEFAULT_TEXT_COLOR_LIGHT = "#111827";
+const DEFAULT_FONT_SIZE = 14;
 const HEX_COLOR = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
 
 const normalizeHexColor = (value, fallback) => {
@@ -58,6 +60,22 @@ const readableTextForHex = (value) => {
   const b = parseInt(hex.slice(4, 6), 16);
   const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
   return luminance > 0.58 ? "#06120A" : "#FFFFFF";
+};
+
+const normalizeFontSize = (value) => {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return DEFAULT_FONT_SIZE;
+  return Math.min(18, Math.max(12, parsed));
+};
+
+const themeDefaults = (mode) => {
+  const light = mode === "light";
+  return {
+    mode: light ? "light" : "dark",
+    background: light ? "#FFFFFF" : "#000000",
+    text: light ? DEFAULT_TEXT_COLOR_LIGHT : DEFAULT_TEXT_COLOR_DARK,
+    panel: light ? "#F5F7FA" : "#050505",
+  };
 };
 
 const readImageAsDataUrl = (file) =>
@@ -424,30 +442,36 @@ const GeneralTab = ({ queryClient }) => {
     }
   };
   const saveGeneralSettings = () => {
+    const themeMode = form.theme_mode === "light" ? "light" : "dark";
+    const defaults = themeDefaults(themeMode);
+    const { theme_background_color: _legacyBackgroundColor, ...generalSettings } = form;
     mutation.mutate({
       settings: {
-        ...form,
-        theme_background_color: normalizeHexColor(
-          form.theme_background_color,
-          DEFAULT_BACKGROUND_COLOR,
-        ),
+        ...generalSettings,
+        theme_mode: themeMode,
         theme_button_color: normalizeHexColor(
           form.theme_button_color,
           DEFAULT_BUTTON_COLOR,
         ),
+        theme_text_color: normalizeHexColor(
+          form.theme_text_color,
+          defaults.text,
+        ),
+        theme_font_size: String(normalizeFontSize(form.theme_font_size)),
       },
     });
   };
 
-  const previewBackground = normalizeHexColor(
-    form.theme_background_color,
-    DEFAULT_BACKGROUND_COLOR,
-  );
+  const themeMode = form.theme_mode === "light" ? "light" : "dark";
+  const previewTheme = themeDefaults(themeMode);
+  const previewBackground = previewTheme.background;
+  const previewText = normalizeHexColor(form.theme_text_color, previewTheme.text);
   const previewButton = normalizeHexColor(
     form.theme_button_color,
     DEFAULT_BUTTON_COLOR,
   );
   const previewButtonText = readableTextForHex(previewButton);
+  const previewFontSize = normalizeFontSize(form.theme_font_size);
 
   return (
     <ConsoleCard icon={SettingsIcon} title="General Settings" description="Application-wide identity and locale preferences.">
@@ -479,14 +503,18 @@ const GeneralTab = ({ queryClient }) => {
           >
             Theme Appearance
           </p>
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_220px] gap-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <ColorPicker
-                label="Background Color"
-                help="Main platform background"
-                value={form.theme_background_color ?? DEFAULT_BACKGROUND_COLOR}
-                fallback={DEFAULT_BACKGROUND_COLOR}
-                onChange={(value) => set("theme_background_color", value)}
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_240px] gap-4">
+            <div className="grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-4 gap-4">
+              <ThemeModePicker
+                value={themeMode}
+                onChange={(value) => {
+                  const next = themeDefaults(value);
+                  setForm((prev) => ({
+                    ...prev,
+                    theme_mode: next.mode,
+                    theme_text_color: prev.theme_text_color ? normalizeHexColor(prev.theme_text_color, next.text) : next.text,
+                  }));
+                }}
               />
               <ColorPicker
                 label="Button Color"
@@ -494,6 +522,17 @@ const GeneralTab = ({ queryClient }) => {
                 value={form.theme_button_color ?? DEFAULT_BUTTON_COLOR}
                 fallback={DEFAULT_BUTTON_COLOR}
                 onChange={(value) => set("theme_button_color", value)}
+              />
+              <ColorPicker
+                label="Text Color"
+                help="Primary text across the platform"
+                value={form.theme_text_color ?? previewTheme.text}
+                fallback={previewTheme.text}
+                onChange={(value) => set("theme_text_color", value)}
+              />
+              <FontSizePicker
+                value={previewFontSize}
+                onChange={(value) => set("theme_font_size", String(value))}
               />
             </div>
             <div
@@ -506,14 +545,14 @@ const GeneralTab = ({ queryClient }) => {
               <div
                 className="rounded p-3"
                 style={{
-                  background: "rgba(0,0,0,0.45)",
-                  border: "1px solid rgba(255,255,255,0.12)",
+                  background: previewTheme.panel,
+                  border: `1px solid ${previewTheme.mode === "light" ? "#D7DEE8" : "rgba(255,255,255,0.12)"}`,
                 }}
               >
-                <p className="font-telemetry text-[10px] uppercase tracking-wide text-white/70">
+                <p className="font-telemetry text-[10px] uppercase tracking-wide" style={{ color: previewTheme.mode === "light" ? "#64748B" : "rgba(255,255,255,0.7)" }}>
                   Preview
                 </p>
-                <p className="mt-1 text-sm font-semibold text-white">Camera Console</p>
+                <p className="mt-1 font-semibold" style={{ color: previewText, fontSize: `${previewFontSize}px` }}>Camera Console</p>
                 <button
                   type="button"
                   className="mt-3 h-[28px] rounded px-3 font-telemetry text-[11px] font-semibold uppercase tracking-wide"
@@ -564,6 +603,90 @@ const GeneralTab = ({ queryClient }) => {
         </div>
       </div>
     </ConsoleCard>
+  );
+};
+
+const ThemeModePicker = ({ value, onChange }) => {
+  const current = value === "light" ? "light" : "dark";
+  return (
+    <div
+      className="rounded p-3"
+      style={{ background: "var(--console-raised)", border: "1px solid var(--console-border)" }}
+    >
+      <p className="font-telemetry text-[11px] uppercase tracking-wide" style={{ color: "var(--console-text)" }}>
+        Theme Mode
+      </p>
+      <p className="font-telemetry text-[10px]" style={{ color: "var(--console-muted)" }}>
+        Platform-wide dark or white theme
+      </p>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        {[
+          ["dark", "Dark"],
+          ["light", "White"],
+        ].map(([mode, label]) => {
+          const active = current === mode;
+          return (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => onChange(mode)}
+              className="h-[34px] rounded border font-telemetry text-[11px] font-semibold uppercase tracking-wide"
+              style={{
+                background: active ? "var(--console-accent)" : "var(--console-panel)",
+                borderColor: active ? "var(--console-accent)" : "var(--console-border)",
+                color: active ? "var(--console-accent-foreground)" : "var(--console-text)",
+              }}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+const FontSizePicker = ({ value, onChange }) => {
+  const current = normalizeFontSize(value);
+  const sizes = [
+    [12, "Small"],
+    [14, "Normal"],
+    [16, "Large"],
+    [18, "XL"],
+  ];
+
+  return (
+    <div
+      className="rounded p-3"
+      style={{ background: "var(--console-raised)", border: "1px solid var(--console-border)" }}
+    >
+      <p className="font-telemetry text-[11px] uppercase tracking-wide" style={{ color: "var(--console-text)" }}>
+        Font Size
+      </p>
+      <p className="font-telemetry text-[10px]" style={{ color: "var(--console-muted)" }}>
+        Platform text scale
+      </p>
+      <div className="mt-3 grid grid-cols-4 gap-1.5">
+        {sizes.map(([size, label]) => {
+          const active = current === size;
+          return (
+            <button
+              key={size}
+              type="button"
+              onClick={() => onChange(size)}
+              className="h-[34px] rounded border font-telemetry text-[10px] font-semibold uppercase tracking-wide"
+              style={{
+                background: active ? "var(--console-accent)" : "var(--console-panel)",
+                borderColor: active ? "var(--console-accent)" : "var(--console-border)",
+                color: active ? "var(--console-accent-foreground)" : "var(--console-text)",
+              }}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 };
 

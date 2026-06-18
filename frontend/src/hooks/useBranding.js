@@ -6,8 +6,11 @@ const DEFAULT_BRANDING = {
   system_name: "Vizor NVR",
   logo_url: "",
   favicon_url: "",
+  theme_mode: "dark",
   background_color: "#000000",
   button_color: "#228B22",
+  text_color: "#E2E8F0",
+  font_size: "14",
 };
 
 const HEX_COLOR = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
@@ -60,6 +63,12 @@ const readableTextFor = (hex) => {
   return luminance > 0.58 ? "#06120A" : "#FFFFFF";
 };
 
+const clampFontSize = (value) => {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return 14;
+  return Math.min(18, Math.max(12, parsed));
+};
+
 export const getBranding = async () => {
   const response = await apiClient.get("/settings/public/branding");
   return { ...DEFAULT_BRANDING, ...(response.data || {}) };
@@ -86,22 +95,67 @@ export default function useBranding() {
     }
     link.href = faviconUrl || "/favicon.ico";
 
-    const backgroundColor = normalizeHex(
-      branding.background_color,
-      DEFAULT_BRANDING.background_color,
-    );
+    const themeMode = branding.theme_mode === "light" ? "light" : "dark";
+    const palette = themeMode === "light"
+      ? {
+          bg: "#FFFFFF",
+          panel: "#FFFFFF",
+          raised: "#F5F7FA",
+          border: "#D7DEE8",
+          muted: "#64748B",
+          input: "#FFFFFF",
+          popover: "#FFFFFF",
+          hover: "#EEF2F7",
+          active: "#E4EAF2",
+        }
+      : {
+          bg: "#000000",
+          panel: "#000000",
+          raised: "#050505",
+          border: "#202020",
+          muted: "#8A8F98",
+          input: "#050505",
+          popover: "#000000",
+          hover: "#101010",
+          active: "#171717",
+        };
     const buttonColor = normalizeHex(
       branding.button_color,
       DEFAULT_BRANDING.button_color,
     );
+    const textColor = normalizeHex(
+      branding.text_color,
+      themeMode === "light" ? "#111827" : DEFAULT_BRANDING.text_color,
+    );
     const root = document.documentElement;
-    const bgHsl = hexToHslToken(backgroundColor);
+    const bgHsl = hexToHslToken(palette.bg);
     const buttonHsl = hexToHslToken(buttonColor);
     const buttonText = readableTextFor(buttonColor);
+    const fontSize = clampFontSize(branding.font_size);
 
+    root.classList.toggle("light", themeMode === "light");
+    root.classList.toggle("dark", themeMode === "dark");
+    root.style.setProperty("--console-font-size", `${fontSize}px`);
+    root.style.fontSize = `${fontSize}px`;
     root.style.setProperty("--background", bgHsl);
     root.style.setProperty("--sidebar", bgHsl);
-    root.style.setProperty("--console-bg", backgroundColor);
+    root.style.setProperty("--foreground", hexToHslToken(textColor));
+    root.style.setProperty("--card", hexToHslToken(palette.panel));
+    root.style.setProperty("--card-foreground", hexToHslToken(textColor));
+    root.style.setProperty("--popover", hexToHslToken(palette.popover));
+    root.style.setProperty("--popover-foreground", hexToHslToken(textColor));
+    root.style.setProperty("--muted", hexToHslToken(palette.raised));
+    root.style.setProperty("--muted-foreground", hexToHslToken(palette.muted));
+    root.style.setProperty("--border", hexToHslToken(palette.border));
+    root.style.setProperty("--input", hexToHslToken(palette.input));
+    root.style.setProperty("--console-bg", palette.bg);
+    root.style.setProperty("--console-panel", palette.panel);
+    root.style.setProperty("--console-raised", palette.raised);
+    root.style.setProperty("--console-border", palette.border);
+    root.style.setProperty("--console-hover", palette.hover);
+    root.style.setProperty("--console-active", palette.active);
+    root.style.setProperty("--console-text", textColor);
+    root.style.setProperty("--console-muted", palette.muted);
     root.style.setProperty("--primary", buttonHsl);
     root.style.setProperty("--secondary", buttonHsl);
     root.style.setProperty("--accent", buttonHsl);
@@ -114,8 +168,10 @@ export default function useBranding() {
   }, [
     branding.system_name,
     branding.favicon_url,
-    branding.background_color,
+    branding.theme_mode,
     branding.button_color,
+    branding.text_color,
+    branding.font_size,
   ]);
 
   return branding;

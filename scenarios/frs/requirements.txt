@@ -3,6 +3,8 @@ uvicorn[standard]==0.34.0
 python-multipart==0.0.20
 requests==2.32.3
 pillow==11.0.0
+numpy==1.26.4
+opencv-python-headless==4.10.0.84
 qdrant-client==1.12.1
 sqlalchemy==2.0.36
 psycopg2-binary==2.9.10

@@ -45,31 +45,63 @@ services:
       HLS_PATH: /data/hls
 
   frontend:
-    # Override the production nginx image with the same node image used
-    # in the Dockerfile's builder stage. Mount the source so CRA's
-    # webpack-dev-server fast-refreshes the browser on save.
+    # Replace the production nginx static image with the CRA dev server
+    # (craco start) so edits fast-refresh in the browser. It listens on
+    # PORT=80 so nginx's existing `frontend:80` upstream keeps working —
+    # the app stays on the same https://localhost URL, no port juggling.
     image: node:20-alpine
     working_dir: /app
     command: sh -c "npm install --legacy-peer-deps && npm start"
+    # CRA dev server + npm install need far more than the prod nginx's 64 MB cap.
+    deploy:
+      resources:
+        limits:
+          memory: 4g
     volumes:
       - ./frontend:/app
       - /app/node_modules    # keep installed deps inside the container
     environment:
+      PORT: "80"                         # match nginx upstream frontend:80
       CHOKIDAR_USEPOLLING: "true"        # required on Linux bind mounts
       WATCHPACK_POLLING: "true"
       FAST_REFRESH: "true"
-      REACT_APP_BACKEND_URL: http://localhost:8000
-      REACT_APP_API_URL: http://localhost:8000
-      REACT_APP_GO2RTC_URL: http://localhost:1984
-      WDS_SOCKET_PORT: "0"               # CRA hot-update over the page's own port
+      WDS_SOCKET_PORT: "0"               # HMR socket over the page's own port (nginx 443)
       BROWSER: "none"
-    ports:
-      - "3000:3000"
     # No healthcheck — CRA dev server doesn't expose /health
     healthcheck:
       disable: true
 
-  # Nginx in dev: keep proxying /api → backend, but stop trying to
-  # serve the (stale) production bundle. The operator hits the React
-  # dev server directly on http://localhost:3000 instead. nginx stays
-  # up because go2rtc + WebSocket routing still need it.
+  # ── AI scenario plugins — hot reload (source mount + uvicorn --reload) ──
+  # Each plugin's app code is bind-mounted and run under uvicorn --reload, so
+  # Python edits restart the worker in <1 s without a docker rebuild. Models +
+  # data volumes are inherited from docker-compose.ai.yml.
+  frs:
+    command: >
+      python -m uvicorn app:app --host 0.0.0.0 --port 8093 --reload --reload-dir /app
+    volumes:
+      - ./scenarios/frs:/app
+      - recordings:/data/recordings:ro
+      - frs_photos:/data/frs
+      - ./models:/models:ro
+    healthcheck:
+      disable: true
+
+  ppe:
+    command: >
+      python -m uvicorn app:app --host 0.0.0.0 --port 8092 --reload --reload-dir /app
+    volumes:
+      - ./scenarios/ppe:/app
+      - recordings:/data/recordings:ro
+      - ./models:/models:ro
+    healthcheck:
+      disable: true
+
+  suspect-search:
+    command: >
+      python -m uvicorn app:app --host 0.0.0.0 --port 8091 --reload --reload-dir /app
+    volumes:
+      - ./scenarios/suspect-search:/app
+      - recordings:/data/recordings:ro
+      - ./models:/models:ro
+    healthcheck:
+      disable: true

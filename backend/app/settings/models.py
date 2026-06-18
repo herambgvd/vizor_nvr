@@ -30,7 +30,10 @@ DEFAULT_SETTINGS = {
     "timezone": {"value": "UTC", "type": "string", "category": "general", "desc": "System timezone"},
     "brand_logo_url": {"value": "", "type": "string", "category": "general", "desc": "Whitelabel logo URL or data URL"},
     "brand_favicon_url": {"value": "", "type": "string", "category": "general", "desc": "Whitelabel favicon URL or data URL"},
-    "theme_background_color": {"value": "#000000", "type": "string", "category": "general", "desc": "Console background color"},
+    "theme_mode": {"value": "dark", "type": "string", "category": "general", "desc": "Platform theme mode: dark or light"},
+    "theme_text_color": {"value": "#E2E8F0", "type": "string", "category": "general", "desc": "Primary platform text color"},
+    "theme_font_size": {"value": "14", "type": "int", "category": "general", "desc": "Base platform font size in pixels"},
+    "theme_background_color": {"value": "#000000", "type": "string", "category": "general", "desc": "Legacy console background color"},
     "theme_button_color": {"value": "#228B22", "type": "string", "category": "general", "desc": "Primary button and accent color"},
 
     # Retention

@@ -10,7 +10,7 @@
 // resolves the person and renders the JSON the bridge returns.
 // =============================================================================
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Route,
@@ -20,8 +20,11 @@ import {
   UserCircle2,
   Video,
   X,
+  Eye,
+  Camera,
+  Clock,
 } from "lucide-react";
-import { format } from "date-fns";
+import { format, formatDistanceToNowStrict } from "date-fns";
 
 import { listPersons, personTimeline } from "../../../api/ai";
 import { snapshotUrl } from "./frsShared";
@@ -51,6 +54,63 @@ function confColor(conf) {
   if (conf >= 0.85) return "var(--console-accent)";
   if (conf >= 0.6) return "#f59e0b";
   return "var(--console-rec)";
+}
+
+// YYYY-MM-DD key for day grouping.
+function dayKey(iso) {
+  if (!iso) return "";
+  try {
+    return format(new Date(iso), "yyyy-MM-dd");
+  } catch {
+    return "";
+  }
+}
+
+// Human day header (e.g. "Mon, Jun 16").
+function fmtDay(iso) {
+  if (!iso) return "—";
+  try {
+    return format(new Date(iso), "EEE, MMM d");
+  } catch {
+    return iso;
+  }
+}
+
+// Short relative time (e.g. "3h ago").
+function fmtRelative(iso) {
+  if (!iso) return "—";
+  try {
+    return `${formatDistanceToNowStrict(new Date(iso))} ago`;
+  } catch {
+    return iso;
+  }
+}
+
+// Short form of a camera id for compact display.
+function shortCam(id) {
+  if (id == null) return "—";
+  const s = String(id);
+  return s.length > 18 ? `${s.slice(0, 8)}…${s.slice(-6)}` : s;
+}
+
+// Small stat card matching the console aesthetic.
+function StatCard({ icon: Icon, label, value, accent }) {
+  return (
+    <div
+      className="rounded-lg border p-3 flex-1 min-w-[120px]"
+      style={{ borderColor: "var(--console-border)", background: "var(--console-panel)" }}
+    >
+      <div className="flex items-center justify-between">
+        <span className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
+          {label}
+        </span>
+        <Icon className="h-3.5 w-3.5" style={{ color: accent || "var(--console-accent)" }} />
+      </div>
+      <div className="mt-1.5 font-telemetry text-[18px] font-semibold truncate" style={{ color: "var(--console-text)" }}>
+        {value}
+      </div>
+    </div>
+  );
 }
 
 // Best-effort snapshot thumbnail (placeholder on miss).
@@ -165,6 +225,56 @@ const Timeline = ({ personId }) => {
     enabled: !!personId,
   });
 
+  const entries = data?.entries || [];
+
+  // Normalize entry fields (documented shape + legacy fallbacks). Hooks must run
+  // before any early return, so they live up here unconditionally.
+  const normalized = useMemo(
+    () =>
+      entries.map((e) => ({
+        cameraId: e.camera_id ?? e.stream_id ?? null,
+        when: e.triggered_at || e.timestamp || null,
+        confidence: e.confidence,
+        eventType: e.event_type || null,
+        snapshotKey: e.snapshot_path || e.snapshot_key || null,
+      })),
+    [entries],
+  );
+
+  const stats = useMemo(() => {
+    const cams = new Set();
+    let last = null;
+    for (const e of normalized) {
+      if (e.cameraId != null) cams.add(String(e.cameraId));
+      if (e.when) {
+        const t = new Date(e.when).getTime();
+        if (!Number.isNaN(t) && (last == null || t > last)) last = t;
+      }
+    }
+    return {
+      total: normalized.length,
+      cameras: cams.size,
+      lastSeen: last != null ? new Date(last).toISOString() : null,
+    };
+  }, [normalized]);
+
+  const grouped = useMemo(() => {
+    const m = new Map();
+    for (const e of normalized) {
+      const k = dayKey(e.when);
+      if (!m.has(k)) m.set(k, []);
+      m.get(k).push(e);
+    }
+    for (const arr of m.values()) {
+      arr.sort((a, b) => {
+        const ta = a.when ? new Date(a.when).getTime() : 0;
+        const tb = b.when ? new Date(b.when).getTime() : 0;
+        return tb - ta;
+      });
+    }
+    return Array.from(m.entries()).sort((a, b) => (a[0] < b[0] ? 1 : -1));
+  }, [normalized]);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-16">
@@ -183,7 +293,6 @@ const Timeline = ({ personId }) => {
     );
   }
 
-  const entries = data?.entries || [];
   if (entries.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center gap-2 py-16 rounded" style={{ background: "var(--console-panel)", border: "1px dashed var(--console-border)" }}>
@@ -196,39 +305,68 @@ const Timeline = ({ personId }) => {
   }
 
   return (
-    <div className="relative pl-5">
-      {/* spine */}
-      <div className="absolute left-[7px] top-1 bottom-1 w-px" style={{ background: "var(--console-border)" }} />
-      <div className="flex flex-col gap-3">
-        {entries.map((e, i) => (
-          <div key={`${e.snapshot_key || e.stream_id}-${i}`} className="relative flex items-start gap-3">
-            {/* node */}
-            <span
-              className="absolute -left-5 top-5 h-2.5 w-2.5 rounded-full"
-              style={{ background: confColor(e.confidence), boxShadow: "0 0 0 3px var(--console-bg, #000)" }}
-            />
+    <div className="flex flex-col gap-4">
+      {/* stats summary */}
+      <div className="flex flex-wrap gap-3">
+        <StatCard icon={Eye} label="Total sightings" value={stats.total} accent="var(--console-accent)" />
+        <StatCard icon={Camera} label="Cameras" value={stats.cameras} accent="var(--console-accent)" />
+        <StatCard icon={Clock} label="Last seen" value={fmtRelative(stats.lastSeen)} accent="var(--console-muted)" />
+      </div>
+
+      {/* day-grouped timeline */}
+      <div className="flex flex-col gap-5">
+        {grouped.map(([day, dayEntries]) => (
+          <div key={day || "unknown"}>
             <div
-              className="flex items-center gap-3 flex-1 rounded p-3"
-              style={{ background: "var(--console-panel)", border: "1px solid var(--console-border)" }}
+              className="sticky top-0 z-10 flex items-center justify-between px-1 py-1.5 mb-2 border-b"
+              style={{ background: "var(--console-bg, #000)", borderColor: "var(--console-border)" }}
             >
-              <EntryThumb snapshotKey={e.snapshot_key} />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <Video className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--console-accent)" }} />
-                  <span className="font-telemetry text-[12px] font-semibold truncate" style={{ color: "var(--console-text)" }}>
-                    {e.stream_name || e.stream_id || "—"}
-                  </span>
-                </div>
-                <div className="font-telemetry text-[10px] uppercase tracking-widest mt-1" style={{ color: "var(--console-muted)" }}>
-                  {fmtTime(e.timestamp)}
-                </div>
-              </div>
-              <span
-                className="font-telemetry text-[11px] uppercase tracking-widest px-2 py-1 rounded border shrink-0"
-                style={{ background: "var(--console-raised)", borderColor: "var(--console-border)", color: confColor(e.confidence) }}
-              >
-                {fmtConfidence(e.confidence)}
+              <span className="font-telemetry text-[11px] uppercase tracking-widest font-semibold" style={{ color: "var(--console-text)" }}>
+                {fmtDay(dayEntries[0]?.when)}
               </span>
+              <span className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
+                {dayEntries.length} sighting{dayEntries.length !== 1 ? "s" : ""}
+              </span>
+            </div>
+
+            <div className="relative pl-5">
+              {/* spine */}
+              <div className="absolute left-[7px] top-1 bottom-1 w-px" style={{ background: "var(--console-border)" }} />
+              <div className="flex flex-col gap-3">
+                {dayEntries.map((e, i) => (
+                  <div key={`${e.snapshotKey || e.cameraId}-${i}`} className="relative flex items-start gap-3">
+                    {/* node */}
+                    <span
+                      className="absolute -left-5 top-5 h-2.5 w-2.5 rounded-full"
+                      style={{ background: confColor(e.confidence), boxShadow: "0 0 0 3px var(--console-bg, #000)" }}
+                    />
+                    <div
+                      className="flex items-center gap-3 flex-1 rounded p-3"
+                      style={{ background: "var(--console-panel)", border: "1px solid var(--console-border)" }}
+                    >
+                      <EntryThumb snapshotKey={e.snapshotKey} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <Video className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--console-accent)" }} />
+                          <span className="font-telemetry text-[12px] font-semibold truncate" style={{ color: "var(--console-text)" }}>
+                            {shortCam(e.cameraId)}
+                          </span>
+                        </div>
+                        <div className="font-telemetry text-[10px] uppercase tracking-widest mt-1" style={{ color: "var(--console-muted)" }}>
+                          {fmtTime(e.when)}
+                          {e.eventType ? ` · ${String(e.eventType).replace(/_/g, " ")}` : ""}
+                        </div>
+                      </div>
+                      <span
+                        className="font-telemetry text-[11px] uppercase tracking-widest px-2 py-1 rounded border shrink-0"
+                        style={{ background: "var(--console-raised)", borderColor: "var(--console-border)", color: confColor(e.confidence) }}
+                      >
+                        {fmtConfidence(e.confidence)}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         ))}

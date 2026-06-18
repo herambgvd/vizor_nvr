@@ -138,8 +138,11 @@ services:
       CLOUD_S3_ACCESS_KEY: ${CLOUD_S3_ACCESS_KEY:-}
       CLOUD_S3_SECRET_KEY: ${CLOUD_S3_SECRET_KEY:-}
       REDIS_URL: redis://redis:6379/0
-      NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
-      NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-compute,utility,video}
+      # AI scenario containers own GPU inference. Keep the NVR core free of a
+      # hard NVIDIA runtime dependency so recording/playback still starts when
+      # the host driver stack is temporarily unhealthy.
+      NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-void}
+      NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-utility}
     volumes:
       # Base volume for /data so persistent state that lives directly under
       # /data — license.lic and .machine_id (the license fingerprint cache) —
@@ -157,9 +160,6 @@ services:
       - "host.docker.internal:host-gateway"
     networks:
       - internal
-    # Expose NVIDIA GPU/NVML to the backend for resource monitoring and
-    # hardware-accelerated FFmpeg/dewarp paths when available on the host.
-    gpus: all
     # NAS mounting (SMB / NFS / iSCSI) needs CAP_SYS_ADMIN inside the
     # container, otherwise `mount` returns "operation not permitted" and
     # the storage UI flashes a 500. Safer alternative for production:

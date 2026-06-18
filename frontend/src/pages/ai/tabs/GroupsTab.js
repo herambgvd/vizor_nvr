@@ -22,6 +22,7 @@ import {
 import { toast } from "sonner";
 
 import { listGroups, createGroup, updateGroup, deleteGroup } from "../../../api/ai";
+import { useConfirm } from "../../../components/ui/confirm";
 
 const GROUP_TYPES = ["employee", "vip", "watchlist", "banned", "visitor"];
 const SWATCHES = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#a855f7", "#14b8a6", "#64748b"];
@@ -192,6 +193,7 @@ const GroupForm = ({ initial, onClose, qc }) => {
 // ---------------------------------------------------------------------------
 
 const GroupCard = ({ group, onEdit, qc }) => {
+  const confirm = useConfirm();
   const delMut = useMutation({
     mutationFn: () => deleteGroup(group.id),
     onSuccess: () => {
@@ -202,53 +204,65 @@ const GroupCard = ({ group, onEdit, qc }) => {
   });
 
   const onDelete = () => {
-    if (window.confirm(`Delete group "${group.name}"?`)) delMut.mutate();
+    confirm({ title: `Delete group "${group.name}"?`, confirmText: "Delete", danger: true })
+      .then((ok) => { if (ok) delMut.mutate(); });
   };
+
+  const accent = group.color_code || "var(--console-accent)";
 
   return (
     <div
-      className="rounded p-3 flex flex-col gap-2"
+      className="group/card rounded-lg overflow-hidden flex flex-col transition-transform hover:-translate-y-0.5"
       style={{ background: "var(--console-panel)", border: "1px solid var(--console-border)" }}
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <span className="h-8 w-8 rounded flex items-center justify-center shrink-0" style={{ background: group.color_code || "var(--console-raised)" }}>
-            <FolderTree className="h-4 w-4 text-white" />
-          </span>
-          <div className="min-w-0">
-            <div className="font-telemetry text-[12px] font-semibold truncate" style={{ color: "var(--console-text)" }}>
-              {group.name}
-            </div>
-            <div className="font-telemetry text-[10px] uppercase tracking-widest truncate" style={{ color: "var(--console-muted)" }}>
-              {group.group_type || "group"}
+      {/* color header strip */}
+      <div className="h-1.5 w-full" style={{ background: accent }} />
+
+      <div className="p-3.5 flex flex-col gap-3 flex-1">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span
+              className="h-10 w-10 rounded-lg flex items-center justify-center shrink-0"
+              style={{ background: accent }}
+            >
+              <FolderTree className="h-5 w-5 text-white" />
+            </span>
+            <div className="min-w-0">
+              <div className="font-telemetry text-[13px] font-semibold truncate" style={{ color: "var(--console-text)" }}>
+                {group.name}
+              </div>
+              <div className="font-telemetry text-[10px] uppercase tracking-widest truncate" style={{ color: "var(--console-muted)" }}>
+                {group.group_type || "group"}
+              </div>
             </div>
           </div>
+          <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover/card:opacity-100 transition-opacity">
+            <button type="button" onClick={() => onEdit(group)} className="h-7 w-7 inline-flex items-center justify-center rounded border" style={{ background: "var(--console-raised)", borderColor: "var(--console-border)", color: "var(--console-muted)" }} title="Edit">
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+            <button type="button" onClick={onDelete} disabled={delMut.isPending} className="h-7 w-7 inline-flex items-center justify-center rounded border disabled:opacity-50" style={{ background: "var(--console-raised)", borderColor: "var(--console-border)", color: "var(--console-rec)" }} title="Delete">
+              {delMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-1 shrink-0">
-          <button type="button" onClick={() => onEdit(group)} className="h-7 w-7 inline-flex items-center justify-center rounded border" style={{ background: "var(--console-raised)", borderColor: "var(--console-border)", color: "var(--console-muted)" }} title="Edit">
-            <Pencil className="h-3.5 w-3.5" />
-          </button>
-          <button type="button" onClick={onDelete} disabled={delMut.isPending} className="h-7 w-7 inline-flex items-center justify-center rounded border disabled:opacity-50" style={{ background: "var(--console-raised)", borderColor: "var(--console-border)", color: "var(--console-rec)" }} title="Delete">
-            {delMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-          </button>
+
+        {group.description && (
+          <p className="font-telemetry text-[11px] leading-relaxed line-clamp-2" style={{ color: "var(--console-muted)" }}>
+            {group.description}
+          </p>
+        )}
+
+        <div className="flex items-center justify-between mt-auto pt-2.5" style={{ borderTop: "1px solid var(--console-border)" }}>
+          <span className="inline-flex items-center gap-1.5 font-telemetry text-[12px] font-semibold" style={{ color: "var(--console-text)" }}>
+            <Users className="h-4 w-4" style={{ color: accent }} />
+            {group.member_count ?? 0}
+            <span className="font-normal text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>members</span>
+          </span>
+          <span className="inline-flex items-center gap-1 font-telemetry text-[10px] uppercase tracking-widest" style={{ color: group.alert_sound ? "var(--console-accent)" : "var(--console-muted)" }}>
+            {group.alert_sound ? <BellRing className="h-3 w-3" /> : <BellOff className="h-3 w-3" />}
+            {group.alert_sound ? "Alert" : "Silent"}
+          </span>
         </div>
-      </div>
-
-      {group.description && (
-        <p className="font-telemetry text-[11px] leading-relaxed" style={{ color: "var(--console-muted)" }}>
-          {group.description}
-        </p>
-      )}
-
-      <div className="flex items-center justify-between pt-2" style={{ borderTop: "1px solid var(--console-border)" }}>
-        <span className="inline-flex items-center gap-1.5 font-telemetry text-[11px]" style={{ color: "var(--console-text)" }}>
-          <Users className="h-3.5 w-3.5" style={{ color: "var(--console-muted)" }} />
-          {group.member_count ?? 0} members
-        </span>
-        <span className="inline-flex items-center gap-1 font-telemetry text-[10px] uppercase tracking-widest" style={{ color: group.alert_sound ? "var(--console-accent)" : "var(--console-muted)" }}>
-          {group.alert_sound ? <BellRing className="h-3 w-3" /> : <BellOff className="h-3 w-3" />}
-          {group.alert_sound ? "Alert" : "Silent"}
-        </span>
       </div>
     </div>
   );
@@ -302,7 +316,7 @@ const GroupsTab = () => {
           </span>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
           {groups.map((g) => (
             <GroupCard key={g.id} group={g} onEdit={setEditing} qc={qc} />
           ))}

@@ -10,6 +10,7 @@ import React, { useMemo, useState } from "react";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import {
   Activity,
+  Briefcase,
   Users,
   ShieldAlert,
   BarChart3,
@@ -17,7 +18,7 @@ import {
   Loader2,
 } from "lucide-react";
 
-import { listScenarioCameras, listScenarioEvents } from "../../../api/ai";
+import { listScenarioCameras, listScenarioEvents, scenarioReportsSummary } from "../../../api/ai";
 import { listFrsEvents } from "../../../api/frs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../../components/ui/select";
 import { cameraNameMap } from "./frsShared";
@@ -215,6 +216,10 @@ export default function ReportsTab({ scenario }) {
   // FRS owns its events in the plugin DB (full isolation), so its reports read
   // the plugin's /events; other scenarios aggregate from the unified NVR store.
   const isFrs = (scenario?.slug || "") === "frs";
+  const hasPluginSummary = useMemo(
+    () => (scenario?.proxy_routes || []).some((route) => route?.path === "/reports/summary"),
+    [scenario?.proxy_routes],
+  );
   const { data: events, isLoading: eventsLoading, isFetching } = useQuery({
     queryKey: ["scenario-events-summary", scenario?.slug, since, until],
     queryFn: () =>
@@ -225,9 +230,20 @@ export default function ReportsTab({ scenario }) {
     placeholderData: keepPreviousData,
   });
 
+  const { data: pluginSummary } = useQuery({
+    queryKey: ["scenario-plugin-summary", scenario?.slug, since, until],
+    queryFn: () => scenarioReportsSummary(scenario.slug, { since, until }),
+    enabled: !!scenario?.slug && hasPluginSummary,
+    placeholderData: keepPreviousData,
+  });
+
   const enabledCount = useMemo(
     () => (cameras || []).filter((camera) => camera.enabled).length,
     [cameras],
+  );
+  const byHourData = useMemo(
+    () => (pluginSummary?.by_hour || []).map((b) => ({ label: `${b.hour}:00`, value: b.count })),
+    [pluginSummary],
   );
   const eventsList = useMemo(() => events?.items || [], [events]);
   const byCameraData = useMemo(() => {
@@ -242,6 +258,62 @@ export default function ReportsTab({ scenario }) {
       value: count,
     }));
   }, [eventsList, cameras]);
+
+  // FRS demographics — gender + age-range distribution from event attributes.
+  const genderData = useMemo(() => {
+    if (!isFrs) return [];
+    const counts = new Map();
+    eventsList.forEach((event) => {
+      const gender = event?.attributes?.gender;
+      if (!gender) return;
+      const key = String(gender).toLowerCase();
+      counts.set(key, (counts.get(key) || 0) + 1);
+    });
+    return Array.from(counts.entries()).map(([key, value]) => ({
+      label: key.charAt(0).toUpperCase() + key.slice(1),
+      value,
+    }));
+  }, [isFrs, eventsList]);
+
+  const ageRangeData = useMemo(() => {
+    if (!isFrs) return [];
+    const counts = new Map();
+    eventsList.forEach((event) => {
+      const ageRange = event?.attributes?.age_range;
+      if (!ageRange) return;
+      const key = String(ageRange);
+      counts.set(key, (counts.get(key) || 0) + 1);
+    });
+    return Array.from(counts.entries())
+      .sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }))
+      .map(([label, value]) => ({ label, value }));
+  }, [isFrs, eventsList]);
+
+  // FRS confidence histogram — bucket confidences (0..1) into percent ranges.
+  const confidenceData = useMemo(() => {
+    if (!isFrs) return [];
+    const buckets = [
+      { label: "<50%", min: 0, max: 0.5 },
+      { label: "50-60%", min: 0.5, max: 0.6 },
+      { label: "60-70%", min: 0.6, max: 0.7 },
+      { label: "70-80%", min: 0.7, max: 0.8 },
+      { label: "80-90%", min: 0.8, max: 0.9 },
+      { label: "90-100%", min: 0.9, max: Infinity },
+    ];
+    const counts = new Array(buckets.length).fill(0);
+    let any = false;
+    eventsList.forEach((event) => {
+      const c = event?.confidence;
+      if (typeof c !== "number" || Number.isNaN(c)) return;
+      any = true;
+      const idx = buckets.findIndex((b) => c >= b.min && c < b.max);
+      if (idx >= 0) counts[idx] += 1;
+    });
+    if (!any) return [];
+    return buckets.map((b, i) => ({ label: b.label, value: counts[i] }));
+  }, [isFrs, eventsList]);
+
+  const hasDemographics = genderData.length > 0 || ageRangeData.length > 0;
 
   const scope = SCOPE_BY_SLUG[scenario?.slug] || DEFAULT_SCOPE;
   const scopeItems = useMemo(() => scenarioScopeItems(scenario), [scenario]);
@@ -281,7 +353,7 @@ export default function ReportsTab({ scenario }) {
         <StatCard
           icon={Activity}
           label="Scenario events"
-          value={eventsLoading ? "—" : (events?.total ?? eventsList.length)}
+          value={eventsLoading ? "—" : (pluginSummary?.results_total ?? events?.total ?? eventsList.length)}
           accent="text-blue-400"
         />
         <StatCard
@@ -298,8 +370,8 @@ export default function ReportsTab({ scenario }) {
         />
         <StatCard
           icon={BarChart3}
-          label="Detection classes"
-          value={scopeItems.length}
+          label={scenario?.slug === "suspect-search" ? "Qdrant points" : "Detection classes"}
+          value={scenario?.slug === "suspect-search" ? (pluginSummary?.qdrant_points ?? 0) : scopeItems.length}
           accent="text-purple-400"
         />
       </div>
@@ -332,6 +404,54 @@ export default function ReportsTab({ scenario }) {
           </div>
         </Panel>
       </div>
+
+      {scenario?.slug === "suspect-search" && pluginSummary && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <StatCard icon={Briefcase} label="Jobs" value={pluginSummary.jobs_total ?? 0} accent="text-blue-400" />
+          <StatCard icon={BarChart3} label="Indexed candidates" value={pluginSummary.indexed_candidates ?? 0} accent="text-emerald-400" />
+          <StatCard icon={Activity} label="Model ready" value={pluginSummary.model_ready ? "yes" : "no"} accent={pluginSummary.model_ready ? "text-emerald-400" : "text-amber-400"} />
+          <StatCard
+            icon={ShieldAlert}
+            label="Models present"
+            value={`${(pluginSummary.detector_model_present ? 1 : 0) + (pluginSummary.reid_model_present ? 1 : 0)}/2`}
+            accent="text-amber-400"
+          />
+        </div>
+      )}
+
+      {/* FRS recognition summary — counts + hourly distribution. */}
+      {isFrs && pluginSummary && (
+        <>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <StatCard icon={Activity} label="Total events" value={pluginSummary.total_events ?? 0} accent="text-blue-400" />
+            <StatCard icon={Users} label="Unique persons" value={pluginSummary.unique_persons ?? 0} accent="text-emerald-400" />
+            <StatCard icon={ShieldAlert} label="Unknown" value={pluginSummary.unknown_count ?? 0} accent="text-amber-400" />
+            <StatCard icon={ShieldAlert} label="Spoof" value={pluginSummary.spoof_count ?? 0} accent="text-rose-400" />
+          </div>
+          <Panel title="Events by hour" icon={Clock}>
+            <HBarChart data={byHourData} color="#3b82f6" emptyLabel="No events in this range yet." />
+          </Panel>
+        </>
+      )}
+
+      {/* FRS demographics — gender + age-range distribution from event attributes. */}
+      {isFrs && hasDemographics && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <Panel title="By gender" icon={Users}>
+            <HBarChart data={genderData} color="#a855f7" emptyLabel="No gender data in this range yet." />
+          </Panel>
+          <Panel title="By age range" icon={BarChart3}>
+            <HBarChart data={ageRangeData} color="#14b8a6" emptyLabel="No age data in this range yet." />
+          </Panel>
+        </div>
+      )}
+
+      {/* FRS confidence histogram — distribution of recognition confidence. */}
+      {isFrs && confidenceData.length > 0 && (
+        <Panel title="Confidence distribution" icon={BarChart3}>
+          <HBarChart data={confidenceData} color="#f59e0b" emptyLabel="No confidence data in this range yet." />
+        </Panel>
+      )}
     </div>
   );
 }

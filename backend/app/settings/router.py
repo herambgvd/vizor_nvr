@@ -24,12 +24,18 @@ svc = SettingsService()
 @router.get("/public/branding")
 async def public_branding(db: AsyncSession = Depends(get_db)):
     """Public whitelabel metadata used by login and the app shell."""
+    theme_mode = await svc.get_value(db, "theme_mode", "dark")
+    background_default = "#FFFFFF" if theme_mode == "light" else "#000000"
+    text_default = "#111827" if theme_mode == "light" else "#E2E8F0"
     return {
         "system_name": await svc.get_value(db, "system_name", "Vizor NVR"),
         "logo_url": await svc.get_value(db, "brand_logo_url", ""),
         "favicon_url": await svc.get_value(db, "brand_favicon_url", ""),
-        "background_color": await svc.get_value(db, "theme_background_color", "#000000"),
+        "theme_mode": theme_mode,
+        "background_color": background_default,
         "button_color": await svc.get_value(db, "theme_button_color", "#228B22"),
+        "text_color": await svc.get_value(db, "theme_text_color", text_default),
+        "font_size": await svc.get_value(db, "theme_font_size", "14"),
     }
 
 

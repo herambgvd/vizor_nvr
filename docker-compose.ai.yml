@@ -23,6 +23,24 @@ services:
       timeout: 5s
       retries: 5
 
+  suspect-search-db:
+    image: postgres:16-alpine
+    container_name: gvd_ai_suspect_search_db
+    restart: unless-stopped
+    networks:
+      - internal
+    environment:
+      POSTGRES_USER: suspect
+      POSTGRES_PASSWORD: ${AI_SUSPECT_SEARCH_DB_PASSWORD:-suspect}
+      POSTGRES_DB: suspect_search
+    volumes:
+      - suspect_search_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U suspect -d suspect_search"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
   suspect-search:
     build:
       context: ./scenarios/suspect-search
@@ -34,20 +52,32 @@ services:
         condition: service_healthy
       qdrant:
         condition: service_started
+      suspect-search-db:
+        condition: service_healthy
     environment:
       SCENARIO_SLUG: suspect-search
       VIZOR_BASE_URL: http://backend:8000/api
       VIZOR_API_KEY: ${AI_PLUGIN_API_KEY:-}
       VIZOR_SERVICE_TOKEN: ${AI_PLUGIN_SERVICE_TOKEN:-dev-ai-service-token}
       QDRANT_URL: http://qdrant:6333
+      SUSPECT_SEARCH_DATABASE_URL: postgresql://suspect:${AI_SUSPECT_SEARCH_DB_PASSWORD:-suspect}@suspect-search-db:5432/suspect_search
       INFERENCE_BACKEND: onnxruntime-gpu
       DETECTOR_MODEL_PATH: /models/yolo26.onnx
       REID_MODEL_PATH: /models/person-reid.onnx
+      DETECTOR_CLASS_MAP: 0:person,24:bag,26:bag,28:bag
+      DETECTOR_BOX_FORMAT: auto
+      VECTOR_SIZE: "768"
+      DATA_DIR: /data/suspect-search
+      THUMB_DIR: /data/suspect-search/thumbs
       PORT: 8091
     networks:
       - internal
+    gpus: all
+    command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8091", "--reload"]
     volumes:
+      - ./scenarios/suspect-search:/app
       - recordings:/data/recordings:ro
+      - suspect_search_data:/data/suspect-search
       - ./models:/models:ro
     deploy:
       resources:
@@ -133,8 +163,14 @@ services:
       QDRANT_COLLECTION: vizor_frs_faces
       DATA_PATH: /data/frs
       INFERENCE_BACKEND: onnxruntime-gpu
-      DETECTOR_MODEL_PATH: /models/face-detector.onnx
-      EMBED_MODEL_PATH: /models/arcface.onnx
+      DETECTOR_MODEL_PATH: /models/scrfd_10g.onnx
+      EMBED_MODEL_PATH: /models/arcface_r50.onnx
+      ANTISPOOF_MODEL_PATH: /models/antispoofing.onnx
+      FAIRFACE_MODEL_PATH: /models/fairface.onnx
+      # Live per-camera recognition — pull frames from go2rtc's RTSP restream.
+      FRS_LIVE_ENABLED: "true"
+      GO2RTC_RTSP_HOST: go2rtc
+      GO2RTC_RTSP_PORT: "8554"
       PORT: 8093
     networks:
       - internal
@@ -154,5 +190,7 @@ services:
 
 volumes:
   qdrant_data:
+  suspect_search_db_data:
+  suspect_search_data:
   frs_db_data:
   frs_photos:

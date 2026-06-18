@@ -11,6 +11,7 @@ import useLicense from "./hooks/useLicense";
 import useBranding from "./hooks/useBranding";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { Toaster } from "./components/ui/sonner";
+import { ConfirmProvider } from "./components/ui/confirm";
 import ControlRoomLayout from "./components/shell/ControlRoomLayout";
 import "./App.css";
 
@@ -72,10 +73,10 @@ const queryClient = new QueryClient({
 
 // Shared loading fallback
 const PageSpinner = () => (
-  <div className="min-h-screen flex items-center justify-center bg-black">
+  <div className="min-h-screen flex items-center justify-center bg-[var(--console-bg)]">
     <div className="flex flex-col items-center gap-3">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-400" />
-      <span className="text-sm text-[#8a8f98]">Loading…</span>
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--console-accent)]" />
+      <span className="text-sm text-[var(--console-muted)]">Loading…</span>
     </div>
   </div>
 );
@@ -231,10 +232,12 @@ function App() {
         <BrandingBootstrap />
         <ThemeProvider>
           <AuthProvider>
-            <BrowserRouter>
-              <AppRoutes />
-            </BrowserRouter>
-            <Toaster position="bottom-right" richColors closeButton />
+            <ConfirmProvider>
+              <BrowserRouter>
+                <AppRoutes />
+              </BrowserRouter>
+              <Toaster position="bottom-right" richColors closeButton />
+            </ConfirmProvider>
           </AuthProvider>
         </ThemeProvider>
       </QueryClientProvider>
