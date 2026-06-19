@@ -275,17 +275,22 @@ class SMSTestRequest(BaseModel):
 async def test_sms(
     request: Request,
     body: SMSTestRequest,
+    db: AsyncSession = Depends(get_db),
     user: dict = Depends(get_admin_user),
 ):
     """Send a test SMS via Twilio (admin only).  Audited."""
     from app.notifications.sms_service import sms_service
     result = await sms_service.send(body.to, body.message or "Vizor NVR SMS test")
     await write_audit(
+        db,
         action="sms_test",
-        actor=user.get("username", "admin"),
-        detail={"to": body.to, "ok": result.get("ok"), "error": result.get("error")},
-        ip=client_ip(request),
+        user_id=str(user.get("id") or ""),
+        username=user.get("username", "admin"),
+        ip_address=client_ip(request),
+        description="Test SMS sent",
+        details={"to": body.to, "ok": result.get("ok"), "error": result.get("error")},
     )
+    await db.commit()
     if not result["ok"]:
         raise HTTPException(
             status_code=400,
@@ -303,17 +308,22 @@ class WhatsAppTestRequest(BaseModel):
 async def test_whatsapp(
     request: Request,
     body: WhatsAppTestRequest,
+    db: AsyncSession = Depends(get_db),
     user: dict = Depends(get_admin_user),
 ):
     """Send a test WhatsApp message via Twilio (admin only).  Audited."""
     from app.notifications.whatsapp_service import whatsapp_service
     result = await whatsapp_service.send(body.to, body.message or "Vizor NVR WhatsApp test")
     await write_audit(
+        db,
         action="whatsapp_test",
-        actor=user.get("username", "admin"),
-        detail={"to": body.to, "ok": result.get("ok"), "error": result.get("error")},
-        ip=client_ip(request),
+        user_id=str(user.get("id") or ""),
+        username=user.get("username", "admin"),
+        ip_address=client_ip(request),
+        description="Test WhatsApp sent",
+        details={"to": body.to, "ok": result.get("ok"), "error": result.get("error")},
     )
+    await db.commit()
     if not result["ok"]:
         raise HTTPException(
             status_code=400,

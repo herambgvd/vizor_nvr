@@ -3,7 +3,7 @@
 # =============================================================================
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 
 from sqlalchemy import select, func
@@ -16,6 +16,19 @@ from app.auth.models import (
 from app.core.security import hash_password, verify_password
 
 logger = logging.getLogger(__name__)
+
+
+# Brute-force lockout policy.
+MAX_FAILED_LOGINS = 5
+LOCKOUT_DURATION = timedelta(minutes=15)
+
+
+class AccountLockedError(Exception):
+    """Raised when a login is attempted while the account is locked."""
+
+    def __init__(self, locked_until: datetime):
+        self.locked_until = locked_until
+        super().__init__("account temporarily locked")
 
 
 class AuthService:
@@ -103,14 +116,38 @@ class AuthService:
 
     @staticmethod
     async def authenticate(db: AsyncSession, username: str, password: str) -> Optional[User]:
+        """Verify credentials with brute-force lockout protection.
+
+        Raises AccountLockedError if the account is currently locked (without
+        checking the password). Returns the User on success, or None on an
+        unknown user / wrong password / inactive account.
+        """
         result = await db.execute(select(User).where(User.username == username))
         user = result.scalar_one_or_none()
-        if not user or not verify_password(password, user.hashed_password):
+        if not user:
             return None
+
+        now = datetime.utcnow()
+
+        # If currently locked, reject without checking the password.
+        if user.locked_until is not None and user.locked_until > now:
+            raise AccountLockedError(user.locked_until)
+
+        if not verify_password(password, user.hashed_password):
+            # Count this failure and lock the account if the threshold is hit.
+            user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
+            if user.failed_login_attempts >= MAX_FAILED_LOGINS:
+                user.locked_until = now + LOCKOUT_DURATION
+            await db.commit()
+            return None
+
         if not user.is_active:
             return None
-        # Update last login
-        user.last_login_at = datetime.utcnow()
+
+        # Successful auth — reset lockout counters and update last login.
+        user.failed_login_attempts = 0
+        user.locked_until = None
+        user.last_login_at = now
         await db.commit()
         return user
 

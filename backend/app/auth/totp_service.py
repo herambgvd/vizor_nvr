@@ -42,16 +42,22 @@ def current_code(secret_b32: str, step: int = 30, digits: int = 6) -> str:
 
 
 def verify(secret_b32: str, token: str, step: int = 30, digits: int = 6,
-           window: int = 1) -> bool:
-    """Return True if *token* matches the current 30-s window ± 1 step.
-    Constant-time compare to avoid leaking which window matched."""
+           window: int = 1):
+    """Verify *token* against the current 30-s window ± 1 step.
+
+    Returns the matched time-counter step (an int) on success, or ``None`` on
+    failure. Callers persist the returned step to enforce RFC 6238 §5.2 replay
+    protection (reject any step <= the last accepted one). Constant-time
+    compare avoids leaking which window matched."""
     if not token or not token.isdigit() or len(token) != digits:
-        return False
+        return None
     counter = int(time.time() // step)
+    matched = None
     for offset in range(-window, window + 1):
+        # Don't break early — keep the compare count constant across calls.
         if hmac.compare_digest(_hotp(secret_b32, counter + offset, digits), token):
-            return True
-    return False
+            matched = counter + offset
+    return matched
 
 
 def provisioning_uri(username: str, secret_b32: str, issuer: str = "Vizor NVR") -> str:
@@ -68,5 +74,14 @@ def provisioning_uri(username: str, secret_b32: str, issuer: str = "Vizor NVR") 
 
 
 def generate_recovery_codes(count: int = 10) -> list:
-    """Recovery codes are single-use; ~80 bits of entropy each."""
+    """Recovery codes are single-use; ~80 bits of entropy each.
+    The plaintext is shown to the user ONCE; only the SHA-256 hash is stored."""
     return [secrets.token_hex(5) for _ in range(count)]
+
+
+def _hash_recovery_code(code: str) -> str:
+    """SHA-256 hex digest of a recovery code. Recovery codes have ~80 bits of
+    entropy so a plain unsalted SHA-256 is sufficient (no offline brute-force
+    risk like low-entropy passwords); storing only the hash means a DB dump
+    cannot be replayed as a 2FA bypass."""
+    return hashlib.sha256(code.encode()).hexdigest()

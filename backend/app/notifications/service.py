@@ -182,6 +182,17 @@ class NotificationService:
             ).hexdigest()
             headers["X-Webhook-Signature"] = f"sha256={signature}"
 
+        # SSRF guard — block webhooks aimed at loopback / link-local / private /
+        # cloud-metadata addresses before any request leaves the box.
+        from app.core.ssrf import validate_outbound_url, OutboundURLError
+        try:
+            await asyncio.to_thread(validate_outbound_url, webhook.url)
+        except OutboundURLError as exc:
+            log.status = "failed"
+            log.error = f"blocked by SSRF guard: {exc}"
+            await db.flush()
+            return
+
         # Send with retries
         last_error = None
         for attempt in range(webhook.retry_count + 1):
@@ -337,6 +348,13 @@ class NotificationService:
                 hashlib.sha256,
             ).hexdigest()
             headers["X-Webhook-Signature"] = f"sha256={signature}"
+
+        # SSRF guard on the on-demand test path too.
+        from app.core.ssrf import validate_outbound_url, OutboundURLError
+        try:
+            await asyncio.to_thread(validate_outbound_url, url)
+        except OutboundURLError as exc:
+            return {"success": False, "error": f"blocked by SSRF guard: {exc}"}
 
         try:
             async with httpx.AsyncClient(timeout=10) as client:

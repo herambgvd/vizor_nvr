@@ -19,7 +19,7 @@ from app.auth.models import (
     TokenResponse, RefreshRequest, LogoutRequest, RoleResponse, Role,
     RefreshToken,
 )
-from app.auth.service import AuthService
+from app.auth.service import AuthService, AccountLockedError
 from app.core.security import create_access_token, create_refresh_token, verify_token
 from app.core.dependencies import get_current_user, get_admin_user
 from app.core.audit_logger import write_audit, client_ip
@@ -186,7 +186,22 @@ async def login(
     )
     user_check = result.scalar_one_or_none()
 
-    user = await svc.authenticate(db, creds.username, creds.password)
+    try:
+        user = await svc.authenticate(db, creds.username, creds.password)
+    except AccountLockedError as exc:
+        await write_audit(
+            db, action="login_locked", username=creds.username,
+            ip_address=client_ip(request), severity="warning",
+            description=f"Login rejected — account locked: {creds.username}",
+        )
+        await db.commit()
+        raise HTTPException(
+            status.HTTP_423_LOCKED,
+            "Account temporarily locked due to too many failed login attempts. "
+            "Try again later.",
+            headers={"X-Account-Locked": "true",
+                     "Retry-After": str(int((exc.locked_until - datetime.utcnow()).total_seconds()))},
+        )
     if not user:
         await write_audit(
             db, action="login_failed", username=creds.username,
@@ -209,16 +224,32 @@ async def login(
 
     # ── TOTP gate (Phase 5.3) ────────────────────────────────────────────
     if user.totp_enabled and user.totp_secret:
+        import hmac as _hmac
         from app.core.crypto import decrypt_value
         from app.auth import totp_service
         if not creds.totp_token:
             raise HTTPException(401, "TOTP token required", headers={"X-2FA-Required": "true"})
         secret = decrypt_value(user.totp_secret)
-        if not totp_service.verify(secret, creds.totp_token):
-            # Allow recovery codes too — single-use.
+        matched_step = totp_service.verify(secret, creds.totp_token)
+        # Replay protection (RFC 6238 §5.2): reject a code whose step was already
+        # accepted (<= the last accepted step).
+        if matched_step is not None and (
+            user.totp_last_step is not None and matched_step <= user.totp_last_step
+        ):
+            matched_step = None
+        if matched_step is not None:
+            user.totp_last_step = matched_step
+            await db.commit()
+        else:
+            # Allow recovery codes too — single-use. Stored as SHA-256 hashes.
+            submitted_hash = totp_service._hash_recovery_code(creds.totp_token)
             recovery = list(user.totp_recovery_codes or [])
-            if creds.totp_token in recovery:
-                recovery.remove(creds.totp_token)
+            match = next(
+                (h for h in recovery if _hmac.compare_digest(h, submitted_hash)),
+                None,
+            )
+            if match is not None:
+                recovery.remove(match)
                 user.totp_recovery_codes = recovery
                 await db.commit()
             else:
@@ -865,11 +896,15 @@ async def verify_2fa(
     if not db_user.totp_secret:
         raise HTTPException(400, "2FA not initialized — call /2fa/enable first")
     secret = decrypt_value(db_user.totp_secret)
-    if not totp_service.verify(secret, body.token):
+    matched_step = totp_service.verify(secret, body.token)
+    if matched_step is None:
         raise HTTPException(400, "Invalid TOTP token")
     db_user.totp_enabled = True
+    db_user.totp_last_step = matched_step  # seed replay protection
+    # Generate recovery codes: return the PLAINTEXT to the user once, but persist
+    # only the SHA-256 hashes (a DB dump must not be replayable as a 2FA bypass).
     codes = totp_service.generate_recovery_codes()
-    db_user.totp_recovery_codes = codes
+    db_user.totp_recovery_codes = [totp_service._hash_recovery_code(c) for c in codes]
     await write_audit(
         db, action="2fa_enabled", user_id=user["id"], username=user["username"],
         ip_address=client_ip(request), resource_type="user", resource_id=user["id"],
@@ -889,15 +924,28 @@ async def disable_2fa(
     prevent a stolen session from removing the second factor."""
     from app.auth import totp_service
     from app.core.crypto import decrypt_value
+    import hmac as _hmac
     db_user = (await db.execute(select(User).where(User.id == user["id"]))).scalar_one()
     if db_user.totp_enabled and db_user.totp_secret:
-        if not totp_service.verify(decrypt_value(db_user.totp_secret), body.token):
-            # Allow a recovery code to disable too
-            if body.token not in (db_user.totp_recovery_codes or []):
+        matched_step = totp_service.verify(decrypt_value(db_user.totp_secret), body.token)
+        # Replay protection: a code matching an already-used step is not valid.
+        if matched_step is not None and (
+            db_user.totp_last_step is not None and matched_step <= db_user.totp_last_step
+        ):
+            matched_step = None
+        if matched_step is not None:
+            db_user.totp_last_step = matched_step
+        else:
+            # Allow a recovery code to disable too. Stored as SHA-256 hashes;
+            # compare in constant time.
+            submitted_hash = totp_service._hash_recovery_code(body.token)
+            recovery = list(db_user.totp_recovery_codes or [])
+            if not any(_hmac.compare_digest(h, submitted_hash) for h in recovery):
                 raise HTTPException(400, "Invalid TOTP token")
     db_user.totp_enabled = False
     db_user.totp_secret = None
     db_user.totp_recovery_codes = None
+    db_user.totp_last_step = None
     await write_audit(
         db, action="2fa_disabled", user_id=user["id"], username=user["username"],
         ip_address=client_ip(request), resource_type="user", resource_id=user["id"],

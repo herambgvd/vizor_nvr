@@ -9,7 +9,8 @@ import logging
 import sys
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+import os
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, HTMLResponse, Response
@@ -381,13 +382,27 @@ app.add_middleware(InFlightRequestsMiddleware)
 # with nested FastAPI routers it can see an internal _IncludedRouter object and
 # fail normal API requests while resolving route names.
 try:
+    import hmac as _hmac
     from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
+    _METRICS_TOKEN = os.getenv("METRICS_TOKEN", "")
+
     @app.get("/metrics", include_in_schema=False)
-    async def metrics():
+    async def metrics(request: Request):
+        # Metrics expose camera ids, storage/cluster/auth internals — never serve
+        # them anonymously. Require a bearer token (set METRICS_TOKEN); if unset,
+        # restrict to loopback so a misconfig can't leak to the network.
+        auth = request.headers.get("authorization", "")
+        client_host = request.client.host if request.client else ""
+        if _METRICS_TOKEN:
+            expected = f"Bearer {_METRICS_TOKEN}"
+            if not (auth and _hmac.compare_digest(auth, expected)):
+                raise HTTPException(status_code=401, detail="metrics: unauthorized")
+        elif client_host not in ("127.0.0.1", "::1", "localhost"):
+            raise HTTPException(status_code=403, detail="metrics: set METRICS_TOKEN or scrape from localhost")
         return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
-    logger.info("Prometheus /metrics endpoint enabled")
+    logger.info("Prometheus /metrics endpoint enabled (token/loopback gated)")
 except ImportError:
     logger.warning(
         "prometheus_client not installed; /metrics disabled"

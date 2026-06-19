@@ -3,7 +3,7 @@
 # =============================================================================
 
 from sqlalchemy import (
-    Column, String, Boolean, DateTime, Text, ForeignKey, JSON, Index,
+    Column, String, Boolean, DateTime, Text, ForeignKey, JSON, Index, Integer,
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -102,11 +102,20 @@ class User(Base):
     # ── Phase 5 security additions ──────────────────────────────────────
     totp_secret = Column(String(255), nullable=True)  # AES-encrypted Base32 seed
     totp_enabled = Column(Boolean, default=False, nullable=False)
-    totp_recovery_codes = Column(JSON, nullable=True)  # list of unused hex codes
+    # SHA-256 hashes of unused single-use recovery codes (NOT plaintext — a DB
+    # dump must not be replayable as a 2FA bypass).
+    totp_recovery_codes = Column(JSON, nullable=True)
+    # RFC 6238 §5.2 replay protection: the last accepted TOTP time-counter step.
+    # A code matching a step <= this value has already been used and is rejected.
+    totp_last_step = Column(Integer, nullable=True)
     password_changed_at = Column(DateTime, nullable=True)
     force_password_reset = Column(Boolean, default=False, nullable=False)
     # Time-bound access — JSON: {"monday": [{"start": "08:00", "end": "18:00"}], ...}
     access_schedule = Column(JSON, nullable=True)
+    # Brute-force lockout: consecutive failed password attempts, and a UTC time
+    # before which logins are rejected without checking the password.
+    failed_login_attempts = Column(Integer, default=0, nullable=False)
+    locked_until = Column(DateTime, nullable=True)
 
     role = relationship("Role", back_populates="users")
 
