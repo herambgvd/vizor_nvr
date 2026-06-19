@@ -535,12 +535,66 @@ def register_on_boot() -> None:
             time.sleep(min(2 * attempt, 20))
 
 
+def _retention_sweep() -> int:
+    """Purge indexed results older than RETENTION_DAYS — rows, thumbnails, and
+    Qdrant points — so the archive index doesn't grow without bound (GDPR
+    storage-limitation). 0 disables."""
+    days = int(os.getenv("SUSPECT_RETENTION_DAYS", "90"))
+    if days <= 0:
+        return 0
+    purged = 0
+    try:
+        with _db_conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT result_id, thumb_path FROM results "
+                "WHERE timestamp IS NOT NULL AND timestamp < now() - interval '%s days' "
+                "LIMIT 5000", (days,))
+            rows = cur.fetchall()
+            for r in rows:
+                tp = r.get("thumb_path")
+                if tp:
+                    try:
+                        os.remove(tp)
+                    except OSError:
+                        pass
+                client = _qdrant_client()
+                if client:
+                    try:
+                        client.delete(collection_name=QDRANT_COLLECTION,
+                                      points_selector=[r["result_id"]])
+                    except Exception:  # noqa: BLE001
+                        pass
+            if rows:
+                ids = tuple(r["result_id"] for r in rows)
+                cur.execute("DELETE FROM results WHERE result_id IN %s", (ids,))
+                purged = len(rows)
+            conn.commit()
+    except Exception as exc:  # noqa: BLE001
+        print(f"[suspect-search] retention sweep error: {exc}", flush=True)
+    return purged
+
+
+def _retention_loop() -> None:
+    import time as _t
+    _t.sleep(120)
+    interval = float(os.getenv("SUSPECT_RETENTION_SWEEP_HOURS", "6")) * 3600
+    while True:
+        try:
+            n = _retention_sweep()
+            if n:
+                print(f"[suspect-search] retention purged {n} old results", flush=True)
+        except Exception:  # noqa: BLE001
+            pass
+        _t.sleep(max(3600, interval))
+
+
 def _startup() -> None:
     _safe_init_store()
     _maybe_migrate_sqlite()
     _load_store()
     _qdrant_client()
     threading.Thread(target=register_on_boot, daemon=True).start()
+    threading.Thread(target=_retention_loop, daemon=True).start()
 
 
 def health() -> dict:

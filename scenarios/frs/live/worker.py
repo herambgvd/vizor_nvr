@@ -8,6 +8,7 @@ cooldown prevents event spam.
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import threading
 import time
@@ -28,6 +29,12 @@ except Exception:  # noqa: BLE001
 # JPEG SOI/EOI markers — used to split the MJPEG byte stream ffmpeg pipes out.
 _SOI = b"\xff\xd8"
 _EOI = b"\xff\xd9"
+
+# Backpressure: cap the number of frames being analysed (Triton inference) across
+# ALL camera workers at once. Without this, 64 workers fire inference
+# simultaneously and thundering-herd the GPU → latency spikes + memory growth.
+# A worker that can't acquire the slot quickly DROPS the frame (skip, don't queue).
+_INFLIGHT = threading.Semaphore(int(os.getenv("FRS_MAX_INFLIGHT", "12")))
 
 
 def _bbox_obj(bbox):
@@ -93,6 +100,10 @@ class CameraWorker(threading.Thread):
         self._recent_emb: list[tuple[float, list]] = []
         # Per-track centroid for the motion-blur gate.
         self._prev_centroid: dict[int, tuple[float, float, float]] = {}
+        # NVDEC: latch to software decode if the hardware pipe produces no frames
+        # (no GPU / ffmpeg without cuvid) so a camera never silently goes dark.
+        self._hw_failed = False
+        self._used_hw = False
 
     def stop(self):
         self._stop.set()
@@ -185,17 +196,35 @@ class CameraWorker(threading.Thread):
         return f"rtsp://{config.GO2RTC_RTSP_HOST}:{config.GO2RTC_RTSP_PORT}/{sid}"
 
     def _ffmpeg(self) -> subprocess.Popen:
-        # Decode RTSP → MJPEG at the analysis FPS. Keep native resolution (cap at
-        # 1920 wide only to bound memory) — SCRFD letterboxes to 640 internally,
-        # so an upstream downscale would just starve far/small faces of pixels and
-        # wreck recognition + crop quality. Use high JPEG quality so the face crop
-        # fed to ArcFace is clean.
-        cmd = [
-            "ffmpeg", "-hide_banner", "-loglevel", "error",
-            "-rtsp_transport", "tcp", "-i", self._rtsp_url(),
-            "-vf", f"fps={self.fps},scale='min(1920,iw)':-2",
-            "-f", "image2pipe", "-vcodec", "mjpeg", "-q:v", "2", "pipe:1",
-        ]
+        # Decode RTSP → MJPEG at the analysis FPS. Native resolution (cap at 1920
+        # wide to bound memory) — SCRFD letterboxes to 640 internally, so an
+        # upstream downscale would starve far/small faces and wreck recognition.
+        #
+        # NVDEC path (FRS_HWACCEL=cuda): decode + scale on the GPU's dedicated
+        # decoder engines so the CPU/GIL stay free at many-camera scale, then
+        # hwdownload the frames to encode MJPEG for the pipe. Falls back to
+        # software decode automatically when NVDEC yields no frames.
+        use_hw = config.LIVE_HWACCEL == "cuda" and not self._hw_failed
+        if use_hw:
+            cmd = [
+                "ffmpeg", "-hide_banner", "-loglevel", "error",
+                "-rw_timeout", "10000000",  # 10s RTSP socket timeout (µs)
+                "-hwaccel", "cuda", "-hwaccel_output_format", "cuda",
+                "-rtsp_transport", "tcp", "-i", self._rtsp_url(),
+                # scale on GPU (scale_cuda), then download to host for mjpeg encode.
+                "-vf", (f"fps={self.fps},scale_cuda='min(1920,iw)':-2,"
+                        "hwdownload,format=nv12"),
+                "-f", "image2pipe", "-vcodec", "mjpeg", "-q:v", "2", "pipe:1",
+            ]
+        else:
+            cmd = [
+                "ffmpeg", "-hide_banner", "-loglevel", "error",
+                "-rw_timeout", "10000000",  # 10s RTSP socket timeout (µs)
+                "-rtsp_transport", "tcp", "-i", self._rtsp_url(),
+                "-vf", f"fps={self.fps},scale='min(1920,iw)':-2",
+                "-f", "image2pipe", "-vcodec", "mjpeg", "-q:v", "2", "pipe:1",
+            ]
+        self._used_hw = use_hw
         return subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=10 ** 7)
 
     # ── main loop ─────────────────────────────────────────────────────────
@@ -203,11 +232,12 @@ class CameraWorker(threading.Thread):
         backoff = 2
         while not self._stop.is_set():
             proc = None
+            frames = 0
             try:
                 proc = self._ffmpeg()
                 self.report_state(self.config_id, "running", None)
                 backoff = 2
-                self._consume(proc)
+                frames = self._consume(proc)
             except Exception as exc:  # noqa: BLE001
                 self.report_state(self.config_id, "error", str(exc)[:200])
             finally:
@@ -215,27 +245,64 @@ class CameraWorker(threading.Thread):
                     proc.kill()
             if self._stop.is_set():
                 break
+            # NVDEC pipe produced nothing → GPU/cuvid unavailable. Latch to
+            # software decode and retry immediately so the camera isn't dark.
+            if self._used_hw and frames == 0 and not self._hw_failed:
+                self._hw_failed = True
+                print(f"[frs-live] {self.camera_id}: NVDEC unavailable, "
+                      f"falling back to software decode", flush=True)
+                continue
             # Stream dropped — back off and retry (camera may be briefly down).
             time.sleep(min(backoff, 30))
             backoff *= 2
         self.report_state(self.config_id, "stopped", None)
 
-    def _consume(self, proc):
+    def _consume(self, proc) -> int:
         buf = b""
+        frames = 0
+        # Stall watchdog: a blocking stdout.read() never returns if ffmpeg hangs
+        # (camera wedged, network black hole) — the worker would sit dark forever.
+        # A daemon thread kills the process if no chunk arrives within the stall
+        # window, so the run loop reconnects.
+        last_read = [time.time()]
+        stall_secs = config.LIVE_STALL_TIMEOUT
+
+        def _watchdog():
+            while not self._stop.is_set() and proc.poll() is None:
+                if time.time() - last_read[0] > stall_secs:
+                    print(f"[frs-live] {self.camera_id}: decode stalled "
+                          f"({stall_secs}s no data) — killing ffmpeg", flush=True)
+                    try:
+                        proc.kill()
+                    except Exception:  # noqa: BLE001
+                        pass
+                    return
+                time.sleep(1.0)
+
+        wd = threading.Thread(target=_watchdog, daemon=True)
+        wd.start()
         while not self._stop.is_set():
             chunk = proc.stdout.read(65536)
+            last_read[0] = time.time()
             if not chunk:
-                break  # ffmpeg exited → outer loop retries
+                break  # ffmpeg exited / killed by watchdog → outer loop retries
             buf += chunk
-            # Extract complete JPEG frames from the pipe.
+            # Extract complete JPEG frames; BACKPRESSURE: if several frames arrived
+            # in one read (we fell behind — GPU saturated), keep only the LATEST and
+            # drop the stale ones so latency never snowballs. Recognition cares about
+            # "is this person here now", not every intermediate frame.
+            latest = None
             while True:
                 start = buf.find(_SOI)
                 end = buf.find(_EOI, start + 2)
                 if start == -1 or end == -1:
                     break
-                frame = buf[start:end + 2]
+                latest = buf[start:end + 2]
                 buf = buf[end + 2:]
-                self._process_frame(frame)
+            if latest is not None:
+                frames += 1
+                self._process_frame(latest)
+        return frames
 
     def _emb_is_dup(self, emb: list, now: float) -> bool:
         """Cross-track dedup: suppress a face whose embedding matches a recently
@@ -250,9 +317,26 @@ class CameraWorker(threading.Thread):
         self._recent_emb.append((now, emb))
         return False
 
+    def _prune_state(self, now: float) -> None:
+        """Bound the per-track dicts so a long-running worker doesn't leak memory:
+        track ids increase forever, so _last_seen / _prev_centroid would grow
+        without limit. Drop entries older than 5 minutes. (voting + tracker GC
+        their own state; these two were the unbounded ones.)"""
+        cutoff = now - 300.0
+        self._prev_centroid = {k: v for k, v in self._prev_centroid.items() if v[2] > cutoff}
+        if len(self._last_seen) > 2000:
+            self._last_seen = {k: t for k, t in self._last_seen.items() if t > cutoff}
+
     def _process_frame(self, jpeg: bytes):
         now = time.time()
         self.last_frame_ts = now                   # heartbeat for /health liveness
+        if now - getattr(self, "_last_prune", 0) > 60:
+            self._prune_state(now)
+            self._last_prune = now
+        # Backpressure: grab a global inference slot. If none free within 0.5s the
+        # GPU is saturated — DROP this frame rather than pile up latency/memory.
+        if not _INFLIGHT.acquire(timeout=0.5):
+            return
         ts = utcnow()
         try:
             self._votes.gc(now)
@@ -388,6 +472,8 @@ class CameraWorker(threading.Thread):
                         pass
         except Exception:  # noqa: BLE001 - never let one bad frame kill the worker
             return
+        finally:
+            _INFLIGHT.release()
 
     @staticmethod
     def _demo_attr(face) -> dict:

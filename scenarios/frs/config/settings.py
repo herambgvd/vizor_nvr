@@ -84,6 +84,15 @@ LIVE_ALERT_COOLDOWN = int(os.getenv("FRS_LIVE_ALERT_COOLDOWN", "300"))  # per-pe
 # Pull the MAIN stream for analysis by default — sub-streams are too low-res for
 # reliable face detection/recognition. Flip to true only for constrained setups.
 LIVE_USE_SUBSTREAM = os.getenv("FRS_LIVE_SUBSTREAM", "false").lower() in ("1", "true", "yes", "on")
+# Hardware-accelerated decode (NVDEC) — essential for many-camera scale. At 64
+# cameras, software decode saturates the CPU; NVDEC moves decode + scale onto the
+# GPU's dedicated decoder engines, freeing the CPU and the GIL. "cuda" enables
+# NVDEC (needs an NVIDIA GPU + ffmpeg built with cuvid). "none" = software decode
+# (dev/CPU fallback). Workers auto-fall-back to software if the NVDEC pipe fails.
+LIVE_HWACCEL = os.getenv("FRS_HWACCEL", "none").lower()   # cuda | none
+# Stall watchdog: kill + reconnect a camera's ffmpeg if no frame arrives within
+# this many seconds (wedged camera / dead network that doesn't EOF the pipe).
+LIVE_STALL_TIMEOUT = int(os.getenv("FRS_LIVE_STALL_TIMEOUT", "20"))
 
 VERSION = "0.2.0"
 
