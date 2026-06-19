@@ -13,6 +13,9 @@ import { BACKEND_URL, getAccessToken } from "../../api/client";
 
 const MAX_RECONNECT_ATTEMPTS = 5;
 const BASE_RECONNECT_DELAY = 2000;
+// If the peer connects but no actual video frames arrive within this window we
+// treat the tile as a failed attempt and retry instead of showing frozen black.
+const MEDIA_WATCHDOG_MS = 8000;
 const ICE_SERVERS = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
@@ -36,6 +39,13 @@ export const WebRTCPlayer = ({
   const reconnectAttemptsRef = useRef(0);
   const mountedRef = useRef(true);
   const scheduleReconnectRef = useRef(null);
+  const attemptIceRestartRef = useRef(null);
+  // Guards against multiple overlapping transient-recovery timers.
+  const iceRestartingRef = useRef(false);
+  // Watchdog that fires if no real frames arrive after connecting.
+  const mediaWatchdogRef = useRef(null);
+  // Set true once the <video> reports playable frames for this attempt.
+  const gotMediaRef = useRef(false);
 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -48,6 +58,10 @@ export const WebRTCPlayer = ({
 
   // Cleanup WebRTC connection
   const cleanup = useCallback(() => {
+    if (mediaWatchdogRef.current) {
+      clearTimeout(mediaWatchdogRef.current);
+      mediaWatchdogRef.current = null;
+    }
     if (pcRef.current) {
       pcRef.current.ontrack = null;
       pcRef.current.onicecandidate = null;
@@ -67,6 +81,7 @@ export const WebRTCPlayer = ({
 
     setIsLoading(true);
     setError(null);
+    gotMediaRef.current = false;
     cleanup();
 
     try {
@@ -77,7 +92,6 @@ export const WebRTCPlayer = ({
       // Handle incoming tracks (video/audio from camera)
       pc.ontrack = (event) => {
         if (!mountedRef.current) return;
-        console.log("[WebRTC] Received track:", event.track.kind);
 
         if (videoRef.current && event.streams[0]) {
           videoRef.current.srcObject = event.streams[0];
@@ -96,18 +110,43 @@ export const WebRTCPlayer = ({
       pc.onconnectionstatechange = () => {
         if (!mountedRef.current) return;
         const state = pc.connectionState;
-        console.log("[WebRTC] Connection state:", state);
         setConnectionState(state);
 
         switch (state) {
           case "connected":
-            setIsLoading(false);
+            // ICE is connected, but media may not be flowing yet. Don't clear
+            // the loading state on the connection signal alone — wait for the
+            // <video> to actually report frames (handled by the watchdog +
+            // video 'playing' listener). Arm a watchdog so an ICE-connected-
+            // but-no-RTP tile retries instead of showing frozen black.
             setReconnecting(false);
-            reconnectAttemptsRef.current = 0;
             if (onConnected) onConnected();
+            if (mediaWatchdogRef.current) clearTimeout(mediaWatchdogRef.current);
+            if (!gotMediaRef.current) {
+              mediaWatchdogRef.current = setTimeout(() => {
+                if (!mountedRef.current) return;
+                // currentTime advancing is the most reliable "frames arrived"
+                // signal across browsers.
+                const v = videoRef.current;
+                const playing =
+                  gotMediaRef.current ||
+                  (v && v.readyState >= 2 && v.currentTime > 0);
+                if (!playing) {
+                  // Connected but no media — treat as a failed attempt.
+                  scheduleReconnectRef.current?.();
+                }
+              }, MEDIA_WATCHDOG_MS);
+            } else {
+              setIsLoading(false);
+            }
+            break;
+          case "disconnected":
+            // Transient by spec — ICE may recover on its own. Try an ICE
+            // restart rather than counting it as a hard failure. If it doesn't
+            // recover it will transition to 'failed' and be retried for real.
+            attemptIceRestartRef.current?.();
             break;
           case "failed":
-          case "disconnected":
             scheduleReconnectRef.current?.();
             break;
           case "closed":
@@ -120,7 +159,11 @@ export const WebRTCPlayer = ({
 
       pc.oniceconnectionstatechange = () => {
         if (!mountedRef.current) return;
-        console.log("[WebRTC] ICE state:", pc.iceConnectionState);
+        // 'disconnected'/'failed' at the ICE layer also warrant an ICE restart
+        // attempt; the connection-state handler covers the higher-level cases.
+        if (pc.iceConnectionState === "failed") {
+          attemptIceRestartRef.current?.();
+        }
       };
 
       // Add transceivers for receiving media
@@ -193,11 +236,7 @@ export const WebRTCPlayer = ({
         sdp: answerSDP,
       });
 
-      console.log("[WebRTC] Connection established for stream:", streamId);
     } catch (err) {
-      // Internal log uses transport name for debugging; user-facing
-      // error string below stays generic.
-      console.error("[live-view] Connection error:", err);
       if (mountedRef.current) {
         setError("Couldn't load live view. Click to retry.");
         setIsLoading(false);
@@ -230,15 +269,44 @@ export const WebRTCPlayer = ({
     }, delay);
   }, [connect]);
 
-  // Update the ref when scheduleReconnect changes
+  // Attempt recovery from a TRANSIENT ICE 'disconnected'/'failed' (ICE layer)
+  // by re-running full negotiation. This does NOT consume a hard-failure
+  // attempt — only a genuine 'failed' connectionState or a no-media watchdog
+  // does. A short grace delay gives ICE a chance to self-heal first.
+  const attemptIceRestart = useCallback(() => {
+    if (!mountedRef.current || iceRestartingRef.current) return;
+    iceRestartingRef.current = true;
+    setReconnecting(true);
+    clearTimeout(reconnectTimerRef.current);
+    reconnectTimerRef.current = setTimeout(() => {
+      iceRestartingRef.current = false;
+      if (!mountedRef.current) return;
+      const pc = pcRef.current;
+      // If ICE recovered on its own, do nothing.
+      if (pc && pc.connectionState === "connected") {
+        setReconnecting(false);
+        return;
+      }
+      connect();
+    }, 1500);
+  }, [connect]);
+
+  // Update the refs when callbacks change
   useEffect(() => {
     scheduleReconnectRef.current = scheduleReconnect;
   }, [scheduleReconnect]);
 
+  useEffect(() => {
+    attemptIceRestartRef.current = attemptIceRestart;
+  }, [attemptIceRestart]);
+
   // Manual retry
   const handleRetry = useCallback(() => {
     reconnectAttemptsRef.current = 0;
+    iceRestartingRef.current = false;
+    gotMediaRef.current = false;
     setError(null);
+    // connect() re-runs the full offer/answer negotiation from scratch.
     connect();
   }, [connect]);
 
@@ -267,13 +335,42 @@ export const WebRTCPlayer = ({
     const handlePauseEvt = () => {
       if (onPause) onPause();
     };
+    // Real frames are flowing — clear loading and the no-media watchdog, and
+    // reset the failure counter now that the tile is genuinely live.
+    const handleMediaFlowing = () => {
+      if (!mountedRef.current) return;
+      gotMediaRef.current = true;
+      if (mediaWatchdogRef.current) {
+        clearTimeout(mediaWatchdogRef.current);
+        mediaWatchdogRef.current = null;
+      }
+      setIsLoading(false);
+      setReconnecting(false);
+      setError(null);
+      reconnectAttemptsRef.current = 0;
+    };
+    // Media stalled/errored after starting — try to reconnect rather than
+    // freezing on a stale frame.
+    const handleStalled = () => {
+      if (!mountedRef.current || !gotMediaRef.current) return;
+      gotMediaRef.current = false;
+      scheduleReconnectRef.current?.();
+    };
 
     video.addEventListener("play", handlePlayEvt);
     video.addEventListener("pause", handlePauseEvt);
+    video.addEventListener("playing", handleMediaFlowing);
+    video.addEventListener("loadeddata", handleMediaFlowing);
+    video.addEventListener("stalled", handleStalled);
+    video.addEventListener("error", handleStalled);
 
     return () => {
       video.removeEventListener("play", handlePlayEvt);
       video.removeEventListener("pause", handlePauseEvt);
+      video.removeEventListener("playing", handleMediaFlowing);
+      video.removeEventListener("loadeddata", handleMediaFlowing);
+      video.removeEventListener("stalled", handleStalled);
+      video.removeEventListener("error", handleStalled);
     };
   }, [onPlay, onPause]);
 

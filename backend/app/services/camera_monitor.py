@@ -509,10 +509,16 @@ class CameraMonitor:
         if not schedule:
             return True
 
-        # Evaluate against UTC so behavior is independent of the server's local
-        # timezone and consistent with UTC-stored events/segments. Schedule
-        # window times are interpreted as UTC.
-        now = datetime.now(timezone.utc)
+        # Evaluate against the SITE/LOCAL timezone — an operator who sets
+        # "record 09:00–17:00" means local wall-clock, not UTC. RECORDING_TIMEZONE
+        # (IANA name, e.g. "Asia/Kolkata") configures it; defaults to UTC.
+        import os
+        try:
+            from zoneinfo import ZoneInfo
+            tz = ZoneInfo(os.getenv("RECORDING_TIMEZONE", "UTC"))
+        except Exception:
+            tz = timezone.utc
+        now = datetime.now(tz)
         day_name = now.strftime("%A").lower()
         day_rules = schedule.get(day_name, schedule.get("everyday", []))
 

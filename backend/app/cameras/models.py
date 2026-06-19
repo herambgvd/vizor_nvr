@@ -175,6 +175,13 @@ class Camera(Base):
     # ── Retention override ─────────────────────────────────────────────
     retention_days = Column(Integer, nullable=True)   # NULL = use global
 
+    # ── Per-camera storage cap ─────────────────────────────────────────
+    # Hard limit (GB) on this camera's total recorded footage. When set and
+    # exceeded, retention deletes THIS camera's oldest segments until under
+    # the cap — so one high-bitrate camera can't evict other cameras' footage.
+    # NULL / 0 = no per-camera cap (global + pool limits still apply).
+    max_storage_gb = Column(Integer, nullable=True)
+
     # ── Pre/Post Event Buffer ──────────────────────────────────────────
     pre_buffer_seconds = Column(Integer, default=10, nullable=True)
     post_buffer_seconds = Column(Integer, default=30, nullable=True)
@@ -257,6 +264,7 @@ class CameraCreate(BaseModel):
     storage_pool_id: Optional[str] = None
     bandwidth_limit_kbps: int = 0
     retention_days: Optional[int] = None
+    max_storage_gb: Optional[int] = Field(None, ge=0)
     record_substream: bool = False
     pre_buffer_seconds: int = 10
     post_buffer_seconds: int = 30
@@ -292,6 +300,7 @@ class CameraUpdate(BaseModel):
     storage_pool_id: Optional[str] = None
     bandwidth_limit_kbps: Optional[int] = None
     retention_days: Optional[int] = None
+    max_storage_gb: Optional[int] = Field(None, ge=0)
     record_substream: Optional[bool] = None
     pre_buffer_seconds: Optional[int] = None
     post_buffer_seconds: Optional[int] = None
@@ -338,6 +347,7 @@ class CameraResponse(BaseModel):
     privacy_masks: Optional[List[Dict[str, Any]]]
     storage_pool_id: Optional[str]
     retention_days: Optional[int] = None
+    max_storage_gb: Optional[int] = None
     record_substream: bool = False
     bandwidth_limit_kbps: int
     pre_buffer_seconds: int

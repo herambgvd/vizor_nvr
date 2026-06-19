@@ -118,6 +118,11 @@ class Settings:
     FFMPEG_GLOBAL_PROCESS_CAP: int = int(
         os.getenv("FFMPEG_GLOBAL_PROCESS_CAP", "192")
     )  # Max concurrent FFmpeg processes across recording, motion, prebuffer
+    # Minimum free space (GiB) required on a storage target before (re)starting
+    # an FFmpeg recording. When ALL storage is below this, the manager backs off
+    # with a long retry instead of restart-storming and marking the camera
+    # FAILED — it auto-recovers once retention frees space.
+    MIN_FREE_GB: float = float(os.getenv("MIN_FREE_GB", "2"))
     # Hardware encoder selection for FFmpeg re-encode paths (privacy masks).
     # auto = detect best | nvenc | vaapi | videotoolbox | software
     HARDWARE_TRANSCODING: str = os.getenv("HARDWARE_TRANSCODING", "auto")

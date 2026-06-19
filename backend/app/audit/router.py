@@ -5,7 +5,7 @@
 from typing import Optional
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -49,11 +49,28 @@ async def list_action_types(
 
 @router.delete("/cleanup")
 async def cleanup_old_logs(
-    days: int = Query(90, ge=1),
+    request: Request,
+    days: int = Query(365, ge=365),   # floor: cannot purge audit < 1 year old
     user: dict = Depends(get_admin_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Retention purge of OLD audit logs only. Tamper-resistance: a hard 365-day
+    floor prevents an actor from erasing recent evidence, and the purge itself is
+    audited (who, when, how many) so the deletion is recorded in the trail."""
     deleted = await svc.cleanup(db, days)
+    # Record the purge in the audit trail it just trimmed.
+    from app.core.audit_logger import write_audit, client_ip
+    await write_audit(
+        db,
+        action="audit_log_cleanup",
+        user_id=str(user.get("id") or ""),
+        username=user.get("username", "admin"),
+        ip_address=client_ip(request),
+        severity="warning",
+        description=f"Purged {deleted} audit entries older than {days} days",
+        details={"days": days, "deleted": deleted},
+    )
+    await db.commit()
     return {"deleted": deleted}
 
 

@@ -688,6 +688,55 @@ class FFmpegManager:
         except Exception as e:
             logger.debug(f"[{camera_id}] failed-state alert dispatch error: {e}")
 
+    async def _storage_critical(self) -> bool:
+        """Return True when NO storage target has > MIN_FREE_GB free.
+
+        Used to gate restarts so a disk-full condition (ENOSPC) backs off with
+        a long retry instead of restart-storming into a FAILED state. Recovers
+        automatically once retention frees space. Fails open (returns False) if
+        the check itself errors — we'd rather attempt a restart than wedge.
+        """
+        try:
+            from app.database import async_session_maker
+            from app.storage.service import StorageService
+            async with async_session_maker() as session:
+                return not await StorageService.has_writable_storage(session)
+        except Exception as e:
+            logger.debug(f"storage-critical check failed (assuming OK): {e}")
+            return False
+
+    async def _alert_storage_critical(self, camera_id: str):
+        """Fire the existing alert mechanisms for a storage-critical condition.
+
+        Reuses the same linkage event + notification path as _mark_camera_failed
+        so operators see it through their configured channels, but WITHOUT
+        marking the camera FAILED — it must auto-recover when space is freed.
+        """
+        reason = (
+            f"Storage critically low (< {settings.MIN_FREE_GB} GiB free on all "
+            f"targets) — recording paused, awaiting retention cleanup"
+        )
+        logger.error(f"[{camera_id}] {reason}")
+        try:
+            from app.events.linkage_service import linkage_engine
+            from app.notifications.service import notification_service
+            from app.notifications.models import NotificationEvent
+            self._spawn(linkage_engine.fire_event(
+                camera_id=camera_id,
+                event_type="storage_critical",
+                severity="critical",
+                title=f"Storage critical — recording paused ({camera_id})",
+                description=reason,
+                metadata={"reason": reason, "min_free_gb": settings.MIN_FREE_GB},
+            ), name=f"fire_storage_critical:{camera_id}")
+            self._spawn(notification_service.notify(
+                NotificationEvent.CAMERA_ERROR,
+                {"camera_id": camera_id, "message": reason},
+                camera_id=camera_id,
+            ), name=f"notify_storage_critical:{camera_id}")
+        except Exception as e:
+            logger.debug(f"[{camera_id}] storage-critical alert dispatch error: {e}")
+
     async def _auto_restart(self, ff: FFmpegProcess, delay: int = 5):
         """
         Wait and restart a crashed FFmpeg process with exponential backoff.
@@ -700,6 +749,29 @@ class FFmpegManager:
           - After 30 min on sub: try main again automatically
         """
         if ff.camera_id in self._failed_cameras:
+            return
+
+        # Storage back-pressure: if the disk filled mid-recording (ENOSPC),
+        # restarting immediately would crash again and trip the storm guard,
+        # marking the camera FAILED until manual reset. Instead, alert once and
+        # back off with a long retry. Retention frees space → next probe passes →
+        # recording auto-resumes. This restart does NOT count toward the storm
+        # window (we return before _record_restart_attempt).
+        if await self._storage_critical():
+            await self._alert_storage_critical(ff.camera_id)
+            backoff = 60
+            logger.warning(
+                f"[{ff.camera_id}] storage critical — backing off {backoff}s "
+                f"before re-checking (not counted as a storm restart)"
+            )
+            await asyncio.sleep(backoff)
+            if self._shutting_down or ff.camera_id in self._stopped:
+                return
+            current = self._processes.get(ff.camera_id)
+            if current is not ff:
+                return  # another start_recording replaced this process
+            # Re-queue a fresh restart attempt; storage will be re-checked again.
+            self._spawn(self._auto_restart(ff, delay), name=f"auto_restart:{ff.camera_id}")
             return
 
         attempts_in_window = self._record_restart_attempt(ff.camera_id)

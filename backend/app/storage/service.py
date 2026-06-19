@@ -263,6 +263,43 @@ class StorageService:
         return path
 
     @staticmethod
+    async def has_writable_storage(db: AsyncSession, min_free_gb: Optional[float] = None) -> bool:
+        """Return True if ANY storage target (an active pool or the STORAGE_PATH
+        fallback) is writable with at least *min_free_gb* GiB of free space.
+
+        Used as a back-pressure gate before (re)starting recordings so a
+        disk-full condition backs off instead of restart-storming. Defaults to
+        settings.MIN_FREE_GB when no threshold is passed.
+        """
+        if min_free_gb is None:
+            min_free_gb = settings.MIN_FREE_GB
+        min_free_bytes = int(min_free_gb * 1_073_741_824)
+
+        # 1. Check active pools (respecting soft quota headroom).
+        try:
+            result = await db.execute(
+                select(StoragePool).where(StoragePool.is_active.is_(True))
+            )
+            for pool in result.scalars().all():
+                info = StorageService._pool_writable(pool)
+                if info["writable"] and info["free_bytes"] >= min_free_bytes:
+                    return True
+        except Exception as e:
+            logger.debug(f"has_writable_storage pool scan error: {e}")
+
+        # 2. Fall back to STORAGE_PATH (matches resolve_recording_path fallback).
+        try:
+            base = str(settings.STORAGE_PATH)
+            if os.path.isdir(base) and os.access(base, os.W_OK):
+                disk = StorageService.get_disk_usage(base)
+                if disk["free_bytes"] >= min_free_bytes:
+                    return True
+        except Exception as e:
+            logger.debug(f"has_writable_storage fallback check error: {e}")
+
+        return False
+
+    @staticmethod
     async def select_mirror_pool(db: AsyncSession, primary_pool_id: str):
         """For redundant recording (Task 4.4): return the next highest-priority
         healthy pool that ISN'T the primary. Returns None if only one pool

@@ -10,11 +10,17 @@ import { useSearchParams } from "react-router-dom";
 import {
   Play, Pause, FastForward, Rewind, SkipBack, SkipForward,
   ChevronLeft, ChevronRight, Calendar, Video, Download,
+  Loader2, CheckCircle2, XCircle, X,
 } from "lucide-react";
 import { format, subDays } from "date-fns";
 import { useUiPrefs } from "../hooks";
 import { useCamerasQuery } from "../hooks";
-import { getRecordings, exportClip } from "../api/recordings";
+import {
+  getRecordings,
+  exportClip,
+  getExportStatus,
+  getExportDownloadUrl,
+} from "../api/recordings";
 import { getEvents } from "../api/events";
 import { DAY_SECONDS, clampView, fmtClock } from "../lib/timeline";
 import CameraCell from "../components/playback/CameraCell";
@@ -80,7 +86,45 @@ export default function PlaybackConsole() {
   const [currentTime, setCurrentTime] = useState(0);
   const [view, setView] = useState({ start: 0, end: DAY_SECONDS });
   const [range, setRange] = useState({ in: null, out: null });
+  // Queued export jobs: { id, label, status, downloadUrl }
+  const [exports, setExports] = useState([]);
   const speed = SPEEDS[speedIdx];
+
+  // Poll any in-flight export jobs until they finish (mirrors ClipBuilder's
+  // poll pattern but for multiple concurrent jobs).
+  useEffect(() => {
+    const pending = exports.filter(
+      (e) => e.status !== "done" && e.status !== "failed",
+    );
+    if (pending.length === 0) return undefined;
+
+    let cancelled = false;
+    const timer = setInterval(async () => {
+      const updates = await Promise.all(
+        pending.map(async (job) => {
+          try {
+            const status = await getExportStatus(job.id);
+            return { id: job.id, status: status.status };
+          } catch {
+            // Network blip — keep the job as-is and retry next tick.
+            return null;
+          }
+        }),
+      );
+      if (cancelled) return;
+      setExports((prev) =>
+        prev.map((job) => {
+          const u = updates.find((x) => x && x.id === job.id);
+          return u ? { ...job, status: u.status } : job;
+        }),
+      );
+    }, 2000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [exports]);
 
   // Per-camera segments for the timeline tracks.
   const segmentQueries = useQueries({
@@ -197,17 +241,38 @@ export default function PlaybackConsole() {
     const hi = Math.max(range.in, range.out);
     const start = `${date}T${fmtClock(lo)}`;
     const end = `${date}T${fmtClock(hi)}`;
+    const nameById = Object.fromEntries(cameras.map((c) => [c.id, c.name]));
     try {
-      await Promise.all(
+      const results = await Promise.all(
         selectedIds.map((id) =>
           exportClip({ camera_id: id, start_time: start, end_time: end, format: "mp4" })
+            .then((res) => ({ id, res }))
         )
       );
-      toast.success(`Export queued for ${selectedIds.length} camera(s)`);
+      const jobs = results
+        .map(({ id, res }) => {
+          const exportId = res?.export_id || res?.id;
+          if (!exportId) return null;
+          return {
+            id: exportId,
+            label: `${nameById[id] || id.slice(0, 8)} · ${fmtClock(lo)}–${fmtClock(hi)}`,
+            status: res?.status || "queued",
+          };
+        })
+        .filter(Boolean);
+      if (jobs.length) {
+        setExports((prev) => [...jobs, ...prev]);
+        toast.success(`Export queued for ${jobs.length} camera(s)`);
+      } else {
+        toast.success(`Export queued for ${selectedIds.length} camera(s)`);
+      }
     } catch {
       toast.error("Export failed to queue");
     }
   };
+
+  const dismissExport = (id) =>
+    setExports((prev) => prev.filter((e) => e.id !== id));
 
   if (selectedCameras.length === 0) {
     return (
@@ -219,7 +284,7 @@ export default function PlaybackConsole() {
   }
 
   return (
-    <div className="h-full flex flex-col" style={{ background: "var(--console-bg)" }}>
+    <div className="relative h-full flex flex-col" style={{ background: "var(--console-bg)" }}>
       {/* Toolbar */}
       <div className="flex items-center gap-2 px-2 h-9 border-b console-panel" style={{ borderColor: "var(--console-border)" }}>
         <button className="p-1 rounded hover:bg-white/5" title="Previous day" onClick={() => shiftDate(1)}>
@@ -332,6 +397,67 @@ export default function PlaybackConsole() {
           </button>
         </div>
       </div>
+
+      {/* Exports panel — status + download for queued clip exports */}
+      {exports.length > 0 && (
+        <div
+          className="absolute bottom-12 right-2 z-20 w-72 rounded border shadow-lg console-panel"
+          style={{ borderColor: "var(--console-border)", background: "var(--console-panel)" }}
+        >
+          <div
+            className="flex items-center gap-2 px-3 h-8 border-b"
+            style={{ borderColor: "var(--console-border)" }}
+          >
+            <Download className="h-3.5 w-3.5" style={{ color: "var(--console-muted)" }} />
+            <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--console-text)" }}>
+              Exports
+            </span>
+          </div>
+          <div className="max-h-48 overflow-y-auto">
+            {exports.map((job) => (
+              <div
+                key={job.id}
+                className="flex items-center gap-2 px-3 py-2 border-b last:border-0"
+                style={{ borderColor: "var(--console-border)" }}
+              >
+                {job.status === "done" ? (
+                  <CheckCircle2 className="h-4 w-4 flex-shrink-0" style={{ color: "var(--console-online)" }} />
+                ) : job.status === "failed" ? (
+                  <XCircle className="h-4 w-4 flex-shrink-0" style={{ color: "var(--console-rec)" }} />
+                ) : (
+                  <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin" style={{ color: "var(--console-muted)" }} />
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] truncate" style={{ color: "var(--console-text)" }}>{job.label}</p>
+                  <p className="text-[10px]" style={{ color: "var(--console-muted)" }}>
+                    {job.status === "done" ? "Ready" : job.status === "failed" ? "Failed" : "Processing…"}
+                  </p>
+                </div>
+                {job.status === "done" && (
+                  <a
+                    href={getExportDownloadUrl(job.id)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[11px] inline-flex items-center gap-1 px-1.5 py-0.5 rounded"
+                    style={{ background: "var(--console-accent-blue)", color: "#fff" }}
+                    title="Download export"
+                  >
+                    <Download className="h-3 w-3" /> Get
+                  </a>
+                )}
+                <button
+                  onClick={() => dismissExport(job.id)}
+                  className="flex-shrink-0 hover:opacity-80"
+                  style={{ color: "var(--console-muted)" }}
+                  title="Dismiss"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

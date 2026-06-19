@@ -629,10 +629,19 @@ export default function Notifications() {
     queryKey: ["notif-event-types"],
     queryFn: fetchEventTypes,
   });
-  const { data: settings } = useQuery({
+  const { data: rawSettings } = useQuery({
     queryKey: ["settings"],
     queryFn: fetchSettings,
   });
+  // The /settings endpoint may return either an object map or an array of
+  // { key, value } rows (documented past bug). Normalize to a flat object so
+  // SMTP/Twilio fields read correctly and saving doesn't wipe config.
+  const settings = React.useMemo(() => {
+    if (Array.isArray(rawSettings)) {
+      return Object.fromEntries(rawSettings.map((s) => [s.key, s.value]));
+    }
+    return rawSettings;
+  }, [rawSettings]);
 
   const deleteMutation = useMutation({
     mutationFn: (id) => api.delete(`/notifications/webhooks/${id}`),

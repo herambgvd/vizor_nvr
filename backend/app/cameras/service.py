@@ -101,6 +101,7 @@ class CameraService:
             storage_pool_id=data.storage_pool_id,
             bandwidth_limit_kbps=data.bandwidth_limit_kbps,
             retention_days=data.retention_days,
+            max_storage_gb=data.max_storage_gb,
             record_substream=data.record_substream,
             pre_buffer_seconds=data.pre_buffer_seconds,
             post_buffer_seconds=data.post_buffer_seconds,

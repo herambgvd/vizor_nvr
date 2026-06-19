@@ -209,6 +209,64 @@ class RetentionService:
                             await db.delete(rec)
                             deleted += 1
 
+            # 3b. Per-camera storage cap — prevents one high-bitrate camera from
+            #     evicting other cameras' footage via the global limit. For each
+            #     camera with a configured cap, sum ITS OWN recorded bytes and
+            #     delete only ITS oldest segments until under the cap.
+            from app.cameras.models import Camera
+            capped_result = await db.execute(
+                select(Camera).where(
+                    Camera.max_storage_gb.isnot(None),
+                    Camera.max_storage_gb > 0,
+                )
+            )
+            for cam in capped_result.scalars().all():
+                cap_bytes = cam.max_storage_gb * 1_073_741_824
+                cam_total = await db.execute(
+                    select(func.coalesce(func.sum(Recording.file_size), 0))
+                    .where(Recording.camera_id == cam.id)
+                )
+                cam_used = cam_total.scalar() or 0
+                if cam_used <= cap_bytes:
+                    continue
+                cam_excess = cam_used - cap_bytes
+                cam_recs = await db.execute(
+                    select(Recording)
+                    .where(
+                        Recording.camera_id == cam.id,
+                        Recording.locked.is_(False),
+                    )
+                    .order_by(Recording.start_time.asc())
+                )
+                freed = 0
+                for rec in cam_recs.scalars().all():
+                    if freed >= cam_excess:
+                        break
+                    # TOCTOU guard — only delete this camera's own unlocked rows
+                    fresh = await db.execute(
+                        select(Recording).where(
+                            Recording.id == rec.id,
+                            Recording.camera_id == cam.id,
+                            Recording.locked.is_(False),
+                        )
+                    )
+                    if fresh.scalar_one_or_none() is None:
+                        continue
+                    size = rec.file_size or 0
+                    if rec.file_path and os.path.exists(rec.file_path):
+                        try:
+                            os.unlink(rec.file_path)
+                            freed += size
+                        except Exception:
+                            pass
+                    await db.delete(rec)
+                    deleted += 1
+                if freed:
+                    logger.info(
+                        f"Retention: camera {cam.id} over {cam.max_storage_gb}GB cap — "
+                        f"freed {freed / 1_073_741_824:.2f}GB"
+                    )
+
             # 4. Storage tier rules
             await StorageService.execute_tier_rules(db)
 

@@ -1,12 +1,48 @@
 import React from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
+import { AlertTriangle, RefreshCw } from "lucide-react";
 import { LiveEventProvider } from "../nvr/LiveEventDrawer";
+import ErrorBoundary from "../ErrorBoundary";
 import TopHeader from "./TopHeader";
 import StatusBar from "./StatusBar";
 import AlarmDock from "./AlarmDock";
 import CameraTree from "./CameraTree";
 import { useUiPrefs } from "../../hooks";
+
+// Localized fallback for a crashed routed page. Keeps nav + alarm dock +
+// status bar alive; offers a retry that re-renders the route in place.
+const RouteErrorFallback = (error, reset) => (
+  <div
+    className="h-full flex flex-col items-center justify-center gap-3 text-center px-6"
+    style={{ color: "var(--console-muted)" }}
+  >
+    <AlertTriangle className="h-10 w-10" style={{ color: "var(--console-alarm)" }} />
+    <p className="text-sm font-semibold" style={{ color: "var(--console-text)" }}>
+      This view ran into a problem
+    </p>
+    {error?.message && (
+      <pre
+        className="text-[11px] max-w-md overflow-auto rounded p-2 border"
+        style={{
+          background: "var(--console-raised)",
+          borderColor: "var(--console-border)",
+          color: "var(--console-muted)",
+        }}
+      >
+        {error.message}
+      </pre>
+    )}
+    <button
+      onClick={reset}
+      className="inline-flex items-center gap-1.5 h-8 px-3 rounded text-xs font-semibold"
+      style={{ background: "var(--console-accent)", color: "#06231f" }}
+    >
+      <RefreshCw className="h-3.5 w-3.5" /> Retry
+    </button>
+    <p className="text-[11px]">Or pick another view from the navigation.</p>
+  </div>
+);
 
 const TITLES = [
   { match: (p) => p === "/", title: "Live" },
@@ -67,7 +103,15 @@ export default function ControlRoomLayout() {
               )}
               <Panel order={2}>
                 <main className="h-full overflow-auto">
-                  <Outlet />
+                  {/* Localized boundary: a single page crash keeps the nav,
+                      alarm dock and status bar alive. resetKey=pathname so
+                      navigating away clears the error automatically. */}
+                  <ErrorBoundary
+                    resetKey={location.pathname}
+                    fallback={RouteErrorFallback}
+                  >
+                    <Outlet />
+                  </ErrorBoundary>
                 </main>
               </Panel>
             </PanelGroup>

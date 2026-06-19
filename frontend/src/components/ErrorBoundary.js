@@ -22,8 +22,29 @@ class ErrorBoundary extends React.Component {
     console.error('ErrorBoundary caught:', error, errorInfo);
   }
 
+  componentDidUpdate(prevProps) {
+    // When resetKey changes (e.g. route navigation), clear the error so the
+    // boundary re-renders its children instead of staying stuck on the
+    // fallback. Lets the operator navigate away from a crashed page.
+    if (
+      this.state.hasError &&
+      prevProps.resetKey !== this.props.resetKey
+    ) {
+      this.setState({ hasError: false, error: null });
+    }
+  }
+
+  reset = () => {
+    this.setState({ hasError: false, error: null });
+  };
+
   render() {
     if (this.state.hasError) {
+      // Custom localized fallback — keeps the surrounding shell alive instead
+      // of blanking the whole app. Called with (error, reset).
+      if (this.props.fallback) {
+        return this.props.fallback(this.state.error, this.reset);
+      }
       return (
         <div className="min-h-screen flex items-center justify-center bg-[var(--console-bg)]">
           <div className="text-center max-w-md px-6">

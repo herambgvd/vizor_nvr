@@ -15,6 +15,10 @@ export const WS_STATE = {
   ERROR: "error",
 };
 
+// Upper bound for reconnect backoff. After maxReconnectAttempts the hook keeps
+// retrying at this interval forever rather than giving up permanently.
+const MAX_RECONNECT_DELAY = 30000;
+
 /**
  * Custom hook for WebSocket connection to the NVR backend.
  *
@@ -184,14 +188,32 @@ export function useWebSocket({
           pingIntervalRef.current = null;
         }
 
-        // Auto-reconnect if enabled and not intentionally closed
+        // Auto-reconnect if enabled and not intentionally closed (1000 =
+        // normal close, 1008 = policy violation / auth rejected — don't retry).
         if (autoReconnect && event.code !== 1000 && event.code !== 1008) {
-          if (reconnectCountRef.current < maxReconnectAttempts) {
-            reconnectTimerRef.current = setTimeout(() => {
-              setReconnectCount((c) => c + 1);
-              connect();
-            }, reconnectInterval);
+          // Never permanently give up. Below maxReconnectAttempts we use a
+          // fast exponential backoff; once past the cap we keep retrying on a
+          // long capped interval so a backend that comes back is reconnected.
+          // Jitter avoids a thundering-herd reconnect storm.
+          const attempt = reconnectCountRef.current;
+          let delay;
+          if (attempt < maxReconnectAttempts) {
+            // Exponential backoff capped at 30s, based on the configured base
+            // interval (e.g. 5s, 10s, 20s, 30s, 30s…).
+            const backoff = reconnectInterval * Math.pow(2, attempt);
+            delay = Math.min(backoff, MAX_RECONNECT_DELAY);
+          } else {
+            // Past the cap: keep trying forever on the long interval.
+            delay = MAX_RECONNECT_DELAY;
           }
+          // Add up to ±20% jitter.
+          const jitter = delay * 0.2 * (Math.random() * 2 - 1);
+          delay = Math.max(1000, Math.round(delay + jitter));
+
+          reconnectTimerRef.current = setTimeout(() => {
+            setReconnectCount((c) => c + 1);
+            connect();
+          }, delay);
         }
       };
     } catch (err) {

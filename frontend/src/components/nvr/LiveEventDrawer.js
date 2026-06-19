@@ -144,7 +144,7 @@ const useLiveEvent = () => {
 // never throws.
 export const useLiveEvents = () => {
   const ctx = useContext(LiveEventCtx);
-  return ctx || { events: [] };
+  return ctx || { events: [], isConnected: false, connectionState: "disconnected" };
 };
 
 export const LiveEventProvider = ({ children }) => {
@@ -224,7 +224,7 @@ export const LiveEventProvider = ({ children }) => {
     [qc],
   );
 
-  useWebSocket({
+  const { isConnected, connectionState } = useWebSocket({
     channels: ["events", "system"],
     onNewEvent: handleNewEvent,
   });
@@ -241,8 +241,10 @@ export const LiveEventProvider = ({ children }) => {
       autoOpen,
       setAutoOpen,
       onEventsPage,
+      isConnected,
+      connectionState,
     }),
-    [open, events, unseen, soundOn, autoOpen, onEventsPage],
+    [open, events, unseen, soundOn, autoOpen, onEventsPage, isConnected, connectionState],
   );
 
   return <LiveEventCtx.Provider value={value}>{children}</LiveEventCtx.Provider>;

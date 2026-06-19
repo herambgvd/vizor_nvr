@@ -549,6 +549,30 @@ const PosOverlayCard = ({ cameraId, camera }) => {
 
   const [text, setText] = React.useState("TEST TRANSACTION: $123.45");
 
+  // Local draft state for free-text fields so we PUT on blur (explicit commit)
+  // instead of firing a network write + toast on every keystroke.
+  const TEXT_STYLE_DEFAULT = "fontsize=24:fontcolor=white@0.9:box=1:boxcolor=black@0.5";
+  const POSITION_DEFAULT = "x=10:y=10";
+  const [textStyle, setTextStyle] = React.useState(config.text_style || TEXT_STYLE_DEFAULT);
+  const [position, setPosition] = React.useState(config.position || POSITION_DEFAULT);
+
+  React.useEffect(() => {
+    setTextStyle(config.text_style || TEXT_STYLE_DEFAULT);
+    setPosition(config.position || POSITION_DEFAULT);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config.text_style, config.position]);
+
+  const commitTextStyle = () => {
+    if ((config.text_style || TEXT_STYLE_DEFAULT) !== textStyle) {
+      update({ ...config, text_style: textStyle });
+    }
+  };
+  const commitPosition = () => {
+    if ((config.position || POSITION_DEFAULT) !== position) {
+      update({ ...config, position });
+    }
+  };
+
   return (
     <Card>
       <CardHeader>
@@ -576,15 +600,17 @@ const PosOverlayCard = ({ cameraId, camera }) => {
             <div className="space-y-1.5">
               <Label className="text-xs text-[#8a8f98]">Text Style (FFmpeg drawtext opts)</Label>
               <Input
-                value={config.text_style || "fontsize=24:fontcolor=white@0.9:box=1:boxcolor=black@0.5"}
-                onChange={(e) => update({ ...config, text_style: e.target.value })}
+                value={textStyle}
+                onChange={(e) => setTextStyle(e.target.value)}
+                onBlur={commitTextStyle}
               />
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs text-[#8a8f98]">Position (x=y=...)</Label>
               <Input
-                value={config.position || "x=10:y=10"}
-                onChange={(e) => update({ ...config, position: e.target.value })}
+                value={position}
+                onChange={(e) => setPosition(e.target.value)}
+                onBlur={commitPosition}
               />
             </div>
             <div className="space-y-1.5">
@@ -618,6 +644,30 @@ const DewarpCard = ({ cameraId, camera }) => {
     },
     onError: (err) => toast.error(err?.response?.data?.detail || "Failed to save"),
   });
+
+  // Local draft state for FOV numeric inputs — commit on blur instead of a
+  // PUT + toast on every keystroke.
+  const FOV_X_DEFAULT = 90;
+  const FOV_Y_DEFAULT = 60;
+  const [fovX, setFovX] = React.useState(config.fov_x ?? FOV_X_DEFAULT);
+  const [fovY, setFovY] = React.useState(config.fov_y ?? FOV_Y_DEFAULT);
+
+  React.useEffect(() => {
+    setFovX(config.fov_x ?? FOV_X_DEFAULT);
+    setFovY(config.fov_y ?? FOV_Y_DEFAULT);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config.fov_x, config.fov_y]);
+
+  const commitFovX = () => {
+    if ((config.fov_x ?? FOV_X_DEFAULT) !== Number(fovX)) {
+      update({ ...config, fov_x: Number(fovX) });
+    }
+  };
+  const commitFovY = () => {
+    if ((config.fov_y ?? FOV_Y_DEFAULT) !== Number(fovY)) {
+      update({ ...config, fov_y: Number(fovY) });
+    }
+  };
 
   const modes = [
     { value: "ceiling", label: "Ceiling mount (looking down)" },
@@ -676,11 +726,11 @@ const DewarpCard = ({ cameraId, camera }) => {
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs text-[#8a8f98]">FOV X (°)</Label>
-              <Input type="number" value={config.fov_x || 90} onChange={(e) => update({ ...config, fov_x: Number(e.target.value) })} />
+              <Input type="number" value={fovX} onChange={(e) => setFovX(e.target.value)} onBlur={commitFovX} />
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs text-[#8a8f98]">FOV Y (°)</Label>
-              <Input type="number" value={config.fov_y || 60} onChange={(e) => update({ ...config, fov_y: Number(e.target.value) })} />
+              <Input type="number" value={fovY} onChange={(e) => setFovY(e.target.value)} onBlur={commitFovY} />
             </div>
           </div>
         )}

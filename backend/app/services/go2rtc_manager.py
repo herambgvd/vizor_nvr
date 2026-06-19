@@ -28,6 +28,11 @@ class Go2RTCManager:
         self._base_url = settings.GO2RTC_URL
         self._rtsp_port = settings.GO2RTC_RTSP_PORT
         self._client: Optional[httpx.AsyncClient] = None
+        # go2rtc rewrites its single go2rtc.yaml on every stream PUT/DELETE.
+        # Concurrent writes (bulk onboarding / reconcile bursts) race that rewrite
+        # and corrupt the file → all restreams fail to parse on the next restart.
+        # Serialize our mutations so go2rtc only ever sees one change at a time.
+        self._write_lock = asyncio.Lock()
 
     @property
     def client(self) -> httpx.AsyncClient:
@@ -93,7 +98,8 @@ class Go2RTCManager:
                 logger.info(f"[go2rtc] Dewarp filter applied for {stream_id}")
 
         last_err = None
-        for attempt in range(1, max_retries + 1):
+        async with self._write_lock:   # serialize go2rtc.yaml mutations
+          for attempt in range(1, max_retries + 1):
             try:
                 # go2rtc v1.9.x API: PUT /api/streams?name=ID&src=SOURCE
                 resp = await self.client.put(
@@ -144,7 +150,8 @@ class Go2RTCManager:
 
     async def remove_stream(self, stream_id: str) -> bool:
         try:
-            resp = await self.client.delete("/api/streams", params={"src": stream_id})
+            async with self._write_lock:   # serialize go2rtc.yaml mutations
+                resp = await self.client.delete("/api/streams", params={"src": stream_id})
             ok = resp.status_code < 400
             if ok:
                 logger.debug(f"go2rtc stream removed: {stream_id}")
