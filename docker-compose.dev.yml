@@ -92,6 +92,18 @@ services:
     volumes:
       - ./scenarios/ppe:/app
       - recordings:/data/recordings:ro
+      - ppe_snapshots:/data/ppe
+      - ./models:/models:ro
+    healthcheck:
+      disable: true
+
+  anpr:
+    command: >
+      python -m uvicorn app:app --host 0.0.0.0 --port 8094 --reload --reload-dir /app
+    volumes:
+      - ./scenarios/anpr:/app
+      - recordings:/data/recordings:ro
+      - anpr_snapshots:/data/anpr
       - ./models:/models:ro
     healthcheck:
       disable: true

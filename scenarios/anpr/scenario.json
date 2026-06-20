@@ -1,0 +1,70 @@
+{
+  "slug": "anpr",
+  "name": "License Plate Recognition",
+  "description": "Automatic Number Plate Recognition (ANPR/LPR). Detects and reads vehicle license plates in real time, voting one clean read per vehicle pass across multiple frames. Classifies the vehicle type, tracks crossing direction, estimates speed where a camera is calibrated, and matches every plate against a global whitelist/blacklist — raising a high-severity event on a blacklist hit. Emits plate_read / whitelist_hit / blacklist_hit events with plate-crop snapshots.",
+  "category": "security",
+  "icon": "car",
+  "version": "1.0.0",
+  "license_feature": "anpr",
+  "service_url": "http://anpr:8094",
+  "capabilities": [
+    "live_anpr",
+    "plate_recognition",
+    "vehicle_classification",
+    "watchlist_matching",
+    "event_producer",
+    "reporting",
+    "triton_inference",
+    "gpu_required"
+  ],
+  "tabs": ["cameras", "live", "plates", "lists", "events", "reports", "settings"],
+  "module_tabs": ["cameras", "live", "plates", "lists", "events", "reports", "settings"],
+  "camera_config_schema": {
+    "fields": [
+      {"key": "anpr_enabled", "type": "bool", "label": "License plate recognition", "group": "Recognition", "default": true, "help": "Run ANPR on this camera."},
+      {"key": "roi", "type": "roi", "label": "Capture zone", "group": "Recognition", "help": "Only plates whose box centre falls inside this zone are read (skip far / off-lane plates)."},
+      {"key": "min_plate_w", "type": "int", "label": "Min plate width (px)", "group": "Recognition", "default": 90, "min": 20, "max": 400, "step": 5, "help": "Plates narrower than this are too far / blurry to OCR and are skipped."},
+      {"key": "det_conf", "type": "float", "label": "Plate detect confidence", "group": "Recognition", "default": 0.6, "min": 0.2, "max": 0.95, "step": 0.05, "help": "Detector confidence floor for a plate box (higher = fewer false plates)."},
+      {"key": "ocr_conf", "type": "float", "label": "OCR confidence", "group": "Recognition", "default": 0.65, "min": 0.3, "max": 0.95, "step": 0.05, "help": "Minimum mean-character OCR confidence (0..1) for a read to count toward the vote."},
+      {"key": "min_reads", "type": "int", "label": "Min reads to confirm", "group": "Recognition", "default": 3, "min": 1, "max": 20, "step": 1, "help": "A vehicle must produce at least this many valid reads before its voted plate is emitted (rejects single-frame blips)."},
+      {"key": "exit_frames", "type": "int", "label": "Exit frames", "group": "Recognition", "default": 15, "min": 3, "max": 60, "step": 1, "help": "A plate gone this many processed frames means the vehicle has left — the read is then voted and emitted."},
+      {"key": "plate_regex", "type": "string", "label": "Plate format (regex)", "group": "Region", "default": "[0-9]{2}BH[0-9]{4}[A-Z]{1,2}|[A-Z]{2}[0-9]{1,2}[A-Z]{0,3}[0-9]{3,4}", "help": "Plate-format validation regex. Default = Indian plates incl. BH-series. Override for other regions."},
+      {"key": "allow_raw_reads", "type": "bool", "label": "Allow non-matching reads", "group": "Region", "default": false, "help": "Emit reads that don't match the plate-format regex (useful for unsupported regions). Off = drop them (recommended)."},
+      {"key": "lowlight_enhance", "type": "bool", "label": "Low-light enhancement", "group": "Quality", "default": true, "help": "Apply CLAHE contrast enhancement on dark frames before reading (helps night plates)."},
+      {"key": "fps", "type": "int", "label": "Analyze FPS", "group": "Stream", "default": 8, "min": 1, "max": 15, "step": 1},
+      {"key": "direction_line", "type": "line", "label": "Direction / speed line A", "group": "Motion", "help": "Tripwire line — a vehicle crossing it is tagged in/out. Also line A for two-line speed calibration."},
+      {"key": "speed_enabled", "type": "bool", "label": "Estimate speed", "group": "Motion", "default": false, "help": "ESTIMATE ONLY (single camera, needs calibration). Requires line A + line B + real-world distance, or a metres-per-pixel scale. Omitted if not calibrated."},
+      {"key": "speed_line_b", "type": "line", "label": "Speed line B", "group": "Motion", "help": "Second tripwire a known distance from line A. Speed = distance / crossing-time."},
+      {"key": "speed_distance_m", "type": "float", "label": "Line A↔B distance (m)", "group": "Motion", "min": 0.5, "max": 200, "step": 0.5, "help": "Real-world distance between line A and line B in metres (for two-line speed estimation)."}
+    ]
+  },
+  "event_types": ["plate_read", "whitelist_hit", "blacklist_hit"],
+  "proxy_routes": [
+    { "method": "GET", "path": "/health" },
+    { "method": "POST", "path": "/health/deep" },
+
+    { "method": "GET", "path": "/settings" },
+    { "method": "PUT", "path": "/settings" },
+
+    { "method": "GET", "path": "/plates" },
+    { "method": "GET", "path": "/plates/{read_id}" },
+    { "method": "DELETE", "path": "/plates/{read_id}" },
+    { "method": "POST", "path": "/plates/delete" },
+
+    { "method": "GET", "path": "/lists" },
+    { "method": "POST", "path": "/lists" },
+    { "method": "DELETE", "path": "/lists/{entry_id}" },
+    { "method": "POST", "path": "/lists/import" },
+
+    { "method": "GET", "path": "/reports/summary" },
+    { "method": "GET", "path": "/snapshot" }
+  ],
+  "resource_requirements": {
+    "gpu": "required",
+    "vram_gb": 6,
+    "cpu_cores": 4,
+    "memory_gb": 8,
+    "storage": "plate-crop snapshots volume, own Postgres",
+    "models": ["anpr_plate (Triton)", "ppocr_v6 (Triton)", "yolo26 (Triton, vehicle type)"]
+  }
+}

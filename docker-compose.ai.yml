@@ -135,6 +135,24 @@ services:
       timeout: 5s
       retries: 3
 
+  ppe-db:
+    image: postgres:16-alpine
+    container_name: gvd_ai_ppe_db
+    restart: unless-stopped
+    networks:
+      - internal
+    environment:
+      POSTGRES_USER: ppe
+      POSTGRES_PASSWORD: ${AI_PPE_DB_PASSWORD:-ppe}
+      POSTGRES_DB: ppe
+    volumes:
+      - ppe_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ppe -d ppe"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
   ppe:
     build:
       context: ./scenarios
@@ -144,27 +162,112 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+      ppe-db:
+        condition: service_healthy
+      triton:
+        condition: service_started
     environment:
       SCENARIO_SLUG: ppe
       VIZOR_BASE_URL: http://backend:8000/api
       VIZOR_API_KEY: ${AI_PLUGIN_API_KEY:-}
       VIZOR_SERVICE_TOKEN: ${AI_PLUGIN_SERVICE_TOKEN:-dev-XNrW79MQknM38BVGRkDZWrUQhJsJ2HUBbYfTOkWAZY0}
-      INFERENCE_BACKEND: onnxruntime-gpu
-      DETECTOR_MODEL_PATH: /models/ppe-detector.onnx
-      POSE_MODEL_PATH: /models/pose.onnx
+      PPE_DATABASE_URL: postgresql+psycopg2://ppe:${AI_PPE_DB_PASSWORD:-ppe}@ppe-db:5432/ppe
+      DATA_PATH: /data/ppe
+      # Inference via the shared Triton server (no in-process GPU). The plugin
+      # decodes the raw ppe_yolo26 [1,300,6] output itself.
+      INFERENCE_BACKEND: ${PPE_INFERENCE_BACKEND:-triton}
+      TRITON_URL: ${TRITON_URL:-triton:8000}
+      PPE_MODEL_NAME: ppe_yolo26
+      # Live per-camera compliance — pull frames from go2rtc's RTSP restream.
+      PPE_LIVE_ENABLED: "true"
+      GO2RTC_RTSP_HOST: go2rtc
+      GO2RTC_RTSP_PORT: "8554"
+      PPE_RETENTION_EVENT_DAYS: ${PPE_RETENTION_EVENT_DAYS:-90}
       PORT: 8092
     networks:
       - internal
     volumes:
       - recordings:/data/recordings:ro
+      - ppe_snapshots:/data/ppe
       - ./models:/models:ro
     deploy:
       resources:
         limits:
+          # Thin Triton client — no GPU, modest CPU for decode/orchestrate.
           memory: ${PPE_MEM_LIMIT:-4g}
           cpus: "${PPE_CPU_LIMIT:-4}"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8092/health').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  anpr-db:
+    image: postgres:16-alpine
+    container_name: gvd_ai_anpr_db
+    restart: unless-stopped
+    networks:
+      - internal
+    environment:
+      POSTGRES_USER: anpr
+      POSTGRES_PASSWORD: ${AI_ANPR_DB_PASSWORD:-anpr}
+      POSTGRES_DB: anpr
+    volumes:
+      - anpr_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U anpr -d anpr"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  anpr:
+    build:
+      context: ./scenarios
+      dockerfile: anpr/Dockerfile
+    container_name: gvd_ai_anpr
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+      anpr-db:
+        condition: service_healthy
+      triton:
+        condition: service_started
+    environment:
+      SCENARIO_SLUG: anpr
+      VIZOR_BASE_URL: http://backend:8000/api
+      VIZOR_API_KEY: ${AI_PLUGIN_API_KEY:-}
+      VIZOR_SERVICE_TOKEN: ${AI_PLUGIN_SERVICE_TOKEN:-dev-XNrW79MQknM38BVGRkDZWrUQhJsJ2HUBbYfTOkWAZY0}
+      ANPR_DATABASE_URL: postgresql+psycopg2://anpr:${AI_ANPR_DB_PASSWORD:-anpr}@anpr-db:5432/anpr
+      DATA_PATH: /data/anpr
+      # Inference via the shared Triton server (no in-process GPU). The plugin
+      # decodes the raw anpr_plate / ppocr_v6 / yolo26 outputs itself; the
+      # dict_v6.txt charset ships in the image for the client-side CTC decode.
+      INFERENCE_BACKEND: ${ANPR_INFERENCE_BACKEND:-triton}
+      TRITON_URL: ${TRITON_URL:-triton:8000}
+      ANPR_PLATE_MODEL_NAME: anpr_plate
+      ANPR_OCR_MODEL_NAME: ppocr_v6
+      ANPR_VEHICLE_MODEL_NAME: yolo26
+      # Live per-camera ANPR — pull frames from go2rtc's RTSP restream.
+      ANPR_LIVE_ENABLED: "true"
+      GO2RTC_RTSP_HOST: go2rtc
+      GO2RTC_RTSP_PORT: "8554"
+      ANPR_RETENTION_EVENT_DAYS: ${ANPR_RETENTION_EVENT_DAYS:-90}
+      PORT: 8094
+    networks:
+      - internal
+    volumes:
+      - recordings:/data/recordings:ro
+      - anpr_snapshots:/data/anpr
+      - ./models:/models:ro
+    deploy:
+      resources:
+        limits:
+          # Thin Triton client — no GPU, modest CPU for decode/orchestrate.
+          memory: ${ANPR_MEM_LIMIT:-4g}
+          cpus: "${ANPR_CPU_LIMIT:-4}"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8094/health').read()"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -249,3 +352,7 @@ volumes:
   suspect_search_data:
   frs_db_data:
   frs_photos:
+  ppe_db_data:
+  ppe_snapshots:
+  anpr_db_data:
+  anpr_snapshots:

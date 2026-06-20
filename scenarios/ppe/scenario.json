@@ -1,66 +1,56 @@
 {
   "slug": "ppe",
   "name": "PPE Compliance",
-  "description": "Personal protective equipment compliance detection (helmet, vest, mask, gloves, goggles, shoes) for images and recorded video, with per-person verdicts and compliance events.",
+  "description": "Person-level PPE compliance monitoring. Detects helmet and high-visibility vest per tracked worker in real time, with temporal grace, evidence smoothing and cooldown so brief detection flicker never raises a false violation. Emits missing / removed / compliant events with snapshots.",
   "category": "safety",
   "icon": "hard-hat",
   "version": "1.0.0",
   "license_feature": "ppe",
   "service_url": "http://ppe:8092",
   "capabilities": [
-    "image_compliance",
-    "pose_detection",
-    "video_jobs",
-    "onnx_inference",
+    "live_compliance",
+    "person_tracking",
     "event_producer",
     "reporting",
-    "gpu_recommended"
+    "triton_inference",
+    "gpu_required"
   ],
   "tabs": ["cameras", "live", "ppe_detect", "events", "reports", "settings"],
   "module_tabs": ["cameras", "live", "ppe_detect", "events", "reports", "settings"],
   "camera_config_schema": {
     "fields": [
-      {
-        "key": "compliance_enabled",
-        "type": "bool",
-        "label": "PPE compliance",
-        "default": true
-      },
-      {
-        "key": "required_items",
-        "type": "multiselect",
-        "label": "Required PPE",
-        "default": ["helmet", "vest"],
-        "options": ["helmet", "vest", "mask", "gloves", "goggles", "shoes"]
-      },
-      {
-        "key": "min_confidence",
-        "type": "number",
-        "label": "Minimum confidence",
-        "default": 0.5,
-        "min": 0,
-        "max": 1,
-        "step": 0.01
-      }
+      {"key": "compliance_enabled", "type": "bool", "label": "PPE compliance", "group": "Compliance", "default": true, "help": "Run per-worker PPE compliance on this camera."},
+      {"key": "required_items", "type": "multiselect", "label": "Required PPE", "group": "Compliance", "default": ["helmet", "vest"], "options": ["helmet", "vest"], "help": "PPE a worker must wear in this zone. A worker missing any required item raises a violation."},
+      {"key": "emit_compliant", "type": "bool", "label": "Compliant events", "group": "Compliance", "default": false, "help": "Also record a positive event when a worker is confirmed wearing all required PPE."},
+      {"key": "missing_grace", "type": "float", "label": "Missing grace (s)", "group": "Timing", "default": 1.0, "min": 0.0, "max": 10.0, "step": 0.5, "help": "Seconds a required item must stay absent before a violation fires (absorbs brief occlusion)."},
+      {"key": "min_present", "type": "float", "label": "Stable present (s)", "group": "Timing", "default": 3.0, "min": 0.0, "max": 15.0, "step": 0.5, "help": "Seconds PPE must be steadily worn before its later absence counts as 'removed' (vs 'missing')."},
+      {"key": "cooldown", "type": "int", "label": "Alert cooldown (s)", "group": "Alerting", "default": 30, "min": 0, "max": 3600, "step": 5, "help": "Minimum gap between repeat violations for the same worker + item."},
+      {"key": "person_conf", "type": "float", "label": "Person confidence", "group": "Quality", "default": 0.20, "min": 0.05, "max": 0.9, "step": 0.05, "help": "Detector confidence floor for tracking a person."},
+      {"key": "fps", "type": "int", "label": "Analyze FPS", "group": "Stream", "default": 5, "min": 1, "max": 15, "step": 1},
+      {"key": "roi", "type": "roi", "label": "Region of interest", "group": "Stream", "help": "Only workers whose feet fall inside this zone are evaluated."}
     ]
   },
-  "event_types": ["ppe_violation", "ppe_compliant"],
+  "event_types": ["ppe_missing", "ppe_removed", "ppe_compliant"],
   "proxy_routes": [
     { "method": "GET", "path": "/health" },
     { "method": "POST", "path": "/health/deep" },
-    { "method": "POST", "path": "/detect" },
-    { "method": "POST", "path": "/detect-pose" },
-    { "method": "GET", "path": "/snapshot" },
-    { "method": "POST", "path": "/video-jobs" },
-    { "method": "GET", "path": "/video-jobs/{job_id}" },
-    { "method": "GET", "path": "/video-jobs/{job_id}/results" }
+
+    { "method": "GET", "path": "/settings" },
+    { "method": "PUT", "path": "/settings" },
+
+    { "method": "GET", "path": "/events" },
+    { "method": "DELETE", "path": "/events/{event_id}" },
+    { "method": "POST", "path": "/events/delete" },
+
+    { "method": "GET", "path": "/reports/summary" },
+    { "method": "GET", "path": "/snapshot" }
   ],
   "resource_requirements": {
-    "gpu": "recommended",
+    "gpu": "required",
     "vram_gb": 6,
     "cpu_cores": 4,
     "memory_gb": 8,
-    "storage": "frame thumbnails, optional ONNX model cache",
-    "models": ["PPE detector ONNX (person + PPE items)", "pose estimator ONNX"]
+    "storage": "event snapshots volume, own Postgres",
+    "models": ["ppe_yolo26 (Triton)", "DINOv2 PPE verifier (Triton, optional)"]
   }
 }
