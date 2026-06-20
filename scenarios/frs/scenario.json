@@ -4,7 +4,7 @@
   "description": "Detect, recognize and track enrolled faces. Person gallery, groups, photo enrollment, liveness, watchlist alerts, attendance, forensic investigate, transit and cross-camera tour.",
   "category": "security",
   "icon": "scan-face",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "license_feature": "frs",
   "service_url": "http://frs:8093",
   "capabilities": [

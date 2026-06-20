@@ -4,7 +4,7 @@
   "description": "Personal protective equipment compliance detection (helmet, vest, mask, gloves, goggles, shoes) for images and recorded video, with per-person verdicts and compliance events.",
   "category": "safety",
   "icon": "hard-hat",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "license_feature": "ppe",
   "service_url": "http://ppe:8092",
   "capabilities": [

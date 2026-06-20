@@ -94,7 +94,7 @@ LIVE_HWACCEL = os.getenv("FRS_HWACCEL", "none").lower()   # cuda | none
 # this many seconds (wedged camera / dead network that doesn't EOF the pipe).
 LIVE_STALL_TIMEOUT = int(os.getenv("FRS_LIVE_STALL_TIMEOUT", "20"))
 
-VERSION = "0.2.0"
+VERSION = "1.0.0"
 
 DATA_PATH.mkdir(parents=True, exist_ok=True)
 # scenario.json lives at the package root (one level up from config/).
