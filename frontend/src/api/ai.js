@@ -59,6 +59,17 @@ export const proxyScenario = async (
   return r.data;
 };
 
+// FRS feature settings (public dashboard + third-party ingest API). Operator-
+// facing, routed through the authenticated proxy.
+export const getFrsFeatureSettings = (slug = "frs") =>
+  proxyScenario(slug, "/settings");
+
+export const updateFrsFeatureSettings = (patch, slug = "frs") =>
+  proxyScenario(slug, "/settings", { method: "PUT", data: patch });
+
+export const rotateFrsIngestKey = (slug = "frs") =>
+  proxyScenario(slug, "/settings/ingest-key/rotate", { method: "POST" });
+
 // Realtime search — returns matching events directly ({items, total}); no job,
 // no polling. The primary search path.
 export const scenarioSearch = async (slug, formData) => (

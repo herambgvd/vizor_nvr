@@ -66,6 +66,7 @@ const LicenseRequired = lazy(() => import("./pages/LicenseRequired"));
 const AIHome = lazy(() => import("./pages/ai/AIHome"));
 const ScenarioWorkspace = lazy(() => import("./pages/ai/ScenarioWorkspace"));
 const NotFound = lazy(() => import("./pages/NotFound"));
+const PublicFrsDashboard = lazy(() => import("./pages/PublicFrsDashboard"));
 
 // React Query client
 const queryClient = new QueryClient({
@@ -131,6 +132,9 @@ const AppRoutes = () => (
           </PublicRoute>
         }
       />
+
+      {/* Fully public — no auth, no license gate. Operator-toggled FRS dashboard. */}
+      <Route path="/public/frs" element={<PublicFrsDashboard />} />
 
       {/* License gate — authenticated but reachable without a license */}
       <Route
