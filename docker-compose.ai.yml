@@ -85,8 +85,8 @@ services:
 
   suspect-search:
     build:
-      context: ./scenarios/suspect-search
-      dockerfile: Dockerfile
+      context: ./scenarios
+      dockerfile: suspect-search/Dockerfile
     container_name: gvd_ai_suspect_search
     restart: unless-stopped
     depends_on:

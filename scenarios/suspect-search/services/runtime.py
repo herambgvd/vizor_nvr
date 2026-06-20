@@ -519,20 +519,11 @@ def _qdrant_client() -> Any | None:
 
 
 def register_on_boot() -> None:
-    if not VIZOR_API_KEY:
-        print("[suspect-search] VIZOR_API_KEY missing; manifest registration skipped", flush=True)
-        return
-    headers = {"Content-Type": "application/json", "X-Vizor-API-Key": VIZOR_API_KEY}
-    url = f"{VIZOR_BASE_URL}/ai/scenarios/register"
-    for attempt in range(1, 16):
-        try:
-            resp = requests.post(url, json=_load_manifest(), headers=headers, timeout=10)
-            resp.raise_for_status()
-            print(f"[suspect-search] registered manifest ({resp.status_code})", flush=True)
-            return
-        except Exception as exc:  # noqa: BLE001
-            print(f"[suspect-search] registration attempt {attempt} failed: {exc}", flush=True)
-            time.sleep(min(2 * attempt, 20))
+    """Register the manifest with the NVR catalog via the shared SDK NvrClient
+    (same backoff/retry as before)."""
+    from vizor_sdk import NvrClient
+
+    NvrClient(VIZOR_BASE_URL, VIZOR_API_KEY, SCENARIO_SLUG).register_manifest(MANIFEST_PATH)
 
 
 def _retention_sweep() -> int:
