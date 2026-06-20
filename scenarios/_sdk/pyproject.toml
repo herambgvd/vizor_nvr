@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vizor-scenario-sdk"
+version = "1.0.0"
+description = "Shared SDK for Vizor NVR AI scenario plugins (Triton, frames, NVR proxy, tracking, rules, vectors)."
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "httpx>=0.25",
+]
+
+# Optional extras — a plugin pulls only what it needs.
+[project.optional-dependencies]
+triton = ["tritonclient[http]>=2.40"]
+vectors = ["qdrant-client>=1.7"]
+app = ["fastapi>=0.110", "uvicorn>=0.27"]
+
+[tool.setuptools.packages.find]
+include = ["vizor_sdk*"]
