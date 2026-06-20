@@ -1,7 +1,7 @@
 {
   "slug": "anpr",
   "name": "License Plate Recognition",
-  "description": "Automatic Number Plate Recognition (ANPR/LPR). Detects and reads vehicle license plates in real time, voting one clean read per vehicle pass across multiple frames. Classifies the vehicle type, tracks crossing direction, estimates speed where a camera is calibrated, and matches every plate against a global whitelist/blacklist — raising a high-severity event on a blacklist hit. Emits plate_read / whitelist_hit / blacklist_hit events with plate-crop snapshots.",
+  "description": "Automatic Number Plate Recognition (ANPR/LPR). Detects and reads vehicle license plates in real time, voting one clean read per vehicle pass across multiple frames. Classifies the vehicle type, tracks crossing direction, estimates speed where a camera is calibrated, and matches every plate against user-defined named lists — each with an action (alert / allow / log) that drives event severity. Emits plate_read / whitelist_hit / blacklist_hit events with plate-crop snapshots.",
   "category": "security",
   "icon": "car",
   "version": "1.0.0",
@@ -50,6 +50,11 @@
     { "method": "GET", "path": "/plates/{read_id}" },
     { "method": "DELETE", "path": "/plates/{read_id}" },
     { "method": "POST", "path": "/plates/delete" },
+
+    { "method": "GET", "path": "/lists/defs" },
+    { "method": "POST", "path": "/lists/defs" },
+    { "method": "PUT", "path": "/lists/defs/{list_id}" },
+    { "method": "DELETE", "path": "/lists/defs/{list_id}" },
 
     { "method": "GET", "path": "/lists" },
     { "method": "POST", "path": "/lists" },

@@ -13,7 +13,7 @@ pipeline with the single-lane bug fixed:
    on track exit (plate gone EXIT_FRAMES frames):
         -> vote the plate (most-common-length + per-position majority, >= MIN_READS)
         -> vehicle-type (yolo26 enclosing box) + direction + speed
-        -> whitelist/blacklist match -> record_event (blacklist = high severity)
+        -> user-list match -> record_event (action=alert => high severity)
 
 The proven thresholds (det 0.6, OCR conf gate, min reads 3, exit frames 15) are
 preserved. Fail-soft throughout — one bad frame never kills the worker.
@@ -296,15 +296,23 @@ class CameraWorker(threading.Thread):
         direction = self._motion.direction_for(track_id) if self._motion else None
         speed = self._motion.speed_for(track_id) if self._motion else None
 
-        # Whitelist / blacklist match on the normalized plate.
+        # Match the plate against the user-defined lists. The matched list's
+        # ACTION drives the event: alert -> high-severity blacklist_hit,
+        # allow -> whitelist_hit (info), log -> just tagged as a plate_read.
         list_hit = None
         list_label = None
         event_type = "plate_read"
         hit = match_plate(norm)
         if hit:
-            list_hit = hit["list_type"]
+            list_hit = hit.get("list_name")      # store the matched LIST NAME
             list_label = hit.get("label")
-            event_type = "blacklist_hit" if list_hit == "blacklist" else "whitelist_hit"
+            action = hit.get("action")
+            if action == "alert":
+                event_type = "blacklist_hit"
+            elif action == "allow":
+                event_type = "whitelist_hit"
+            else:
+                event_type = "plate_read"
 
         snap = self._snapshot(snap_frame, crop)
         _record_event(

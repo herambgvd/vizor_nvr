@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from db.models import ANPRPlateList, ANPRPlateRead
+from db.models import ANPRListDef, ANPRPlateList, ANPRPlateRead
 
 
 def utcnow() -> datetime:
@@ -64,13 +64,35 @@ def read_dict(e: ANPRPlateRead) -> dict[str, Any]:
     }
 
 
-def list_dict(e: ANPRPlateList) -> dict[str, Any]:
-    return {
+def list_def_dict(d: ANPRListDef, entry_count: Optional[int] = None) -> dict[str, Any]:
+    out = {
+        "id": d.id,
+        "name": d.name,
+        "action": d.action,
+        "color": d.color,
+        "description": d.description,
+        "created_at": iso(d.created_at),
+    }
+    if entry_count is not None:
+        out["entry_count"] = int(entry_count)
+    return out
+
+
+def list_dict(e: ANPRPlateList, ldef: Optional[ANPRListDef] = None) -> dict[str, Any]:
+    """A plate entry on the wire. When the owning list def is passed (joined), the
+    list's name/action/color are inlined so the UI can render the badge without a
+    second call."""
+    out = {
         "id": e.id,
         "plate": e.plate,
-        "list_type": e.list_type,
+        "list_id": e.list_id,
         "label": e.label,
         "valid_from": iso(e.valid_from),
         "valid_to": iso(e.valid_to),
         "created_at": iso(e.created_at),
     }
+    if ldef is not None:
+        out["list_name"] = ldef.name
+        out["list_action"] = ldef.action
+        out["list_color"] = ldef.color
+    return out

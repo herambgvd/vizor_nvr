@@ -40,8 +40,8 @@ def reports_summary(
 
         agg = select(
             func.count().label("total_reads"),
-            func.count().filter(ANPRPlateRead.list_hit == "blacklist").label("blacklist_hits"),
-            func.count().filter(ANPRPlateRead.list_hit == "whitelist").label("whitelist_hits"),
+            func.count().filter(ANPRPlateRead.event_type == "blacklist_hit").label("blacklist_hits"),
+            func.count().filter(ANPRPlateRead.event_type == "whitelist_hit").label("whitelist_hits"),
         )
         cam = (select(ANPRPlateRead.camera_id, func.count().label("count"))
                .group_by(ANPRPlateRead.camera_id).order_by(func.count().desc()))

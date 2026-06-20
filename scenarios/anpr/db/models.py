@@ -1,9 +1,11 @@
 """Plugin-owned SQLAlchemy models (own Postgres, isolated from the NVR DB).
 
-Three tables:
+Tables:
   * anpr_plate_reads — one voted read per vehicle pass (the ANPR events).
-  * anpr_plate_list  — PER-SCENARIO GLOBAL whitelist/blacklist (one list across
-    all ANPR cameras), matched on every read.
+  * anpr_list_def    — USER-DEFINED named plate lists (categories), each with an
+    action (alert/allow/log) + colour + description. One row per list.
+  * anpr_plate_list  — a plate entry belonging to a list_def (FK). PER-SCENARIO
+    GLOBAL (one set of lists across all ANPR cameras), matched on every read.
   * anpr_settings    — singleton feature config (region/regex, speed, thresholds).
 """
 from __future__ import annotations
@@ -12,7 +14,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    JSON, Boolean, Column, DateTime, Float, Index, Integer, String,
+    JSON, Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, String,
 )
 from sqlalchemy.orm import declarative_base
 
@@ -31,7 +33,8 @@ class ANPRPlateRead(Base):
     Produced by the per-track plate session: every tracked vehicle accumulates
     OCR reads while its plate is visible, and a single voted result is written
     when the track exits the scene. event_type ∈ {plate_read, whitelist_hit,
-    blacklist_hit} — set from the whitelist/blacklist match at emit time.
+    blacklist_hit} — set from the matched list's ACTION at emit time
+    (alert → blacklist_hit, allow → whitelist_hit, else plate_read).
     """
     __tablename__ = "anpr_plate_reads"
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -44,7 +47,7 @@ class ANPRPlateRead(Base):
     vehicle_type = Column(String(20), nullable=True)     # car/motorcycle/bus/truck/other
     direction = Column(String(10), nullable=True)        # in/out (line crossing)
     speed_kmh = Column(Float, nullable=True)             # ESTIMATE; only if calibrated
-    list_hit = Column(String(20), nullable=True)         # whitelist/blacklist/None
+    list_hit = Column(String(120), nullable=True)        # matched LIST NAME / None
     list_label = Column(String(200), nullable=True)      # matched list entry label
     # Stable per-vehicle track id (ByteTrack) the read was voted from.
     track_id = Column(Integer, nullable=True)
@@ -61,22 +64,44 @@ class ANPRPlateRead(Base):
     )
 
 
+class ANPRListDef(Base):
+    """A USER-DEFINED named plate list (category) — e.g. "VIP", "Staff",
+    "Stolen Vehicles", "Banned". PER-SCENARIO GLOBAL (one set of lists across all
+    ANPR cameras). Each list carries an ACTION that drives event handling on a
+    match:
+      * alert — raise a high-severity event (the old blacklist behaviour).
+      * allow — positive / log-only match (the old whitelist behaviour, info).
+      * log   — just tag the read, no special severity.
+    Default action for a new list is "alert". Name is unique."""
+    __tablename__ = "anpr_list_def"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    name = Column(String(120), nullable=False, unique=True)
+    action = Column(String(20), nullable=False, default="alert")  # alert/allow/log
+    color = Column(String(20), nullable=True)            # hex, e.g. "#ef4444"
+    description = Column(String(500), nullable=True)
+    created_at = Column(DateTime, default=_utcnow)
+    __table_args__ = (
+        Index("ix_anpr_listdef_name", "name"),
+    )
+
+
 class ANPRPlateList(Base):
-    """PER-SCENARIO GLOBAL whitelist / blacklist entry (one list across all ANPR
-    cameras). Plate is stored normalised (uppercase, A-Z0-9 only) so matching is
-    exact. valid_from / valid_to bound an entry's active window (both optional —
-    NULL = unbounded)."""
+    """A plate entry belonging to a user list (anpr_list_def via list_id). Plate is
+    stored normalised (uppercase, A-Z0-9 only) so matching is exact. valid_from /
+    valid_to bound an entry's active window (both optional — NULL = unbounded)."""
     __tablename__ = "anpr_plate_list"
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     plate = Column(String(32), nullable=False)
-    list_type = Column(String(20), nullable=False, default="blacklist")  # whitelist/blacklist
+    list_id = Column(
+        String, ForeignKey("anpr_list_def.id", ondelete="CASCADE"), nullable=False,
+    )
     label = Column(String(200), nullable=True)
     valid_from = Column(DateTime, nullable=True)
     valid_to = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=_utcnow)
     __table_args__ = (
         Index("ix_anpr_list_plate", "plate"),
-        Index("ix_anpr_list_type", "list_type"),
+        Index("ix_anpr_list_listid", "list_id"),
     )
 
 

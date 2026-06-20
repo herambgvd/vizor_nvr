@@ -409,9 +409,23 @@ export const deleteScenarioPluginEvent = async (slug, id) =>
 export const bulkDeleteScenarioPluginEvents = async (slug, body) =>
   proxyScenario(slug, `${scenarioEventEndpoint(slug)}/delete`, { method: "POST", data: body });
 
-// ---------- ANPR — plate lists (whitelist / blacklist) ----------
+// ---------- ANPR — user-defined plate lists ----------
 const ANPR_SLUG = "anpr";
 
+// List definitions (categories, each with an action alert/allow/log).
+export const listAnprListDefs = async () =>
+  proxyScenario(ANPR_SLUG, "/lists/defs");
+
+export const createAnprListDef = async (payload) =>
+  proxyScenario(ANPR_SLUG, "/lists/defs", { method: "POST", data: payload });
+
+export const updateAnprListDef = async (id, patch) =>
+  proxyScenario(ANPR_SLUG, `/lists/defs/${id}`, { method: "PUT", data: patch });
+
+export const deleteAnprListDef = async (id) =>
+  proxyScenario(ANPR_SLUG, `/lists/defs/${id}`, { method: "DELETE" });
+
+// Plate entries (each belongs to a list_id).
 export const listAnprLists = async (params = {}) =>
   proxyScenario(ANPR_SLUG, "/lists", { params });
 
@@ -421,15 +435,14 @@ export const addAnprListEntry = async (payload) =>
 export const deleteAnprListEntry = async (id) =>
   proxyScenario(ANPR_SLUG, `/lists/${id}`, { method: "DELETE" });
 
-// CSV import — multipart upload (field `file`); list_type query is the per-row
-// fallback when a CSV row omits its own type.
-export const importAnprList = async (file, listType = "blacklist") => {
+// CSV import — multipart upload (field `file`) into a target list (by id).
+export const importAnprList = async (file, listId) => {
   const form = new FormData();
   form.append("file", file);
   return proxyScenario(ANPR_SLUG, "/lists/import", {
     method: "POST",
     data: form,
-    params: { list_type: listType },
+    params: { list_id: listId },
     headers: { "Content-Type": "multipart/form-data" },
   });
 };
