@@ -16,6 +16,9 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, 
 from fastapi.responses import FileResponse, JSONResponse, Response
 from PIL import Image, ImageFile
 
+# Shared Vizor Scenario SDK — service-token guard, manifest registration, NVR client.
+from vizor_sdk import NvrClient, service_token_guard
+
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 try:
@@ -49,10 +52,11 @@ PPE_ITEMS = ["helmet", "vest", "mask", "gloves", "goggles", "shoes"]
 app = FastAPI(title="Vizor PPE Compliance", version="0.1.0")
 
 
-def _load_manifest() -> dict:
-    manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
-    manifest["slug"] = SCENARIO_SLUG
-    return manifest
+# NVR client (manifest registration). Service-token guard from the SDK — fails
+# CLOSED if no strong token is set + constant-time compare (hardens the prior
+# local check that let blank tokens through).
+_nvr = NvrClient(VIZOR_BASE_URL, VIZOR_API_KEY, SCENARIO_SLUG)
+_require_service_token = service_token_guard(VIZOR_SERVICE_TOKEN)
 
 
 def _onnx_status() -> dict[str, Any]:
@@ -92,31 +96,12 @@ def _onnx_status() -> dict[str, Any]:
     }
 
 
-def _require_service_token(x_vizor_service_token: str | None = Header(None)) -> None:
-    if VIZOR_SERVICE_TOKEN and x_vizor_service_token != VIZOR_SERVICE_TOKEN:
-        raise HTTPException(401, "invalid service token")
-
-
-def register_on_boot() -> None:
-    if not VIZOR_API_KEY:
-        print("[ppe] VIZOR_API_KEY missing; manifest registration skipped", flush=True)
-        return
-    headers = {"Content-Type": "application/json", "X-Vizor-API-Key": VIZOR_API_KEY}
-    url = f"{VIZOR_BASE_URL}/ai/scenarios/register"
-    for attempt in range(1, 16):
-        try:
-            resp = requests.post(url, json=_load_manifest(), headers=headers, timeout=10)
-            resp.raise_for_status()
-            print(f"[ppe] registered manifest ({resp.status_code})", flush=True)
-            return
-        except Exception as exc:  # noqa: BLE001
-            print(f"[ppe] registration attempt {attempt} failed: {exc}", flush=True)
-            time.sleep(min(2 * attempt, 20))
-
-
 @app.on_event("startup")
 def _startup() -> None:
-    threading.Thread(target=register_on_boot, daemon=True).start()
+    # Register the manifest with the NVR catalog (SDK handles backoff/retry).
+    threading.Thread(
+        target=lambda: _nvr.register_manifest(MANIFEST_PATH), daemon=True
+    ).start()
 
 
 @app.get("/health")

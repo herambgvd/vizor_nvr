@@ -137,8 +137,8 @@ services:
 
   ppe:
     build:
-      context: ./scenarios/ppe
-      dockerfile: Dockerfile
+      context: ./scenarios
+      dockerfile: ppe/Dockerfile
     container_name: gvd_ai_ppe
     restart: unless-stopped
     depends_on:
