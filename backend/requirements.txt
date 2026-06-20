@@ -67,3 +67,6 @@ WSDiscovery
 # mypy==1.19.1
 # pytest==9.0.2
 twilio>=9.0.0
+# Full IANA tz database (incl. legacy aliases like Asia/Calcutta) so timezone
+# validation/localization doesn't depend on the OS tzdb being present/complete.
+tzdata>=2024.1
