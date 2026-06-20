@@ -14,10 +14,10 @@ Public API:
     ScenarioEvent, make_event    — uniform event schema
 
 Optional (heavier deps, import directly to keep the surface lazy):
-    vizor_sdk.frames.FramePuller     — go2rtc/RTSP + NVDEC decode
-    vizor_sdk.tracker.ObjectTracker  — ByteTrack/SORT
-    vizor_sdk.rules.ZoneRuleEngine   — polygon-in / line-cross / dwell
-    vizor_sdk.qdrant.QdrantStore     — vector upsert/search
+    vizor_sdk.frames.FramePuller     — go2rtc/RTSP + NVDEC decode (needs cv2)
+    vizor_sdk.tracker.ByteTracker    — multi-object ByteTrack/Kalman (pure numpy)
+    vizor_sdk.rules                  — Zone / LineCrossCounter / DwellTracker / ZoneRuleEngine
+    vizor_sdk.qdrant.QdrantStore     — vector upsert/search (needs qdrant-client)
 """
 from __future__ import annotations
 
@@ -25,6 +25,9 @@ from .config import BaseConfig, env_bool
 from .events import make_event
 from .nvr import NvrClient, allowed_camera_ids, service_token_guard
 from .triton import TritonClient
+# Pure-numpy, no heavy deps — safe to export eagerly.
+from .tracker import ByteTracker, assign_track_ids
+from .rules import DwellTracker, LineCrossCounter, Zone, ZoneRuleEngine
 
 __all__ = [
     "TritonClient",
@@ -34,6 +37,12 @@ __all__ = [
     "BaseConfig",
     "env_bool",
     "make_event",
+    "ByteTracker",
+    "assign_track_ids",
+    "Zone",
+    "LineCrossCounter",
+    "DwellTracker",
+    "ZoneRuleEngine",
 ]
 
 # build_app + ScenarioEvent need fastapi/pydantic (the "app" extra). Import them
