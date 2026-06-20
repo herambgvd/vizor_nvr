@@ -189,8 +189,8 @@ services:
 
   frs:
     build:
-      context: ./scenarios/frs
-      dockerfile: Dockerfile
+      context: ./scenarios
+      dockerfile: frs/Dockerfile
     container_name: gvd_ai_frs
     restart: unless-stopped
     depends_on:
