@@ -267,16 +267,29 @@ _BOOT_TIME = _t.time()
 
 @router.get("/info")
 async def system_info(user: dict = Depends(get_current_user)):
-    """Version, uptime, host platform hints."""
+    """Operator-appropriate system summary: product version and uptime only.
+
+    Raw host internals (Python runtime version, full OS build string, exact
+    core counts) are deliberately NOT exposed to a normal operator — that
+    hardware/OS detail lives behind the admin-only /monitoring/system-info
+    endpoint. Admins additionally get the OS family/CPU/RAM here.
+    """
     import platform, psutil  # type: ignore
-    return {
+
+    info = {
         "version": __version__,
         "uptime_seconds": int(_t.time() - _BOOT_TIME),
-        "python": platform.python_version(),
-        "platform": platform.platform(),
-        "cpu_count": psutil.cpu_count() if hasattr(psutil, "cpu_count") else None,
-        "memory_total_bytes": psutil.virtual_memory().total if hasattr(psutil, "virtual_memory") else None,
     }
+
+    # Admins may see a clean (non-build-string) hardware summary inline.
+    if user.get("role") == "admin":
+        info.update({
+            "os": platform.system(),  # e.g. "Linux" — not the full kernel build
+            "cpu_count": psutil.cpu_count() if hasattr(psutil, "cpu_count") else None,
+            "memory_total_bytes": psutil.virtual_memory().total if hasattr(psutil, "virtual_memory") else None,
+        })
+
+    return info
 
 
 # ─── License (Phase 7.1) ──────────────────────────────────────────────────────

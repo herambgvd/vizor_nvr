@@ -45,6 +45,18 @@ import { format } from "date-fns";
 
 const PAGE_SIZE = 20;
 
+// Optional bookmark categories → console-themed accent colors. Free-form
+// categories fall back to a neutral tone.
+const CATEGORY_COLORS = {
+  incident: "var(--console-rec)",
+  evidence: "var(--console-alarm)",
+  review: "var(--console-accent)",
+  general: "var(--console-muted)",
+};
+
+const categoryColor = (category) =>
+  CATEGORY_COLORS[(category || "").toLowerCase()] || "var(--console-muted)";
+
 const inputStyle = {
   background: "var(--console-raised)",
   border: "1px solid var(--console-border)",
@@ -139,21 +151,21 @@ const Bookmarks = () => {
     return `${minutes}:${secs.toString().padStart(2, "0")}`;
   };
 
-  // Handle play bookmark - navigate to playback page
+  // Handle play bookmark - navigate to playback and seek to the saved moment.
+  // Playback consumes `t` as an absolute epoch-seconds seek target (abs_time).
   const handlePlayBookmark = (bookmark) => {
-    // Navigate to playback page with camera selected and timestamp
     const camera = cameraMap[bookmark.camera_id];
-    if (camera) {
-      // Extract date from created_at for the playback page
-      const bookmarkDate = new Date(bookmark.created_at);
-      const dateStr = format(bookmarkDate, "yyyy-MM-dd");
-
-      // Navigate to playback with query params
-      navigate(
-        `/playback?camera=${bookmark.camera_id}&date=${dateStr}&t=${bookmark.timestamp}`,
-      );
+    if (!camera) {
+      toast.error("That camera is no longer available");
+      return;
+    }
+    if (bookmark.abs_time) {
+      navigate(`/playback?camera=${bookmark.camera_id}&t=${bookmark.abs_time}`);
     } else {
-      toast.error("Camera not found");
+      // Legacy bookmark without an absolute anchor — open the camera so the
+      // operator can scrub to the moment manually.
+      navigate(`/playback?camera=${bookmark.camera_id}`);
+      toast.info("Opened camera — this older bookmark has no exact position saved");
     }
   };
 
@@ -358,7 +370,27 @@ const Bookmarks = () => {
                           <Clock className="h-2.5 w-2.5" />
                           {formatTimestamp(bookmark.timestamp)}
                         </span>
+                        {bookmark.category && (
+                          <span
+                            className="inline-flex items-center font-telemetry text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 uppercase tracking-wide"
+                            style={{
+                              background: "var(--console-raised)",
+                              border: `1px solid ${categoryColor(bookmark.category)}`,
+                              color: categoryColor(bookmark.category),
+                            }}
+                          >
+                            {bookmark.category}
+                          </span>
+                        )}
                       </div>
+                      {bookmark.label && (
+                        <p
+                          className="font-telemetry text-xs font-semibold truncate mb-0.5"
+                          style={{ color: "var(--console-text)" }}
+                        >
+                          {bookmark.label}
+                        </p>
+                      )}
                       {bookmark.note && (
                         <p
                           className="font-telemetry text-xs line-clamp-2 mb-0.5"

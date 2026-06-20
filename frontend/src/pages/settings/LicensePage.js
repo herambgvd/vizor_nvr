@@ -24,6 +24,29 @@ import {
   clearLicense,
 } from "../../api/license";
 import { friendlyError } from "../../lib/utils";
+import { eventTypeLabel } from "../../lib/eventLabels";
+
+// Clean operator-facing names for platform feature flags. Unknown codes are
+// Title-Cased so a raw flag is never shown verbatim.
+const FEATURE_LABELS = {
+  ai: "AI Analytics",
+  ai_modules: "AI Analytics",
+  frs: "Face Recognition",
+  ppe: "PPE Detection",
+  anpr: "License Plate Recognition",
+  lpr: "License Plate Recognition",
+  analytics: "Advanced Analytics",
+  clustering: "High Availability",
+  cluster: "High Availability",
+  export: "Footage Export",
+  multi_site: "Multi-Site",
+};
+
+const featureLabel = (code) =>
+  FEATURE_LABELS[String(code || "").toLowerCase()] ||
+  String(code || "")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 
 // Map raw backend license `reason` codes to clean operator-facing labels.
 // Never render the raw code (some carry "load_error:<exception>" internals).
@@ -442,8 +465,61 @@ const LicensePage = () => {
               limit={data?.camera_limit || 0}
               icon={Camera}
             />
+            {data?.ai_camera_limit > 0 && (
+              <StatBar
+                label="AI Cameras"
+                used={Math.min(
+                  data?.usage?.cameras || 0,
+                  data?.ai_camera_limit || 0,
+                )}
+                limit={data?.ai_camera_limit || 0}
+                icon={Cpu}
+              />
+            )}
           </div>
         )}
+
+        {/* Enabled features */}
+        {data?.active &&
+          ((data?.features?.length || 0) > 0 ||
+            (data?.scenarios?.length || 0) > 0) && (
+            <ConsoleCard>
+              <span
+                className="font-telemetry text-[10px] uppercase tracking-widest"
+                style={{ color: "var(--console-muted)" }}
+              >
+                Included in this license
+              </span>
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {(data?.features || []).map((f) => (
+                  <span
+                    key={`f-${f}`}
+                    className="font-telemetry text-[10px] px-1.5 py-0.5 rounded border"
+                    style={{
+                      background: "var(--console-raised)",
+                      borderColor: "var(--console-border)",
+                      color: "var(--console-text)",
+                    }}
+                  >
+                    {featureLabel(f)}
+                  </span>
+                ))}
+                {(data?.scenarios || []).map((s) => (
+                  <span
+                    key={`s-${s}`}
+                    className="font-telemetry text-[10px] px-1.5 py-0.5 rounded border"
+                    style={{
+                      background: "rgba(139,92,246,0.1)",
+                      borderColor: "rgba(139,92,246,0.3)",
+                      color: "#c4b5fd",
+                    }}
+                  >
+                    {eventTypeLabel(s)}
+                  </span>
+                ))}
+              </div>
+            </ConsoleCard>
+          )}
 
       </div>
 

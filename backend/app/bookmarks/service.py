@@ -22,6 +22,9 @@ class BookmarkService:
             camera_id=data.camera_id,
             recording_id=data.recording_id,
             timestamp=data.timestamp,
+            abs_time=data.abs_time,
+            label=data.label,
+            category=data.category,
             note=data.note,
             user_id=user_id,
         )
@@ -63,6 +66,10 @@ class BookmarkService:
     ) -> Bookmark:
         if data.note is not None:
             bookmark.note = data.note
+        if data.label is not None:
+            bookmark.label = data.label
+        if data.category is not None:
+            bookmark.category = data.category
         await db.commit()
         await db.refresh(bookmark)
         return bookmark

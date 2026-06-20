@@ -422,10 +422,14 @@ const ResourcesPage = () => {
     refetchInterval: 5_000,
   });
 
+  // System info (CPU/GPU model, OS) is host hardware detail — admin-only on the
+  // backend (get_admin_user). Only fetch it for admins so operators don't fire
+  // a guaranteed 403 every load.
   const { data: sysInfo, refetch: refetchSysInfo } = useQuery({
     queryKey: ["monitoring-system-info"],
     queryFn: getSystemInfo,
     staleTime: 5 * 60_000,
+    enabled: isAdmin,
   });
 
   const { data: history } = useQuery({
@@ -645,7 +649,7 @@ const ResourcesPage = () => {
                 No GPU detected
               </p>
               <p className="font-telemetry text-[10px] mt-1" style={{ color: "var(--console-muted)" }}>
-                NVIDIA driver + pynvml required
+                AI acceleration is running on the CPU
               </p>
             </div>
           ) : (

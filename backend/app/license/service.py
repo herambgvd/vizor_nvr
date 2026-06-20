@@ -82,6 +82,35 @@ class LicenseError(Exception):
     pass
 
 
+# Clean, operator-facing messages for each internal reason code. The raw codes
+# (and any exception detail) must never reach the UI — this is a commercial NVR
+# console, not a crypto debugger. Used by the activate endpoint to build the
+# 400 detail; the frontend has its own mirror for the status badge.
+REASON_MESSAGES = {
+    "no_license_installed": "No license is installed.",
+    "not_loaded": "License is still initializing. Please try again in a moment.",
+    "decode_failed": "Invalid license file.",
+    "too_short": "Invalid license file.",
+    "bad_signature": "Invalid license file.",
+    "parse_failed": "Invalid license file.",
+    "load_error": "Invalid license file.",
+    "write_failed": "Couldn't save the license. Please try again.",
+    "missing_expires_at": "Invalid license file.",
+    "expired": "This license has expired.",
+    "in_grace_period": "This license has expired and is in its grace period.",
+    "hardware_mismatch": "This license is for a different machine.",
+}
+
+
+def friendly_reason(reason: Optional[str]) -> str:
+    """Map an internal reason code to clean operator text. Strips any
+    ':<detail>' suffix so interpolated exceptions never leak."""
+    if not reason:
+        return "Invalid license file."
+    code = reason.split(":", 1)[0]
+    return REASON_MESSAGES.get(code, "Invalid license file.")
+
+
 def _parse_iso(s: str) -> Optional[datetime]:
     try:
         return datetime.fromisoformat(s.replace("Z", "+00:00"))
@@ -125,14 +154,15 @@ class LicenseService:
                 status.payload.camera_limit if status.payload else 0,
             )
             return status
-        except Exception as e:
+        except Exception:
+            # Detail stays in the server log only — never surfaced to the UI.
             logger.exception("license load failed")
             self._status = LicenseStatus(
                 valid=False,
                 in_grace=False,
                 fingerprint_match=False,
                 days_remaining=0,
-                reason=f"load_error:{e}",
+                reason="load_error",
                 payload=None,
             )
             self._payload = None
@@ -148,8 +178,9 @@ class LicenseService:
             try:
                 LICENSE_FILE.parent.mkdir(parents=True, exist_ok=True)
                 LICENSE_FILE.write_text(blob.strip())
-            except Exception as e:
-                raise LicenseError(f"write_failed:{e}")
+            except Exception:
+                logger.exception("license write failed")
+                raise LicenseError("write_failed")
             self._status = status
             self._payload = status.payload
             return status
@@ -175,8 +206,9 @@ class LicenseService:
         try:
             d = json.loads(payload_bytes.decode("utf-8"))
             payload = LicensePayload.from_dict(d)
-        except Exception as e:
-            return LicenseStatus(False, False, False, 0, f"parse_failed:{e}", None)
+        except Exception:
+            logger.warning("license payload parse failed", exc_info=True)
+            return LicenseStatus(False, False, False, 0, "parse_failed", None)
 
         # Expiration. An empty expires_at means a perpetual license — valid
         # forever (subject to the fingerprint check below).

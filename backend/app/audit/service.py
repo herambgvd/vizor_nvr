@@ -83,9 +83,13 @@ class AuditService:
         return [row[0] for row in result.fetchall()]
 
     @staticmethod
-    async def cleanup(db: AsyncSession, days: int = 90):
-        """Delete audit entries older than N days."""
+    async def cleanup(db: AsyncSession, days: int = 365):
+        """Delete audit entries older than N days. The router enforces a hard
+        365-day floor for tamper-resistance; this default mirrors that floor so
+        the service never trims newer-than-a-year evidence if called directly."""
         from datetime import timedelta
+        # Defensive floor: never purge entries younger than one year.
+        days = max(days, 365)
         cutoff = datetime.utcnow() - timedelta(days=days)
         result = await db.execute(
             select(AuditLog).where(AuditLog.created_at < cutoff)

@@ -23,7 +23,11 @@ import {
 import { toast } from "sonner";
 import { getLicense, getFingerprint, activateLicense } from "../api/license";
 import { useAuth } from "../context/AuthContext";
+import { friendlyError } from "../lib/utils";
 
+// Clean operator-facing copy per reason code. Any code NOT listed here (e.g.
+// "load_error", "parse_failed", or future internals) falls back to a generic
+// message so raw codes never reach the screen.
 const REASON_LABELS = {
   no_license_installed: "No license has been installed on this system.",
   not_loaded: "License state is still initializing.",
@@ -31,11 +35,16 @@ const REASON_LABELS = {
   in_grace_period: "The license has expired and is in its grace period.",
   hardware_mismatch:
     "This license was issued for a different machine. Send your machine fingerprint to your vendor for a re-issue.",
-  bad_signature: "The license file signature is invalid.",
+  bad_signature: "The license file is invalid.",
   decode_failed: "The license file could not be read.",
-  too_short: "The license file is malformed.",
-  missing_expires_at: "The license file is missing an expiry date.",
+  too_short: "The license file is invalid.",
+  parse_failed: "The license file is invalid.",
+  load_error: "The license file is invalid.",
+  missing_expires_at: "The license file is invalid.",
 };
+
+const reasonLabel = (reason) =>
+  REASON_LABELS[reason] || "No active license. Please install a valid license.";
 
 const LicenseRequired = () => {
   const navigate = useNavigate();
@@ -64,13 +73,21 @@ const LicenseRequired = () => {
         toast.success("License activated");
         navigate("/", { replace: true });
       } else {
-        toast.error(
-          REASON_LABELS[res?.reason] || res?.reason || "License not valid",
-        );
+        toast.error(reasonLabel(res?.reason));
       }
     },
-    onError: (e) =>
-      toast.error(e?.response?.data?.detail || "License activation failed"),
+    onError: (e) => {
+      // The activate endpoint returns clean, operator-fixable 400 detail
+      // strings ("Invalid license file", "This license is for a different
+      // machine"). Surface those; otherwise a generic non-technical message.
+      const detail = e?.response?.data?.detail;
+      const status = e?.response?.status;
+      toast.error(
+        status === 400 && typeof detail === "string" && detail
+          ? detail
+          : friendlyError(e, "Couldn't activate that license file."),
+      );
+    },
   });
 
   // Active license → leave the gate.
@@ -136,9 +153,7 @@ const LicenseRequired = () => {
               style={{ color: "var(--console-muted)" }}
             />
             <span style={{ color: "var(--console-muted)" }}>
-              {isLoading
-                ? "Checking license status…"
-                : REASON_LABELS[reason] || reason || "No active license."}
+              {isLoading ? "Checking license status…" : reasonLabel(reason)}
             </span>
           </div>
 

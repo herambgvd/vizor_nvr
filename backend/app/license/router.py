@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user, require_permission
 from app.database import get_db
-from app.license.service import LicenseError, get_license_service
+from app.license.service import LicenseError, friendly_reason, get_license_service
 
 router = APIRouter(prefix="/api/license", tags=["License"])
 
@@ -54,7 +54,11 @@ async def activate_license(
         raw = (await file.read()).decode("utf-8", errors="ignore").strip()
         await svc.activate(raw)
     except LicenseError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+        # Translate the internal reason code to clean operator text — never
+        # surface raw crypto/parse internals to the console.
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, friendly_reason(str(e))
+        )
     try:
         from app.config import settings
         if settings.ENABLE_AI_MODULES:
@@ -75,8 +79,11 @@ async def clear_license(
 
     try:
         LICENSE_FILE.unlink(missing_ok=True)
-    except Exception as e:
-        raise HTTPException(500, f"unlink_failed:{e}")
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).exception("license unlink failed")
+        raise HTTPException(500, "Couldn't remove the license. Please try again.")
     svc = get_license_service()
     await svc.load_persisted()
     try:

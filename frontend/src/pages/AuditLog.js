@@ -32,7 +32,7 @@ import {
 } from "../components/ui/alert-dialog";
 import { toast } from "sonner";
 import { format } from "date-fns";
-import { cn } from "../lib/utils";
+import { cn, friendlyError } from "../lib/utils";
 
 const PAGE_SIZES = [25, 50, 100];
 
@@ -172,19 +172,23 @@ const AuditLog = () => {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [action, setAction] = useState("all");
-  const [userFilter, setUserFilter] = useState("");
+  const [searchFilter, setSearchFilter] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [confirmCleanup, setConfirmCleanup] = useState(false);
 
+  // Backend (app/audit/router.py query_audit_logs) expects:
+  //   per_page, search, start_time, end_time  (NOT page_size/user/start_date).
+  // Date inputs are calendar days — widen `end_time` to end-of-day so the
+  // selected "to" date is inclusive.
   const params = useMemo(() => {
-    const p = { page, page_size: pageSize };
+    const p = { page, per_page: pageSize };
     if (action && action !== "all") p.action = action;
-    if (userFilter.trim()) p.user = userFilter.trim();
-    if (startDate) p.start_date = startDate;
-    if (endDate) p.end_date = endDate;
+    if (searchFilter.trim()) p.search = searchFilter.trim();
+    if (startDate) p.start_time = `${startDate}T00:00:00`;
+    if (endDate) p.end_time = `${endDate}T23:59:59`;
     return p;
-  }, [page, pageSize, action, userFilter, startDate, endDate]);
+  }, [page, pageSize, action, searchFilter, startDate, endDate]);
 
   const { data, isLoading } = useQuery({
     queryKey: ["audit-logs", params],
@@ -203,7 +207,8 @@ const AuditLog = () => {
 
   const logs = data?.items ?? data ?? [];
   const total = data?.total ?? logs.length;
-  const totalPages = data?.total_pages ?? (Math.ceil(total / pageSize) || 1);
+  // Backend returns `pages` (AuditLogPage); keep a client fallback for safety.
+  const totalPages = data?.pages ?? (Math.ceil(total / pageSize) || 1);
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
@@ -214,14 +219,16 @@ const AuditLog = () => {
   const handleExport = async (fmt) => {
     setExporting(true);
     try {
+      // Export endpoint (/audit/logs/export) filters on action + from/to date
+      // only; it has no free-text search, so the active filters are applied
+      // where the backend supports them.
       const p = { format: fmt };
       if (action && action !== "all") p.action = action;
-      if (userFilter.trim()) p.user_id = userFilter.trim();
-      if (startDate) p.from = startDate;
-      if (endDate) p.to = endDate;
+      if (startDate) p.from = `${startDate}T00:00:00`;
+      if (endDate) p.to = `${endDate}T23:59:59`;
       await exportAuditLogs(p);
     } catch (e) {
-      toast.error("Export failed");
+      toast.error(friendlyError(e, "Couldn't export the audit log."));
     } finally {
       setExporting(false);
     }
@@ -234,10 +241,10 @@ const AuditLog = () => {
       toast.success(`Cleaned up ${res?.deleted ?? 0} old entries`);
       setConfirmCleanup(false);
     },
-    onError: (e) => toast.error(e.response?.data?.detail || "Cleanup failed"),
+    onError: (e) => toast.error(friendlyError(e, "Couldn't clean up audit entries.")),
   });
 
-  const hasFilters = action !== "all" || userFilter || startDate || endDate;
+  const hasFilters = action !== "all" || searchFilter || startDate || endDate;
 
   return (
     <div
@@ -299,16 +306,16 @@ const AuditLog = () => {
             />
           </div>
 
-          <div className="relative w-48">
+          <div className="relative w-60">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 pointer-events-none" style={{ color: "var(--console-muted)" }} />
             <ConsoleInput
-              value={userFilter}
+              value={searchFilter}
               onChange={(e) => {
-                setUserFilter(e.target.value);
+                setSearchFilter(e.target.value);
                 setPage(1);
               }}
               style={{ paddingLeft: "1.75rem" }}
-              placeholder="User…"
+              placeholder="Search user, action, details…"
             />
           </div>
 
@@ -337,7 +344,7 @@ const AuditLog = () => {
             <SecondaryBtn
               onClick={() => {
                 setAction("all");
-                setUserFilter("");
+                setSearchFilter("");
                 setStartDate("");
                 setEndDate("");
                 setPage(1);
@@ -478,7 +485,8 @@ const AuditLog = () => {
               Cleanup Old Audit Entries
             </AlertDialogTitle>
             <AlertDialogDescription className="font-telemetry text-xs" style={{ color: "var(--console-muted)" }}>
-              Delete all audit entries older than 90 days. This cannot be undone.
+              Delete audit entries older than 365 days. Recent activity is always
+              retained for at least a year and cannot be removed. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -487,7 +495,7 @@ const AuditLog = () => {
             </AlertDialogCancel>
             <AlertDialogAction asChild>
               <DestructiveBtn
-                onClick={() => cleanupMut.mutate({ older_than_days: 90 })}
+                onClick={() => cleanupMut.mutate({ days: 365 })}
                 disabled={cleanupMut.isPending}
               >
                 <Trash2 className="h-3.5 w-3.5 mr-1" />

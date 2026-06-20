@@ -148,23 +148,60 @@ const Playback = () => {
     }
   }, [cameras, selectedCameraId, searchParams]);
 
-  // Sync URL
+  // Sync URL — preserve any pending jump-to-bookmark target (`t`) so it isn't
+  // dropped before the seek effect below can consume it.
   useEffect(() => {
     if (selectedCameraId) {
-      setSearchParams({ camera: selectedCameraId }, { replace: true });
+      const next = { camera: selectedCameraId };
+      const t = searchParams.get("t");
+      if (t) next.t = t;
+      setSearchParams(next, { replace: true });
     }
-  }, [selectedCameraId, setSearchParams]);
+  }, [selectedCameraId, setSearchParams, searchParams]);
+
+  // ---- jump-to-bookmark: seek to the `t` URL param (absolute epoch seconds) ----
+  // Set when navigating from a bookmark's Play button. We switch to that day
+  // and seek once the camera + timeline for that day are loaded, then clear it.
+  const pendingSeekRef = useRef(null);
+
+  useEffect(() => {
+    const t = searchParams.get("t");
+    if (!t) return;
+    const epochSec = Number(t);
+    if (!Number.isFinite(epochSec) || epochSec <= 0) return;
+    const target = new Date(epochSec * 1000);
+    pendingSeekRef.current = target;
+    setSelectedDate(startOfDay(target));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams.get("t")]);
+
+  useEffect(() => {
+    const target = pendingSeekRef.current;
+    if (!target || !selectedCameraId || timelineLoading) return;
+    if (
+      startOfDay(target).getTime() !== startOfDay(selectedDate).getTime()
+    )
+      return;
+    pendingSeekRef.current = null;
+    handleSeek(target.getTime());
+    // Drop the consumed param from the URL.
+    setSearchParams({ camera: selectedCameraId }, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCameraId, selectedDate, timeline, timelineLoading]);
 
   // ---- seek handler (actually controls the TimelinePlayer) ----
   const handleSeek = useCallback(
     async (timestamp) => {
+      const target = new Date(timestamp);
       try {
-        // Ask backend for the recording file & byte-offset
+        // Confirm a recording exists at this moment (404 → no footage there).
         const info = await getPlaybackInfo(selectedCameraId, {
-          timestamp: new Date(timestamp).toISOString(),
+          timestamp: target.toISOString(),
         });
-        // TimelinePlayer exposes an imperative seekTo method
-        playerRef.current?.seekTo?.(info);
+        // The playback endpoint returns the segment + seek_offset but not the
+        // moment itself, so pass the requested target through explicitly. The
+        // player seeks to `info.timestamp`.
+        playerRef.current?.seekTo?.({ ...info, timestamp: target.getTime() });
       } catch {
         // Silently ignore seek failures - user will see "no recording" state
       }
@@ -205,11 +242,24 @@ const Playback = () => {
   });
 
   const handleBookmark = useCallback(
-    (timestamp) => {
+    (offsetSeconds, recording) => {
       if (!selectedCameraId) return;
+      // `offsetSeconds` is the position within the current recording (for
+      // display). `abs_time` is the absolute wall-clock moment — that's what
+      // jump-to-bookmark seeks to. Derive it from the recording start so the
+      // bookmark is self-contained and seekable later.
+      let absTime = null;
+      const startMs = recording?.start_time
+        ? new Date(recording.start_time).getTime()
+        : null;
+      if (startMs != null && !Number.isNaN(startMs)) {
+        absTime = startMs / 1000 + (offsetSeconds ?? 0);
+      }
       bookmarkMutation.mutate({
         camera_id: selectedCameraId,
-        timestamp: timestamp ?? 0,
+        recording_id: recording?.id ?? null,
+        timestamp: offsetSeconds ?? 0,
+        abs_time: absTime,
       });
     },
     [selectedCameraId, bookmarkMutation],
@@ -471,7 +521,15 @@ const BookmarksPanel = ({ cameras }) => {
   });
 
   const handlePlay = (bm) => {
-    navigate(`/playback?camera=${bm.camera_id}&t=${bm.timestamp}`);
+    // Seek by the absolute moment (epoch seconds). Older bookmarks created
+    // before abs_time existed only carry a recording-relative offset, which
+    // can't be located standalone — open the camera so the operator can scrub.
+    if (bm.abs_time) {
+      navigate(`/playback?camera=${bm.camera_id}&t=${bm.abs_time}`);
+    } else {
+      navigate(`/playback?camera=${bm.camera_id}`);
+      toast.info("Opened camera — this older bookmark has no exact position saved");
+    }
   };
 
   const bookmarkList = Array.isArray(bookmarks)
