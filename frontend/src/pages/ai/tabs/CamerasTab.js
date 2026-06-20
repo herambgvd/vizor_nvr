@@ -139,6 +139,21 @@ const BoolField = ({ field, value, onChange }) => {
   );
 };
 
+const StringField = ({ field, value, onChange }) => {
+  const v = value ?? field.default ?? "";
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
+        {field.label}
+      </label>
+      <input type="text" value={v} onChange={(e) => onChange(e.target.value)}
+        placeholder={field.placeholder || field.default || ""}
+        className="w-full rounded px-2 py-1 font-telemetry text-[11px] border"
+        style={{ background: "var(--console-raised)", borderColor: "var(--console-border)", color: "var(--console-text)" }} />
+    </div>
+  );
+};
+
 const MultiSelectField = ({ field, value, onChange }) => {
   const selected = value ?? field.default ?? [];
   const toggle = (opt) =>
@@ -236,13 +251,77 @@ const RoiField = ({ field, value, onChange, cameraId }) => {
   );
 };
 
+// Line editor — a 2-point tripwire over a live frame, normalised (0..1) points.
+// Used for ANPR direction / speed-calibration lines.
+const LineField = ({ field, value, onChange, cameraId }) => {
+  const points = Array.isArray(value) ? value.slice(0, 2) : [];
+  const wrapRef = React.useRef(null);
+  const [bust] = React.useState(() => Date.now());
+  const [snap, setSnap] = React.useState(
+    cameraId ? `${BACKEND_URL}/go2rtc/api/frame.jpeg?src=${cameraId.toLowerCase()}&t=${bust}` : null
+  );
+
+  const addPoint = (e) => {
+    if (points.length >= 2) return; // a line has exactly two endpoints
+    const box = wrapRef.current?.getBoundingClientRect();
+    if (!box) return;
+    const x = Math.min(1, Math.max(0, (e.clientX - box.left) / box.width));
+    const y = Math.min(1, Math.max(0, (e.clientY - box.top) / box.height));
+    onChange([...points, [Number(x.toFixed(4)), Number(y.toFixed(4))]]);
+  };
+  const clear = () => onChange([]);
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center justify-between">
+        <label className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
+          {field.label}
+        </label>
+        <button type="button" onClick={clear} disabled={!points.length}
+          className="font-telemetry text-[10px] uppercase tracking-wide px-2 py-0.5 rounded border disabled:opacity-40"
+          style={{ borderColor: "var(--console-border)", color: "var(--console-rec)", background: "var(--console-raised)" }}>
+          Clear
+        </button>
+      </div>
+      <div ref={wrapRef} onClick={addPoint}
+        className="relative w-full rounded border overflow-hidden cursor-crosshair"
+        style={{ borderColor: "var(--console-border)", background: "#000", aspectRatio: "16 / 9" }}>
+        {snap && (
+          <img src={snap} alt="" className="absolute inset-0 w-full h-full object-contain pointer-events-none"
+            onError={() => setSnap(null)} />
+        )}
+        <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
+          {points.length === 2 && (
+            <line x1={points[0][0] * 100} y1={points[0][1] * 100} x2={points[1][0] * 100} y2={points[1][1] * 100}
+              stroke="var(--console-accent)" strokeWidth="0.6" />
+          )}
+          {points.map((p, i) => (
+            <circle key={i} cx={p[0] * 100} cy={p[1] * 100} r="0.9" fill="var(--console-accent)" />
+          ))}
+        </svg>
+        {!points.length && (
+          <div className="absolute inset-0 flex items-center justify-center font-telemetry text-[10px] uppercase tracking-widest pointer-events-none"
+            style={{ color: "var(--console-muted)" }}>
+            Click two points to set the line
+          </div>
+        )}
+      </div>
+      <span className="font-telemetry text-[10px]" style={{ color: "var(--console-muted)" }}>
+        {points.length}/2 points — empty = no line
+      </span>
+    </div>
+  );
+};
+
 const FieldRenderer = ({ field, value, onChange, cameraId }) => {
   switch (field.type) {
     case "float": return <FloatField field={field} value={value} onChange={onChange} />;
     case "int": return <IntField field={field} value={value} onChange={onChange} />;
     case "bool": return <BoolField field={field} value={value} onChange={onChange} />;
+    case "string": return <StringField field={field} value={value} onChange={onChange} />;
     case "multiselect": return <MultiSelectField field={field} value={value} onChange={onChange} />;
     case "roi": return <RoiField field={field} value={value} onChange={onChange} cameraId={cameraId} />;
+    case "line": return <LineField field={field} value={value} onChange={onChange} cameraId={cameraId} />;
     default: return null;
   }
 };

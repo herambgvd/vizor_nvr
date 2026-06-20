@@ -48,6 +48,14 @@ const SCOPE_BY_SLUG = {
     footnote:
       "Detailed compliance counts will populate here once the PPE detector publishes plugin report metrics.",
   },
+  anpr: {
+    activeLabel: "Recognition active",
+    scopeTitle: "ANPR model scope",
+    blurb:
+      "License plate reports are plugin-driven. Plate reads, vehicle types and watchlist hits are produced by the ANPR scenario.",
+    footnote:
+      "Detailed plate-read counts will populate here once the ANPR engine publishes plugin report metrics.",
+  },
   frs: {
     activeLabel: "Recognition active",
     scopeTitle: "FRS model scope",
@@ -245,6 +253,31 @@ export default function ReportsTab({ scenario }) {
     () => (pluginSummary?.by_hour || []).map((b) => ({ label: `${b.hour}:00`, value: b.count })),
     [pluginSummary],
   );
+  // Plugin summary breakdowns shared by PPE/ANPR (tolerant of missing keys).
+  const cameraNames = useMemo(() => cameraNameMap(cameras || []), [cameras]);
+  const summaryByCamera = useMemo(
+    () => (pluginSummary?.by_camera || []).map((b) => ({
+      label: cameraNames[b.camera_id] || b.camera_id || "Unknown",
+      value: b.count,
+    })),
+    [pluginSummary, cameraNames],
+  );
+  const ppeByType = useMemo(
+    () => (pluginSummary?.by_type || []).map((b) => ({
+      label: String(b.event_type || "").replace(/_/g, " "),
+      value: b.count,
+    })),
+    [pluginSummary],
+  );
+  const anprByVehicle = useMemo(
+    () => (pluginSummary?.by_vehicle_type || []).map((b) => ({
+      label: b.vehicle_type || "unknown",
+      value: b.count,
+    })),
+    [pluginSummary],
+  );
+  const isPpe = scenario?.slug === "ppe";
+  const isAnpr = scenario?.slug === "anpr";
   const eventsList = useMemo(() => events?.items || [], [events]);
   const byCameraData = useMemo(() => {
     const names = cameraNameMap(cameras || []);
@@ -352,8 +385,14 @@ export default function ReportsTab({ scenario }) {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard
           icon={Activity}
-          label="Scenario events"
-          value={eventsLoading ? "—" : (pluginSummary?.results_total ?? events?.total ?? eventsList.length)}
+          label={isAnpr ? "Plate reads" : "Scenario events"}
+          value={eventsLoading
+            ? "—"
+            : (pluginSummary?.results_total
+                ?? pluginSummary?.total_reads
+                ?? pluginSummary?.total_events
+                ?? events?.total
+                ?? eventsList.length)}
           accent="text-blue-400"
         />
         <StatCard
@@ -377,17 +416,21 @@ export default function ReportsTab({ scenario }) {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Panel title="Events by camera" icon={BarChart3}>
-          {eventsLoading ? (
-            <div className="h-32 rounded animate-pulse bg-zinc-800/40" />
-          ) : (
-            <HBarChart
-              data={byCameraData}
-              color="#228B22"
-              emptyLabel="No scenario events in this range yet."
-            />
-          )}
-        </Panel>
+        {/* PPE/ANPR render their own per-camera breakdown from the plugin
+            summary below, so skip the unified-store one to avoid an empty panel. */}
+        {!(isPpe || isAnpr) && (
+          <Panel title="Events by camera" icon={BarChart3}>
+            {eventsLoading ? (
+              <div className="h-32 rounded animate-pulse bg-zinc-800/40" />
+            ) : (
+              <HBarChart
+                data={byCameraData}
+                color="#228B22"
+                emptyLabel="No scenario events in this range yet."
+              />
+            )}
+          </Panel>
+        )}
         <Panel title={scope.scopeTitle} icon={Clock}>
           <div className="space-y-3 text-[12px] text-zinc-400">
             <p>{scope.blurb}</p>
@@ -417,6 +460,57 @@ export default function ReportsTab({ scenario }) {
             accent="text-amber-400"
           />
         </div>
+      )}
+
+      {/* PPE compliance summary — counts + breakdowns. */}
+      {isPpe && pluginSummary && (
+        <>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <StatCard icon={Activity} label="Total events" value={pluginSummary.total_events ?? 0} accent="text-blue-400" />
+            <StatCard icon={ShieldAlert} label="Violations" value={pluginSummary.violations ?? 0} accent="text-rose-400" />
+            <StatCard icon={Users} label="Compliant" value={pluginSummary.compliant ?? 0} accent="text-emerald-400" />
+            <StatCard
+              icon={BarChart3}
+              label="Compliance rate"
+              value={pluginSummary.compliance_rate != null ? `${Math.round(pluginSummary.compliance_rate * 100)}%` : "—"}
+              accent="text-purple-400"
+            />
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <Panel title="Violations by camera" icon={BarChart3}>
+              <HBarChart data={summaryByCamera} color="#f43f5e" emptyLabel="No compliance events in this range yet." />
+            </Panel>
+            <Panel title="By event type" icon={ShieldAlert}>
+              <HBarChart data={ppeByType} color="#f59e0b" emptyLabel="No compliance events in this range yet." />
+            </Panel>
+          </div>
+          <Panel title="Events by hour" icon={Clock}>
+            <HBarChart data={byHourData} color="#3b82f6" emptyLabel="No events in this range yet." />
+          </Panel>
+        </>
+      )}
+
+      {/* ANPR plate-read summary — counts + breakdowns. */}
+      {isAnpr && pluginSummary && (
+        <>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <StatCard icon={Activity} label="Total reads" value={pluginSummary.total_reads ?? 0} accent="text-blue-400" />
+            <StatCard icon={ShieldAlert} label="Blacklist hits" value={pluginSummary.blacklist_hits ?? 0} accent="text-rose-400" />
+            <StatCard icon={Users} label="Whitelist hits" value={pluginSummary.whitelist_hits ?? 0} accent="text-emerald-400" />
+            <StatCard icon={BarChart3} label="Vehicle types" value={anprByVehicle.length} accent="text-purple-400" />
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <Panel title="Reads by camera" icon={BarChart3}>
+              <HBarChart data={summaryByCamera} color="#228B22" emptyLabel="No plate reads in this range yet." />
+            </Panel>
+            <Panel title="By vehicle type" icon={BarChart3}>
+              <HBarChart data={anprByVehicle} color="#14b8a6" emptyLabel="No plate reads in this range yet." />
+            </Panel>
+          </div>
+          <Panel title="Reads by hour" icon={Clock}>
+            <HBarChart data={byHourData} color="#3b82f6" emptyLabel="No reads in this range yet." />
+          </Panel>
+        </>
       )}
 
       {/* FRS recognition summary — counts + hourly distribution. */}

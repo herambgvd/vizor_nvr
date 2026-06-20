@@ -1,560 +1,223 @@
 // =============================================================================
-// AI · PPE Detect tab — one-shot image + async video compliance detection.
-// =============================================================================
-// IMAGE section: pick a file → preview → "Detect" runs detectPPE (synchronous)
-// and renders per-person compliance: a PPE-item grid (helmet/vest/mask/gloves/
-// goggles/shoes) with present/missing badges, a compliant/violation verdict and
-// the missing-item violations list, plus summary metrics.
+// AI · PPE Detect tab — live compliance overview.
 //
-// VIDEO section: pick a file → "Submit" calls submitPPEVideoJob, then we poll
-// ppeVideoJobStatus every 2s showing a progress bar; when state is terminal we
-// fetch ppeVideoJobResults and render a table of compliance events.
-//
-// Both flows route NVR UI → NVR backend → bridge HTTP → PPE gRPC (:50052). The
-// NVR is a pure proxy; all compliance logic lives in the PPE scenario.
+// The PPE scenario runs compliance continuously on its assigned cameras and
+// owns its own event store; it does NOT expose on-demand image/video detect
+// endpoints. This view therefore surfaces the LIVE compliance picture:
+//   • a summary strip (recent events, violations, compliant, compliance rate)
+//     from the plugin report summary, and
+//   • a live-updating feed of the most recent violations from /events.
+// Both read through the generic scenario proxy (proxyScenario / plugin helpers)
+// — no hardcoded scenario slug paths.
 // =============================================================================
 
-import React, { useEffect, useRef, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { HardHat, Upload, Film, Loader2, X, ShieldCheck, ShieldAlert } from "lucide-react";
-import { toast } from "sonner";
-import { friendlyError } from "../../../lib/utils";
+import React, { useEffect, useMemo, useState } from "react";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
+import {
+  HardHat,
+  ShieldAlert,
+  ShieldCheck,
+  Activity,
+  BarChart3,
+  ImageOff,
+  Loader2,
+  RefreshCw,
+} from "lucide-react";
 import { formatDateTime } from "../../../lib/datetime";
 
+import { getScenarioCameras } from "../../../api/frs";
 import {
-  detectPPE,
-  submitPPEVideoJob,
-  ppeVideoJobStatus,
-  ppeVideoJobResults,
+  listScenarioPluginEvents,
+  scenarioReportsSummary,
+  scenarioSnapshotUrl,
 } from "../../../api/ai";
+import { cn } from "../../../lib/utils";
+import { cameraNameMap } from "./frsShared";
 
-// ---------------------------------------------------------------------------
-// shared primitives
-// ---------------------------------------------------------------------------
+const FEED_LIMIT = 20;
+const REFRESH_MS = 10000;
 
-const cardStyle = {
-  background: "var(--console-panel)",
-  border: "1px solid var(--console-border)",
+const EVENT_LABEL = {
+  ppe_missing: "PPE Missing",
+  ppe_removed: "PPE Restored",
+  ppe_compliant: "Compliant",
 };
 
-// PPE item flags in render order. Keyed to detectPPE person fields.
-const PPE_ITEMS = [
-  { key: "has_helmet", label: "Helmet" },
-  { key: "has_vest", label: "Vest" },
-  { key: "has_mask", label: "Mask" },
-  { key: "has_gloves", label: "Gloves" },
-  { key: "has_goggles", label: "Goggles" },
-  { key: "has_shoes", label: "Shoes" },
-];
+function fmtTime(iso) {
+  if (!iso) return "—";
+  try { return formatDateTime(iso); } catch { return iso; }
+}
 
-const SectionHeader = ({ icon: Icon, title, count }) => (
-  <div className="flex items-center gap-2">
-    <Icon className="h-4 w-4" style={{ color: "var(--console-accent)" }} />
-    <span
-      className="font-telemetry text-[11px] uppercase tracking-widest"
-      style={{ color: "var(--console-muted)" }}
-    >
-      {title}
-      {count != null ? ` · ${count}` : ""}
-    </span>
-  </div>
-);
+function eventBadgeClass(type) {
+  switch (type) {
+    case "ppe_compliant":
+      return "border-emerald-500/40 bg-emerald-500/15 text-emerald-300";
+    case "ppe_removed":
+      return "border-amber-500/40 bg-amber-500/15 text-amber-300";
+    default:
+      return "border-rose-500/40 bg-rose-500/15 text-rose-300";
+  }
+}
 
-const PrimaryBtn = ({ children, ...props }) => (
-  <button
-    type="button"
-    {...props}
-    className="inline-flex items-center gap-1.5 font-telemetry text-[10px] uppercase tracking-widest px-3 py-1.5 rounded disabled:opacity-50"
-    style={{ background: "var(--console-accent)", color: "#fff" }}
-  >
-    {children}
-  </button>
-);
+const cardStyle = { background: "var(--console-panel)", border: "1px solid var(--console-border)" };
 
-const GhostBtn = ({ children, danger, ...props }) => (
-  <button
-    type="button"
-    {...props}
-    className="inline-flex items-center gap-1.5 font-telemetry text-[10px] uppercase tracking-widest px-3 py-1.5 rounded border disabled:opacity-50"
-    style={{
-      background: "var(--console-raised)",
-      borderColor: "var(--console-border)",
-      color: danger ? "var(--console-rec)" : "var(--console-muted)",
-    }}
-  >
-    {children}
-  </button>
-);
-
-const Metric = ({ label, value, color }) => (
-  <div
-    className="flex flex-col gap-0.5 rounded px-3 py-2"
-    style={{ background: "var(--console-raised)", border: "1px solid var(--console-border)" }}
-  >
-    <span
-      className="font-telemetry text-[9px] uppercase tracking-widest"
-      style={{ color: "var(--console-muted)" }}
-    >
-      {label}
-    </span>
-    <span
-      className="font-telemetry text-[15px] font-semibold"
-      style={{ color: color || "var(--console-text)" }}
-    >
-      {value}
-    </span>
-  </div>
-);
-
-// ---------------------------------------------------------------------------
-// image detection section
-// ---------------------------------------------------------------------------
-
-const PPEItemBadge = ({ label, present }) => (
-  <span
-    className="inline-flex items-center justify-center font-telemetry text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded border"
-    style={{
-      background: "var(--console-raised)",
-      borderColor: present ? "var(--console-online)" : "var(--console-border)",
-      color: present ? "var(--console-online)" : "var(--console-muted)",
-    }}
-    title={present ? `${label}: present` : `${label}: missing`}
-  >
-    {label}
-  </span>
-);
-
-const PersonRow = ({ person, index }) => {
-  const compliant = !!person.compliant;
+function StatCard({ icon: Icon, label, value, accent }) {
   return (
-    <div
-      className="rounded p-3 flex flex-col gap-2"
-      style={{ background: "var(--console-raised)", border: "1px solid var(--console-border)" }}
-    >
-      <div className="flex items-center gap-3">
-        <div className="min-w-0 flex-1">
-          <div
-            className="font-telemetry text-[12px] font-semibold truncate"
-            style={{ color: "var(--console-text)" }}
-          >
-            {person.track_id ? `Track #${person.track_id}` : `Person ${index + 1}`}
-          </div>
-          <div
-            className="font-telemetry text-[10px] uppercase tracking-widest truncate"
-            style={{ color: "var(--console-muted)" }}
-          >
-            conf {person.confidence != null ? `${(person.confidence * 100).toFixed(0)}%` : "—"}
-          </div>
-        </div>
-        <span
-          className="inline-flex items-center gap-1 font-telemetry text-[10px] uppercase tracking-widest px-1.5 py-0.5 rounded border"
-          style={{
-            background: "var(--console-raised)",
-            borderColor: compliant ? "var(--console-online)" : "var(--console-rec)",
-            color: compliant ? "var(--console-online)" : "var(--console-rec)",
-          }}
-        >
-          {compliant ? <ShieldCheck className="h-3 w-3" /> : <ShieldAlert className="h-3 w-3" />}
-          {compliant ? "Compliant" : "Violation"}
-        </span>
+    <div className="rounded-lg border p-4" style={cardStyle}>
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] uppercase tracking-widest text-zinc-500 font-telemetry">{label}</span>
+        <Icon className={`h-4 w-4 ${accent}`} />
       </div>
-
-      <div className="flex flex-wrap gap-1.5">
-        {PPE_ITEMS.map((it) => (
-          <PPEItemBadge key={it.key} label={it.label} present={!!person[it.key]} />
-        ))}
-      </div>
-
-      {Array.isArray(person.violations) && person.violations.length > 0 && (
-        <div
-          className="font-telemetry text-[10px] uppercase tracking-widest"
-          style={{ color: "var(--console-rec)" }}
-        >
-          Missing: {person.violations.join(", ")}
-        </div>
-      )}
+      <div className="mt-2 text-2xl font-semibold text-zinc-100 font-telemetry">{value}</div>
     </div>
   );
-};
+}
 
-const ImageSection = () => {
-  const fileRef = useRef(null);
-  const [file, setFile] = useState(null);
-  const [preview, setPreview] = useState(null);
-  const [result, setResult] = useState(null);
-
+// Authenticated plate/worker snapshot thumbnail through the scenario proxy.
+function SnapshotThumb({ ev, slug }) {
+  const [blobUrl, setBlobUrl] = useState(null);
+  const path = ev.snapshot_path;
+  const isPluginSnap = typeof path === "string" && path.startsWith("/snapshot");
   useEffect(() => {
-    if (!file) {
-      setPreview(null);
-      return undefined;
-    }
-    const url = URL.createObjectURL(file);
-    setPreview(url);
-    return () => URL.revokeObjectURL(url);
-  }, [file]);
+    if (!isPluginSnap || !slug || !path) return undefined;
+    let active = true;
+    let obj = null;
+    scenarioSnapshotUrl(slug, path).then((u) => {
+      if (!active) { if (u) URL.revokeObjectURL(u); return; }
+      obj = u;
+      setBlobUrl(u);
+    });
+    return () => { active = false; if (obj) URL.revokeObjectURL(obj); };
+  }, [isPluginSnap, slug, path]);
 
-  const mut = useMutation({
-    mutationFn: () => detectPPE(file),
-    onSuccess: (data) => setResult(data),
-    onError: (e) => toast.error(friendlyError(e, "Detection failed")),
-  });
-
-  const onPick = (e) => {
-    const f = e.target.files?.[0];
-    if (f) {
-      setFile(f);
-      setResult(null);
-    }
-    e.target.value = "";
-  };
-
-  const clear = () => {
-    setFile(null);
-    setResult(null);
-    mut.reset();
-  };
-
-  const persons = result?.persons || [];
-
-  return (
-    <section className="rounded p-5 flex flex-col gap-4" style={cardStyle}>
-      <SectionHeader icon={HardHat} title="Image compliance" />
-
-      <div className="flex flex-col md:flex-row gap-4">
-        {/* picker + preview */}
-        <div className="flex flex-col gap-3 md:w-[280px] shrink-0">
-          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPick} />
-          {preview ? (
-            <div
-              className="relative rounded overflow-hidden"
-              style={{ border: "1px solid var(--console-border)" }}
-            >
-              <img src={preview} alt="" className="w-full aspect-square" style={{ objectFit: "cover" }} />
-              <button
-                type="button"
-                onClick={clear}
-                className="absolute top-1 right-1 h-6 w-6 inline-flex items-center justify-center rounded"
-                style={{ background: "rgba(0,0,0,0.6)", color: "#fff" }}
-                title="Clear"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              className="flex flex-col items-center justify-center gap-2 rounded aspect-square"
-              style={{ border: "1px dashed var(--console-border)", background: "var(--console-raised)" }}
-            >
-              <Upload className="h-5 w-5" style={{ color: "var(--console-muted)" }} />
-              <span
-                className="font-telemetry text-[10px] uppercase tracking-widest"
-                style={{ color: "var(--console-muted)" }}
-              >
-                Pick an image
-              </span>
-            </button>
-          )}
-          <div className="flex items-center gap-2">
-            <PrimaryBtn onClick={() => mut.mutate()} disabled={!file || mut.isPending}>
-              {mut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <HardHat className="h-3.5 w-3.5" />}
-              Detect
-            </PrimaryBtn>
-            {file && (
-              <GhostBtn onClick={() => fileRef.current?.click()}>
-                <Upload className="h-3.5 w-3.5" />
-                Change
-              </GhostBtn>
-            )}
-          </div>
-        </div>
-
-        {/* results */}
-        <div className="flex-1 min-w-0 flex flex-col gap-3">
-          {mut.isPending ? (
-            <div className="flex items-center justify-center py-16">
-              <Loader2 className="h-5 w-5 animate-spin" style={{ color: "var(--console-muted)" }} />
-            </div>
-          ) : !result ? (
-            <div
-              className="flex flex-col items-center justify-center gap-2 py-16 rounded"
-              style={{ border: "1px dashed var(--console-border)" }}
-            >
-              <HardHat className="h-6 w-6" style={{ color: "var(--console-muted)" }} />
-              <span
-                className="font-telemetry text-[10px] uppercase tracking-widest"
-                style={{ color: "var(--console-muted)" }}
-              >
-                Pick an image and run compliance detection
-              </span>
-            </div>
-          ) : (
-            <>
-              <div className="grid grid-cols-3 gap-2">
-                <Metric label="People" value={persons.length} />
-                <Metric label="Compliant" value={result.compliant_count ?? 0} color="var(--console-online)" />
-                <Metric
-                  label="Violations"
-                  value={result.violation_count ?? 0}
-                  color={(result.violation_count ?? 0) > 0 ? "var(--console-rec)" : undefined}
-                />
-              </div>
-              {persons.length === 0 ? (
-                <div
-                  className="flex flex-col items-center justify-center gap-2 py-10 rounded"
-                  style={{ border: "1px dashed var(--console-border)" }}
-                >
-                  <span
-                    className="font-telemetry text-[10px] uppercase tracking-widest"
-                    style={{ color: "var(--console-muted)" }}
-                  >
-                    No people detected
-                  </span>
-                </div>
-              ) : (
-                <div className="flex flex-col gap-2">
-                  {persons.map((p, i) => (
-                    <PersonRow key={p.person_id || p.track_id || i} person={p} index={i} />
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-        </div>
+  if (!path || (isPluginSnap && !blobUrl)) {
+    return (
+      <div className="h-12 w-16 rounded flex items-center justify-center border" style={{ borderColor: "var(--console-border)", background: "var(--console-raised)" }}>
+        {isPluginSnap && path ? <Loader2 className="h-4 w-4 animate-spin text-zinc-500" /> : <ImageOff className="h-4 w-4 text-zinc-600" />}
       </div>
-    </section>
-  );
-};
+    );
+  }
+  return <img src={blobUrl} alt="snapshot" loading="lazy" className="h-12 w-16 rounded object-cover border" style={{ borderColor: "var(--console-border)" }} />;
+}
 
-// ---------------------------------------------------------------------------
-// video detection section
-// ---------------------------------------------------------------------------
+export default function PPEDetectTab({ scenario }) {
+  const slug = scenario?.slug || "ppe";
+  const scenarioId = scenario?.id;
 
-// PPE job states are proto enum names (JobState). Map terminal/active to colors.
-const STATE_COLOR = {
-  JOB_COMPLETED: "var(--console-online)",
-  JOB_FAILED: "var(--console-rec)",
-  JOB_CANCELLED: "var(--console-rec)",
-  JOB_PROCESSING: "var(--console-accent)",
-  JOB_QUEUED: "var(--console-alarm)",
-};
+  const { data: cameras = [] } = useQuery({
+    queryKey: ["frs", "scenario-cameras", scenarioId],
+    queryFn: () => getScenarioCameras(scenarioId),
+    enabled: !!scenarioId,
+  });
+  const camMap = useMemo(() => cameraNameMap(cameras), [cameras]);
 
-const isTerminal = (s) =>
-  s === "JOB_COMPLETED" || s === "JOB_FAILED" || s === "JOB_CANCELLED";
+  // Summary window: last 24h (today's live picture).
+  const since = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    return d.toISOString();
+  }, []);
 
-const fmtTs = (t) => {
-  if (t == null) return "—";
-  const d = new Date(t);
-  return Number.isNaN(d.getTime()) ? String(t) : formatDateTime(t);
-};
-
-const VideoSection = () => {
-  const fileRef = useRef(null);
-  const [file, setFile] = useState(null);
-  const [jobId, setJobId] = useState(null);
-
-  const submitMut = useMutation({
-    mutationFn: () => submitPPEVideoJob(file),
-    onSuccess: (data) => {
-      const id = data?.job_id;
-      if (!id) {
-        toast.error("No job id returned");
-        return;
-      }
-      setJobId(id);
-      toast.success("Video job submitted");
-    },
-    onError: (e) => toast.error(friendlyError(e, "Submit failed")),
+  const summaryQuery = useQuery({
+    queryKey: ["ppe-live-summary", slug, since],
+    queryFn: () => scenarioReportsSummary(slug, { since }),
+    refetchInterval: REFRESH_MS,
+    placeholderData: keepPreviousData,
   });
 
-  const { data: status } = useQuery({
-    queryKey: ["ppe-video-job", jobId],
-    queryFn: () => ppeVideoJobStatus(jobId),
-    enabled: !!jobId,
-    refetchInterval: (q) => (isTerminal(q.state.data?.state) ? false : 2000),
+  // Recent violations feed — newest first, auto-refreshing.
+  const feedQuery = useQuery({
+    queryKey: ["ppe-live-feed", slug],
+    queryFn: () => listScenarioPluginEvents(slug, { limit: FEED_LIMIT, offset: 0 }),
+    refetchInterval: REFRESH_MS,
+    placeholderData: keepPreviousData,
   });
 
-  const done = status?.state === "JOB_COMPLETED";
-
-  const { data: results } = useQuery({
-    queryKey: ["ppe-video-results", jobId],
-    queryFn: () => ppeVideoJobResults(jobId),
-    enabled: !!jobId && done,
-  });
-
-  const onPick = (e) => {
-    const f = e.target.files?.[0];
-    if (f) setFile(f);
-    e.target.value = "";
-  };
-
-  const clear = () => {
-    setFile(null);
-    setJobId(null);
-    submitMut.reset();
-  };
-
-  const total = status?.frames_total || 0;
-  const processed = status?.frames_processed || 0;
-  const progress = status?.progress != null
-    ? Math.round(status.progress * 100)
-    : total > 0
-      ? Math.round((processed / total) * 100)
-      : 0;
-  const events = results?.events || [];
+  const summary = summaryQuery.data || {};
+  const events = feedQuery.data?.items || [];
+  const rate = summary.compliance_rate != null ? `${Math.round(summary.compliance_rate * 100)}%` : "—";
 
   return (
-    <section className="rounded p-5 flex flex-col gap-4" style={cardStyle}>
+    <div className="p-6 h-full overflow-y-auto flex flex-col gap-4">
+      {/* Header */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <SectionHeader icon={Film} title="Video compliance" count={jobId ? events.length || undefined : undefined} />
         <div className="flex items-center gap-2">
-          <input ref={fileRef} type="file" accept="video/*" className="hidden" onChange={onPick} />
-          {!jobId && (
-            <>
-              <GhostBtn onClick={() => fileRef.current?.click()}>
-                <Upload className="h-3.5 w-3.5" />
-                {file ? "Change file" : "Pick video"}
-              </GhostBtn>
-              <PrimaryBtn onClick={() => submitMut.mutate()} disabled={!file || submitMut.isPending}>
-                {submitMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Film className="h-3.5 w-3.5" />}
-                Submit
-              </PrimaryBtn>
-            </>
-          )}
-          {jobId && (
-            <GhostBtn danger onClick={clear}>
-              <X className="h-3.5 w-3.5" />
-              Clear
-            </GhostBtn>
-          )}
-        </div>
-      </div>
-
-      {file && !jobId && (
-        <p className="font-telemetry text-[10px] uppercase tracking-widest truncate" style={{ color: "var(--console-muted)" }}>
-          {file.name}
-        </p>
-      )}
-
-      {!jobId ? (
-        <div
-          className="flex flex-col items-center justify-center gap-2 py-12 rounded"
-          style={{ border: "1px dashed var(--console-border)" }}
-        >
-          <Film className="h-6 w-6" style={{ color: "var(--console-muted)" }} />
-          <span className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
-            Pick a video file and submit a compliance job
+          <HardHat className="h-4 w-4" style={{ color: "var(--console-accent)" }} />
+          <span className="font-telemetry text-[11px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
+            Live compliance · last 24 hours
           </span>
         </div>
-      ) : (
-        <>
-          {/* progress */}
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <span
-                className="font-telemetry text-[10px] uppercase tracking-widest"
-                style={{ color: STATE_COLOR[status?.state] || "var(--console-muted)" }}
-              >
-                {status?.state || "submitting"}
-              </span>
-              <span className="font-telemetry text-[10px]" style={{ color: "var(--console-muted)" }}>
-                {processed}
-                {total ? ` / ${total}` : ""} frames · {progress}%
-              </span>
-            </div>
-            <div className="h-2 rounded overflow-hidden" style={{ background: "var(--console-raised)" }}>
-              <div
-                className="h-full rounded transition-all"
-                style={{
-                  width: `${progress}%`,
-                  background: STATE_COLOR[status?.state] || "var(--console-accent)",
-                }}
-              />
-            </div>
-            {status?.error && (
-              <p className="font-telemetry text-[10px] break-all" style={{ color: "var(--console-rec)" }}>
-                {status.error}
-              </p>
-            )}
+        <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-zinc-500 font-telemetry">
+          <RefreshCw className={cn("h-3 w-3", (summaryQuery.isFetching || feedQuery.isFetching) && "animate-spin")} />
+          Auto-refresh
+        </div>
+      </div>
+
+      {/* Summary strip */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <StatCard icon={Activity} label="Recent events" value={summaryQuery.isLoading ? "—" : (summary.total_events ?? 0)} accent="text-blue-400" />
+        <StatCard icon={ShieldAlert} label="Violations" value={summaryQuery.isLoading ? "—" : (summary.violations ?? 0)} accent="text-rose-400" />
+        <StatCard icon={ShieldCheck} label="Compliant" value={summaryQuery.isLoading ? "—" : (summary.compliant ?? 0)} accent="text-emerald-400" />
+        <StatCard icon={BarChart3} label="Compliance rate" value={summaryQuery.isLoading ? "—" : rate} accent="text-purple-400" />
+      </div>
+
+      {/* Recent feed */}
+      <section className="rounded-lg flex flex-col gap-3 p-4" style={cardStyle}>
+        <div className="flex items-center gap-2">
+          <ShieldAlert className="h-4 w-4" style={{ color: "var(--console-accent)" }} />
+          <span className="font-telemetry text-[11px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
+            Recent compliance events
+          </span>
+        </div>
+
+        {feedQuery.isLoading ? (
+          <div className="space-y-2">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="h-14 rounded animate-pulse bg-zinc-800/50" />
+            ))}
           </div>
-
-          {/* results */}
-          {!done ? (
-            <div className="flex items-center justify-center gap-2 py-10">
-              <Loader2 className="h-4 w-4 animate-spin" style={{ color: "var(--console-muted)" }} />
-              <span className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
-                Processing…
-              </span>
-            </div>
-          ) : events.length === 0 ? (
-            <div
-              className="flex flex-col items-center justify-center gap-2 py-10 rounded"
-              style={{ border: "1px dashed var(--console-border)" }}
-            >
-              <span className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
-                No compliance events
-              </span>
-            </div>
-          ) : (
-            <div className="rounded overflow-hidden" style={{ border: "1px solid var(--console-border)" }}>
-              <table className="w-full border-collapse">
-                <thead>
-                  <tr style={{ background: "var(--console-raised)" }}>
-                    {["Track", "Verdict", "Missing", "Timestamp"].map((h) => (
-                      <th
-                        key={h}
-                        className="text-left font-telemetry text-[9px] uppercase tracking-widest px-3 py-2"
-                        style={{ color: "var(--console-muted)" }}
-                      >
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {events.map((ev, i) => {
-                    const c = ev.compliance || {};
-                    const compliant = !!c.compliant;
-                    return (
-                      <tr key={ev.id || i} style={{ borderTop: "1px solid var(--console-border)" }}>
-                        <td className="px-3 py-2 font-telemetry text-[11px]" style={{ color: "var(--console-text)" }}>
-                          {ev.track_id || c.track_id || "—"}
-                        </td>
-                        <td
-                          className="px-3 py-2 font-telemetry text-[11px]"
-                          style={{ color: compliant ? "var(--console-online)" : "var(--console-rec)" }}
-                        >
-                          {compliant ? "Compliant" : "Violation"}
-                        </td>
-                        <td className="px-3 py-2 font-telemetry text-[11px]" style={{ color: "var(--console-muted)" }}>
-                          {Array.isArray(c.violations) && c.violations.length ? c.violations.join(", ") : "—"}
-                        </td>
-                        <td className="px-3 py-2 font-telemetry text-[11px]" style={{ color: "var(--console-muted)" }}>
-                          {fmtTs(ev.timestamp)}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </>
-      )}
-    </section>
+        ) : feedQuery.isError ? (
+          <p className="py-10 text-center text-sm text-rose-400">Couldn't load compliance events.</p>
+        ) : events.length === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-2 py-12 rounded" style={{ border: "1px dashed var(--console-border)" }}>
+            <HardHat className="h-6 w-6" style={{ color: "var(--console-muted)" }} />
+            <span className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
+              No compliance events yet — they appear here as workers are checked
+            </span>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {events.map((ev) => (
+              <div
+                key={ev.id}
+                className="flex items-center gap-3 rounded p-2.5"
+                style={{ background: "var(--console-raised)", border: "1px solid var(--console-border)" }}
+              >
+                <SnapshotThumb ev={ev} slug={slug} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={cn("inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium", eventBadgeClass(ev.event_type))}>
+                      {EVENT_LABEL[ev.event_type] || ev.event_type}
+                    </span>
+                    {ev.worker_track_id != null && (
+                      <span className="font-telemetry text-[11px] text-zinc-400">Worker #{ev.worker_track_id}</span>
+                    )}
+                  </div>
+                  {Array.isArray(ev.missing_items) && ev.missing_items.length > 0 && (
+                    <div className="mt-1 font-telemetry text-[10px] uppercase tracking-widest text-rose-300">
+                      Missing: {ev.missing_items.join(", ")}
+                    </div>
+                  )}
+                </div>
+                <div className="text-right shrink-0">
+                  <div className="text-[11px] text-zinc-400 font-telemetry whitespace-nowrap">{fmtTime(ev.triggered_at)}</div>
+                  <div className="text-[10px] text-zinc-500 max-w-[160px] truncate">{camMap[ev.camera_id] || ev.camera_id || "—"}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
   );
-};
-
-// ---------------------------------------------------------------------------
-// tab
-// ---------------------------------------------------------------------------
-
-const PPEDetectTab = () => (
-  <div className="p-6 flex flex-col gap-4">
-    <ImageSection />
-    <VideoSection />
-  </div>
-);
-
-export default PPEDetectTab;
+}

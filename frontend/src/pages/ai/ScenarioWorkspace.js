@@ -28,6 +28,8 @@ import {
   ArrowLeftRight,
   Route,
   Info,
+  Car,
+  ListChecks,
 } from "lucide-react";
 import { getScenarioBySlug } from "../../api/ai";
 
@@ -42,6 +44,8 @@ const TAB_META = {
   groups: { label: "Groups", icon: FolderTree },
   recognize: { label: "Recognize", icon: ScanFace },
   ppe_detect: { label: "Detect", icon: HardHat },
+  plates: { label: "Plates", icon: Car },
+  lists: { label: "Lists", icon: ListChecks },
   investigate: { label: "Investigate", icon: Search },
   transit: { label: "Transit", icon: ArrowLeftRight },
   tour: { label: "Tour", icon: Route },
@@ -62,6 +66,8 @@ const TAB_COMPONENTS = {
   groups: lazy(() => import("./tabs/GroupsTab")),
   recognize: lazy(() => import("./tabs/RecognizeTab")),
   ppe_detect: lazy(() => import("./tabs/PPEDetectTab")),
+  plates: lazy(() => import("./tabs/PlatesTab")),
+  lists: lazy(() => import("./tabs/ListsTab")),
   investigate: lazy(() => import("./tabs/InvestigateTab")),
   transit: lazy(() => import("./tabs/TransitTab")),
   tour: lazy(() => import("./tabs/TourTab")),

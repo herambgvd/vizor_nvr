@@ -388,49 +388,48 @@ export const deleteTransitRule = async (id) =>
 export const listTransitSessions = async (params = {}) =>
   proxyScenario(FRS_SLUG, "/transit/sessions", { params }); // { sessions: [...], total }
 
-// ---------- PPE — compliance detection (image + video) ----------
-// PPE runs as a standalone scenario microservice (scenarios/ppe), registered
-// via its manifest and reached through the generic scenario proxy. The NVR
-// gates each call by license + enable and forwards to the plugin. Image returns
-// per-person compliance immediately; video submits a job and the caller polls
-// status, then fetches results when state === "JOB_COMPLETED".
+// ---------- generic scenario events / plates (plugin-owned) ----------
+// Plugin scenarios (PPE, ANPR) own their event store and expose a unified
+// {items,total,limit,offset} envelope. Read endpoint differs by scenario:
+// PPE serves /events, ANPR serves /plates (the plate reads ARE the events).
+export const SCENARIO_EVENT_ENDPOINT = { ppe: "/events", anpr: "/plates" };
 
-const PPE_SLUG = "ppe";
+export const scenarioEventEndpoint = (slug) =>
+  SCENARIO_EVENT_ENDPOINT[slug] || "/events";
 
-export const detectPPE = async (file) => {
+// List a plugin scenario's events/plate-reads via its own read endpoint.
+export const listScenarioPluginEvents = async (slug, params = {}) =>
+  proxyScenario(slug, scenarioEventEndpoint(slug), { params });
+
+// Delete one plugin event (PPE /events/{id}, ANPR /plates/{id}).
+export const deleteScenarioPluginEvent = async (slug, id) =>
+  proxyScenario(slug, `${scenarioEventEndpoint(slug)}/${id}`, { method: "DELETE" });
+
+// Bulk delete — accepts { ids: [...] } or { all_matching: true, ... }.
+export const bulkDeleteScenarioPluginEvents = async (slug, body) =>
+  proxyScenario(slug, `${scenarioEventEndpoint(slug)}/delete`, { method: "POST", data: body });
+
+// ---------- ANPR — plate lists (whitelist / blacklist) ----------
+const ANPR_SLUG = "anpr";
+
+export const listAnprLists = async (params = {}) =>
+  proxyScenario(ANPR_SLUG, "/lists", { params });
+
+export const addAnprListEntry = async (payload) =>
+  proxyScenario(ANPR_SLUG, "/lists", { method: "POST", data: payload });
+
+export const deleteAnprListEntry = async (id) =>
+  proxyScenario(ANPR_SLUG, `/lists/${id}`, { method: "DELETE" });
+
+// CSV import — multipart upload (field `file`); list_type query is the per-row
+// fallback when a CSV row omits its own type.
+export const importAnprList = async (file, listType = "blacklist") => {
   const form = new FormData();
   form.append("file", file);
-  return proxyScenario(PPE_SLUG, "/detect", {
+  return proxyScenario(ANPR_SLUG, "/lists/import", {
     method: "POST",
     data: form,
+    params: { list_type: listType },
     headers: { "Content-Type": "multipart/form-data" },
-  }); // { persons: [...], width, height, compliant_count, violation_count }
+  });
 };
-
-export const detectPose = async (file) => {
-  const form = new FormData();
-  form.append("file", file);
-  return proxyScenario(PPE_SLUG, "/detect-pose", {
-    method: "POST",
-    data: form,
-    headers: { "Content-Type": "multipart/form-data" },
-  }); // { persons: [...], width, height }
-};
-
-export const submitPPEVideoJob = async (file) => {
-  const form = new FormData();
-  form.append("file", file);
-  return proxyScenario(PPE_SLUG, "/video-jobs", {
-    method: "POST",
-    data: form,
-    headers: { "Content-Type": "multipart/form-data" },
-  }); // { job_id, state }
-};
-
-export const ppeVideoJobStatus = async (jobId) => (
-  proxyScenario(PPE_SLUG, `/video-jobs/${jobId}`)
-);
-
-export const ppeVideoJobResults = async (jobId) => (
-  proxyScenario(PPE_SLUG, `/video-jobs/${jobId}/results`)
-);
