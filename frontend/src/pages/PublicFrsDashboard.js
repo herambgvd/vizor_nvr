@@ -7,6 +7,20 @@ import React, { useEffect, useRef, useState } from "react";
 
 const DASHBOARD_URL = "/api/ai/frs/public/dashboard";
 const STREAM_URL = "/api/ai/frs/public/stream";
+const BRANDING_URL = "/api/settings/public/branding";
+
+// Format a timestamp in the operator-configured display timezone (fetched from
+// public branding). Falls back to browser-local until tz is known.
+function fmtTime(value, tz) {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  const opt = { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false };
+  try {
+    if (tz && tz !== "UTC") return d.toLocaleTimeString("en-GB", { ...opt, timeZone: tz });
+  } catch { /* bad tz -> local */ }
+  return d.toLocaleTimeString("en-GB", opt);
+}
 
 const C = {
   bg: "#000000",
@@ -168,6 +182,7 @@ export default function PublicFrsDashboard() {
   const [status, setStatus] = useState("loading");
   const [live, setLive] = useState([]);
   const [flash, setFlash] = useState(false);
+  const [tz, setTz] = useState(null); // operator display timezone
   const esRef = useRef(null);
 
   const load = async () => {
@@ -182,6 +197,10 @@ export default function PublicFrsDashboard() {
 
   useEffect(() => {
     load();
+    // Pick up the operator display timezone (public, no auth).
+    fetch(BRANDING_URL).then((r) => r.ok ? r.json() : null).then((b) => {
+      if (b?.timezone) setTz(b.timezone);
+    }).catch(() => {});
     const poll = setInterval(load, 30000);
     try {
       const es = new EventSource(STREAM_URL);
@@ -207,7 +226,7 @@ export default function PublicFrsDashboard() {
         <h1 style={{ fontSize: 17, fontWeight: 600, margin: 0, letterSpacing: -0.2 }}>Face Recognition</h1>
         <span style={{ fontSize: 13, color: C.faint }}>Live Overview</span>
         <span style={{ marginLeft: "auto", fontSize: 12, color: C.faint }}>
-          {data?.generated_at ? `Updated ${new Date(data.generated_at).toLocaleTimeString()}` : ""}
+          {data?.generated_at ? `Updated ${fmtTime(data.generated_at, tz)}` : ""}
         </span>
       </div>
       <div style={{ flex: "1 1 auto", minHeight: 0, padding: "16px 28px", display: "flex", flexDirection: "column", gap: 14 }}>{children}</div>
@@ -267,7 +286,7 @@ export default function PublicFrsDashboard() {
                   </span>
                   {ev.confidence != null && <span style={{ fontSize: 12, color: C.muted }}>{Math.round(ev.confidence * 100)}%</span>}
                   <span style={{ fontSize: 12, color: C.faint, minWidth: 70, textAlign: "right" }}>
-                    {ev.triggered_at ? new Date(ev.triggered_at).toLocaleTimeString() : ""}
+                    {ev.triggered_at ? fmtTime(ev.triggered_at, tz) : ""}
                   </span>
                 </div>
               );
