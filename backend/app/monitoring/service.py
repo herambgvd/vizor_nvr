@@ -143,15 +143,21 @@ class MonitoringService:
         snap.disk_used_gb = disk.used / (1024 ** 3)
         snap.disk_total_gb = disk.total / (1024 ** 3)
 
-        # Network
-        net = psutil.net_io_counters()
+        # Network — sum every real interface (not just the default), so traffic on
+        # the docker bridge / multiple NICs is counted, not only one veth. Loopback
+        # is excluded. NOTE: inside a container this reflects the container's
+        # interfaces; per-camera RTSP bandwidth is shown separately (it flows
+        # through go2rtc), so this is the NVR control-plane network rate.
+        per_nic = psutil.net_io_counters(pernic=True)
+        recv = sum(c.bytes_recv for n, c in per_nic.items() if n != "lo")
+        sent = sum(c.bytes_sent for n, c in per_nic.items() if n != "lo")
         now = time.time()
         if self._prev_net_io and self._prev_net_time:
             elapsed = now - self._prev_net_time
             if elapsed > 0:
-                snap.network_recv_mbps = (net.bytes_recv - self._prev_net_io.bytes_recv) / elapsed / 125_000
-                snap.network_sent_mbps = (net.bytes_sent - self._prev_net_io.bytes_sent) / elapsed / 125_000
-        self._prev_net_io = net
+                snap.network_recv_mbps = max(0.0, (recv - self._prev_net_io[0]) / elapsed / 125_000)
+                snap.network_sent_mbps = max(0.0, (sent - self._prev_net_io[1]) / elapsed / 125_000)
+        self._prev_net_io = (recv, sent)
         self._prev_net_time = now
 
         # GPU (NVIDIA via pynvml)
