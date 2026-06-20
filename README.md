@@ -2,6 +2,8 @@
 
 Enterprise-grade Network Video Recorder built on FastAPI + React, with ONVIF support, go2rtc restreaming, and a Docker-first deployment model.
 
+> **New developer?** Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) first — it maps the repo, the module pattern, API conventions, and the dev loop. The full docs index is in §8 there.
+
 ## Quick Start
 
 **Linux / macOS**
@@ -75,5 +77,7 @@ flowchart TD
 |---|---|
 | `backend/` | FastAPI + SQLAlchemy async + Alembic migrations |
 | `frontend/` | React + shadcn/ui |
+| `scenarios/` | AI plug-ins (FRS, Suspect Search, PPE) — standalone FastAPI services |
+| `triton/` | Shared GPU inference server for the AI scenarios |
 | go2rtc | RTSP restreamer (port 1984) |
 | nginx | TLS termination + reverse proxy |
