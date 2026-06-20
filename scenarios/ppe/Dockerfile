@@ -34,6 +34,8 @@ COPY ppe/registration ./registration
 COPY ppe/deps ./deps
 COPY ppe/live ./live
 COPY ppe/routers ./routers
+# DINOv2 verifier linear heads (tiny npz; the backbone is on Triton).
+COPY ppe/models ./models
 
 EXPOSE 8092
 CMD ["python", "app.py"]

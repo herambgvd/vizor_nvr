@@ -42,6 +42,12 @@ PPE_MODEL_IMGSZ = int(os.getenv("PPE_MODEL_IMGSZ", "640"))
 # baseline (the POC supports this by omitting --vit-verifier). Wiring is present
 # so the verifier can be hosted later without touching the pipeline.
 PPE_VIT_MODEL_NAME = os.getenv("PPE_VIT_MODEL_NAME", "")
+# Camera-trained linear heads (helmet/vest) over the DINOv2 CLS embedding. Bundled
+# in the image at models/; the DINOv2 backbone itself is served on Triton.
+PPE_VIT_ARTIFACT = os.getenv(
+    "PPE_VIT_ARTIFACT",
+    str(Path(__file__).resolve().parent.parent / "models" / "vit_ppe_dinov2_small.npz"),
+)
 PPE_VIT_CONFIRM = float(os.getenv("PPE_VIT_CONFIRM", "0.58"))      # reject below
 PPE_VIT_RESCUE = float(os.getenv("PPE_VIT_RESCUE", "0.82"))        # add helmet above
 PPE_VIT_VEST_RESCUE = float(os.getenv("PPE_VIT_VEST_RESCUE", "0.92"))  # add vest above

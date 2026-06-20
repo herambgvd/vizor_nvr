@@ -95,6 +95,9 @@ class CameraWorker(threading.Thread):
         )
         self._stable = StableIdMapper(self.stable_id_max_age)
         self._smoother = EvidenceSmoother(config.SMOOTH_WINDOW, config.SMOOTH_MIN_HITS)
+        # Optional DINOv2 second-stage verifier (Triton). No-op when not configured.
+        from inference.vit_verifier import VitVerifier
+        self._vit = VitVerifier(self._detector)
         self._engine = ComplianceEngine(
             self.required_canonical, self.missing_grace, self.min_present,
             self.cooldown, config.ALERT_INITIAL_MISSING,
@@ -257,9 +260,13 @@ class CameraWorker(threading.Thread):
         items = [it for it in items if it.confidence >= self._item_floor(it.label)]
         linked = associate_ppe(persons, items, DEFAULT_RULES)
 
-        # TODO(vit): when config.PPE_VIT_MODEL_NAME is set, run the DINOv2 verifier
-        # here and fuse (confirm helmet <0.58 reject / rescue helmet >=0.82 / vest
-        # rescue-only >=0.92) into `linked` before smoothing. Deferred — see report.
+        # DINOv2 second-stage verifier (when enabled): confirm weak helmet positives
+        # / rescue confident missed helmet+vest, fused into `linked` before
+        # smoothing. No-op + fail-soft when the model/artifact isn't configured.
+        if self._vit.enabled:
+            scores = self._vit.classify(frame_bgr, persons, self._frame_no)
+            if scores:
+                self._vit.fuse(linked, scores)
 
         active_ids = {p.track_id for p in persons if p.track_id is not None}
         for person in persons:

@@ -178,6 +178,8 @@ services:
       INFERENCE_BACKEND: ${PPE_INFERENCE_BACKEND:-triton}
       TRITON_URL: ${TRITON_URL:-triton:8000}
       PPE_MODEL_NAME: ppe_yolo26
+      # DINOv2 second-stage helmet/vest verifier (served on Triton). Empty = off.
+      PPE_VIT_MODEL_NAME: ${PPE_VIT_MODEL_NAME:-dinov2_small}
       # Live per-camera compliance — pull frames from go2rtc's RTSP restream.
       PPE_LIVE_ENABLED: "true"
       GO2RTC_RTSP_HOST: go2rtc
