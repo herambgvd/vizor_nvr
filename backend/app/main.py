@@ -440,7 +440,6 @@ from app.system.router import router as system_router
 from app.onvif_device.router import router as onvif_device_router
 from app.auth.api_keys_router import router as api_keys_router
 from app.events.ingest_router import router as events_ingest_router
-from app.events.sse_router import router as events_sse_router
 from app.license.router import router as license_router
 from app.cameras.schedule_templates_router import router as schedule_templates_router
 from app.snapshots.router import router as snapshots_router
@@ -467,7 +466,6 @@ app.include_router(websocket_router, prefix="/api")
 app.include_router(system_router, prefix="/api")
 app.include_router(api_keys_router)
 app.include_router(events_ingest_router)
-app.include_router(events_sse_router)
 app.include_router(license_router)
 if settings.ENABLE_AI_MODULES:
     from app.ai.core.router import router as ai_router
