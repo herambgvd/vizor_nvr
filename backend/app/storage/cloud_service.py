@@ -53,11 +53,13 @@ class CloudStorageService:
         if config.id in self._clients:
             return self._clients[config.id]
 
-        # Build boto3 client for S3-compatible storage
+        # Build boto3 client for S3-compatible storage. The secret key is stored
+        # encrypted at rest; decrypt it only here when constructing the client.
+        from app.core.crypto import decrypt_value
         client_kwargs = {
             "service_name": "s3",
             "aws_access_key_id": config.access_key,
-            "aws_secret_access_key": config.secret_key,
+            "aws_secret_access_key": decrypt_value(config.secret_key),
             "region_name": config.region or "us-east-1",
         }
 

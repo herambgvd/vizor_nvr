@@ -70,7 +70,9 @@ class NASService:
         """Test if an NFS server is reachable via showmount."""
         rc, out, err = NASService._run_cmd(["showmount", "-e", server], timeout=10)
         if rc != 0:
-            return {"ok": False, "message": f"NFS server unreachable: {err or out}"}
+            logger.warning(f"[NAS] showmount {server} failed: {err or out}")
+            return {"ok": False,
+                    "message": "Could not reach the NFS server. Check the address and that exports are shared."}
         exports = [line.split()[0] for line in out.strip().splitlines()[1:] if line.strip()]
         return {"ok": True, "message": "NFS server reachable", "exports": exports}
 
@@ -84,7 +86,9 @@ class NASService:
             cmd.extend(["-W", domain])
         rc, out, err = NASService._run_cmd(cmd, timeout=10)
         if rc != 0:
-            return {"ok": False, "message": f"SMB server unreachable: {err or out}"}
+            logger.warning(f"[NAS] smbclient {server} failed: {err or out}")
+            return {"ok": False,
+                    "message": "Could not reach the SMB/CIFS server. Check the address and credentials."}
         # Parse -g output: share names are lines like "Disk|sharename|comment"
         shares = []
         for line in out.strip().splitlines():
@@ -151,7 +155,9 @@ class NASService:
             # Try lazy unmount
             rc2, out2, err2 = NASService._run_cmd(["umount", "-l", path], timeout=15)
             if rc2 != 0:
-                return {"ok": False, "message": f"Unmount failed: {err or err2}"}
+                logger.warning(f"[NAS] unmount {path} failed: {err or err2}")
+                return {"ok": False,
+                        "message": "Unmount failed — the share may still be in use."}
         return {"ok": True, "message": "Unmounted"}
 
     @staticmethod
@@ -170,7 +176,9 @@ class NASService:
 
         rc, out, err = NASService._run_cmd(cmd, timeout=30)
         if rc != 0:
-            return {"ok": False, "message": f"NFS mount failed: {err or out}"}
+            logger.warning(f"[NAS] NFS mount {pool.path} failed: {err or out}")
+            return {"ok": False,
+                    "message": "NFS mount failed. Check the server, export path and network."}
         return {"ok": True, "message": "NFS mounted"}
 
     @staticmethod
@@ -216,7 +224,9 @@ class NASService:
 
         rc, out, err = NASService._run_cmd(cmd, timeout=30)
         if rc != 0:
-            return {"ok": False, "message": f"SMB mount failed: {err or out}"}
+            logger.warning(f"[NAS] SMB mount {pool.path} failed: {err or out}")
+            return {"ok": False,
+                    "message": "SMB/CIFS mount failed. Check the server, share, credentials and network."}
         return {"ok": True, "message": "SMB mounted"}
 
     @staticmethod
@@ -256,7 +266,7 @@ class NASService:
                     logger.warning(f"[NAS] Auto-mount failed for {pool.name}: {res['message']}")
             except Exception as e:
                 pool.nas_mount_state = "error"
-                pool.nas_last_mount_error = str(e)
+                pool.nas_last_mount_error = "Auto-mount failed. Check NAS settings and connectivity."
                 logger.error(f"[NAS] Auto-mount exception for {pool.name}: {e}")
         await db.commit()
 
@@ -298,7 +308,8 @@ class NASService:
             info["writable"] = True
             info["latency_ms"] = round((time.time() - t0) * 1000, 1)
         except OSError as e:
-            info["message"] = f"Write test failed: {e}"
+            logger.warning(f"[NAS] health write test failed for {pool.path}: {e}")
+            info["message"] = "Write test failed — the share may be read-only or disconnected."
             return info
 
         # 3. If latency is very high, warn but still mark healthy

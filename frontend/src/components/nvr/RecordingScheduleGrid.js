@@ -97,13 +97,21 @@ export const RecordingScheduleGrid = ({
     [onChange],
   );
 
-  const setCellMode = (day, hour) => {
-    const newSched = {
-      ...schedule,
-      [day]: schedule[day].map((v, i) => (i === hour ? paintMode : v)),
-    };
-    update(newSched);
-  };
+  const setCellMode = useCallback(
+    (day, hour) => {
+      setSchedule((prev) => {
+        const row = prev[day] || Array(24).fill("off");
+        if (row[hour] === paintMode) return prev; // no-op, avoid churn
+        const newSched = {
+          ...prev,
+          [day]: row.map((v, i) => (i === hour ? paintMode : v)),
+        };
+        onChange?.(newSched);
+        return newSched;
+      });
+    },
+    [paintMode, onChange],
+  );
 
   const handleMouseDown = (day, hour) => {
     setPainting(true);
@@ -115,6 +123,43 @@ export const RecordingScheduleGrid = ({
   };
 
   const handleMouseUp = () => setPainting(false);
+
+  // ── Touch support (tablet / kiosk) ─────────────────────────────────────
+  // touchmove fires on the element where the touch STARTED, not the one under
+  // the finger — so resolve the cell under each point via elementFromPoint and
+  // read the data-day / data-hour attributes we stamp on every cell.
+  const paintFromPoint = useCallback(
+    (clientX, clientY) => {
+      const el = document.elementFromPoint(clientX, clientY);
+      if (!el) return;
+      const cell = el.closest("[data-day]");
+      if (!cell) return;
+      const day = cell.getAttribute("data-day");
+      const hour = parseInt(cell.getAttribute("data-hour"), 10);
+      if (day && !Number.isNaN(hour)) setCellMode(day, hour);
+    },
+    [setCellMode],
+  );
+
+  const handleTouchStart = (day, hour) => (e) => {
+    e.preventDefault(); // stop the grid from scrolling while painting
+    setPainting(true);
+    setCellMode(day, hour);
+  };
+
+  const handleTouchMove = useCallback(
+    (e) => {
+      if (!painting) return;
+      const t = e.touches[0];
+      if (t) {
+        e.preventDefault();
+        paintFromPoint(t.clientX, t.clientY);
+      }
+    },
+    [painting, paintFromPoint],
+  );
+
+  const handleTouchEnd = () => setPainting(false);
 
   const fillAll = (mode) => {
     update(Object.fromEntries(DAYS.map((d) => [d, Array(24).fill(mode)])));
@@ -217,10 +262,17 @@ export const RecordingScheduleGrid = ({
       </div>
 
       {/* Grid */}
+      <p className="text-[11px] text-muted-foreground">
+        Times use the recorder's local time zone. Tap or drag across hours to
+        paint the selected mode.
+      </p>
       <div className="overflow-x-auto" ref={gridRef}>
         <table
           className="border-collapse select-none"
-          style={{ minWidth: 650 }}
+          style={{ minWidth: 650, touchAction: "none" }}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          onTouchCancel={handleTouchEnd}
         >
           <thead>
             <tr>
@@ -245,10 +297,13 @@ export const RecordingScheduleGrid = ({
                   return (
                     <td
                       key={h}
+                      data-day={day}
+                      data-hour={h}
                       className={`border border-background cursor-pointer ${MODES[mode]?.color || MODES.off.color}`}
-                      style={{ width: 24, height: 22 }}
+                      style={{ width: 24, height: 22, touchAction: "none" }}
                       onMouseDown={() => handleMouseDown(day, h)}
                       onMouseEnter={() => handleMouseEnter(day, h)}
+                      onTouchStart={handleTouchStart(day, h)}
                       title={`${day} ${h}:00 — ${MODES[mode]?.label || mode}`}
                     />
                   );

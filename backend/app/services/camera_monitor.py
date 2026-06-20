@@ -406,25 +406,56 @@ class CameraMonitor:
                                     topics=camera.onvif_event_topics or [],
                                 )
 
-                        # ── Prebuffer management for motion-triggered cameras ──
+                    # ── Motion-mode reconciliation (no live FFmpeg) ──────────
+                    # Motion cameras never run a persistent recording process, so
+                    # this MUST run on `reachable` alone — not `is_live` — or the
+                    # prebuffer + detector would never start. The motion detector
+                    # is what fires motion_detected → flushes the prebuffer and
+                    # starts the post-event recording; without it motion mode
+                    # captures nothing. Reconciled here so a mode switch (e.g.
+                    # continuous → motion) takes effect without a separate toggle.
+                    if reachable and _mode == "motion":
                         from app.services.prebuffer_service import prebuffer_service
-                        if camera.recording_mode == "motion":
-                            if not prebuffer_service.is_running(camera.id):
-                                asyncio.create_task(prebuffer_service.start_prebuffer(
-                                    camera.id, camera.main_stream_url,
-                                    pre_buffer_seconds=camera.pre_buffer_seconds or 10,
-                                ))
-                        else:
-                            if prebuffer_service.is_running(camera.id):
-                                asyncio.create_task(prebuffer_service.stop_prebuffer(camera.id))
+                        from app.services.motion_service import motion_detector
+                        from app.services.go2rtc_manager import go2rtc_manager
+                        if not prebuffer_service.is_running(camera.id):
+                            asyncio.create_task(prebuffer_service.start_prebuffer(
+                                camera.id, camera.main_stream_url,
+                                pre_buffer_seconds=getattr(camera, "pre_buffer_seconds", None) or 10,
+                            ))
+                        if not motion_detector.is_detecting(camera.id):
+                            mcfg = camera.motion_config or {}
+                            detect_url = (
+                                camera.detect_stream_url
+                                or camera.sub_stream_url
+                                or camera.main_stream_url
+                            )
+                            asyncio.create_task(self._start_motion_detection(
+                                camera.id, detect_url, mcfg, camera.dewarp_config,
+                            ))
 
-                    # Camera went offline → stop ONVIF event pull and prebuffer
+                    # ── Side-effects when recording is live and camera reachable ──
+                    if is_live and reachable:
+                        # Motion detector / prebuffer must not run alongside a
+                        # continuous/schedule live recording — stop any leftover.
+                        from app.services.prebuffer_service import prebuffer_service
+                        from app.services.motion_service import motion_detector
+                        if prebuffer_service.is_running(camera.id):
+                            asyncio.create_task(prebuffer_service.stop_prebuffer(camera.id))
+                        if _mode != "motion" and motion_detector.is_detecting(camera.id):
+                            asyncio.create_task(motion_detector.stop_detection(camera.id))
+
+                    # Camera went offline → stop ONVIF event pull, prebuffer,
+                    # and motion detection (they all need a reachable device).
                     if not is_live and camera.status in ("offline", "error"):
                         if onvif_event_service.is_active(camera.id):
                             await onvif_event_service.stop_camera(camera.id)
                         from app.services.prebuffer_service import prebuffer_service
+                        from app.services.motion_service import motion_detector
                         if prebuffer_service.is_running(camera.id):
                             asyncio.create_task(prebuffer_service.stop_prebuffer(camera.id))
+                        if motion_detector.is_detecting(camera.id):
+                            asyncio.create_task(motion_detector.stop_detection(camera.id))
 
                     import time as _t
 
@@ -499,14 +530,40 @@ class CameraMonitor:
 
             await db.commit()
 
+    # Map the grid's 3-letter day keys to weekday() index (Mon=0 … Sun=6).
+    _GRID_DAY_KEYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    # Map full lowercase day names (legacy range format) for completeness.
+    _FULL_DAY_KEYS = [
+        "monday", "tuesday", "wednesday", "thursday",
+        "friday", "saturday", "sunday",
+    ]
+
     @staticmethod
     def _should_record_now(schedule: dict) -> bool:
         """
         Check if the current time falls within the recording schedule.
-        Schedule format: {"monday": [{"start": "08:00", "end": "18:00"}], ...}
-        Empty schedule or no matching day → record 24/7.
+
+        Supports the two shapes the system actually produces:
+
+        1. GRID (what RecordingScheduleGrid + schedule templates save):
+             {"grid": {"Mon": ["continuous","off",... 24 entries], ...}}
+           or the bare grid {"Mon": [...24], ...}. Each entry is the recording
+           mode for that hour: "continuous"/"motion" = record, "off" = don't.
+
+        2. RANGE (legacy): {"monday": [{"start": "08:00", "end": "18:00"}], ...}
+
+        Empty / missing schedule or no rule for the current day → record 24/7.
         """
         if not schedule:
+            return True
+
+        # Unwrap the {enabled, grid} envelope the UI saves.
+        if isinstance(schedule.get("grid"), dict):
+            if schedule.get("enabled") is False:
+                return True  # schedule disabled → behave like always-on
+            schedule = schedule["grid"]
+
+        if not isinstance(schedule, dict) or not schedule:
             return True
 
         # Evaluate against the SITE/LOCAL timezone — an operator who sets
@@ -519,7 +576,19 @@ class CameraMonitor:
         except Exception:
             tz = timezone.utc
         now = datetime.now(tz)
-        day_name = now.strftime("%A").lower()
+        weekday = now.weekday()  # Mon=0 … Sun=6
+
+        # ── Grid format (per-hour modes) ──────────────────────────────────
+        grid_key = CameraMonitor._GRID_DAY_KEYS[weekday]
+        day_grid = schedule.get(grid_key)
+        if isinstance(day_grid, list) and day_grid and all(
+            isinstance(v, str) for v in day_grid
+        ):
+            idx = now.hour if now.hour < len(day_grid) else len(day_grid) - 1
+            return str(day_grid[idx]).lower() != "off"
+
+        # ── Range format (legacy {start,end}) ─────────────────────────────
+        day_name = CameraMonitor._FULL_DAY_KEYS[weekday]
         day_rules = schedule.get(day_name, schedule.get("everyday", []))
 
         if not day_rules:
@@ -527,9 +596,11 @@ class CameraMonitor:
 
         current_time = now.strftime("%H:%M")
         for rule in day_rules:
+            if not isinstance(rule, dict):
+                continue
             start = rule.get("start", "00:00")
             end = rule.get("end", "23:59")
-            
+
             # Handle overnight schedules (e.g., 22:00 to 06:00)
             if start > end:
                 if current_time >= start or current_time <= end:
@@ -731,6 +802,24 @@ class CameraMonitor:
 
         except Exception as exc:
             logger.debug("[%s] _probe_credentials error: %s", camera_id, exc)
+
+    async def _start_motion_detection(self, camera_id, detect_url, motion_config, dewarp_config):
+        """Register the detect stream with go2rtc and start the motion detector.
+
+        Used by the monitor to auto-enable motion detection for cameras whose
+        recording_mode is 'motion' (so a mode switch alone is enough — the
+        operator doesn't have to separately toggle the motion-config switch).
+        """
+        try:
+            from app.services.go2rtc_manager import go2rtc_manager
+            from app.services.motion_service import motion_detector
+            await go2rtc_manager.add_stream(
+                f"{camera_id}_detect", detect_url, dewarp_config=dewarp_config,
+            )
+            rtsp_url = go2rtc_manager.get_rtsp_output_url(f"{camera_id}_detect")
+            await motion_detector.start_detection(camera_id, rtsp_url, motion_config or {})
+        except Exception as e:
+            logger.warning(f"[{camera_id}] Motion detection auto-start failed: {e}")
 
     async def _start_camera_recording(self, db, camera):
         """Helper to start recording for a camera with proper setup."""

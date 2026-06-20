@@ -122,6 +122,10 @@ async def ingest_events(
     INGEST_BATCH_SIZE.observe(len(payload.events))
 
     inserted_ids: List[str] = []
+    # Payloads of newly inserted events, broadcast to the live event dock after
+    # commit so AI/ONVIF/system events ingested over HTTP appear in real time
+    # (these bypass linkage_engine.fire_event, which is the usual WS broadcaster).
+    inserted_payloads: List[dict] = []
     skipped = 0
     failed = 0
 
@@ -168,6 +172,17 @@ async def ingest_events(
                 EVENTS_SKIPPED.labels(source_service=ev.source_service).inc()
             else:
                 inserted_ids.append(row[0])
+                inserted_payloads.append({
+                    "id": row[0],
+                    "camera_id": ev.camera_id,
+                    "event_type": ev.event_type,
+                    "severity": ev.severity,
+                    "title": ev.title,
+                    "description": ev.description,
+                    "triggered_at": _naive_utc(ev.triggered_at)
+                    .replace(tzinfo=timezone.utc)
+                    .isoformat(),
+                })
                 EVENTS_INGESTED.labels(
                     source_service=ev.source_service,
                 ).inc()
@@ -177,6 +192,16 @@ async def ingest_events(
             EVENTS_FAILED.labels(source_service=ev.source_service).inc()
 
     await db.commit()
+
+    # Push freshly ingested events to the live event dock over WebSocket.
+    # Best-effort: a broadcast failure must never fail the ingest call.
+    if inserted_payloads:
+        try:
+            from app.core.websocket import ws_manager
+            for p in inserted_payloads:
+                await ws_manager.broadcast("events", {"type": "new_event", "data": p})
+        except Exception:
+            logger.debug("Live broadcast of ingested events failed", exc_info=True)
 
     if inserted_ids:
         logger.info(

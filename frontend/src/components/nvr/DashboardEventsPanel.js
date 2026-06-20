@@ -24,6 +24,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { cn } from "../../lib/utils";
+import { eventTypeLabel } from "../../lib/eventLabels";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { useWebSocket } from "../../hooks/useWebSocket";
@@ -155,7 +156,7 @@ const DashboardEventsPanel = ({ cameras = [] }) => {
                     <div className="flex items-center gap-1.5 min-w-0">
                       <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                       <span className="text-[13px] font-medium truncate">
-                        {evt.title || evt.event_type}
+                        {evt.title || eventTypeLabel(evt.event_type)}
                       </span>
                     </div>
                     <Badge className={cn("shrink-0 text-[10px] py-0 px-1.5", sev.badge)}>

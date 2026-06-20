@@ -42,7 +42,8 @@ import {
 } from "lucide-react";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
-import { cn } from "../../lib/utils";
+import { cn, friendlyError } from "../../lib/utils";
+import { eventTypeLabel } from "../../lib/eventLabels";
 import { useWebSocket } from "../../hooks/useWebSocket";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getAllCameras } from "../../api/cameras";
@@ -337,8 +338,8 @@ export const LiveEventDrawer = () => {
       );
       qc.invalidateQueries({ queryKey: ["events"] });
       qc.invalidateQueries({ queryKey: ["events-unack-count"] });
-    } catch {
-      toast.error("Acknowledge failed");
+    } catch (err) {
+      toast.error(friendlyError(err, "Couldn't acknowledge the event"));
     }
   };
 
@@ -449,7 +450,7 @@ export const LiveEventDrawer = () => {
                     <div className="flex items-center gap-2 min-w-0">
                       <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
                       <span className="text-sm font-medium truncate">
-                        {evt.title || evt.event_type}
+                        {evt.title || eventTypeLabel(evt.event_type)}
                       </span>
                     </div>
                     <Badge className={cn("shrink-0 text-[10px]", sev.badge)}>

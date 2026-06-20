@@ -140,6 +140,8 @@ class StoragePoolResponse(BaseModel):
     # computed
     used_bytes: int = 0
     free_bytes: int = 0
+    total_bytes: int = 0          # real filesystem capacity of the mount
+    online: bool = True           # False = path missing / stale or offline mount
     recording_count: int = 0
     created_at: datetime
 

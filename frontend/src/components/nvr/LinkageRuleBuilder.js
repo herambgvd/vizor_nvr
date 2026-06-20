@@ -21,6 +21,8 @@ import {
   deleteLinkageRule,
 } from "../../api/events";
 import { getAllCameras } from "../../api/cameras";
+import { eventTypeLabel } from "../../lib/eventLabels";
+import { friendlyError } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
@@ -35,22 +37,33 @@ import { Switch } from "../ui/switch";
 import { toast } from "sonner";
 
 const TRIGGER_TYPES = [
-  { value: "motion_detected", label: "Motion Detected" },
-  { value: "video_loss", label: "Video Loss" },
-  { value: "camera_tamper", label: "Camera Tamper" },
-  { value: "camera_offline", label: "Camera Offline" },
-  { value: "camera_online", label: "Camera Online" },
-  { value: "recording_error", label: "Recording Error" },
-  { value: "storage_low", label: "Storage Low" },
-  { value: "disk_full", label: "Disk Full" },
-  { value: "system_error", label: "System Error" },
-];
+  "motion_detected",
+  "video_loss",
+  "camera_tamper",
+  "camera_offline",
+  "camera_online",
+  "camera_credentials_invalid",
+  "recording_error",
+  "storage_low",
+  "storage_critical",
+  "disk_full",
+  "disk_warning",
+  "bandwidth_alert",
+  "system_error",
+  "line_crossing",
+  "zone_intrusion",
+  "face_recognized",
+  "face_unknown",
+  "ppe_violation",
+  "crowd",
+].map((value) => ({ value, label: eventTypeLabel(value) }));
 
 const ACTION_TYPES = [
   { value: "start_recording", label: "Start Recording" },
   { value: "send_email", label: "Send Email" },
   { value: "send_webhook", label: "Send Webhook" },
   { value: "notify_channel", label: "Notify Channel" },
+  { value: "trigger_alarm_output", label: "Trigger Alarm Output" },
 ];
 
 const emptyRule = {
@@ -92,7 +105,7 @@ export const LinkageRuleBuilder = () => {
       invalidate();
       setEditing(null);
     },
-    onError: () => toast.error("Failed to create rule"),
+    onError: (err) => toast.error(friendlyError(err, "Couldn't create the rule")),
   });
 
   const updateMutation = useMutation({
@@ -102,7 +115,7 @@ export const LinkageRuleBuilder = () => {
       invalidate();
       setEditing(null);
     },
-    onError: () => toast.error("Failed to update rule"),
+    onError: (err) => toast.error(friendlyError(err, "Couldn't update the rule")),
   });
 
   const deleteMutation = useMutation({
@@ -111,12 +124,13 @@ export const LinkageRuleBuilder = () => {
       toast.success("Rule deleted");
       invalidate();
     },
-    onError: () => toast.error("Failed to delete rule"),
+    onError: (err) => toast.error(friendlyError(err, "Couldn't delete the rule")),
   });
 
   const toggleMutation = useMutation({
     mutationFn: ({ id, enabled }) => updateLinkageRule(id, { enabled }),
     onSuccess: invalidate,
+    onError: (err) => toast.error(friendlyError(err, "Couldn't update the rule")),
   });
 
   // --- Helpers ---
@@ -354,6 +368,33 @@ export const LinkageRuleBuilder = () => {
                     placeholder="Channel name"
                     className="h-8 text-sm"
                   />
+                )}
+                {act.action === "trigger_alarm_output" && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input
+                      value={act.config?.relay_token || ""}
+                      onChange={(e) =>
+                        updateActionConfig(idx, "relay_token", e.target.value)
+                      }
+                      placeholder="Relay output (optional)"
+                      className="h-8 text-sm"
+                    />
+                    <Input
+                      type="number"
+                      min={0}
+                      max={300}
+                      value={act.config?.release_after_seconds ?? 5}
+                      onChange={(e) =>
+                        updateActionConfig(
+                          idx,
+                          "release_after_seconds",
+                          parseInt(e.target.value) || 0,
+                        )
+                      }
+                      placeholder="Auto-release (seconds)"
+                      className="h-8 text-sm"
+                    />
+                  </div>
                 )}
               </div>
             ))}

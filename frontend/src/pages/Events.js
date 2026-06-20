@@ -66,7 +66,8 @@ import {
   DialogTitle,
 } from "../components/ui/dialog";
 import { Textarea } from "../components/ui/textarea";
-import { cn } from "../lib/utils";
+import { cn, friendlyError } from "../lib/utils";
+import { eventTypeLabel } from "../lib/eventLabels";
 import { toast } from "sonner";
 import { format } from "date-fns";
 
@@ -74,19 +75,32 @@ import { format } from "date-fns";
 
 const PAGE_SIZE = 50;
 
+// Filter dropdown options. Labels come from the shared eventTypeLabel() map so
+// they stay in sync with the rest of the app; icons are per-group.
 const EVENT_TYPES = [
-  { value: "motion_detected", label: "Motion Detected", icon: Activity },
-  { value: "video_loss", label: "Video Loss", icon: VideoOff },
-  { value: "camera_tamper", label: "Camera Tamper", icon: Shield },
-  { value: "camera_offline", label: "Camera Offline", icon: VideoOff },
-  { value: "camera_online", label: "Camera Online", icon: Video },
-  { value: "recording_error", label: "Recording Error", icon: AlertTriangle },
-  { value: "recording_gap", label: "Recording Gap", icon: AlertTriangle },
-  { value: "storage_low", label: "Storage Low", icon: AlertTriangle },
-  { value: "disk_full", label: "Disk Full", icon: XCircle },
-  { value: "system_error", label: "System Error", icon: XCircle },
-  { value: "manual", label: "Manual", icon: Bell },
-];
+  { value: "motion_detected", icon: Activity },
+  { value: "video_loss", icon: VideoOff },
+  { value: "camera_tamper", icon: Shield },
+  { value: "camera_offline", icon: VideoOff },
+  { value: "camera_online", icon: Video },
+  { value: "camera_credentials_invalid", icon: VideoOff },
+  { value: "recording_error", icon: AlertTriangle },
+  { value: "recording_gap", icon: AlertTriangle },
+  { value: "storage_low", icon: AlertTriangle },
+  { value: "storage_critical", icon: XCircle },
+  { value: "disk_full", icon: XCircle },
+  { value: "disk_warning", icon: AlertTriangle },
+  { value: "bandwidth_alert", icon: Activity },
+  { value: "system_error", icon: XCircle },
+  { value: "cluster_failover", icon: AlertTriangle },
+  { value: "line_crossing", icon: Shield },
+  { value: "zone_intrusion", icon: Shield },
+  { value: "face_recognized", icon: Eye },
+  { value: "face_unknown", icon: Eye },
+  { value: "ppe_violation", icon: Shield },
+  { value: "crowd", icon: Activity },
+  { value: "manual", icon: Bell },
+].map((t) => ({ ...t, label: eventTypeLabel(t.value) }));
 
 // Severity → accent-bar color (left edge of list row) + badge style
 const SEVERITY_CONFIG = {
@@ -345,6 +359,7 @@ const Events = () => {
       );
       setAckNote("");
     },
+    onError: (err) => toast.error(friendlyError(err, "Couldn't acknowledge the event")),
   });
 
   const ackAllMutation = useMutation({
@@ -355,6 +370,7 @@ const Events = () => {
       qc.invalidateQueries({ queryKey: ["events-unack-count"] });
       qc.invalidateQueries({ queryKey: ["event-stats"] });
     },
+    onError: (err) => toast.error(friendlyError(err, "Couldn't acknowledge events")),
   });
 
   const falseAlarmMutation = useMutation({
@@ -366,6 +382,7 @@ const Events = () => {
       setSelectedEvent(null);
       setAckNote("");
     },
+    onError: (err) => toast.error(friendlyError(err, "Couldn't update the event")),
   });
 
   const invalidateAfterDelete = () => {
@@ -381,7 +398,7 @@ const Events = () => {
       setSelectedEvent(null);
       invalidateAfterDelete();
     },
-    onError: () => toast.error("Delete failed"),
+    onError: (err) => toast.error(friendlyError(err, "Couldn't delete the event")),
   });
 
   const bulkDeleteMutation = useMutation({
@@ -392,7 +409,7 @@ const Events = () => {
       setConfirmDelete(null);
       invalidateAfterDelete();
     },
-    onError: () => toast.error("Bulk delete failed"),
+    onError: (err) => toast.error(friendlyError(err, "Couldn't delete events")),
   });
 
   const runConfirmedDelete = () => {
@@ -424,8 +441,8 @@ const Events = () => {
       a.click();
       URL.revokeObjectURL(url);
       toast.success("Events exported");
-    } catch {
-      toast.error("Export failed");
+    } catch (err) {
+      toast.error(friendlyError(err, "Couldn't export events"));
     }
   }, [eventType, severity, cameraId, startDate, endDate]);
 
@@ -740,8 +757,8 @@ const Events = () => {
                       <span className="flex items-center justify-between gap-1 mb-1">
                         <span className="flex items-center gap-1.5 min-w-0">
                           <Icon className="h-3.5 w-3.5 flex-shrink-0" style={{ color: "var(--console-muted)" }} />
-                          <span className="text-[11px] font-medium truncate capitalize" style={{ color: "var(--console-text)" }}>
-                            {(event.event_type || "").replace(/_/g, " ")}
+                          <span className="text-[11px] font-medium truncate" style={{ color: "var(--console-text)" }}>
+                            {eventTypeLabel(event.event_type)}
                           </span>
                         </span>
                         <span className="text-[10px] font-telemetry flex-shrink-0" style={{ color: "var(--console-muted)" }}>
@@ -889,8 +906,8 @@ const Events = () => {
                     return (
                       <>
                         <span className={cn("h-2 w-2 rounded-sm", sev.bar)} />
-                        <span className="text-xs font-medium capitalize" style={{ color: "var(--console-text)" }}>
-                          {(selectedEvent.event_type || "").replace(/_/g, " ")}
+                        <span className="text-xs font-medium" style={{ color: "var(--console-text)" }}>
+                          {eventTypeLabel(selectedEvent.event_type)}
                         </span>
                         <Badge className={cn("text-[10px] px-1.5 py-0", sev.badge)}>
                           {sev.label}
@@ -943,13 +960,12 @@ const Events = () => {
               {/* Metadata grid */}
               <div className="flex-shrink-0 divide-y" style={{ borderColor: "var(--console-border)" }}>
                 {[
-                  ["Event Type", (selectedEvent.event_type || "").replace(/_/g, " ")],
+                  ["Event Type", eventTypeLabel(selectedEvent.event_type)],
                   ["Date / Time", selectedEvent.triggered_at
                     ? format(new Date(selectedEvent.triggered_at), "yyyy-MM-dd HH:mm:ss")
                     : "—"],
                   ["Camera", getCameraName(selectedEvent.camera_id)],
                   ["Title", selectedEvent.title || "—"],
-                  ["Event ID", selectedEvent.id],
                   ["Status", null], // rendered specially
                 ].map(([k, v]) => (
                   <div key={k} className="grid grid-cols-[130px_1fr] px-4 py-2 text-sm">

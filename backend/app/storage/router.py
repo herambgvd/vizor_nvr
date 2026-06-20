@@ -41,15 +41,26 @@ async def list_pools(
     db: AsyncSession = Depends(get_db),
 ):
     pools = await svc.get_all_pools(db)
-    # Enrich with disk usage
+    # Enrich with disk usage. Guard the per-pool on-disk scan with a timeout so
+    # a stale/hung NAS mount can't block the whole API request indefinitely.
+    import asyncio
     result = []
     for pool in pools:
-        disk = svc.get_disk_usage(pool.path)
-        used = svc.get_pool_used_bytes(pool.path)
+        try:
+            stats = await asyncio.wait_for(
+                asyncio.to_thread(svc.compute_pool_stats, pool),
+                timeout=10,
+            )
+        except (asyncio.TimeoutError, Exception):
+            # Treat an unresponsive mount as offline rather than empty.
+            stats = {"used_bytes": 0, "free_bytes": 0,
+                     "total_bytes": 0, "online": False}
         result.append(StoragePoolResponse(
             **{c.name: getattr(pool, c.name) for c in pool.__table__.columns},
-            used_bytes=used,
-            free_bytes=max(0, (pool.max_size_bytes or disk["total_bytes"]) - used),
+            used_bytes=stats["used_bytes"],
+            free_bytes=stats["free_bytes"],
+            total_bytes=stats["total_bytes"],
+            online=stats["online"],
             recording_count=0,
         ))
     return result
@@ -172,9 +183,12 @@ async def create_pool(
         ip_address=client_ip(request), resource_type="storage_pool", resource_id=pool.id,
     )
     await db.commit()
+    stats = svc.compute_pool_stats(pool)
     return StoragePoolResponse(
         **{c.name: getattr(pool, c.name) for c in pool.__table__.columns},
-        used_bytes=0, free_bytes=0, recording_count=0,
+        used_bytes=stats["used_bytes"], free_bytes=stats["free_bytes"],
+        total_bytes=stats["total_bytes"], online=stats["online"],
+        recording_count=0,
     )
 
 
@@ -188,9 +202,12 @@ async def update_pool(
     pool = await svc.update_pool(db, pool_id, data)
     if not pool:
         raise HTTPException(404, "Pool not found")
+    stats = svc.compute_pool_stats(pool)
     return StoragePoolResponse(
         **{c.name: getattr(pool, c.name) for c in pool.__table__.columns},
-        used_bytes=0, free_bytes=0, recording_count=0,
+        used_bytes=stats["used_bytes"], free_bytes=stats["free_bytes"],
+        total_bytes=stats["total_bytes"], online=stats["online"],
+        recording_count=0,
     )
 
 

@@ -35,6 +35,8 @@ class StorageService:
 
     @staticmethod
     async def create_pool(db: AsyncSession, data) -> StoragePool:
+        from app.core.crypto import encrypt_value
+
         # Ensure directory exists
         os.makedirs(data.path, exist_ok=True)
 
@@ -50,7 +52,8 @@ class StorageService:
             nas_share=data.nas_share,
             nas_protocol=data.nas_protocol,
             nas_username=data.nas_username,
-            nas_password=data.nas_password,
+            # Encrypt the SMB password at rest (decrypted on mount).
+            nas_password=encrypt_value(data.nas_password),
             nas_domain=data.nas_domain,
             nas_auto_mount=data.nas_auto_mount,
         )
@@ -68,6 +71,8 @@ class StorageService:
 
     @staticmethod
     async def update_pool(db: AsyncSession, pool_id: str, data) -> Optional[StoragePool]:
+        from app.core.crypto import encrypt_value
+
         pool = await StorageService.get_pool(db, pool_id)
         if not pool:
             return None
@@ -76,6 +81,13 @@ class StorageService:
             existing = await db.execute(select(StoragePool).where(StoragePool.is_default.is_(True)))
             for p in existing.scalars().all():
                 p.is_default = False
+        # A blank/None nas_password on edit means "keep the existing one" — never
+        # wipe the stored credential. Encrypt any new password before storing.
+        if "nas_password" in update:
+            if not update["nas_password"]:
+                update.pop("nas_password")
+            else:
+                update["nas_password"] = encrypt_value(update["nas_password"])
         for k, v in update.items():
             setattr(pool, k, v)
         await db.commit()
@@ -124,6 +136,42 @@ class StorageService:
         pool = await StorageService.get_pool(db, pool_id)
         if not pool:
             return False
+        # Recordings and cameras carry a FK to storage_pools with no ON DELETE
+        # clause, so a raw delete would raise IntegrityError (and a 500) whenever
+        # the pool still has footage or assigned cameras. Detach those references
+        # first: cameras fall back to default-pool selection, recordings keep
+        # their file_path on disk but lose the (now-gone) pool link. The actual
+        # video files are NOT touched — operator can still play/export them.
+        from sqlalchemy import update
+        from app.recordings.models import Recording
+        from app.cameras.models import Camera
+
+        await db.execute(
+            update(Recording)
+            .where(Recording.storage_pool_id == pool_id)
+            .values(storage_pool_id=None)
+        )
+        await db.execute(
+            update(Camera)
+            .where(Camera.storage_pool_id == pool_id)
+            .values(storage_pool_id=None)
+        )
+        # Remove tier rules / backup schedules that reference this pool so they
+        # don't silently no-op or error on a missing pool.
+        from app.storage.models import StorageTierRule, BackupSchedule
+        from sqlalchemy import delete as sa_delete, or_
+        await db.execute(
+            sa_delete(StorageTierRule).where(
+                or_(StorageTierRule.source_pool_id == pool_id,
+                    StorageTierRule.target_pool_id == pool_id)
+            )
+        )
+        await db.execute(
+            sa_delete(BackupSchedule).where(
+                or_(BackupSchedule.source_pool_id == pool_id,
+                    BackupSchedule.target_pool_id == pool_id)
+            )
+        )
         await db.delete(pool)
         await db.commit()
         return True
@@ -139,12 +187,20 @@ class StorageService:
 
     @staticmethod
     def get_disk_usage(path: str) -> dict:
-        """Get disk space for a storage pool path."""
+        """Get disk space for a storage pool path.
+
+        The ``online`` flag distinguishes a genuinely empty/zero disk from a
+        path that could not be stat'd (missing dir or stale/offline mount). An
+        offline target reports online=False so the UI can show "Offline"
+        instead of rendering it as a healthy empty disk.
+        """
         try:
             total, used, free = shutil.disk_usage(path)
-            return {"total_bytes": total, "used_bytes": used, "free_bytes": free}
+            return {"total_bytes": total, "used_bytes": used,
+                    "free_bytes": free, "online": True}
         except Exception:
-            return {"total_bytes": 0, "used_bytes": 0, "free_bytes": 0}
+            return {"total_bytes": 0, "used_bytes": 0,
+                    "free_bytes": 0, "online": False}
 
     @staticmethod
     def get_pool_used_bytes(path: str) -> int:
@@ -153,10 +209,43 @@ class StorageService:
         try:
             for root, dirs, files in os.walk(path):
                 for f in files:
-                    total += os.path.getsize(os.path.join(root, f))
+                    try:
+                        total += os.path.getsize(os.path.join(root, f))
+                    except OSError:
+                        # File vanished mid-walk (active retention) — skip it.
+                        continue
         except Exception:
             pass
         return total
+
+    @staticmethod
+    def compute_pool_stats(pool) -> dict:
+        """Compute used/free/total/online for a single pool in a way that is
+        safe to call from request handlers.
+
+        - ``used_bytes``  : bytes actually occupied by this pool's files.
+        - ``total_bytes`` : the pool quota if set, else the real disk capacity.
+        - ``free_bytes``  : headroom — quota remaining if a quota is set, else
+                            the REAL filesystem free space (not capacity minus
+                            our own files, which previously over-reported free
+                            on a shared/partially-full disk).
+        - ``online``      : False when the path is missing or the mount is
+                            stale/offline (disk_usage failed), so the UI can
+                            distinguish "offline" from a genuinely empty disk.
+        """
+        disk = StorageService.get_disk_usage(pool.path)
+        online = disk["online"]
+        used = StorageService.get_pool_used_bytes(pool.path) if online else 0
+        if pool.max_size_bytes:
+            total = pool.max_size_bytes
+            # Cap quota headroom by real disk free so we never promise space
+            # the underlying filesystem doesn't have.
+            free = max(0, min(pool.max_size_bytes - used, disk["free_bytes"]))
+        else:
+            total = disk["total_bytes"]
+            free = disk["free_bytes"]
+        return {"used_bytes": used, "free_bytes": free,
+                "total_bytes": total, "online": online}
 
     # ------------------------------------------------------------------
     # Resolve recording path for a camera
@@ -432,8 +521,10 @@ class StorageService:
         pool_data = []
 
         for pool in pools:
-            disk = StorageService.get_disk_usage(pool.path)
-            used = StorageService.get_pool_used_bytes(pool.path)
+            stats = StorageService.compute_pool_stats(pool)
+            used = stats["used_bytes"]
+            free = stats["free_bytes"]
+            cap = stats["total_bytes"]
 
             # Count recordings in this pool
             rec_count = await db.execute(
@@ -441,8 +532,6 @@ class StorageService:
             )
             count = rec_count.scalar() or 0
 
-            cap = pool.max_size_bytes or disk["total_bytes"]
-            free = max(0, cap - used)
             total_cap += cap
             total_used += used
             total_free += free
@@ -459,6 +548,8 @@ class StorageService:
                 "mount_options": pool.mount_options,
                 "used_bytes": used,
                 "free_bytes": free,
+                "total_bytes": cap,
+                "online": stats["online"],
                 "recording_count": count,
                 "created_at": pool.created_at,
             })
@@ -491,6 +582,7 @@ class StorageService:
 
     @staticmethod
     async def create_cloud_config(db: AsyncSession, data) -> CloudStorageConfig:
+        from app.core.crypto import encrypt_value
         cfg = CloudStorageConfig(
             name=data.name,
             provider=data.provider,
@@ -498,7 +590,9 @@ class StorageService:
             bucket=data.bucket,
             region=data.region,
             access_key=data.access_key,
-            secret_key=data.secret_key,
+            # Encrypt the S3 secret key at rest (decrypted only when building
+            # the boto3 client for a test/upload).
+            secret_key=encrypt_value(data.secret_key),
             prefix=data.prefix,
             sync_enabled=data.sync_enabled,
         )
@@ -509,10 +603,17 @@ class StorageService:
 
     @staticmethod
     async def update_cloud_config(db: AsyncSession, config_id: str, data) -> Optional[CloudStorageConfig]:
+        from app.core.crypto import encrypt_value
         cfg = await StorageService.get_cloud_config(db, config_id)
         if not cfg:
             return None
         update = data.model_dump(exclude_unset=True)
+        # Blank secret_key on edit = keep existing; otherwise encrypt the new one.
+        if "secret_key" in update:
+            if not update["secret_key"]:
+                update.pop("secret_key")
+            else:
+                update["secret_key"] = encrypt_value(update["secret_key"])
         for k, v in update.items():
             setattr(cfg, k, v)
         await db.commit()
@@ -542,17 +643,22 @@ class StorageService:
             if config.endpoint:
                 kwargs["endpoint_url"] = config.endpoint
             if config.access_key and config.secret_key:
+                from app.core.crypto import decrypt_value
                 kwargs["aws_access_key_id"] = config.access_key
-                kwargs["aws_secret_access_key"] = config.secret_key
+                kwargs["aws_secret_access_key"] = decrypt_value(config.secret_key)
 
             client = boto3.client(**kwargs, config=BotoConfig(connect_timeout=5, read_timeout=5))
             # Try listing with max 1 to check access
             client.list_objects_v2(Bucket=config.bucket, MaxKeys=1, Prefix=config.prefix)
             return {"success": True, "message": f"Connected to {config.bucket}"}
         except ImportError:
-            return {"success": False, "message": "boto3 not installed. Run: pip install boto3"}
+            return {"success": False, "message": "Cloud storage support is not installed on the server."}
         except Exception as e:
-            return {"success": False, "message": str(e)}
+            # Never surface raw boto3/botocore errors (endpoints, ARNs, SDK
+            # internals) to the operator — log them, show a clean hint.
+            logger.warning(f"Cloud connection test failed for {config.bucket}: {e}")
+            return {"success": False,
+                    "message": "Could not connect. Check the bucket, region, endpoint and credentials."}
 
     @staticmethod
     async def upload_recording_to_cloud(db: AsyncSession, recording_id: str, config_id: str) -> dict:
@@ -584,8 +690,9 @@ class StorageService:
             if cfg.endpoint:
                 kwargs["endpoint_url"] = cfg.endpoint
             if cfg.access_key and cfg.secret_key:
+                from app.core.crypto import decrypt_value
                 kwargs["aws_access_key_id"] = cfg.access_key
-                kwargs["aws_secret_access_key"] = cfg.secret_key
+                kwargs["aws_secret_access_key"] = decrypt_value(cfg.secret_key)
 
             client = boto3.client(**kwargs, config=BotoConfig(connect_timeout=10, read_timeout=60))
 
@@ -604,10 +711,11 @@ class StorageService:
                 "size_bytes": file_size,
             }
         except ImportError:
-            return {"success": False, "message": "boto3 not installed"}
+            return {"success": False, "message": "Cloud storage support is not installed on the server."}
         except Exception as e:
             logger.error(f"Cloud upload failed: {e}")
-            return {"success": False, "message": str(e)}
+            return {"success": False,
+                    "message": "Upload to cloud storage failed. Please check the cloud configuration."}
 
     @staticmethod
     async def get_system_disk_info() -> dict:
@@ -627,7 +735,9 @@ class StorageService:
                         "free_bytes": usage.free,
                         "percent": usage.percent,
                     })
-                except PermissionError:
+                except (PermissionError, OSError):
+                    # Stale/offline mount or inaccessible partition — skip it
+                    # rather than crash the disk explorer.
                     continue
         except ImportError:
             # Fallback to root

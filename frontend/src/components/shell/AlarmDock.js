@@ -2,6 +2,7 @@ import React from "react";
 import { useNavigate } from "react-router-dom";
 import { Bell, ChevronRight, WifiOff } from "lucide-react";
 import { useLiveEvents } from "../nvr/LiveEventDrawer";
+import { eventTypeLabel } from "../../lib/eventLabels";
 
 const sevColor = (sev) => {
   if (sev === "critical") return "var(--console-rec)";
@@ -72,7 +73,7 @@ export default function AlarmDock({ open, onToggle }) {
           >
             <div className="flex items-center gap-2">
               <span className="h-2 w-2 rounded-full" style={{ background: sevColor(ev.severity) }} />
-              <span className="text-xs font-medium truncate" style={{ color: "var(--console-text)" }}>{ev.title || ev.event_type}</span>
+              <span className="text-xs font-medium truncate" style={{ color: "var(--console-text)" }}>{ev.title || eventTypeLabel(ev.event_type)}</span>
             </div>
             <p className="text-[11px] truncate mt-0.5" style={{ color: "var(--console-muted)" }}>{ev.description}</p>
           </button>

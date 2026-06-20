@@ -73,7 +73,7 @@ import {
 import { toast } from "sonner";
 import { usePermissions } from "../hooks";
 import { useConfirm } from "../components/ui/confirm";
-import { cn } from "../lib/utils";
+import { cn, friendlyError } from "../lib/utils";
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 
@@ -267,7 +267,7 @@ const Storage = () => {
         qc.invalidateQueries({ queryKey: ["storage-summary"] });
         toast.success("Pool deleted");
       })
-      .catch((e) => toast.error(e.response?.data?.detail || "Failed to delete pool"));
+      .catch((e) => toast.error(friendlyError(e, "Couldn't delete the pool.")));
   }
 
   async function handleDeleteRule(id) {
@@ -281,7 +281,7 @@ const Storage = () => {
         qc.invalidateQueries({ queryKey: ["storage-rules"] });
         toast.success("Rule deleted");
       })
-      .catch((e) => toast.error(e.response?.data?.detail || "Failed to delete rule"));
+      .catch((e) => toast.error(friendlyError(e, "Couldn't delete the rule.")));
   }
 
   async function handleDeleteCloud(id) {
@@ -295,7 +295,7 @@ const Storage = () => {
         qc.invalidateQueries({ queryKey: ["cloud-configs"] });
         toast.success("Cloud config deleted");
       })
-      .catch((e) => toast.error(e.response?.data?.detail || "Failed to delete"));
+      .catch((e) => toast.error(friendlyError(e, "Couldn't delete.")));
   }
 
   async function handleDeleteBackup(id) {
@@ -309,7 +309,7 @@ const Storage = () => {
         qc.invalidateQueries({ queryKey: ["backup-schedules"] });
         toast.success("Backup schedule deleted");
       })
-      .catch((e) => toast.error(e.response?.data?.detail || "Failed to delete"));
+      .catch((e) => toast.error(friendlyError(e, "Couldn't delete.")));
   }
 };
 
@@ -383,7 +383,7 @@ const BackupTab = ({ pools, canManage, onAdd, onEdit, onDelete, queryClient }) =
                         toast.success("Backup started");
                         queryClient.invalidateQueries({ queryKey: ["backup-schedules"] });
                       })
-                      .catch((e) => toast.error(e.response?.data?.detail || "Failed"))
+                      .catch((e) => toast.error(friendlyError(e, "Couldn't start the backup.")))
                   }
                   title="Run now"
                 >
@@ -441,7 +441,7 @@ const BackupFormDialog = ({ open, onOpenChange, schedule, pools, queryClient }) 
       toast.success(isEdit ? "Schedule updated" : "Schedule created");
       onOpenChange(false);
     },
-    onError: (e) => toast.error(e.response?.data?.detail || "Failed"),
+    onError: (e) => toast.error(friendlyError(e, "Couldn't save the backup schedule.")),
   });
 
   const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
@@ -641,7 +641,7 @@ const CloudTab = ({ configs, canManage, onAdd, onEdit, onDelete, queryClient }) 
   const testMut = useMutation({
     mutationFn: testCloudConfig,
     onSuccess: (res) => { if (res.success) toast.success(res.message); else toast.error(res.message); },
-    onError: (e) => toast.error(e.response?.data?.detail || "Test failed"),
+    onError: (e) => toast.error(friendlyError(e, "Cloud test failed.")),
   });
 
   return (
@@ -885,9 +885,17 @@ const SummaryCard = ({ icon: Icon, label, value }) => (
 );
 
 const PoolCard = ({ pool, canManage, onEdit, onDelete }) => {
-  const capacity = pool.max_size_bytes || 0;
+  // Prefer the configured quota; fall back to the real filesystem capacity the
+  // backend reports (total_bytes) so unquota'd pools still show a usage meter.
+  const quota = pool.max_size_bytes || 0;
+  const capacity = quota || pool.total_bytes || 0;
   const used = pool.used_bytes || 0;
+  const free = pool.free_bytes ?? Math.max(0, capacity - used);
+  // online=false means the path is missing or the mount is stale/offline —
+  // distinguish this from a genuinely empty disk so 0/0/0 doesn't read as such.
+  const online = pool.online !== false;
   const usedPct = capacity > 0 ? parseFloat(pctVal(used, capacity)) : 0;
+  const isFull = online && (usedPct >= 99 || (capacity > 0 && free <= 0));
   const barColor =
     usedPct > 90
       ? "var(--console-rec)"
@@ -908,12 +916,12 @@ const PoolCard = ({ pool, canManage, onEdit, onDelete }) => {
   const mountMut = useMutation({
     mutationFn: () => mountNasPool(pool.id),
     onSuccess: () => { toast.success("Pool mounted"); qc.invalidateQueries({ queryKey: ["storage-pools"] }); },
-    onError: (e) => toast.error(e.response?.data?.detail || "Mount failed"),
+    onError: (e) => toast.error(friendlyError(e, "Couldn't mount the pool.")),
   });
   const unmountMut = useMutation({
     mutationFn: () => unmountNasPool(pool.id),
     onSuccess: () => { toast.success("Pool unmounted"); qc.invalidateQueries({ queryKey: ["storage-pools"] }); },
-    onError: (e) => toast.error(e.response?.data?.detail || "Unmount failed"),
+    onError: (e) => toast.error(friendlyError(e, "Couldn't unmount the pool.")),
   });
 
   return (
@@ -933,6 +941,15 @@ const PoolCard = ({ pool, canManage, onEdit, onDelete }) => {
               style={{ background: "var(--console-raised)", color: "var(--console-accent)", border: "1px solid var(--console-border)" }}
             >
               DEFAULT
+            </span>
+          )}
+          {!online && (
+            <span
+              className="font-telemetry text-[10px] px-1.5 py-0.5 rounded inline-flex items-center gap-1"
+              style={{ background: "var(--console-raised)", color: "var(--console-rec)", border: "1px solid var(--console-border)" }}
+              title="Storage path is missing or the mount is offline"
+            >
+              <WifiOff className="h-2.5 w-2.5" /> OFFLINE
             </span>
           )}
         </div>
@@ -985,16 +1002,21 @@ const PoolCard = ({ pool, canManage, onEdit, onDelete }) => {
           )}
         </div>
       )}
-      {capacity > 0 ? (
+      {!online ? (
+        <div className="font-telemetry text-[10px]" style={{ color: "var(--console-rec)" }}>
+          Storage offline — usage unavailable
+        </div>
+      ) : capacity > 0 ? (
         <>
           <div className="h-1.5 rounded-full overflow-hidden mb-2" style={{ background: "var(--console-raised)" }}>
             <div
               className="h-full rounded-full"
-              style={{ width: `${usedPct}%`, background: barColor }}
+              style={{ width: `${Math.min(usedPct, 100)}%`, background: barColor }}
             />
           </div>
           <div className="flex justify-between font-telemetry text-[10px]" style={{ color: "var(--console-muted)" }}>
             <span>{fmtBytes(used)} used</span>
+            <span>{fmtBytes(free)} free</span>
             <span>{fmtBytes(capacity)} total</span>
           </div>
         </>
@@ -1003,12 +1025,17 @@ const PoolCard = ({ pool, canManage, onEdit, onDelete }) => {
           {fmtBytes(used)} used (unlimited capacity)
         </div>
       )}
-      {usedPct > 90 && (
+      {online && isFull ? (
+        <div className="mt-3 flex items-center gap-1 font-telemetry text-[10px]" style={{ color: "var(--console-rec)" }}>
+          <AlertTriangle className="h-3 w-3" />
+          Storage full
+        </div>
+      ) : online && usedPct > 90 ? (
         <div className="mt-3 flex items-center gap-1 font-telemetry text-[10px]" style={{ color: "var(--console-rec)" }}>
           <AlertTriangle className="h-3 w-3" />
           Storage nearly full
         </div>
-      )}
+      ) : null}
     </div>
   );
 };
@@ -1061,7 +1088,7 @@ const PoolFormDialog = ({ open, onOpenChange, pool, queryClient }) => {
       onOpenChange(false);
       toast.success(isEdit ? "Pool updated" : "Pool created");
     },
-    onError: (e) => toast.error(e.response?.data?.detail || "Failed"),
+    onError: (e) => toast.error(friendlyError(e, "Couldn't save the pool.")),
   });
 
   const handleSubmit = (e) => {
@@ -1189,7 +1216,7 @@ const PoolFormDialog = ({ open, onOpenChange, pool, queryClient }) => {
                       username: form.nas_username, password: form.nas_password, domain: form.nas_domain,
                     })
                       .then((res) => { if (res.ok) toast.success(res.message); else toast.error(res.message); })
-                      .catch((e) => toast.error(e.response?.data?.detail || "Test failed"));
+                      .catch((e) => toast.error(friendlyError(e, "Connection test failed.")));
                   }}
                   disabled={!form.nas_server}
                 >
@@ -1240,7 +1267,7 @@ const RuleFormDialog = ({ open, onOpenChange, pools, queryClient }) => {
       onOpenChange(false);
       toast.success("Rule created");
     },
-    onError: (e) => toast.error(e.response?.data?.detail || "Failed"),
+    onError: (e) => toast.error(friendlyError(e, "Couldn't create the rule.")),
   });
 
   const handleSubmit = (e) => {
@@ -1334,7 +1361,7 @@ const CloudFormDialog = ({ open, onOpenChange, config, queryClient }) => {
       onOpenChange(false);
       toast.success(isEdit ? "Cloud config updated" : "Cloud config created");
     },
-    onError: (e) => toast.error(e.response?.data?.detail || "Failed"),
+    onError: (e) => toast.error(friendlyError(e, "Couldn't save the cloud config.")),
   });
 
   const handleSubmit = (e) => {
