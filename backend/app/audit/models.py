@@ -52,6 +52,5 @@ class AuditLogResponse(BaseModel):
 class AuditLogPage(BaseModel):
     items: List[AuditLogResponse]
     total: int
-    page: int
-    per_page: int
-    pages: int
+    limit: int
+    offset: int

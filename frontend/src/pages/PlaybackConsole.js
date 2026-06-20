@@ -142,7 +142,8 @@ export default function PlaybackConsole() {
   });
   const segmentsByCam = useMemo(() => {
     const m = {};
-    selectedIds.forEach((id, i) => { m[id] = segmentQueries[i]?.data || []; });
+    // Recordings list returns the unified envelope {items, total, ...}.
+    selectedIds.forEach((id, i) => { m[id] = segmentQueries[i]?.data?.items || []; });
     return m;
   }, [selectedIds, segmentQueries]);
 
@@ -162,7 +163,7 @@ export default function PlaybackConsole() {
   });
   const eventsByCam = useMemo(() => {
     const m = {};
-    selectedIds.forEach((id, i) => { m[id] = eventQueries[i]?.data?.events || []; });
+    selectedIds.forEach((id, i) => { m[id] = eventQueries[i]?.data?.items || []; });
     return m;
   }, [selectedIds, eventQueries]);
 

@@ -228,7 +228,7 @@ const Events = () => {
     queryFn: getAllCameras,
   });
 
-  const rawEvents = data?.events || [];
+  const rawEvents = data?.items || [];
   const total = data?.total || 0;
   const totalPages = Math.ceil(total / PAGE_SIZE);
   const unackCount = unackData?.count || 0;

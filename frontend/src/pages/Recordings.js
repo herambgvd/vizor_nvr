@@ -82,13 +82,14 @@ const Recordings = () => {
   const [deleteTarget, setDeleteTarget] = useState(null); // single delete
   const [showBulkDelete, setShowBulkDelete] = useState(false);
 
-  // Build query params
+  // Build query params — unified pagination contract: limit + offset.
+  // The recordings list endpoint filters on start_after / end_before.
   const params = useMemo(() => {
-    const p = { page, page_size: PAGE_SIZE };
+    const p = { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE };
     if (cameraFilter && cameraFilter !== "all") p.camera_id = cameraFilter;
     if (search.trim()) p.search = search.trim();
-    if (startDate) p.start_date = startDate;
-    if (endDate) p.end_date = endDate;
+    if (startDate) p.start_after = `${startDate}T00:00:00`;
+    if (endDate) p.end_before = `${endDate}T23:59:59`;
     return p;
   }, [page, cameraFilter, search, startDate, endDate]);
 
@@ -105,7 +106,7 @@ const Recordings = () => {
 
   const recordings = Array.isArray(data) ? data : (data?.items ?? []);
   const total = data?.total ?? recordings.length;
-  const totalPages = data?.total_pages ?? (Math.ceil(total / PAGE_SIZE) || 1);
+  const totalPages = Math.ceil(total / PAGE_SIZE) || 1;
 
   // Mutations
   const deleteMut = useMutation({

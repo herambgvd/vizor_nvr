@@ -5,7 +5,7 @@
 import logging
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -173,17 +173,26 @@ async def list_events(
 # Logs
 # ------------------------------------------------------------------
 
-@router.get("/logs", response_model=List[NotificationLogResponse])
+@router.get("/logs")
 async def get_logs(
     webhook_id: Optional[str] = None,
     event_type: Optional[str] = None,
-    limit: int = 100,
+    limit: int = Query(50, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
     user: dict = Depends(get_admin_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get notification delivery logs."""
-    logs = await NotificationService.get_logs(db, webhook_id, event_type, limit)
-    return [NotificationLogResponse(**log.__dict__) for log in logs]
+    """Get notification delivery logs. Returns the unified pagination envelope
+    {items, total, limit, offset}."""
+    logs, total = await NotificationService.get_logs(
+        db, webhook_id, event_type, limit, offset
+    )
+    return {
+        "items": [NotificationLogResponse(**log.__dict__) for log in logs],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 # ------------------------------------------------------------------

@@ -26,15 +26,15 @@ async def query_audit_logs(
     start_time: Optional[datetime] = None,
     end_time: Optional[datetime] = None,
     search: Optional[str] = None,
-    page: int = Query(1, ge=1),
-    per_page: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
     user: dict = Depends(get_admin_user),
     db: AsyncSession = Depends(get_db),
 ):
     return await svc.query(
         db, action=action, user_id=user_id, severity=severity,
         resource_type=resource_type, start_time=start_time, end_time=end_time,
-        search=search, page=page, per_page=per_page,
+        search=search, limit=limit, offset=offset,
     )
 
 

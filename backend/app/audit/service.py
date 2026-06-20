@@ -2,7 +2,6 @@
 # Audit Service — query, export
 # =============================================================================
 
-import math
 from typing import Optional, List
 from datetime import datetime
 
@@ -24,8 +23,8 @@ class AuditService:
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None,
         search: Optional[str] = None,
-        page: int = 1,
-        per_page: int = 50,
+        limit: int = 50,
+        offset: int = 0,
     ) -> dict:
         q = select(AuditLog)
         count_q = select(func.count(AuditLog.id))
@@ -62,16 +61,15 @@ class AuditService:
             )
 
         total = (await db.execute(count_q)).scalar()
-        q = q.order_by(AuditLog.created_at.desc()).offset((page - 1) * per_page).limit(per_page)
+        q = q.order_by(AuditLog.created_at.desc()).offset(offset).limit(limit)
         result = await db.execute(q)
         items = list(result.scalars().all())
 
         return {
             "items": items,
             "total": total,
-            "page": page,
-            "per_page": per_page,
-            "pages": math.ceil(total / per_page) if per_page else 0,
+            "limit": limit,
+            "offset": offset,
         }
 
     @staticmethod

@@ -559,10 +559,13 @@ const TwilioPanel = ({ settings }) => {
 
 const LogsPanel = () => {
   const [filter, setFilter] = useState({ webhook_id: "", event_type: "" });
-  const { data: logs = [], isLoading, refetch } = useQuery({
+  const { data, isLoading, refetch } = useQuery({
     queryKey: ["notif-logs", filter],
-    queryFn: () => fetchLogs({ limit: 100, ...filter }),
+    queryFn: () => fetchLogs({ limit: 100, offset: 0, ...filter }),
   });
+  // Unified pagination envelope {items, total, limit, offset}; tolerate a bare
+  // array for safety.
+  const logs = Array.isArray(data) ? data : data?.items ?? [];
 
   const statusColor = {
     sent: "var(--console-online)",

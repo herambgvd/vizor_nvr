@@ -177,12 +177,12 @@ const AuditLog = () => {
   const [endDate, setEndDate] = useState("");
   const [confirmCleanup, setConfirmCleanup] = useState(false);
 
-  // Backend (app/audit/router.py query_audit_logs) expects:
-  //   per_page, search, start_time, end_time  (NOT page_size/user/start_date).
+  // Backend (app/audit/router.py query_audit_logs) uses the unified pagination
+  // contract: limit + offset, and returns {items, total, limit, offset}.
   // Date inputs are calendar days — widen `end_time` to end-of-day so the
   // selected "to" date is inclusive.
   const params = useMemo(() => {
-    const p = { page, per_page: pageSize };
+    const p = { limit: pageSize, offset: (page - 1) * pageSize };
     if (action && action !== "all") p.action = action;
     if (searchFilter.trim()) p.search = searchFilter.trim();
     if (startDate) p.start_time = `${startDate}T00:00:00`;
@@ -207,8 +207,8 @@ const AuditLog = () => {
 
   const logs = data?.items ?? data ?? [];
   const total = data?.total ?? logs.length;
-  // Backend returns `pages` (AuditLogPage); keep a client fallback for safety.
-  const totalPages = data?.pages ?? (Math.ceil(total / pageSize) || 1);
+  // Unified envelope returns total only; derive the page count client-side.
+  const totalPages = Math.ceil(total / pageSize) || 1;
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);

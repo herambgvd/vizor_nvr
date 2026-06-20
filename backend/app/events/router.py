@@ -65,7 +65,7 @@ async def list_events(
         offset=offset,
     )
     return {
-        "events": [EventResponse.model_validate(e) for e in events],
+        "items": [EventResponse.model_validate(e) for e in events],
         "total": total,
         "limit": limit,
         "offset": offset,

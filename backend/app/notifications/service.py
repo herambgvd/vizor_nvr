@@ -343,16 +343,22 @@ class NotificationService:
         db: AsyncSession,
         webhook_id: Optional[str] = None,
         event_type: Optional[str] = None,
-        limit: int = 100,
-    ) -> List[NotificationLog]:
-        query = select(NotificationLog).order_by(NotificationLog.created_at.desc())
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[List[NotificationLog], int]:
+        from sqlalchemy import func
+        base = select(NotificationLog)
+        count_q = select(func.count(NotificationLog.id))
         if webhook_id:
-            query = query.where(NotificationLog.webhook_id == webhook_id)
+            base = base.where(NotificationLog.webhook_id == webhook_id)
+            count_q = count_q.where(NotificationLog.webhook_id == webhook_id)
         if event_type:
-            query = query.where(NotificationLog.event_type == event_type)
-        query = query.limit(limit)
+            base = base.where(NotificationLog.event_type == event_type)
+            count_q = count_q.where(NotificationLog.event_type == event_type)
+        total = (await db.execute(count_q)).scalar() or 0
+        query = base.order_by(NotificationLog.created_at.desc()).limit(limit).offset(offset)
         result = await db.execute(query)
-        return list(result.scalars().all())
+        return list(result.scalars().all()), total
 
     async def test_webhook(
         self,

@@ -3,7 +3,7 @@
 # =============================================================================
 
 import logging
-from typing import List, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,17 +28,28 @@ async def create_bookmark(
     return bookmark
 
 
-@router.get("", response_model=List[BookmarkResponse])
+@router.get("")
 async def list_bookmarks(
     camera_id: Optional[str] = None,
-    limit: int = Query(200, le=1000),
-    offset: int = 0,
+    limit: int = Query(50, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
     user: dict = Depends(require_permission("view_playback")),
     db: AsyncSession = Depends(get_db),
 ):
+    """List bookmarks. Returns the unified pagination envelope
+    {items, total, limit, offset}."""
     if camera_id:
-        return await svc.list_by_camera(db, camera_id, limit, offset)
-    return await svc.list_by_user(db, user["id"], limit, offset)
+        items = await svc.list_by_camera(db, camera_id, limit, offset)
+        total = await svc.count_by_camera(db, camera_id)
+    else:
+        items = await svc.list_by_user(db, user["id"], limit, offset)
+        total = await svc.count_by_user(db, user["id"])
+    return {
+        "items": [BookmarkResponse.model_validate(b) for b in items],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 @router.get("/{bookmark_id}", response_model=BookmarkResponse)

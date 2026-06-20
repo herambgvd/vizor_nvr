@@ -90,9 +90,9 @@ const Bookmarks = () => {
     return p;
   }, [page, cameraId, searchQuery]);
 
-  // Fetch bookmarks
+  // Fetch bookmarks — unified envelope {items, total, limit, offset}.
   const {
-    data: bookmarks = [],
+    data: bookmarkData,
     isLoading,
     isFetching,
     isError,
@@ -102,6 +102,10 @@ const Bookmarks = () => {
     queryFn: () => getBookmarks(params),
     staleTime: 30000,
   });
+  const bookmarks = Array.isArray(bookmarkData)
+    ? bookmarkData
+    : bookmarkData?.items ?? [];
+  const total = bookmarkData?.total ?? bookmarks.length;
 
   // Fetch cameras for filter dropdown and name lookup
   const { data: cameras = [] } = useQuery({
@@ -185,8 +189,8 @@ const Bookmarks = () => {
     }
   };
 
-  // Pagination
-  const hasMore = bookmarks.length === PAGE_SIZE;
+  // Pagination — total comes from the unified envelope.
+  const hasMore = page * PAGE_SIZE < total;
   const hasPrev = page > 1;
 
   return (

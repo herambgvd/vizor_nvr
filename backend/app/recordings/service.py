@@ -74,6 +74,36 @@ class RecordingService:
         result = await db.execute(q)
         return list(result.scalars().all())
 
+    @staticmethod
+    async def count_by_camera(
+        db: AsyncSession,
+        camera_id: str,
+        start_after: Optional[datetime] = None,
+        end_before: Optional[datetime] = None,
+    ) -> int:
+        q = select(func.count(Recording.id)).where(Recording.camera_id == camera_id)
+        if start_after:
+            q = q.where(Recording.start_time >= _to_naive_utc(start_after))
+        if end_before:
+            q = q.where(Recording.start_time <= _to_naive_utc(end_before))
+        return (await db.execute(q)).scalar() or 0
+
+    @staticmethod
+    async def count_search(
+        db: AsyncSession,
+        camera_ids: Optional[List[str]] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+    ) -> int:
+        q = select(func.count(Recording.id))
+        if camera_ids:
+            q = q.where(Recording.camera_id.in_(camera_ids))
+        if start_time:
+            q = q.where(Recording.start_time >= _to_naive_utc(start_time))
+        if end_time:
+            q = q.where(Recording.start_time <= _to_naive_utc(end_time))
+        return (await db.execute(q)).scalar() or 0
+
     # ------------------------------------------------------------------
     # Timeline
     # ------------------------------------------------------------------

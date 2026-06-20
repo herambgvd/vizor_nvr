@@ -38,23 +38,34 @@ svc = RecordingService()
 # Listing (base path - must come first)
 # ══════════════════════════════════════════════════════════════════════
 
-@router.get("", response_model=List[RecordingResponse])
+@router.get("")
 async def list_recordings(
     camera_id: Optional[str] = None,
     start_after: Optional[datetime] = None,
     end_before: Optional[datetime] = None,
-    limit: int = Query(200, le=1000),
-    offset: int = 0,
+    limit: int = Query(50, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
     user: dict = Depends(require_permission("view_playback")),
     db: AsyncSession = Depends(get_db),
     _rate_limit = Depends(api_limiter.limit),
 ):
+    """List recordings. Returns the unified pagination envelope
+    {items, total, limit, offset}."""
     allowed = await get_accessible_camera_ids(db, user)
     if camera_id:
         if allowed is not None and camera_id not in allowed:
             raise HTTPException(403, "No access to this camera")
-        return await svc.get_by_camera(db, camera_id, start_after, end_before, limit, offset)
-    return await svc.search(db, allowed, start_after, end_before, limit, offset)
+        items = await svc.get_by_camera(db, camera_id, start_after, end_before, limit, offset)
+        total = await svc.count_by_camera(db, camera_id, start_after, end_before)
+    else:
+        items = await svc.search(db, allowed, start_after, end_before, limit, offset)
+        total = await svc.count_search(db, allowed, start_after, end_before)
+    return {
+        "items": [RecordingResponse.model_validate(r) for r in items],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 # ══════════════════════════════════════════════════════════════════════

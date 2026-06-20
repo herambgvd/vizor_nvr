@@ -5,7 +5,7 @@
 import logging
 from typing import Optional, List
 
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bookmarks.models import Bookmark, BookmarkCreate, BookmarkUpdate
@@ -60,6 +60,18 @@ class BookmarkService:
             .offset(offset)
         )
         return list(result.scalars().all())
+
+    async def count_by_camera(self, db: AsyncSession, camera_id: str) -> int:
+        result = await db.execute(
+            select(func.count(Bookmark.id)).where(Bookmark.camera_id == camera_id)
+        )
+        return result.scalar() or 0
+
+    async def count_by_user(self, db: AsyncSession, user_id: str) -> int:
+        result = await db.execute(
+            select(func.count(Bookmark.id)).where(Bookmark.user_id == user_id)
+        )
+        return result.scalar() or 0
 
     async def update(
         self, db: AsyncSession, bookmark: Bookmark, data: BookmarkUpdate,
