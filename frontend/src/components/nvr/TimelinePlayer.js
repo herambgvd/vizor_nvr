@@ -517,8 +517,8 @@ export const TimelinePlayer = forwardRef(
           }
 
           if (isPlaying) {
-            video.play().catch((err) => {
-              console.error("Video playback error:", err);
+            video.play().catch(() => {
+              // Playback couldn't start (autoplay/codec) — fall back to paused.
               setIsPlaying(false);
             });
           }
@@ -544,8 +544,8 @@ export const TimelinePlayer = forwardRef(
     useEffect(() => {
       if (videoRef.current && currentRecording) {
         if (isPlaying) {
-          videoRef.current.play().catch((err) => {
-            console.error("Video playback error:", err);
+          videoRef.current.play().catch(() => {
+            // Playback couldn't start — reflect paused state in the UI.
             setIsPlaying(false);
           });
         } else {
@@ -667,11 +667,6 @@ export const TimelinePlayer = forwardRef(
               {/* Time Overlay */}
               <div className="absolute top-4 left-4 bg-black/60 px-3 py-1 rounded text-white text-sm">
                 {format(currentTime, "PPpp")}
-              </div>
-
-              {/* Recording Info */}
-              <div className="absolute bottom-4 left-4 bg-black/60 px-3 py-1 rounded text-white text-xs">
-                Recording: {currentRecording.id.substring(0, 8)}...
               </div>
 
               {/* Playback Speed Indicator */}

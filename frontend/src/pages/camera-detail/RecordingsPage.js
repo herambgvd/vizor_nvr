@@ -32,7 +32,7 @@ import {
   ClipBuilder,
 } from "../../components/nvr";
 import { Button } from "../../components/ui/button";
-import { getErrorMessage } from "../../lib/utils";
+import { friendlyError } from "../../lib/utils";
 import { Calendar } from "../../components/ui/calendar";
 import {
   Popover,
@@ -104,9 +104,8 @@ const RecordingsPage = () => {
 
   const exportMutation = useMutation({
     mutationFn: exportClip,
-    onSuccess: (res) =>
-      toast.success(`Export started — ${res.export_id || "processing"}`),
-    onError: (e) => toast.error(getErrorMessage(e, "Export failed")),
+    onSuccess: () => toast.success("Export started — we'll have it ready shortly"),
+    onError: (e) => toast.error(friendlyError(e, "Couldn't start the export")),
   });
 
   const handleExportDay = () => {
@@ -123,7 +122,7 @@ const RecordingsPage = () => {
   const bookmarkMutation = useMutation({
     mutationFn: createBookmark,
     onSuccess: () => toast.success("Bookmark saved"),
-    onError: (e) => toast.error(getErrorMessage(e, "Bookmark failed")),
+    onError: (e) => toast.error(friendlyError(e, "Couldn't save the bookmark")),
   });
 
   const handleBookmark = useCallback(

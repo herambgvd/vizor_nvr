@@ -60,8 +60,12 @@ const LiveStream = () => {
         }
       } catch {
         if (mounted) {
-          toast.error("Failed to start stream");
-          setLiveStreamId(cameraId); // fallback
+          // Couldn't resolve the dedicated live-stream id — fall back to the
+          // camera id and still hand off to the player, which has its own
+          // retry/clean-error overlay. Without setting streamReady the view
+          // would otherwise hang on a spinner forever.
+          setLiveStreamId(cameraId);
+          setStreamReady(true);
         }
       } finally {
         if (mounted) setRegistering(false);

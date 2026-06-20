@@ -11,15 +11,17 @@ import { toast } from "sonner";
 export default function VideoTile({ camera, onAssign, onClear, onMaximize }) {
   const navigate = useNavigate();
   const [streamId, setStreamId] = useState(null);
+  const [streamFailed, setStreamFailed] = useState(false);
   const [dragOver, setDragOver] = useState(false);
 
   useEffect(() => {
     let alive = true;
     setStreamId(null);
+    setStreamFailed(false);
     if (camera?.id && camera.status === "online") {
       getStreamUrls(camera.id)
         .then((u) => alive && setStreamId(u.live_stream_id || camera.id))
-        .catch(() => {});
+        .catch(() => { if (alive) setStreamFailed(true); });
     }
     return () => { alive = false; };
   }, [camera?.id, camera?.status]);
@@ -75,7 +77,13 @@ export default function VideoTile({ camera, onAssign, onClear, onMaximize }) {
           ) : (
             <div className="w-full h-full flex flex-col items-center justify-center text-zinc-600 gap-1">
               <CamIcon className="h-6 w-6" />
-              <span className="text-[10px]">{camera.status === "online" ? "connecting…" : "offline"}</span>
+              <span className="text-[10px]">
+                {camera.status !== "online"
+                  ? "offline"
+                  : streamFailed
+                    ? "unavailable"
+                    : "connecting…"}
+              </span>
             </div>
           )}
 

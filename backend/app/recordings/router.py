@@ -216,8 +216,17 @@ async def get_export_status(
 @router.get("/export/{export_id}/download")
 async def download_export(
     export_id: str,
-    user: dict = Depends(require_permission("export_clips")),
+    token: Optional[str] = Query(None, description="JWT access token (for browser <a download> links)"),
 ):
+    # Browsers can't attach an Authorization header to a plain <a href>/download
+    # link, so the export download accepts the JWT as a query param (same pattern
+    # as recording download). Validate it directly instead of via HTTPBearer.
+    if not token:
+        raise HTTPException(401, "Token required")
+    payload = verify_token(token, expected_type="access")
+    if not payload:
+        raise HTTPException(401, "Invalid or expired token")
+
     job = export_service.get_job(export_id)
     if not job or job.status != "done" or not job.file_path:
         raise HTTPException(404, "Export not ready")

@@ -32,8 +32,8 @@ function resolveIceServers() {
   try {
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-  } catch (e) {
-    console.warn("[WebRTC] Invalid REACT_APP_ICE_SERVERS, using STUN default:", e);
+  } catch {
+    // Malformed ICE config — fall back to the STUN defaults silently.
   }
   return DEFAULT_ICE_SERVERS;
 }
@@ -117,8 +117,8 @@ export const WebRTCPlayer = ({
 
           // Try to play
           if (autoPlay) {
-            videoRef.current.play().catch((e) => {
-              console.warn("[WebRTC] Autoplay blocked:", e);
+            videoRef.current.play().catch(() => {
+              // Autoplay blocked by the browser — surface the click-to-play overlay.
               if (mountedRef.current) setNeedsUserInteraction(true);
             });
           }
@@ -399,7 +399,9 @@ export const WebRTCPlayer = ({
       videoRef.current
         .play()
         .then(() => setNeedsUserInteraction(false))
-        .catch((err) => console.error("Failed to play:", err));
+        .catch(() => {
+          // Still blocked — keep the click-to-play overlay visible.
+        });
     }
   };
 

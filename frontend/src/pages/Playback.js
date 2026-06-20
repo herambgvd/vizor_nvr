@@ -76,7 +76,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover";
-import { cn, getErrorMessage } from "../lib/utils";
+import { cn, friendlyError } from "../lib/utils";
 import { toast } from "sonner";
 
 const Playback = () => {
@@ -125,9 +125,8 @@ const Playback = () => {
   // Export mutation
   const exportMutation = useMutation({
     mutationFn: (data) => exportClip(data),
-    onSuccess: (result) =>
-      toast.success(`Export started — ${result.export_id || "processing"}`),
-    onError: (e) => toast.error(e.response?.data?.detail || "Export failed"),
+    onSuccess: () => toast.success("Export started — we'll have it ready shortly"),
+    onError: (e) => toast.error(friendlyError(e, "Couldn't start the export")),
   });
 
   // Available dates from API
@@ -202,7 +201,7 @@ const Playback = () => {
   const bookmarkMutation = useMutation({
     mutationFn: (data) => createBookmark(data),
     onSuccess: () => toast.success("Bookmark saved"),
-    onError: (e) => toast.error(getErrorMessage(e, "Bookmark failed")),
+    onError: (e) => toast.error(friendlyError(e, "Couldn't save the bookmark")),
   });
 
   const handleBookmark = useCallback(
@@ -458,7 +457,7 @@ const BookmarksPanel = ({ cameras }) => {
       setEditingBookmark(null);
       toast.success("Bookmark updated");
     },
-    onError: (e) => toast.error(e.response?.data?.detail || "Update failed"),
+    onError: (e) => toast.error(friendlyError(e, "Couldn't update the bookmark")),
   });
 
   const deleteMut = useMutation({
@@ -468,7 +467,7 @@ const BookmarksPanel = ({ cameras }) => {
       setDeleteConfirm(null);
       toast.success("Bookmark deleted");
     },
-    onError: (e) => toast.error(e.response?.data?.detail || "Delete failed"),
+    onError: (e) => toast.error(friendlyError(e, "Couldn't delete the bookmark")),
   });
 
   const handlePlay = (bm) => {

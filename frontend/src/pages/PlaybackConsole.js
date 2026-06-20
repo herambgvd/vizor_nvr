@@ -255,7 +255,7 @@ export default function PlaybackConsole() {
           if (!exportId) return null;
           return {
             id: exportId,
-            label: `${nameById[id] || id.slice(0, 8)} · ${fmtClock(lo)}–${fmtClock(hi)}`,
+            label: `${nameById[id] || "Camera"} · ${fmtClock(lo)}–${fmtClock(hi)}`,
             status: res?.status || "queued",
           };
         })

@@ -45,6 +45,7 @@ import {
   AlertDialogTitle,
 } from "../components/ui/alert-dialog";
 import { toast } from "sonner";
+import { friendlyError } from "../lib/utils";
 
 const PAGE_SIZE = 25;
 
@@ -114,7 +115,7 @@ const Recordings = () => {
       toast.success("Recording deleted");
       setDeleteTarget(null);
     },
-    onError: (e) => toast.error(e.response?.data?.detail || "Delete failed"),
+    onError: (e) => toast.error(friendlyError(e, "Couldn't delete the recording")),
   });
 
   const bulkDeleteMut = useMutation({
@@ -125,8 +126,7 @@ const Recordings = () => {
       setSelected(new Set());
       setShowBulkDelete(false);
     },
-    onError: (e) =>
-      toast.error(e.response?.data?.detail || "Bulk delete failed"),
+    onError: (e) => toast.error(friendlyError(e, "Couldn't delete the selected recordings")),
   });
 
   // Camera name lookup

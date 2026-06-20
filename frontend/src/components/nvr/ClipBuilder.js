@@ -17,7 +17,7 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Switch } from "../ui/switch";
-import { cn } from "../../lib/utils";
+import { cn, friendlyError } from "../../lib/utils";
 import { toast } from "sonner";
 
 /**
@@ -65,8 +65,7 @@ export const ClipBuilder = ({ cameraId, currentTime, className }) => {
       toast.success("Export started — check back for download");
       pollExport(result.export_id);
     },
-    onError: (e) =>
-      toast.error(e.response?.data?.detail || "Export failed"),
+    onError: (e) => toast.error(friendlyError(e, "Couldn't start the export")),
   });
 
   // Simple poll for export completion
