@@ -23,6 +23,16 @@ import { Checkbox } from "../components/ui/checkbox";
 import { ScrollArea } from "../components/ui/scroll-area";
 import { useConfirm } from "../components/ui/confirm";
 import api from "../api/client";
+import { friendlyError } from "../lib/utils";
+
+// Test endpoints (email/SMS/WhatsApp) return clean, operator-facing copy in
+// `detail`; webhook test returns it in `error`. Surface those when present,
+// else fall back to friendlyError so raw transport/SDK text never leaks.
+const testErrorMessage = (e, fallback) => {
+  const detail = e?.response?.data?.detail;
+  if (typeof detail === "string" && detail) return detail;
+  return friendlyError(e, fallback);
+};
 
 // ─── shared styles ────────────────────────────────────────────────────────────
 
@@ -62,6 +72,14 @@ const EVENT_LABELS = {
   video_loss: "Video Loss",
 };
 
+const CHANNEL_LABELS = {
+  email: "Email",
+  sms: "SMS",
+  whatsapp: "WhatsApp",
+  push: "Push",
+  webhook: "Webhook",
+};
+
 const TABS = [
   { id: "webhooks", label: "Webhooks", icon: Webhook },
   { id: "email", label: "Email (SMTP)", icon: Mail },
@@ -96,7 +114,7 @@ const WebhookFormDialog = ({ open, onClose, webhook, eventTypes }) => {
       toast.success(isEdit ? "Webhook updated" : "Webhook created");
       onClose();
     },
-    onError: (e) => toast.error(e.response?.data?.detail || "Save failed"),
+    onError: (e) => toast.error(friendlyError(e, "Couldn't save the webhook.")),
   });
 
   const handleSubmit = (e) => {
@@ -114,10 +132,10 @@ const WebhookFormDialog = ({ open, onClose, webhook, eventTypes }) => {
         url: form.url,
         secret: form.secret || undefined,
       });
-      if (data.success) toast.success(`Test delivered — HTTP ${data.status_code}`);
-      else toast.error(`Test failed: ${data.error || "unknown error"}`);
-    } catch {
-      toast.error("Test request failed");
+      if (data.success) toast.success("Test notification delivered");
+      else toast.error(data.error || "The test couldn't be delivered.");
+    } catch (e) {
+      toast.error(friendlyError(e, "Couldn't send the test notification."));
     } finally {
       setTesting(false);
     }
@@ -326,9 +344,9 @@ const SMTPPanel = ({ settings }) => {
         from_email: form.smtp_from_email, from_name: form.smtp_from_name,
         recipients,
       });
-      toast.success("Test email sent successfully");
+      toast.success("Test email sent");
     } catch (e) {
-      toast.error(e.response?.data?.detail || "Test email failed");
+      toast.error(testErrorMessage(e, "Couldn't send the test email."));
     } finally {
       setTesting(false);
     }
@@ -459,7 +477,7 @@ const TwilioPanel = ({ settings }) => {
       await api.post("/notifications/sms/test", { to: form.sms_recipients.split(",")[0].trim(), message: "Vizor NVR SMS test" });
       toast.success("Test SMS sent");
     } catch (e) {
-      toast.error(e.response?.data?.detail || "SMS test failed");
+      toast.error(testErrorMessage(e, "Couldn't send the test SMS."));
     } finally {
       setTestingSms(false);
     }
@@ -472,7 +490,7 @@ const TwilioPanel = ({ settings }) => {
       await api.post("/notifications/whatsapp/test", { to: form.whatsapp_recipients.split(",")[0].trim(), message: "Vizor NVR WhatsApp test" });
       toast.success("Test WhatsApp sent");
     } catch (e) {
-      toast.error(e.response?.data?.detail || "WhatsApp test failed");
+      toast.error(testErrorMessage(e, "Couldn't send the test WhatsApp message."));
     } finally {
       setTestingWa(false);
     }
@@ -581,7 +599,7 @@ const LogsPanel = () => {
           <table className="w-full font-telemetry text-[11px]">
             <thead style={{ background: "var(--console-raised)", borderBottom: "1px solid var(--console-border)" }}>
               <tr>
-                {["Event", "Status", "HTTP", "Attempts", "Time"].map((h) => (
+                {["Channel", "Event", "Status", "Detail", "Attempts", "Time"].map((h) => (
                   <th key={h} className="px-3 py-2.5 text-left font-semibold uppercase tracking-wide" style={{ color: "var(--console-muted)" }}>
                     {h}
                   </th>
@@ -589,23 +607,39 @@ const LogsPanel = () => {
               </tr>
             </thead>
             <tbody>
-              {logs.map((log) => (
-                <tr key={log.id} className="border-b last:border-0" style={{ borderColor: "var(--console-border)" }}>
-                  <td className="px-3 py-2.5" style={{ color: "var(--console-text)" }}>
-                    {EVENT_LABELS[log.event_type] || log.event_type}
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <span className="font-semibold" style={{ color: statusColor[log.status] || "var(--console-muted)" }}>
-                      {log.status}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2.5" style={{ color: "var(--console-muted)" }}>{log.response_code || "—"}</td>
-                  <td className="px-3 py-2.5" style={{ color: "var(--console-muted)" }}>{log.attempts}</td>
-                  <td className="px-3 py-2.5" style={{ color: "var(--console-muted)" }}>
-                    {log.created_at ? new Date(log.created_at).toLocaleString() : "—"}
-                  </td>
-                </tr>
-              ))}
+              {logs.map((log) => {
+                const channel = log.webhook_id
+                  ? "Webhook"
+                  : (CHANNEL_LABELS[log.payload?.channel] || "—");
+                // For failed rows surface the (already-cleaned) reason; for sent
+                // rows show the HTTP status if present.
+                const detail =
+                  log.status === "failed"
+                    ? (log.error_message || "Delivery failed")
+                    : log.response_code
+                    ? `HTTP ${log.response_code}`
+                    : "—";
+                return (
+                  <tr key={log.id} className="border-b last:border-0" style={{ borderColor: "var(--console-border)" }}>
+                    <td className="px-3 py-2.5" style={{ color: "var(--console-muted)" }}>{channel}</td>
+                    <td className="px-3 py-2.5" style={{ color: "var(--console-text)" }}>
+                      {EVENT_LABELS[log.event_type] || log.event_type}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <span className="font-semibold" style={{ color: statusColor[log.status] || "var(--console-muted)" }}>
+                        {log.status}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5 max-w-[260px] truncate" title={detail} style={{ color: log.status === "failed" ? "var(--console-rec)" : "var(--console-muted)" }}>
+                      {detail}
+                    </td>
+                    <td className="px-3 py-2.5" style={{ color: "var(--console-muted)" }}>{log.attempts}</td>
+                    <td className="px-3 py-2.5" style={{ color: "var(--console-muted)" }}>
+                      {log.created_at ? new Date(log.created_at).toLocaleString() : "—"}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

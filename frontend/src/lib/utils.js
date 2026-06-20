@@ -102,3 +102,31 @@ export function friendlyError(error, fallback = "Operation failed, please try ag
 
   return fallback;
 }
+
+/**
+ * Auth/account error message.
+ *
+ * The auth backend deliberately returns short, operator-facing detail strings
+ * ("Username already taken", "Cannot delete the last administrator", "Invalid
+ * username or password"). Those ARE the right thing to show, so this surfaces a
+ * string `detail` as-is — but it never renders 422 validation arrays/objects
+ * (which carry `loc`/`input` internals) or 5xx fault text. Use this for the
+ * auth/users module instead of `friendlyError`, which would flatten useful
+ * messages like the last-admin guard into a generic "permission" line.
+ */
+export function authMessage(error, fallback = "Something went wrong. Please try again.") {
+  const status = error?.response?.status;
+  const detail = error?.response?.data?.detail;
+
+  // Validation internals or server faults → never surface raw.
+  if (Array.isArray(detail) || (detail && typeof detail === "object")) {
+    return "Please check the values entered and try again.";
+  }
+  if (!error?.response) {
+    return "Network problem — please check your connection and try again.";
+  }
+  if (status >= 500) {
+    return fallback;
+  }
+  return typeof detail === "string" && detail ? detail : fallback;
+}

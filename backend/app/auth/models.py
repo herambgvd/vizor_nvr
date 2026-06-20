@@ -177,6 +177,7 @@ class UserResponse(BaseModel):
     created_at: datetime
     password_changed_at: Optional[datetime] = None
     force_password_reset: bool = False
+    totp_enabled: bool = False
 
     class Config:
         from_attributes = True

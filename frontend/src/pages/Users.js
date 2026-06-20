@@ -45,10 +45,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../components/ui/select";
+import { Switch } from "../components/ui/switch";
 import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
 import { format } from "date-fns";
-import { cn } from "../lib/utils";
+import { cn, authMessage } from "../lib/utils";
 
 // ─── Shared primitives ────────────────────────────────────────────────────────
 
@@ -222,7 +223,7 @@ const Users = () => {
       setDeleteTarget(null);
     },
     onError: (e) => {
-      toast.error(e.response?.data?.detail || "Failed to delete");
+      toast.error(authMessage(e, "Couldn't delete the user."));
       setDeleteTarget(null);
     },
   });
@@ -234,7 +235,7 @@ const Users = () => {
       setRevokeTarget(null);
     },
     onError: (e) => {
-      toast.error(e.response?.data?.detail || "Failed to revoke sessions");
+      toast.error(authMessage(e, "Couldn't revoke the sessions."));
       setRevokeTarget(null);
     },
   });
@@ -519,7 +520,10 @@ const UserFormDialog = ({ open, onOpenChange, user, roles, queryClient }) => {
       onOpenChange(false);
       toast.success(isEdit ? "User updated" : "User created");
     },
-    onError: (e) => toast.error(e.response?.data?.detail || "Failed"),
+    onError: (e) =>
+      toast.error(
+        authMessage(e, isEdit ? "Couldn't update the user." : "Couldn't create the user."),
+      ),
   });
 
   const handleSubmit = (e) => {
@@ -594,6 +598,22 @@ const UserFormDialog = ({ open, onOpenChange, user, roles, queryClient }) => {
               </SelectContent>
             </Select>
           </FormRow>
+          {isEdit && (
+            <FormRow label="Account Status">
+              <div
+                className="flex items-center justify-between rounded px-3 py-2"
+                style={{ background: "var(--console-raised)", border: "1px solid var(--console-border)" }}
+              >
+                <span className="font-telemetry text-xs" style={{ color: "var(--console-text)" }}>
+                  {form.is_active ? "Active — can sign in" : "Inactive — sign-in blocked"}
+                </span>
+                <Switch
+                  checked={form.is_active}
+                  onCheckedChange={(v) => set("is_active", v)}
+                />
+              </div>
+            </FormRow>
+          )}
           <DialogFooter>
             <SecondaryBtn type="button" onClick={() => onOpenChange(false)}>
               Cancel

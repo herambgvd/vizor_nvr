@@ -245,6 +245,7 @@ class AuthService:
             "created_at": user.created_at,
             "password_changed_at": user.password_changed_at,
             "force_password_reset": user.force_password_reset,
+            "totp_enabled": bool(user.totp_enabled),
         }
 
     @staticmethod

@@ -9,6 +9,7 @@ import { Clock, RefreshCw, Radio, Wifi } from "lucide-react";
 import { toast } from "sonner";
 import { getSystemTime, setSystemTime, pushTimeToCameras } from "../../api/system";
 import SearchableSelect from "../../components/ui/searchable-select";
+import { friendlyError } from "../../lib/utils";
 
 // ─── Timezone list ────────────────────────────────────────────────────────────
 
@@ -103,6 +104,17 @@ const FieldLabel = ({ children }) => (
   </label>
 );
 
+// Settings endpoints return short, operator-safe validation strings in
+// `detail` (e.g. "Enter a valid NTP server hostname"). Surface those as-is,
+// but fall back to friendlyError for 5xx / network / validation-array faults
+// so no raw backend internals ever reach the operator.
+const settingsError = (e, fallback) => {
+  const detail = e?.response?.data?.detail;
+  const status = e?.response?.status;
+  if (status === 400 && typeof detail === "string" && detail) return detail;
+  return friendlyError(e, fallback);
+};
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 const TimeSettingsPage = () => {
@@ -139,7 +151,7 @@ const TimeSettingsPage = () => {
       setDirty(false);
       qc.invalidateQueries({ queryKey: ["system-time"] });
     },
-    onError: (e) => toast.error(e?.response?.data?.detail || "Save failed"),
+    onError: (e) => toast.error(settingsError(e, "Couldn't save time settings.")),
   });
 
   const pushMutation = useMutation({
@@ -153,7 +165,7 @@ const TimeSettingsPage = () => {
         toast.success(`Time pushed to ${n} camera${n !== 1 ? "s" : ""}`);
       }
     },
-    onError: (e) => toast.error(e?.response?.data?.detail || "Push failed"),
+    onError: (e) => toast.error(friendlyError(e, "Couldn't push time to cameras.")),
   });
 
   const mark = () => setDirty(true);

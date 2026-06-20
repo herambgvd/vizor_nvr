@@ -22,6 +22,17 @@ import {
   Eye,
 } from "lucide-react";
 import apiClient from "../../api/client";
+import { friendlyError } from "../../lib/utils";
+
+// The SMS/WhatsApp test endpoints return a clean, pre-classified operator
+// message in `detail` (e.g. "Recipient has opted out", "Twilio not configured").
+// Surface that when present; otherwise fall back to friendlyError (which maps
+// the HTTP status to safe copy and never leaks raw transport/SDK text).
+const testErrorMessage = (e, fallback) => {
+  const detail = e?.response?.data?.detail;
+  if (typeof detail === "string" && detail) return detail;
+  return friendlyError(e, fallback);
+};
 
 // ── API helpers ───────────────────────────────────────────────────────────
 // All requests go through the shared axios client, which attaches the access
@@ -167,7 +178,7 @@ const IntegrationsPage = () => {
       { key, value },
       {
         onSuccess: () => toast.success(`Saved ${key}`),
-        onError: (e) => toast.error(`Failed: ${e.message}`),
+        onError: (e) => toast.error(friendlyError(e, "Couldn't save the setting.")),
       }
     );
   };
@@ -183,7 +194,7 @@ const IntegrationsPage = () => {
         toast.success("Settings saved");
         qc.invalidateQueries(["settings"]);
       })
-      .catch((e) => toast.error(`Save failed: ${e.message}`));
+      .catch((e) => toast.error(friendlyError(e, "Couldn't save settings.")));
   };
 
   // SMS test
@@ -196,7 +207,7 @@ const IntegrationsPage = () => {
       await testSMS(smsTestTo);
       toast.success("Test SMS sent");
     } catch (e) {
-      toast.error(`SMS test failed: ${e.message}`);
+      toast.error(testErrorMessage(e, "Couldn't send the test SMS."));
     } finally {
       setSmsTestLoading(false);
     }
@@ -212,7 +223,7 @@ const IntegrationsPage = () => {
       await testWhatsApp(waTestTo);
       toast.success("Test WhatsApp message sent");
     } catch (e) {
-      toast.error(`WhatsApp test failed: ${e.message}`);
+      toast.error(testErrorMessage(e, "Couldn't send the test WhatsApp message."));
     } finally {
       setWaTestLoading(false);
     }

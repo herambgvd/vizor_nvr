@@ -215,7 +215,11 @@ class NotificationService:
             await asyncio.to_thread(validate_outbound_url, webhook.url)
         except OutboundURLError as exc:
             log.status = "failed"
-            log.error = f"blocked by SSRF guard: {exc}"
+            # Use the real column (error_message); `log.error` was a no-op
+            # attribute that never persisted, leaving failed rows with no reason.
+            # Keep the operator-facing text clean (don't echo internal host/IP).
+            log.error_message = "Blocked: destination address is not allowed"
+            logger.warning(f"Webhook {webhook.name} blocked by SSRF guard: {exc}")
             await db.flush()
             return
 
@@ -251,12 +255,13 @@ class NotificationService:
                     )
 
             except httpx.TimeoutException:
-                last_error = "Timeout"
+                last_error = "Endpoint timed out"
                 logger.warning(
                     f"Webhook timeout: {webhook.name} (attempt={attempt + 1})"
                 )
             except httpx.RequestError as e:
-                last_error = str(e)
+                # Clean, non-technical reason for the log/DLQ; full error → server log.
+                last_error = "Couldn't reach endpoint"
                 logger.warning(
                     f"Webhook error: {webhook.name} -> {e} (attempt={attempt + 1})"
                 )
@@ -375,25 +380,40 @@ class NotificationService:
             ).hexdigest()
             headers["X-Webhook-Signature"] = f"sha256={signature}"
 
-        # SSRF guard on the on-demand test path too.
+        # SSRF guard on the on-demand test path too. Don't echo the raw guard
+        # reason (it can name internal IPs/hosts) — give clean operator copy.
         from app.core.ssrf import validate_outbound_url, OutboundURLError
         try:
             await asyncio.to_thread(validate_outbound_url, url)
-        except OutboundURLError as exc:
-            return {"success": False, "error": f"blocked by SSRF guard: {exc}"}
+        except OutboundURLError:
+            return {
+                "success": False,
+                "error": "That URL isn't allowed. Use a public HTTPS endpoint.",
+            }
 
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 response = await client.post(url, content=body, headers=headers)
+                if response.is_success:
+                    return {
+                        "success": True,
+                        "status_code": response.status_code,
+                    }
+                # Non-2xx: report the status class without echoing the response
+                # body (which may contain internal error detail from the target).
                 return {
-                    "success": response.is_success,
+                    "success": False,
                     "status_code": response.status_code,
-                    "response": response.text[:500] if response.text else None,
+                    "error": (
+                        f"The endpoint responded with HTTP {response.status_code}. "
+                        "Check the URL and that it accepts POST requests."
+                    ),
                 }
         except httpx.TimeoutException:
-            return {"success": False, "error": "Connection timeout"}
-        except httpx.RequestError as e:
-            return {"success": False, "error": str(e)}
+            return {"success": False, "error": "The endpoint didn't respond in time."}
+        except httpx.RequestError:
+            # DNS failure / connection refused / TLS error — don't leak raw text.
+            return {"success": False, "error": "Couldn't reach the endpoint. Check the URL is correct and reachable."}
 
     # ------------------------------------------------------------------
     # Channel dispatch with NotificationLog + retry (DLQ pattern)
@@ -545,15 +565,19 @@ class NotificationService:
             logger.error(f"Email dispatch error for {event.value}: {e}")
 
     async def send_test_email(self, recipients: List[str], smtp_config: dict) -> Dict[str, Any]:
-        """Send a test email to verify SMTP configuration."""
+        """Send a test email to verify SMTP configuration.
+
+        Returns {success, recipients, reason} where ``reason`` is a short, clean
+        category (not raw SMTP error text) that the router maps to operator copy.
+        """
         from app.notifications.smtp_service import smtp_service
-        success = await smtp_service.send_event_email(
+        success, reason = await smtp_service.send_event_email_detailed(
             event_type="test",
             data={"system_name": smtp_config.get("from_name", "Vizor NVR")},
             recipients=recipients,
             smtp_config=smtp_config,
         )
-        return {"success": success, "recipients": recipients}
+        return {"success": success, "recipients": recipients, "reason": reason}
 
     # ------------------------------------------------------------------
     # Push notification dispatch

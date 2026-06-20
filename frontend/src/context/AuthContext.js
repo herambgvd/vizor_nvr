@@ -61,8 +61,12 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   // ---- login ----
-  const login = useCallback(async (username, password) => {
-    const res = await loginUser({ username, password });
+  // totpToken is optional — supplied on the second step when the account has
+  // 2FA enabled (or when using a one-time recovery code).
+  const login = useCallback(async (username, password, totpToken) => {
+    const payload = { username, password };
+    if (totpToken) payload.totp_token = totpToken;
+    const res = await loginUser(payload);
     setTokens(res.access_token, res.refresh_token);
     localStorage.setItem("nvr_user", JSON.stringify(res.user));
     setUser(res.user);

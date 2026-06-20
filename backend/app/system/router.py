@@ -28,6 +28,89 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/system", tags=["System"])
 
 
+# ─── Input validation helpers ─────────────────────────────────────────────────
+# Operator-facing free-text fields (timezone, NTP server, subnet, CORS, ICE
+# candidates) are validated here so bad input is rejected with a clean message
+# instead of silently persisting an unusable value or surfacing a stack trace.
+
+import ipaddress
+import re as _re
+
+# RFC 1123 hostname (also accepts a bare IPv4/IPv6 literal).
+_HOSTNAME_RE = _re.compile(
+    r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))*$"
+)
+
+
+def _valid_hostname(value: str) -> bool:
+    value = value.strip()
+    if not value:
+        return False
+    try:
+        ipaddress.ip_address(value)
+        return True
+    except ValueError:
+        pass
+    return bool(_HOSTNAME_RE.match(value))
+
+
+def _valid_timezone(tz_name: str) -> bool:
+    try:
+        from zoneinfo import ZoneInfo, available_timezones
+        if tz_name in available_timezones():
+            return True
+        ZoneInfo(tz_name)  # fallback for platforms with partial tz db listing
+        return True
+    except Exception:
+        return tz_name == "UTC"
+
+
+def _valid_cidr_or_ip(value: str) -> bool:
+    value = value.strip()
+    try:
+        if "/" in value:
+            ipaddress.ip_network(value, strict=False)
+        else:
+            ipaddress.ip_address(value)
+        return True
+    except ValueError:
+        return False
+
+
+def _validate_cors_origins(value: str) -> Optional[str]:
+    """Return an error string if any origin is malformed, else None."""
+    value = (value or "").strip()
+    if not value or value == "*":
+        return None
+    for origin in (o.strip() for o in value.split(",")):
+        if not origin:
+            continue
+        if origin == "*":
+            continue
+        if not _re.match(r"^https?://[^\s,]+$", origin):
+            return (
+                "Each allowed origin must be '*' or a full URL "
+                "(e.g. https://nvr.example.com)."
+            )
+    return None
+
+
+def _validate_ice_candidates(value: str) -> Optional[str]:
+    """Return an error string if any ICE server URL is malformed, else None."""
+    value = (value or "").strip()
+    if not value:
+        return None
+    for cand in (c.strip() for c in value.split(",")):
+        if not cand:
+            continue
+        if not _re.match(r"^(stun|stuns|turn|turns):[^\s,]+$", cand, _re.IGNORECASE):
+            return (
+                "Each ICE server must start with stun:, stuns:, turn: or turns: "
+                "(e.g. stun:stun.l.google.com:19302)."
+            )
+    return None
+
+
 # ─── Time / Timezone (Feature A1) ─────────────────────────────────────────────
 
 class TimeConfigBody(BaseModel):
@@ -43,7 +126,10 @@ async def get_time(user: dict = Depends(get_admin_user)):
     from app.settings.service import SettingsService
     from app.database import async_session_maker
     async with async_session_maker() as db:
-        tz_name = await SettingsService.get_value(db, "system_timezone", "UTC")
+        tz_name = await SettingsService.get_value(db, "system_timezone", "")
+        if not tz_name:
+            # Fall back to the legacy General-tab key, then UTC.
+            tz_name = await SettingsService.get_value(db, "timezone", "UTC")
         ntp_server = await SettingsService.get_value(db, "ntp_server", None)
     ntp_synced = None
     if shutil.which("timedatectl"):
@@ -79,7 +165,17 @@ async def set_time(
     from app.settings.service import SettingsService
     changes = []
     if body.timezone:
+        if not _valid_timezone(body.timezone):
+            raise HTTPException(400, "Unrecognized timezone. Pick one from the list.")
         await SettingsService.set_value(db, "system_timezone", body.timezone, category="system")
+        # Keep the General-tab "timezone" key in sync so both screens agree and
+        # any reader of either key sees the same operator-set value.
+        await SettingsService.set_value(db, "timezone", body.timezone, category="general")
+        # Align recording-schedule evaluation (camera_monitor reads
+        # RECORDING_TIMEZONE) with the operator-chosen timezone for the running
+        # process. Persisting it across restarts is a deployment concern (.env);
+        # this keeps live schedules consistent without a restart.
+        os.environ["RECORDING_TIMEZONE"] = body.timezone
         changes.append(f"timezone={body.timezone}")
         if shutil.which("timedatectl"):
             try:
@@ -88,6 +184,9 @@ async def set_time(
             except Exception as e:
                 logger.warning(f"timedatectl set-timezone failed: {e}")
     if body.ntp_server is not None:
+        # Empty string disables NTP; a non-empty value must be a valid host.
+        if body.ntp_server and not _valid_hostname(body.ntp_server):
+            raise HTTPException(400, "Enter a valid NTP server hostname or IP address.")
         await SettingsService.set_value(db, "ntp_server", body.ntp_server, category="system")
         changes.append(f"ntp_server={body.ntp_server}")
         if shutil.which("timedatectl"):
@@ -273,6 +372,8 @@ async def ntp_sync(
     immediate resync via timedatectl. Saves the server name into settings so
     the install script / system unit can pick it up."""
     from app.settings.service import SettingsService
+    if not _valid_hostname(body.server):
+        raise HTTPException(400, "Enter a valid NTP server hostname or IP address.")
     await SettingsService.set_value(db, "ntp_server", body.server, category="system")
     if shutil.which("timedatectl"):
         try:
@@ -355,16 +456,28 @@ async def set_network(
     from app.settings.service import SettingsService
     changes = []
     if body.lan_subnet is not None:
-        await SettingsService.set_value(db, "lan_subnet", body.lan_subnet, category="network")
-        changes.append(f"lan_subnet={body.lan_subnet}")
+        subnet = body.lan_subnet.strip()
+        if subnet and not _valid_cidr_or_ip(subnet):
+            raise HTTPException(400, "Enter a valid subnet in CIDR form (e.g. 192.168.1.0/24).")
+        await SettingsService.set_value(db, "lan_subnet", subnet, category="network")
+        changes.append(f"lan_subnet={subnet}")
     if body.cors_origins is not None:
-        await SettingsService.set_value(db, "cors_origins", body.cors_origins, category="network")
+        err = _validate_cors_origins(body.cors_origins)
+        if err:
+            raise HTTPException(400, err)
+        await SettingsService.set_value(db, "cors_origins", body.cors_origins.strip(), category="network")
         changes.append(f"cors_origins={body.cors_origins}")
     if body.nvr_public_host is not None:
-        await SettingsService.set_value(db, "nvr_public_host", body.nvr_public_host, category="network")
-        changes.append(f"nvr_public_host={body.nvr_public_host}")
+        host = body.nvr_public_host.strip()
+        if host and not _valid_hostname(host):
+            raise HTTPException(400, "Enter a valid hostname or IP address for the public host.")
+        await SettingsService.set_value(db, "nvr_public_host", host, category="network")
+        changes.append(f"nvr_public_host={host}")
     if body.go2rtc_candidates is not None:
-        await SettingsService.set_value(db, "go2rtc_candidates", body.go2rtc_candidates, category="network")
+        err = _validate_ice_candidates(body.go2rtc_candidates)
+        if err:
+            raise HTTPException(400, err)
+        await SettingsService.set_value(db, "go2rtc_candidates", body.go2rtc_candidates.strip(), category="network")
         changes.append(f"go2rtc_candidates={body.go2rtc_candidates}")
     if not changes:
         raise HTTPException(400, "No mutable network fields provided")

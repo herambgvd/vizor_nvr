@@ -11,6 +11,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ScanFace, HardHat, Cpu, Lock, Check } from "lucide-react";
 import { toast } from "sonner";
 import { getScenarios, toggleScenario } from "../../api/ai";
+import { friendlyError } from "../../lib/utils";
 
 const ICONS = { "scan-face": ScanFace, "hard-hat": HardHat };
 
@@ -133,15 +134,62 @@ const AIScenariosSection = () => {
       qc.invalidateQueries({ queryKey: ["ai-scenarios"] });
       toast.success(`Scenario ${vars.enabled ? "enabled" : "disabled"}`);
     },
-    onError: (e) =>
-      toast.error(e?.response?.data?.detail || "Failed to update scenario"),
+    onError: (e) => {
+      // Licensing/availability rejections come back as a clean 400 detail
+      // string ("This scenario isn't included in your license"); surface those
+      // directly, otherwise fall back to a generic operator-safe message.
+      const detail = e?.response?.data?.detail;
+      const status = e?.response?.status;
+      toast.error(
+        status === 400 && typeof detail === "string" && detail
+          ? detail
+          : friendlyError(e, "Couldn't update the scenario."),
+      );
+    },
   });
 
   const onToggle = (scenario, enabled) =>
     mut.mutate({ id: scenario.id, enabled });
 
-  if (isLoading) return null;
-  if (!scenarios.length) return null;
+  if (isLoading) {
+    return (
+      <p
+        className="font-telemetry text-[11px]"
+        style={{ color: "var(--console-muted)" }}
+      >
+        Loading scenarios…
+      </p>
+    );
+  }
+  if (!scenarios.length) {
+    return (
+      <div
+        className="rounded p-6 text-center"
+        style={{
+          background: "var(--console-panel)",
+          border: "1px solid var(--console-border)",
+        }}
+      >
+        <Cpu
+          className="h-6 w-6 mx-auto mb-2"
+          style={{ color: "var(--console-muted)" }}
+        />
+        <p
+          className="font-telemetry text-xs font-semibold uppercase tracking-wide mb-1"
+          style={{ color: "var(--console-text)" }}
+        >
+          No AI scenarios available
+        </p>
+        <p
+          className="font-telemetry text-[11px]"
+          style={{ color: "var(--console-muted)" }}
+        >
+          AI scenarios are unlocked by your license. Contact your provider to add
+          facial recognition, PPE detection, or other AI features.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div>

@@ -7,7 +7,16 @@
 
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Video, Eye, EyeOff, LogIn, UserPlus, ShieldCheck } from "lucide-react";
+import {
+  Video,
+  Eye,
+  EyeOff,
+  LogIn,
+  UserPlus,
+  ShieldCheck,
+  KeyRound,
+  ArrowLeft,
+} from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { checkSetup } from "../api/auth";
 import { Button } from "../components/ui/button";
@@ -39,6 +48,12 @@ const Login = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
+  // Two-factor step: when the account has 2FA enabled the backend rejects the
+  // first request with a 2FA-required signal; we then show a code entry screen
+  // and resubmit the same credentials with the TOTP / recovery code.
+  const [twoFactorStep, setTwoFactorStep] = useState(false);
+  const [totpToken, setTotpToken] = useState("");
+
   // Login form
   const [loginForm, setLoginForm] = useState({
     username: "",
@@ -63,6 +78,27 @@ const Login = () => {
   }, []);
 
   /**
+   * Map an auth error to a clean, operator-safe message. The backend's auth
+   * detail strings are deliberately user-facing ("Invalid username or
+   * password", "Account temporarily locked…"), so we surface them — but we
+   * never render arrays/objects (422 internals) or server-fault detail.
+   */
+  const authErrorMessage = (error, fallback) => {
+    const status = error?.response?.status;
+    const detail = error?.response?.data?.detail;
+    // Never leak validation internals or 5xx stack/fault text.
+    if (Array.isArray(detail) || (detail && typeof detail === "object")) {
+      return "Please check the details you entered and try again.";
+    }
+    if (status >= 500 || !error?.response) {
+      return error?.response
+        ? fallback
+        : "Network problem — please check your connection and try again.";
+    }
+    return typeof detail === "string" && detail ? detail : fallback;
+  };
+
+  /**
    * Handle login form submission
    */
   const handleLogin = async (e) => {
@@ -70,17 +106,60 @@ const Login = () => {
     setIsLoading(true);
 
     try {
-      await login(loginForm.username, loginForm.password);
+      await login(loginForm.username, loginForm.password, totpToken || undefined);
       toast.success("Welcome back!");
+      resetTwoFactor();
       navigate("/");
     } catch (error) {
-      const message =
-        error.response?.data?.detail ||
-        "Login failed. Please check your credentials.";
-      toast.error(message);
+      const resp = error.response;
+      // ── 2FA gate: backend signals a second factor is required ──────────
+      if (
+        resp?.status === 401 &&
+        (resp.headers?.["x-2fa-required"] === "true" ||
+          resp.data?.detail === "TOTP token required")
+      ) {
+        setTwoFactorStep(true);
+        setIsLoading(false);
+        return;
+      }
+      // Wrong/expired 2FA code while on the second step — keep the user there.
+      if (twoFactorStep && resp?.data?.detail === "Invalid 2FA token") {
+        toast.error("That code wasn't valid. Try again or use a recovery code.");
+        setTotpToken("");
+        setIsLoading(false);
+        return;
+      }
+      // ── Forced / expired password change ───────────────────────────────
+      if (
+        resp?.status === 403 &&
+        resp.headers?.["x-password-change-required"] === "true"
+      ) {
+        toast.error(
+          authErrorMessage(
+            error,
+            "Your password must be changed before you can sign in. Please contact your administrator.",
+          ),
+        );
+        resetTwoFactor();
+        setIsLoading(false);
+        return;
+      }
+      toast.error(
+        authErrorMessage(error, "Couldn't sign you in. Please try again."),
+      );
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const resetTwoFactor = () => {
+    setTwoFactorStep(false);
+    setTotpToken("");
+  };
+
+  const cancelTwoFactor = () => {
+    resetTwoFactor();
+    setLoginForm((f) => ({ ...f, password: "" }));
   };
 
   /**
@@ -106,10 +185,12 @@ const Login = () => {
       toast.success("Account created successfully!");
       navigate("/");
     } catch (error) {
-      const message =
-        error.response?.data?.detail ||
-        "Registration failed. Please try again.";
-      toast.error(message);
+      toast.error(
+        authErrorMessage(
+          error,
+          "Couldn't create the account. Please try again.",
+        ),
+      );
     } finally {
       setIsLoading(false);
     }
@@ -182,8 +263,70 @@ const Login = () => {
           </div>
         )}
 
+        {/* Two-factor code entry — shown after a correct password when the
+            account has 2FA enabled. */}
+        {twoFactorStep && (
+          <Card
+            className="border-[var(--console-border)] backdrop-blur-xl shadow-[0_0_70px_rgba(20,184,166,0.12)]"
+            style={{ backgroundColor: "var(--console-panel)" }}
+          >
+            <CardHeader className="space-y-1">
+              <CardTitle className="text-2xl tracking-tight flex items-center gap-2">
+                <KeyRound
+                  className="h-5 w-5"
+                  style={{ color: "var(--console-accent)" }}
+                />
+                Two-factor verification
+              </CardTitle>
+              <CardDescription>
+                Enter the 6-digit code from your authenticator app, or a recovery
+                code.
+              </CardDescription>
+            </CardHeader>
+            <form onSubmit={handleLogin}>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="login-totp">Authentication code</Label>
+                  <Input
+                    id="login-totp"
+                    data-testid="login-totp-input"
+                    inputMode="text"
+                    autoComplete="one-time-code"
+                    autoFocus
+                    placeholder="123456"
+                    value={totpToken}
+                    onChange={(e) => setTotpToken(e.target.value.trim())}
+                    required
+                    disabled={isLoading}
+                  />
+                </div>
+              </CardContent>
+              <CardFooter className="flex flex-col gap-2">
+                <Button
+                  data-testid="login-totp-submit-btn"
+                  type="submit"
+                  className="w-full text-white border-0 hover:opacity-90 transition-opacity shadow-[0_0_30px_rgba(20,184,166,0.35)]"
+                  style={{ backgroundColor: "var(--console-accent)" }}
+                  disabled={isLoading || !totpToken}
+                >
+                  {isLoading ? "Verifying..." : "Verify & sign in"}
+                </Button>
+                <button
+                  type="button"
+                  onClick={cancelTwoFactor}
+                  disabled={isLoading}
+                  className="inline-flex items-center justify-center gap-1.5 text-sm text-muted-foreground hover:text-[var(--console-text)] disabled:opacity-50"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  Back to sign in
+                </button>
+              </CardFooter>
+            </form>
+          </Card>
+        )}
+
         {/* Normal login — no register tab */}
-        {setupRequired === false && (
+        {!twoFactorStep && setupRequired === false && (
           <Card
             className="border-[var(--console-border)] backdrop-blur-xl shadow-[0_0_70px_rgba(20,184,166,0.12)]"
             style={{ backgroundColor: "var(--console-panel)" }}
@@ -260,7 +403,7 @@ const Login = () => {
         )}
 
         {/* First-time setup — show both tabs, default to register */}
-        {setupRequired === true && (
+        {!twoFactorStep && setupRequired === true && (
           <Tabs defaultValue="register" className="w-full">
             <TabsList className="grid w-full grid-cols-2 mb-6">
               <TabsTrigger data-testid="login-tab" value="login" className="">

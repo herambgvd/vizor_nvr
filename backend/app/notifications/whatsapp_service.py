@@ -191,17 +191,19 @@ class WhatsAppService:
 
         except Exception as exc:
             no_retry = False
-            error_msg = str(exc)
+            # Clean, non-technical default — never surface raw SDK/exception text.
+            error_msg = "Couldn't send the WhatsApp message. Check the number and Twilio settings."
 
             try:
                 from twilio.base.exceptions import TwilioRestException
                 if isinstance(exc, TwilioRestException):
                     code = exc.code
-                    explanation = _TWILIO_ERRORS.get(code, f"Twilio error {code}")
-                    error_msg = f"{explanation} (HTTP {exc.status})"
+                    explanation = _TWILIO_ERRORS.get(code)
+                    error_msg = explanation or "The WhatsApp provider rejected the message."
                     no_retry = code in _NO_RETRY_CODES
                     logger.error(
-                        f"[whatsapp] Twilio rejected send to {to_number}: {error_msg}"
+                        f"[whatsapp] Twilio rejected send to {to_number}: "
+                        f"code={code} status={exc.status}"
                     )
             except ImportError:
                 pass

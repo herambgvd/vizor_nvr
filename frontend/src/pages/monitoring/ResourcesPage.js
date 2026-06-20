@@ -32,7 +32,7 @@ import {
 } from "../../api/monitoring";
 import { downloadDiagnosticsBundle } from "../../api/system";
 import { useAuth } from "../../context/AuthContext";
-import { cn } from "../../lib/utils";
+import { cn, friendlyError } from "../../lib/utils";
 
 const fmt = (v) => (typeof v === "number" ? v.toFixed(1) : "—");
 
@@ -365,7 +365,7 @@ const DiagnosticsCard = () => {
       a.remove();
       URL.revokeObjectURL(url);
     } catch (err) {
-      setError(err?.response?.data?.detail || err.message || "Download failed");
+      setError(friendlyError(err, "Couldn't download the diagnostics bundle."));
     } finally {
       setDownloading(false);
     }

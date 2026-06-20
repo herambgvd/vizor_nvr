@@ -23,6 +23,24 @@ import {
   activateLicense,
   clearLicense,
 } from "../../api/license";
+import { friendlyError } from "../../lib/utils";
+
+// Map raw backend license `reason` codes to clean operator-facing labels.
+// Never render the raw code (some carry "load_error:<exception>" internals).
+const REASON_LABELS = {
+  no_license_installed: "No license",
+  missing_expires_at: "Invalid license",
+  expired: "Expired",
+  in_grace_period: "In grace period",
+  hardware_mismatch: "Wrong machine",
+};
+
+const reasonLabel = (reason) => {
+  if (!reason) return "Inactive";
+  if (REASON_LABELS[reason]) return REASON_LABELS[reason];
+  // Unknown / structured codes (e.g. "load_error:…") must not leak internals.
+  return "Invalid license";
+};
 
 // ─── Shared primitives ────────────────────────────────────────────────────────
 
@@ -175,8 +193,18 @@ const LicensePage = () => {
       toast.success("License activated");
       qc.invalidateQueries({ queryKey: ["license"] });
     },
-    onError: (e) =>
-      toast.error(e?.response?.data?.detail || "License activation failed"),
+    onError: (e) => {
+      // The activate endpoint returns clean, operator-fixable 400 detail
+      // strings ("License is for a different machine", "License has expired").
+      // Surface those directly; otherwise a generic, non-technical message.
+      const detail = e?.response?.data?.detail;
+      const status = e?.response?.status;
+      toast.error(
+        status === 400 && typeof detail === "string" && detail
+          ? detail
+          : friendlyError(e, "Couldn't activate that license file."),
+      );
+    },
   });
 
   const clearMut = useMutation({
@@ -186,6 +214,8 @@ const LicensePage = () => {
       qc.invalidateQueries({ queryKey: ["license"] });
       setConfirmClear(false);
     },
+    onError: (e) =>
+      toast.error(friendlyError(e, "Couldn't remove the license.")),
   });
 
   const onPick = (e) => {
@@ -287,9 +317,7 @@ const LicensePage = () => {
                       color: "var(--console-rec)",
                     }}
                   >
-                    {data?.reason === "no_license_installed"
-                      ? "No license"
-                      : data?.reason || "Inactive"}
+                    {reasonLabel(data?.reason)}
                   </span>
                 )}
               </div>

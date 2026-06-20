@@ -26,6 +26,8 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Switch } from "../components/ui/switch";
+import TwoFactorCard from "../components/auth/TwoFactorCard";
+import { KeyRound } from "lucide-react";
 import { toast } from "sonner";
 
 // ── shared styles ─────────────────────────────────────────────────────────────
@@ -424,17 +426,16 @@ const GeneralTab = ({ queryClient }) => {
     }
   };
   const saveGeneralSettings = () => {
+    // Only send the keys this tab actually manages. The settings list endpoint
+    // returns EVERY setting (including masked secrets and the masked
+    // license_key); re-saving the whole flattened blob would overwrite those
+    // masks back into storage and corrupt them. Whitelist instead.
     const themeMode = form.theme_mode === "light" ? "light" : "dark";
-    const {
-      theme_background_color: _legacyBackgroundColor,
-      theme_button_color: _legacyButtonColor,
-      theme_text_color: _legacyTextColor,
-      theme_hover_color: _legacyHoverColor,
-      ...generalSettings
-    } = form;
     mutation.mutate({
       settings: {
-        ...generalSettings,
+        system_name: form.system_name ?? "",
+        brand_logo_url: form.brand_logo_url ?? "",
+        brand_favicon_url: form.brand_favicon_url ?? "",
         theme_mode: themeMode,
         theme_font_size: String(normalizeFontSize(form.theme_font_size)),
       },
@@ -451,18 +452,14 @@ const GeneralTab = ({ queryClient }) => {
     <ConsoleCard icon={SettingsIcon} title="General Settings" description="Application-wide identity and locale preferences.">
       <div className="space-y-5">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <FieldGroup label="System Name">
+          <FieldGroup
+            label="System Name"
+            help="Shown in the app header and login screen"
+          >
             <ConsoleInput
               value={form.system_name ?? ""}
               onChange={(e) => set("system_name", e.target.value)}
               placeholder="Vizor NVR"
-            />
-          </FieldGroup>
-          <FieldGroup label="Timezone">
-            <ConsoleInput
-              value={form.timezone ?? ""}
-              onChange={(e) => set("timezone", e.target.value)}
-              placeholder="UTC"
             />
           </FieldGroup>
         </div>
@@ -773,6 +770,10 @@ const SecurityTab = ({ queryClient }) => {
   const set = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
 
   return (
+    <>
+    <ConsoleCard icon={KeyRound} title="Two-Factor Authentication" description="Add a one-time code from an authenticator app to your own sign-in.">
+      <TwoFactorCard />
+    </ConsoleCard>
     <ConsoleCard icon={Shield} title="Password Policy" description="Control password strength and rotation requirements.">
       <div className="space-y-5">
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -844,6 +845,7 @@ const SecurityTab = ({ queryClient }) => {
         </div>
       </div>
     </ConsoleCard>
+    </>
   );
 };
 

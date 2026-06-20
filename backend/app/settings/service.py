@@ -29,9 +29,26 @@ SENSITIVE_KEYS = frozenset(
 # retype the secret, so the stored ciphertext must be preserved as-is.
 SENSITIVE_MASK = "********"
 
+# Keys that the list endpoint masks but that are NOT Fernet-encrypted secrets
+# (so they don't live in SENSITIVE_KEYS). A bulk write echoing such a mask back
+# must be ignored, or the stored value would be overwritten with the mask. The
+# license_key list mask is "xxxx****xxxx"; guard any value containing "****".
+_PARTIAL_MASKED_KEYS = frozenset({"license_key"})
+
 
 def _is_sensitive_key(key: str) -> bool:
     return key in SENSITIVE_KEYS
+
+
+def _is_masked_write(key: str, value: Optional[str]) -> bool:
+    """True if `value` is a UI mask that must not overwrite the stored value."""
+    if not value:
+        return False
+    if _is_sensitive_key(key) and value == SENSITIVE_MASK:
+        return True
+    if key in _PARTIAL_MASKED_KEYS and "****" in value:
+        return True
+    return False
 
 
 def _encrypt_if_sensitive(key: str, value: Optional[str]) -> Optional[str]:
@@ -124,9 +141,10 @@ class SettingsService:
             category = category or meta["category"]
             is_sensitive = is_sensitive or meta.get("sensitive", False)
         setting = await SettingsService.get(db, key)
-        # Unchanged-secret guard: a sensitive write equal to the mask means the
+        # Unchanged-secret guard: a write equal to the UI mask (full "********"
+        # for encrypted secrets, or "xxxx****xxxx" for license_key) means the
         # operator left the masked field untouched — keep the existing value.
-        if _is_sensitive_key(key) and value == SENSITIVE_MASK and setting:
+        if _is_masked_write(key, value) and setting:
             return setting
         stored_value = _encrypt_if_sensitive(key, value)
         if setting:
@@ -154,8 +172,9 @@ class SettingsService:
         for key, value in values.items():
             meta = DEFAULT_SETTINGS.get(key)
             setting = await SettingsService.get(db, key)
-            # Unchanged-secret guard (see set_value): skip masked sensitive writes.
-            if _is_sensitive_key(key) and value == SENSITIVE_MASK and setting:
+            # Unchanged-secret guard (see set_value): skip masked writes so a
+            # re-saved mask never overwrites the real secret or license key.
+            if _is_masked_write(key, value) and setting:
                 continue
             stored_value = _encrypt_if_sensitive(key, value)
             if setting:

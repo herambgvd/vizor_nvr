@@ -181,7 +181,9 @@ class PushNotificationService:
                         )
                     ),
                 )
-                response = self._messaging.send(message)
+                # firebase-admin messaging.send() is a blocking HTTP call — run
+                # it in a thread so it doesn't stall the event loop.
+                response = await asyncio.to_thread(self._messaging.send, message)
                 logger.debug(f"Push sent to {token[:16]}... — {response}")
                 success = True
             except Exception as e:

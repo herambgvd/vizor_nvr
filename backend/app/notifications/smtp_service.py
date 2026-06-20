@@ -203,6 +203,39 @@ class SMTPEmailService:
         html_body = template_fn(data)
         snapshot_path = data.get("snapshot_path")
 
+        ok, _reason = await asyncio.to_thread(
+            self._send_sync,
+            smtp_config=smtp_config,
+            recipients=recipients,
+            subject=subject,
+            html_body=html_body,
+            snapshot_path=snapshot_path,
+        )
+        return ok
+
+    async def send_event_email_detailed(
+        self,
+        event_type: str,
+        data: dict,
+        recipients: List[str],
+        smtp_config: dict,
+    ) -> tuple:
+        """Like send_event_email but returns (ok, reason) so the test endpoint can
+        give operator-friendly feedback (connect vs auth vs recipient rejected)
+        without leaking raw SMTP exception text."""
+        template_fn = TEMPLATES.get(event_type)
+        if not template_fn:
+            return False, "unsupported"
+
+        subject_tpl = _SUBJECTS.get(event_type, "Vizor NVR Notification")
+        try:
+            subject = subject_tpl.format(**{k: data.get(k, "") for k in data})
+        except KeyError:
+            subject = subject_tpl
+
+        html_body = template_fn(data)
+        snapshot_path = data.get("snapshot_path")
+
         return await asyncio.to_thread(
             self._send_sync,
             smtp_config=smtp_config,
@@ -219,8 +252,13 @@ class SMTPEmailService:
         subject: str,
         html_body: str,
         snapshot_path: Optional[str] = None,
-    ) -> bool:
-        """Blocking send — runs in a thread pool via asyncio.to_thread."""
+    ) -> tuple:
+        """Blocking send — runs in a thread pool via asyncio.to_thread.
+
+        Returns (ok: bool, reason: str). ``reason`` is a short, non-technical
+        category ("ok", "not_configured", "connect", "auth", "recipient",
+        "send") — never raw SMTP exception text — so callers can map it to clean
+        operator-facing copy."""
         host     = smtp_config.get("host", "")
         port     = int(smtp_config.get("port", 587))
         username = smtp_config.get("username", "")
@@ -232,7 +270,7 @@ class SMTPEmailService:
 
         if not host or not recipients:
             logger.warning("SMTP not configured or no recipients — skipping email")
-            return False
+            return False, "not_configured"
 
         msg = MIMEMultipart("related")
         msg["Subject"] = subject
@@ -272,16 +310,27 @@ class SMTPEmailService:
                     srv.sendmail(from_email, recipients, msg.as_string())
 
             logger.info(f"Email sent [{subject}] → {recipients}")
-            return True
+            return True, "ok"
 
         except smtplib.SMTPAuthenticationError:
             logger.error("SMTP authentication failed — check username/password")
+            return False, "auth"
         except smtplib.SMTPConnectError as e:
             logger.error(f"SMTP connect error ({host}:{port}): {e}")
+            return False, "connect"
+        except smtplib.SMTPRecipientsRefused:
+            logger.error("SMTP recipients refused — check the recipient addresses")
+            return False, "recipient"
+        except smtplib.SMTPServerDisconnected as e:
+            logger.error(f"SMTP server disconnected ({host}:{port}): {e}")
+            return False, "connect"
+        except (OSError, ConnectionError, TimeoutError) as e:
+            # Host unreachable / DNS failure / refused / timeout.
+            logger.error(f"SMTP connect error ({host}:{port}): {e}")
+            return False, "connect"
         except Exception as e:
             logger.error(f"Email send failed: {e}")
-
-        return False
+            return False, "send"
 
 
 # Module singleton

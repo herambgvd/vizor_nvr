@@ -27,6 +27,7 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { changePassword } from "../../api/auth";
+import { authMessage } from "../../lib/utils";
 
 export const ChangePasswordDialog = ({ open, onOpenChange }) => {
   const [currentPassword, setCurrentPassword] = useState("");
@@ -58,13 +59,7 @@ export const ChangePasswordDialog = ({ open, onOpenChange }) => {
       reset();
       onOpenChange(false);
     } catch (err) {
-      const detail =
-        err?.response?.data?.detail ||
-        err?.message ||
-        "Failed to change password";
-      toast.error(
-        Array.isArray(detail) ? detail.map((d) => d.msg).join("; ") : detail,
-      );
+      toast.error(authMessage(err, "Couldn't change your password."));
       setSubmitting(false);
     }
   };
@@ -110,6 +105,10 @@ export const ChangePasswordDialog = ({ open, onOpenChange }) => {
               minLength={8}
               required
             />
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Use at least 8 characters. Your administrator may require a mix of
+              upper-case letters, numbers, or symbols.
+            </p>
           </div>
           <div>
             <Label className="text-xs">Confirm new password</Label>

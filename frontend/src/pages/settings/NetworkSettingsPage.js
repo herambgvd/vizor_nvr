@@ -8,6 +8,17 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Network, RefreshCw, Info, Server, Globe } from "lucide-react";
 import { toast } from "sonner";
 import { getNetworkConfig, setNetworkConfig } from "../../api/system";
+import { friendlyError } from "../../lib/utils";
+
+// Settings endpoints return short, operator-safe validation strings in `detail`
+// (e.g. "Enter a valid subnet in CIDR form"). Surface those as-is on 400; fall
+// back to friendlyError otherwise so raw backend internals never reach the UI.
+const settingsError = (e, fallback) => {
+  const detail = e?.response?.data?.detail;
+  const status = e?.response?.status;
+  if (status === 400 && typeof detail === "string" && detail) return detail;
+  return friendlyError(e, fallback);
+};
 
 // ─── Shared primitives ────────────────────────────────────────────────────────
 
@@ -136,7 +147,7 @@ const NetworkSettingsPage = () => {
       setDirty(false);
       qc.invalidateQueries({ queryKey: ["system-network"] });
     },
-    onError: (e) => toast.error(e?.response?.data?.detail || "Save failed"),
+    onError: (e) => toast.error(settingsError(e, "Couldn't save network settings.")),
   });
 
   const mark = () => setDirty(true);

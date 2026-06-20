@@ -217,8 +217,19 @@ async def test_email(
         smtp_config=smtp_config,
     )
     if not result["success"]:
-        raise HTTPException(400, "Test email failed — check SMTP settings and server logs")
-    return result
+        # Map the internal reason category to clean, non-technical operator copy.
+        # Never surface raw SMTP exception text.
+        reason_copy = {
+            "not_configured": "SMTP host and recipients are required.",
+            "connect": "Couldn't connect to the mail server. Check the host, port, and SSL/TLS settings.",
+            "auth": "The mail server rejected the username or password.",
+            "recipient": "The mail server rejected one or more recipient addresses.",
+            "send": "Couldn't send the test email. Please check your SMTP settings.",
+            "unsupported": "Couldn't send the test email. Please check your SMTP settings.",
+        }
+        msg = reason_copy.get(result.get("reason"), "Couldn't send the test email. Please check your SMTP settings.")
+        raise HTTPException(400, msg)
+    return {"success": True, "recipients": result["recipients"]}
 
 
 # ------------------------------------------------------------------
