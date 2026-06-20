@@ -48,7 +48,7 @@ import { useWebSocket } from "../../hooks/useWebSocket";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getAllCameras } from "../../api/cameras";
 import { acknowledgeEvent } from "../../api/events";
-import { format } from "date-fns";
+import { formatTime } from "../../lib/datetime";
 import { toast } from "sonner";
 
 const MAX_BUFFER = 50;
@@ -462,7 +462,7 @@ export const LiveEventDrawer = () => {
                     <span>·</span>
                     <span>
                       {evt.triggered_at
-                        ? format(new Date(evt.triggered_at), "HH:mm:ss")
+                        ? formatTime(evt.triggered_at)
                         : "now"}
                     </span>
                   </div>

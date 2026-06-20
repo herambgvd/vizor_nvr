@@ -1,9 +1,11 @@
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import apiClient from "../api/client";
+import { setDisplayTimezone } from "../lib/datetime";
 
 const DEFAULT_BRANDING = {
   system_name: "Vizor NVR",
+  timezone: "UTC",
   logo_url: "",
   favicon_url: "",
   theme_mode: "dark",
@@ -101,6 +103,12 @@ export default function useBranding() {
   });
 
   const branding = { ...DEFAULT_BRANDING, ...(data || {}) };
+
+  // Publish the operator display timezone app-wide so lib/datetime formatters
+  // render every screen's times in the configured zone.
+  useEffect(() => {
+    setDisplayTimezone(branding.timezone || null);
+  }, [branding.timezone]);
 
   useEffect(() => {
     document.title = branding.system_name || DEFAULT_BRANDING.system_name;

@@ -41,7 +41,7 @@ import {
 } from "../components/ui/dialog";
 import { Textarea } from "../components/ui/textarea";
 import { toast } from "sonner";
-import { format } from "date-fns";
+import { formatDateTime } from "../lib/datetime";
 
 const PAGE_SIZE = 20;
 
@@ -407,7 +407,7 @@ const Bookmarks = () => {
                         className="font-telemetry text-[10px]"
                         style={{ color: "var(--console-muted)" }}
                       >
-                        {format(new Date(bookmark.created_at), "PPp")}
+                        {formatDateTime(bookmark.created_at)}
                       </p>
                     </div>
 

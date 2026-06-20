@@ -70,6 +70,7 @@ import { cn, friendlyError } from "../lib/utils";
 import { eventTypeLabel } from "../lib/eventLabels";
 import { toast } from "sonner";
 import { format } from "date-fns";
+import { formatDateTime } from "../lib/datetime";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -763,7 +764,7 @@ const Events = () => {
                         </span>
                         <span className="text-[10px] font-telemetry flex-shrink-0" style={{ color: "var(--console-muted)" }}>
                           {event.triggered_at
-                            ? format(new Date(event.triggered_at), "MMM dd HH:mm:ss")
+                            ? formatDateTime(event.triggered_at)
                             : "—"}
                         </span>
                       </span>
@@ -951,7 +952,7 @@ const Events = () => {
                   </span>
                   {selectedEvent.triggered_at && (
                     <span className="text-[10px] text-zinc-400 font-telemetry flex-shrink-0 ml-2">
-                      {format(new Date(selectedEvent.triggered_at), "yyyy-MM-dd HH:mm:ss")}
+                      {formatDateTime(selectedEvent.triggered_at)}
                     </span>
                   )}
                 </div>
@@ -962,7 +963,7 @@ const Events = () => {
                 {[
                   ["Event Type", eventTypeLabel(selectedEvent.event_type)],
                   ["Date / Time", selectedEvent.triggered_at
-                    ? format(new Date(selectedEvent.triggered_at), "yyyy-MM-dd HH:mm:ss")
+                    ? formatDateTime(selectedEvent.triggered_at)
                     : "—"],
                   ["Camera", getCameraName(selectedEvent.camera_id)],
                   ["Title", selectedEvent.title || "—"],

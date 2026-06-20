@@ -74,6 +74,7 @@ import { toast } from "sonner";
 import { usePermissions } from "../hooks";
 import { useConfirm } from "../components/ui/confirm";
 import { cn, friendlyError } from "../lib/utils";
+import { formatDateTime } from "../lib/datetime";
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 
@@ -370,7 +371,7 @@ const BackupTab = ({ pools, canManage, onAdd, onEdit, onDelete, queryClient }) =
                 </p>
                 {s.last_run_status && (
                   <p className="font-telemetry text-[10px]" style={{ color: "var(--console-muted)" }}>
-                    Last run: {s.last_run_status} {s.last_run_at && `— ${new Date(s.last_run_at).toLocaleString()}`}
+                    Last run: {s.last_run_status} {s.last_run_at && `— ${formatDateTime(s.last_run_at)}`}
                     {s.last_run_message && ` (${s.last_run_message})`}
                   </p>
                 )}

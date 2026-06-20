@@ -48,7 +48,7 @@ import {
 import { Switch } from "../components/ui/switch";
 import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
-import { format } from "date-fns";
+import { formatDate } from "../lib/datetime";
 import { cn, authMessage } from "../lib/utils";
 
 // ─── Shared primitives ────────────────────────────────────────────────────────
@@ -350,7 +350,7 @@ const Users = () => {
                       </td>
                       <td className="px-3 py-2.5 tabular-nums" style={{ color: "var(--console-muted)" }}>
                         {u.created_at
-                          ? format(new Date(u.created_at), "MMM d, yyyy")
+                          ? formatDate(u.created_at)
                           : "—"}
                       </td>
                       <td className="px-3 py-2.5 text-right">

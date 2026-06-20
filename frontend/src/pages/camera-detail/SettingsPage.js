@@ -16,6 +16,7 @@ import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { friendlyError } from "../../lib/utils";
+import { formatDateTime, formatDate } from "../../lib/datetime";
 import apiClient from "../../api/client";
 
 // ── Firmware Upload Card ─────────────────────────────────────────────────────
@@ -406,7 +407,7 @@ const AnrSettingsCard = ({ cameraId, camera }) => {
 
               {anrStatus?.anr_last_run_at && (
                 <p className="text-xs text-[#8a8f98]">
-                  Last run: {new Date(anrStatus.anr_last_run_at).toLocaleString()}
+                  Last run: {formatDateTime(anrStatus.anr_last_run_at)}
                 </p>
               )}
 
@@ -445,7 +446,7 @@ const AnrSettingsCard = ({ cameraId, camera }) => {
                       </div>
                       <div className="flex items-center gap-3 text-zinc-500 shrink-0">
                         <span>{job.segments_downloaded} downloaded</span>
-                        <span>{new Date(job.created_at).toLocaleDateString()}</span>
+                        <span>{formatDate(job.created_at)}</span>
                       </div>
                     </div>
                   ))}

@@ -31,8 +31,12 @@ async def public_branding(db: AsyncSession = Depends(get_db)):
     except (TypeError, ValueError):
         font_size = 14
     light = theme_mode == "light"
+    # Operator display timezone — exposed app-wide so every screen renders times
+    # in the configured zone (falls back to the legacy key, then UTC).
+    tz = await svc.get_value(db, "system_timezone", "") or await svc.get_value(db, "timezone", "UTC")
     return {
         "system_name": await svc.get_value(db, "system_name", "Vizor NVR"),
+        "timezone": tz or "UTC",
         "logo_url": await svc.get_value(db, "brand_logo_url", ""),
         "favicon_url": await svc.get_value(db, "brand_favicon_url", ""),
         "theme_mode": "light" if light else "dark",

@@ -31,6 +31,7 @@ import {
   fmtConfidence,
 } from "./frsShared";
 import { cn } from "../../../lib/utils";
+import { formatTime } from "../../../lib/datetime";
 
 const LIVE_POLL_MS = 3000;
 // How many recent recognitions to surface per camera overlay.
@@ -107,7 +108,7 @@ function OverlayIcon({ type }) {
 
 function fmtFeedTime(iso) {
   if (!iso) return "—";
-  try { return new Date(iso).toLocaleTimeString(); } catch { return iso; }
+  try { return formatTime(iso); } catch { return iso; }
 }
 
 // Live-feed face thumbnail — auth blob fetch of the event's face crop.

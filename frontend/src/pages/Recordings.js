@@ -4,7 +4,7 @@
 
 import React, { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { format } from "date-fns";
+import { formatDateTime } from "../lib/datetime";
 import {
   Film,
   Search,
@@ -334,7 +334,7 @@ const Recordings = () => {
                   </td>
                   <td className="px-4 py-3 text-[var(--console-muted)]">
                     {rec.start_time
-                      ? format(new Date(rec.start_time), "MMM d, yyyy HH:mm:ss")
+                      ? formatDateTime(rec.start_time)
                       : "-"}
                   </td>
                   <td className="px-4 py-3 text-[var(--console-muted)]">

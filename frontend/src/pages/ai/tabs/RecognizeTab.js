@@ -19,6 +19,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { ScanFace, Upload, Film, Loader2, X, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import { friendlyError } from "../../../lib/utils";
+import { formatDateTime } from "../../../lib/datetime";
 
 import {
   recognizeImage,
@@ -313,8 +314,8 @@ const fmtTs = (t) => {
   const n = Number(t);
   if (Number.isNaN(n)) return String(t);
   // sub-second epoch / frame-time tolerated; render seconds for video offsets.
-  if (n > 1e11) return new Date(n).toLocaleString();
-  if (n > 1e9) return new Date(n * 1000).toLocaleString();
+  if (n > 1e11) return formatDateTime(n);
+  if (n > 1e9) return formatDateTime(n * 1000);
   return `${n.toFixed(2)}s`;
 };
 

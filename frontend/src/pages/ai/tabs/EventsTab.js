@@ -25,7 +25,7 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
-import { format } from "date-fns";
+import { formatDateTime } from "../../../lib/datetime";
 
 import { listFrsEvents, getScenarioCameras } from "../../../api/frs";
 import {
@@ -66,7 +66,7 @@ const ALL = "__all__";
 function fmtTime(iso) {
   if (!iso) return "—";
   try {
-    return format(new Date(iso), "MMM d, HH:mm:ss");
+    return formatDateTime(iso);
   } catch {
     return iso;
   }

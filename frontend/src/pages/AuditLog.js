@@ -31,7 +31,7 @@ import {
   AlertDialogTitle,
 } from "../components/ui/alert-dialog";
 import { toast } from "sonner";
-import { format } from "date-fns";
+import { formatDateTime } from "../lib/datetime";
 import { cn, friendlyError } from "../lib/utils";
 
 const PAGE_SIZES = [25, 50, 100];
@@ -402,7 +402,7 @@ const AuditLog = () => {
                   >
                     <td className="px-3 py-2.5 whitespace-nowrap tabular-nums" style={{ color: "var(--console-muted)" }}>
                       {log.created_at
-                        ? format(new Date(log.created_at), "MMM d HH:mm:ss")
+                        ? formatDateTime(log.created_at)
                         : "—"}
                     </td>
                     <td className="px-3 py-2.5 font-semibold" style={{ color: "var(--console-text)" }}>

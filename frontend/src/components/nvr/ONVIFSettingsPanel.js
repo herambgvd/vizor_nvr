@@ -72,6 +72,7 @@ import {
 import { Badge } from "../ui/badge";
 import { toast } from "sonner";
 import { cn, friendlyError } from "../../lib/utils";
+import { formatDateTime } from "../../lib/datetime";
 import { usePermissions } from "../../hooks/usePermissions";
 
 // ---------------------------------------------------------------------------
@@ -347,7 +348,7 @@ const EdgeRecordingsTab = ({ camera, cameraId }) => {
     if (!value) return "-";
     const d = new Date(value);
     if (Number.isNaN(d.getTime())) return value;
-    return d.toLocaleString();
+    return formatDateTime(value);
   };
 
   return (
@@ -969,6 +970,8 @@ const SystemTab = ({ camera, cameraId }) => {
               <>
                 <p className="text-xs text-muted-foreground">Camera time</p>
                 <p className="text-sm font-medium font-mono text-white ">
+                  {/* The camera's own reported clock — shown verbatim so the
+                      offset comparison stays meaningful; not the NVR display tz. */}
                   {new Date(timeData.camera_time).toLocaleString()}
                 </p>
                 {timeData.offset_seconds != null && (

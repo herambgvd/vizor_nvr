@@ -112,6 +112,7 @@ import {
   DialogTitle,
 } from "../components/ui/dialog";
 import { cn, friendlyError } from "../lib/utils";
+import { formatDateTime } from "../lib/datetime";
 
 const PAGE_SIZES = [10, 25, 50, 100];
 const DEFAULT_GROUP_COLOR = "#228B22";
@@ -150,7 +151,7 @@ const HealthCell = ({ data }) => {
         borderColor: "var(--console-border)",
         background: "var(--console-raised)",
       }}
-      title={data.captured_at ? `Captured ${new Date(data.captured_at).toLocaleString()}` : ""}
+      title={data.captured_at ? `Captured ${formatDateTime(data.captured_at)}` : ""}
     >
       <Activity className="h-3 w-3" />
       <span>{kbps}</span>
@@ -1501,7 +1502,7 @@ const Cameras = () => {
                           </td>
                           <td className="font-telemetry text-[11px] hidden md:table-cell px-2 py-2 align-middle" style={{ color: "var(--console-muted)" }}>
                             {camera.last_online_at
-                              ? new Date(camera.last_online_at).toLocaleString()
+                              ? formatDateTime(camera.last_online_at)
                               : "Never"}
                           </td>
                           <td className="px-2 py-2 align-middle" onClick={(e) => e.stopPropagation()}>

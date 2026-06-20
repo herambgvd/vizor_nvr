@@ -37,7 +37,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { friendlyError } from "../../../lib/utils";
-import { format } from "date-fns";
+import { formatDateTime } from "../../../lib/datetime";
 
 import {
   listTransitRules,
@@ -76,7 +76,7 @@ const ruleCfg = (rule) => ({ ...(rule || {}), ...((rule && rule.config) || {}) }
 function fmtTime(iso) {
   if (!iso) return "—";
   try {
-    return format(new Date(iso), "MMM d, HH:mm:ss");
+    return formatDateTime(iso);
   } catch {
     return iso;
   }

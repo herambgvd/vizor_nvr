@@ -33,6 +33,7 @@ import {
   Clock,
 } from "lucide-react";
 import { format, formatDistanceToNowStrict } from "date-fns";
+import { formatDateTime, formatTime } from "../../../lib/datetime";
 
 import { listPersons, personTimeline, photoImageUrl } from "../../../api/ai";
 import { snapshotUrl } from "./frsShared";
@@ -53,7 +54,7 @@ const ENROLL_COLOR = {
 function fmtTime(iso) {
   if (!iso) return "—";
   try {
-    return format(new Date(iso), "HH:mm:ss");
+    return formatTime(iso);
   } catch {
     return iso;
   }
@@ -62,7 +63,7 @@ function fmtTime(iso) {
 function fmtAbs(iso) {
   if (!iso) return "—";
   try {
-    return format(new Date(iso), "MMM d, HH:mm");
+    return formatDateTime(iso, { seconds: false });
   } catch {
     return iso;
   }

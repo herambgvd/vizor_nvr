@@ -19,6 +19,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { HardHat, Upload, Film, Loader2, X, ShieldCheck, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import { friendlyError } from "../../../lib/utils";
+import { formatDateTime } from "../../../lib/datetime";
 
 import {
   detectPPE,
@@ -345,7 +346,7 @@ const isTerminal = (s) =>
 const fmtTs = (t) => {
   if (t == null) return "—";
   const d = new Date(t);
-  return Number.isNaN(d.getTime()) ? String(t) : d.toLocaleString();
+  return Number.isNaN(d.getTime()) ? String(t) : formatDateTime(t);
 };
 
 const VideoSection = () => {
