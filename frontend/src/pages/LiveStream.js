@@ -164,7 +164,7 @@ const LiveStream = () => {
 
       {/* PTZ Controls — only shown for PTZ-capable cameras */}
       {isOnline && streamReady && camera.ptz_capable && (
-        <PTZControls cameraId={cameraId} />
+        <PTZControls cameraId={cameraId} ptzCapable={camera.ptz_capable} />
       )}
 
       {/* Top bar */}

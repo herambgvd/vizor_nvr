@@ -47,18 +47,16 @@ async def start_twoway_audio(
         except Exception:
             pass
 
-    if not backchannel_url and camera.main_stream_url:
-        from urllib.parse import urlparse
-        parsed = urlparse(camera.main_stream_url)
-        backchannel_url = f"rtsp://{parsed.hostname}:554/backchannel"
-
+    # Only proceed when the camera reported a real ONVIF backchannel URI.
+    # Guessing a path (e.g. rtsp://host:554/backchannel) produced a false
+    # "speaking" status on cameras that don't actually support two-way audio.
     if not backchannel_url:
-        raise HTTPException(400, "Camera does not support two-way audio")
+        raise HTTPException(400, "Two-way audio is not supported on this camera")
 
     ok = await twoway_audio_service.start_session(camera_id, backchannel_url)
     if not ok:
         raise HTTPException(500, "Failed to start two-way audio session")
-    return {"camera_id": camera_id, "status": "speaking", "backchannel_url": backchannel_url}
+    return {"camera_id": camera_id, "status": "speaking"}
 
 
 @router.post("/{camera_id}/audio/stop")
@@ -110,42 +108,27 @@ async def start_backchannel(
     capable = getattr(camera, "backchannel_capable", None)
     backchannel_url = None
 
-    if capable is True:
-        if camera.onvif_host:
-            try:
-                backchannel_url = await onvif_service.get_audio_output_uri(
-                    camera.onvif_host, camera.onvif_port,
-                    decrypt_value(camera.onvif_username) or "admin",
-                    decrypt_value(camera.onvif_password or ""),
-                )
-            except Exception:
-                pass
-        if not backchannel_url and camera.main_stream_url:
-            from urllib.parse import urlparse
-            parsed = urlparse(camera.main_stream_url)
-            backchannel_url = f"rtsp://{parsed.hostname}:554/backchannel"
-    else:
-        if camera.onvif_host:
-            try:
-                backchannel_url = await onvif_service.get_audio_output_uri(
-                    camera.onvif_host, camera.onvif_port,
-                    decrypt_value(camera.onvif_username) or "admin",
-                    decrypt_value(camera.onvif_password or ""),
-                )
-            except Exception:
-                pass
+    # Resolve the real ONVIF backchannel URI only. Previously a path was
+    # guessed (rtsp://host:554/backchannel) when ONVIF didn't report one,
+    # which made unsupported cameras falsely report "active". We now require
+    # a camera-reported URI to consider two-way audio supported.
+    if camera.onvif_host:
+        try:
+            backchannel_url = await onvif_service.get_audio_output_uri(
+                camera.onvif_host, camera.onvif_port,
+                decrypt_value(camera.onvif_username) or "admin",
+                decrypt_value(camera.onvif_password or ""),
+            )
+        except Exception:
+            pass
 
-        if not backchannel_url and camera.main_stream_url:
-            from urllib.parse import urlparse
-            parsed = urlparse(camera.main_stream_url)
-            backchannel_url = f"rtsp://{parsed.hostname}:554/backchannel"
-
+    if capable is not True:
         capable = backchannel_url is not None
         camera.backchannel_capable = capable
         await db.commit()
 
     if not backchannel_url:
-        raise HTTPException(503, "Two-way audio not configured on this camera")
+        raise HTTPException(503, "Two-way audio is not supported on this camera")
 
     ok = await twoway_audio_service.start_session(camera_id, backchannel_url)
     if not ok:
@@ -158,9 +141,7 @@ async def start_backchannel(
     return {
         "camera_id": camera_id,
         "status": "active",
-        "backchannel_url": backchannel_url,
         "backchannel_capable_cached": camera.backchannel_capable,
-        "note": "FFmpeg PCM→RTSP fallback active. For WebRTC, use /audio/backchannel/webrtc-signal instead.",
     }
 
 

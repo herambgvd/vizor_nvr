@@ -25,6 +25,7 @@ import {
   listSnapshots,
 } from "../../api/cameras";
 import { Button } from "../../components/ui/button";
+import { friendlyError } from "../../lib/utils";
 import { BACKEND_URL } from "../../api/client";
 
 // Pre-set interval helpers
@@ -94,7 +95,7 @@ const SnapshotsPage = () => {
       toast.success("Snapshot schedule saved");
       qc.invalidateQueries(["snapshot-config", cameraId]);
     },
-    onError: (e) => toast.error(`Save failed: ${e?.response?.data?.detail || e.message}`),
+    onError: (e) => toast.error(friendlyError(e, "Couldn't save the snapshot schedule")),
   });
 
   const handleSave = () => {

@@ -58,11 +58,13 @@ async def ptz_stop(
         raise HTTPException(404, "Camera not found or no ONVIF configured")
 
     onvif_user, onvif_pass = onvif_credentials(camera, default_user="")
-    await onvif_service.stop(
+    ok = await onvif_service.stop(
         camera.onvif_host, camera.onvif_port,
         onvif_user, onvif_pass,
         profile_token=camera.onvif_profile_token or None,
     )
+    if not ok:
+        raise HTTPException(500, "PTZ stop failed")
     return {"status": "stopped"}
 
 

@@ -48,11 +48,13 @@ import { toast } from "sonner";
  * PTZ Controls overlay — absolute-positioned within a camera player container.
  *
  * Props:
- *  cameraId  – camera UUID
- *  className – additional wrapper classes
- *  speed     – movement speed 0.0 – 1.0 (default 0.5)
+ *  cameraId   – camera UUID
+ *  className  – additional wrapper classes
+ *  speed      – movement speed 0.0 – 1.0 (default 0.5)
+ *  ptzCapable – when explicitly false, the controls are hidden entirely so a
+ *               non-PTZ camera never shows controls that would silently fail.
  */
-export const PTZControls = ({ cameraId, className, speed = 0.5 }) => {
+export const PTZControls = ({ cameraId, className, speed = 0.5, ptzCapable = true }) => {
   const [presets, setPresets] = useState([]);
   const [showPresets, setShowPresets] = useState(false);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
@@ -161,6 +163,9 @@ export const PTZControls = ({ cameraId, className, speed = 0.5 }) => {
       <TooltipContent side="top">{label}</TooltipContent>
     </Tooltip>
   );
+
+  // Defense in depth: never render controls for a non-PTZ camera.
+  if (ptzCapable === false) return null;
 
   return (
     <TooltipProvider delayDuration={200}>

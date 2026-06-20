@@ -30,6 +30,7 @@ import {
 import { WebRTCPlayer } from "../../components/nvr/WebRTCPlayer";
 import { PTZControls } from "../../components/nvr/PTZControls";
 import { Button } from "../../components/ui/button";
+import { friendlyError } from "../../lib/utils";
 
 // Icon-led, color-coded telemetry tile. `tone` accents the icon + value so
 // live state (online / recording) reads at a glance.
@@ -126,8 +127,7 @@ const TalkButton = ({ cameraId }) => {
         if (status === 503) {
           toast.error("Camera does not support two-way audio");
         } else {
-          const detail = err?.response?.data?.detail || err?.message || "WebRTC signaling failed";
-          toast.error(detail);
+          toast.error(friendlyError(err, "Couldn't start two-way audio"));
         }
         stopTalk();
         return;
@@ -147,8 +147,7 @@ const TalkButton = ({ cameraId }) => {
       const pathLabel = result?.audio_path === "webrtc" ? "WebRTC" : "audio";
       toast.success(`Talk active — speaking to camera (${pathLabel})`);
     } catch (err) {
-      const msg = err?.message || "Failed to start talk mode";
-      toast.error(msg);
+      toast.error(friendlyError(err, "Couldn't start two-way audio"));
       stopTalk();
     } finally {
       setLoading(false);
@@ -295,7 +294,7 @@ const LiveViewPage = () => {
                 controls={false}
                 className="w-full h-full object-contain"
               />
-              {camera.ptz_capable && <PTZControls cameraId={cameraId} />}
+              {camera.ptz_capable && <PTZControls cameraId={cameraId} ptzCapable={camera.ptz_capable} />}
             </>
           ) : (
             <div className="w-full h-full flex items-center justify-center text-white min-h-[200px]">

@@ -53,7 +53,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../ui/dialog";
-import { cn } from "../../lib/utils";
+import { cn, friendlyError } from "../../lib/utils";
 import { toast } from "sonner";
 
 
@@ -261,7 +261,7 @@ export const ONVIFDiscovery = ({ open, onOpenChange, onAdded }) => {
         }
       }
     },
-    onError: (e) => toast.error(e.response?.data?.detail || "Discovery failed"),
+    onError: (e) => toast.error(friendlyError(e, "Network scan failed")),
   });
 
   const handleDiscover = () => {
@@ -345,11 +345,9 @@ export const ONVIFDiscovery = ({ open, onOpenChange, onAdded }) => {
         toast.info(`Reconnected ${dev.ip} — snapshot not available`);
       }
     } catch (e) {
-      setRow(key, {
-        status: "error",
-        error: e.response?.data?.detail || "Reconnect failed",
-      });
-      toast.error(`Reconnect failed: ${e.response?.data?.detail || e.message}`);
+      const msg = friendlyError(e, "Couldn't connect to the camera");
+      setRow(key, { status: "error", error: msg });
+      toast.error(msg);
     }
   };
 
@@ -409,7 +407,7 @@ export const ONVIFDiscovery = ({ open, onOpenChange, onAdded }) => {
     } catch (e) {
       setRow(key, {
         status: "error",
-        error: e.response?.data?.detail || "Probe failed",
+        error: friendlyError(e, "Couldn't connect to the camera"),
       });
       return { ok: false };
     }
@@ -444,12 +442,9 @@ export const ONVIFDiscovery = ({ open, onOpenChange, onAdded }) => {
       setRow(key, { status: "done" });
       return { ok: true };
     } catch (e) {
-      const detail = e.response?.data?.detail;
       setRow(key, {
         status: "error",
-        error: Array.isArray(detail)
-          ? detail.map((d) => d.msg).join("; ")
-          : detail || "Create failed",
+        error: friendlyError(e, "Couldn't add this camera"),
       });
       return { ok: false };
     }
@@ -535,14 +530,14 @@ export const ONVIFDiscovery = ({ open, onOpenChange, onAdded }) => {
             } else if (rowFailed.length > 0) {
               setRow(key, {
                 status: "error",
-                error: rowFailed.map((f) => f.error).join("; "),
+                error: `${rowFailed.length} channel(s) couldn't be added`,
               });
             }
           });
         } catch (e) {
-          const detail = e.response?.data?.detail || "Bulk add failed";
+          const msg = friendlyError(e, "Couldn't add these cameras");
           nvrRows.forEach((dev) => {
-            setRow(rowKey(dev), { status: "error", error: detail });
+            setRow(rowKey(dev), { status: "error", error: msg });
           });
           bulkFail += camerasPayload.length;
         }

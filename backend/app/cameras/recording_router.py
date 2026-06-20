@@ -56,7 +56,8 @@ async def start_recording(
         privacy_masks=camera.privacy_masks,
     )
     if not success:
-        raise HTTPException(500, f"Failed to start recording: {msg}")
+        logger.error("Failed to start recording for camera %s: %s", camera_id, msg)
+        raise HTTPException(500, "Failed to start recording")
 
     camera.is_recording = True
     camera.status = "online"
@@ -135,7 +136,8 @@ async def start_buffer_recording(
         recording_fps=camera.recording_fps,
     )
     if not ok:
-        raise HTTPException(500, f"Buffer recording failed: {msg}")
+        logger.error("Buffer recording failed for camera %s: %s", camera_id, msg)
+        raise HTTPException(500, "Failed to start recording")
 
     await write_audit(
         db, action="buffer_recording", user_id=user["id"], username=user["username"],

@@ -28,7 +28,7 @@ import {
 import { getCamera, getLatestHealth } from "../../api/cameras";
 import { Button } from "../../components/ui/button";
 import { StatusBadge } from "../../components/nvr/StatusBadge";
-import { cn, maskStreamUrl } from "../../lib/utils";
+import { cn } from "../../lib/utils";
 
 const NAV = [
   { path: "live", label: "Live View", icon: Video },
@@ -197,7 +197,7 @@ const CameraDetailLayout = () => {
           className="hidden md:inline text-xs font-telemetry truncate max-w-[28ch]"
           style={{ color: "var(--console-muted)" }}
         >
-          {maskStreamUrl(camera.main_stream_url)}
+          {camera.location || (camera.main_stream_url ? "Stream configured ✓" : "")}
         </span>
       </header>
 

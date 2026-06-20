@@ -1293,8 +1293,12 @@ class ONVIFService:
                     })
                     url = str(getattr(resp, "Uri", "") or "")
                     if url and "://" in url and "@" not in url.split("://", 1)[1].split("/")[0]:
+                        # Percent-encode credentials so passwords containing
+                        # @ : # space survive URL parsing downstream — same as
+                        # get_stream_uris().
+                        from urllib.parse import quote as _q
                         proto, rest = url.split("://", 1)
-                        url = f"{proto}://{username}:{password}@{rest}"
+                        url = f"{proto}://{_q(username or '', safe='')}:{_q(password or '', safe='')}@{rest}"
                     return url or None
                 except Exception as exc:
                     logger.debug(
@@ -1493,14 +1497,15 @@ class ONVIFService:
                         cam.devicemgmt.UpgradeSystemFirmware({"Firmware": fw.read()})
                     return {"started": True, "message": "UpgradeSystemFirmware initiated; camera will reboot"}
                 except Exception as e1:
-                    logger.debug(f"UpgradeSystemFirmware failed for {host}: {e1}")
+                    logger.warning(f"UpgradeSystemFirmware failed for {host}: {e1}")
 
-                # Legacy: just trigger a reboot (no actual firmware upload possible)
-                try:
-                    cam.devicemgmt.SystemReboot()
-                    return {"started": True, "message": "Camera rebooted (firmware upload via ONVIF not supported; manual upload required)"}
-                except Exception as e2:
-                    return {"started": False, "message": f"Firmware upgrade not supported: {e2}"}
+                # The camera does not support firmware upload over ONVIF. We do
+                # NOT trigger a reboot and report success — that would be a false
+                # "firmware updated" to the operator. Report a real failure.
+                return {
+                    "started": False,
+                    "message": "Firmware update is not supported on this camera",
+                }
             except Exception as e:
                 logger.error(f"upgrade_firmware failed for {host}: {e}")
                 return {"started": False, "message": str(e)}

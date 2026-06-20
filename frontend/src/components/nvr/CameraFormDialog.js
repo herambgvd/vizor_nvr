@@ -86,11 +86,13 @@ export const CameraFormDialog = ({
   const [form, setForm] = useState(DEFAULT_FORM);
   const [scheduleEnabled, setScheduleEnabled] = useState(false);
   const [periods, setPeriods] = useState([{ ...DEFAULT_PERIOD }]);
+  const [urlError, setUrlError] = useState("");
 
   const isEdit = !!camera?.id;
 
   // Populate form when camera changes
   useEffect(() => {
+    setUrlError("");
     if (camera) {
       setForm({
         name: camera.name || "",
@@ -161,8 +163,20 @@ export const CameraFormDialog = ({
     setPeriods((prev) => prev.filter((_, i) => i !== index));
   };
 
+  // Accept rtsp(s):// and http(s):// stream URLs only — reject free text
+  // like "hello" before we ever hit the backend.
+  const isValidStreamUrl = (url) =>
+    /^(rtsps?|https?):\/\/[^\s]+$/i.test((url || "").trim());
+
   const handleSubmit = (e) => {
     e.preventDefault();
+
+    if (!isValidStreamUrl(form.main_stream_url)) {
+      setUrlError("Enter a valid stream URL starting with rtsp:// or http://");
+      return;
+    }
+    setUrlError("");
+
     const data = { ...form };
 
     // Build recording_schedule from UI state
@@ -250,10 +264,28 @@ export const CameraFormDialog = ({
                         data-testid="main-stream-url-input"
                         placeholder="rtsp://192.168.1.100:554/stream1"
                         value={form.main_stream_url}
-                        onChange={(e) => updateField("main_stream_url", e.target.value)}
+                        onChange={(e) => {
+                          updateField("main_stream_url", e.target.value);
+                          if (urlError) setUrlError("");
+                        }}
+                        aria-invalid={!!urlError}
                         required
                       />
+                      {urlError && (
+                        <p className="text-xs text-red-400">{urlError}</p>
+                      )}
                     </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="camera-location">Location</Label>
+                    <Input
+                      id="camera-location"
+                      data-testid="camera-location-input"
+                      placeholder="e.g. Main Entrance, Floor 2"
+                      value={form.location}
+                      onChange={(e) => updateField("location", e.target.value)}
+                    />
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 md:items-end">

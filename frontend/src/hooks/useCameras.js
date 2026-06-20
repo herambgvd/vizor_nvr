@@ -13,6 +13,7 @@ import {
   stopRecording,
   testConnection,
 } from "../api/cameras";
+import { friendlyError } from "../lib/utils";
 
 /**
  * Central camera list query (shared across Dashboard, Cameras, etc.)
@@ -43,18 +44,7 @@ export const useCameraMutations = () => {
       invalidate();
       toast.success("Camera added");
     },
-    onError: (e) => {
-      const detail = e.response?.data?.detail;
-      if (Array.isArray(detail)) {
-        // FastAPI validation errors
-        const messages = detail
-          .map((err) => err.msg || JSON.stringify(err))
-          .join(", ");
-        toast.error(messages || "Validation failed");
-      } else {
-        toast.error(detail || "Failed to add camera");
-      }
-    },
+    onError: (e) => toast.error(friendlyError(e, "Couldn't add the camera")),
   });
 
   const update = useMutation({
@@ -63,17 +53,7 @@ export const useCameraMutations = () => {
       invalidate();
       toast.success("Camera updated");
     },
-    onError: (e) => {
-      const detail = e.response?.data?.detail;
-      if (Array.isArray(detail)) {
-        const messages = detail
-          .map((err) => err.msg || JSON.stringify(err))
-          .join(", ");
-        toast.error(messages || "Validation failed");
-      } else {
-        toast.error(detail || "Failed to update camera");
-      }
-    },
+    onError: (e) => toast.error(friendlyError(e, "Couldn't update the camera")),
   });
 
   const remove = useMutation({
@@ -82,8 +62,7 @@ export const useCameraMutations = () => {
       invalidate();
       toast.success("Camera deleted");
     },
-    onError: (e) =>
-      toast.error(e.response?.data?.detail || "Failed to delete camera"),
+    onError: (e) => toast.error(friendlyError(e, "Couldn't delete the camera")),
   });
 
   const start = useMutation({
@@ -92,8 +71,7 @@ export const useCameraMutations = () => {
       invalidate();
       toast.success("Recording started");
     },
-    onError: (e) =>
-      toast.error(e.response?.data?.detail || "Failed to start recording"),
+    onError: (e) => toast.error(friendlyError(e, "Couldn't start recording")),
   });
 
   const stop = useMutation({
@@ -102,8 +80,7 @@ export const useCameraMutations = () => {
       invalidate();
       toast.success("Recording stopped");
     },
-    onError: (e) =>
-      toast.error(e.response?.data?.detail || "Failed to stop recording"),
+    onError: (e) => toast.error(friendlyError(e, "Couldn't stop recording")),
   });
 
   const test = useMutation({
@@ -114,8 +91,7 @@ export const useCameraMutations = () => {
         `Connection OK: ${result.stream_info?.resolution || "connected"}`,
       );
     },
-    onError: (e) =>
-      toast.error(e.response?.data?.detail || "Connection failed"),
+    onError: (e) => toast.error(friendlyError(e, "Couldn't connect to the camera")),
   });
 
   const isPending =

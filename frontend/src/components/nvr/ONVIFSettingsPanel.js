@@ -72,6 +72,7 @@ import {
 import { Badge } from "../ui/badge";
 import { toast } from "sonner";
 import { cn } from "../../lib/utils";
+import { usePermissions } from "../../hooks/usePermissions";
 
 // ---------------------------------------------------------------------------
 // Known ONVIF topic list for event filtering
@@ -100,6 +101,7 @@ const ONVIF_TOPICS = [
 // ---------------------------------------------------------------------------
 
 const EventsTab = ({ camera, cameraId }) => {
+  const { isAdmin } = usePermissions();
   const qc = useQueryClient();
   const [enabled, setEnabled] = useState(!!camera?.onvif_events_enabled);
   const [topics, setTopics] = useState(camera?.onvif_event_topics || []);
@@ -195,9 +197,12 @@ const EventsTab = ({ camera, cameraId }) => {
                 <Badge variant="outline">{metadataStream.profile_token}</Badge>
               )}
             </div>
-            <p className="text-xs font-mono text-muted-foreground break-all">
-              {metadataStream.uri}
-            </p>
+            {isAdmin && (
+              <p className="text-xs font-mono text-muted-foreground break-all">
+                <span className="uppercase tracking-wide text-[10px] mr-1 opacity-70">Diagnostics</span>
+                {metadataStream.uri}
+              </p>
+            )}
           </div>
         ) : (
           <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
@@ -279,6 +284,7 @@ const EventsTab = ({ camera, cameraId }) => {
 // ---------------------------------------------------------------------------
 
 const EdgeRecordingsTab = ({ camera, cameraId }) => {
+  const { isAdmin } = usePermissions();
   const now = new Date();
   const defaultEnd = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
     .toISOString()
@@ -423,14 +429,21 @@ const EdgeRecordingsTab = ({ camera, cameraId }) => {
                   </Button>
                 </div>
                 {replayUri && (
-                  <div className="mt-3 flex items-start gap-2">
-                    <p className="flex-1 text-xs font-mono text-muted-foreground break-all">
-                      {replayUri}
+                  isAdmin ? (
+                    <div className="mt-3 flex items-start gap-2">
+                      <p className="flex-1 text-xs font-mono text-muted-foreground break-all">
+                        <span className="uppercase tracking-wide text-[10px] mr-1 opacity-70">Diagnostics</span>
+                        {replayUri}
+                      </p>
+                      <Button variant="ghost" size="sm" onClick={() => copyText(replayUri)}>
+                        <Copy className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <p className="mt-3 text-xs text-muted-foreground">
+                      Replay link ready.
                     </p>
-                    <Button variant="ghost" size="sm" onClick={() => copyText(replayUri)}>
-                      <Copy className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
+                  )
                 )}
               </div>
             );

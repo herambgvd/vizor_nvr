@@ -18,6 +18,7 @@ import {
   Play,
   Square,
   RefreshCw,
+  AlertTriangle,
   Trash2,
   ExternalLink,
   Pencil,
@@ -110,7 +111,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../components/ui/dialog";
-import { cn, maskStreamUrl } from "../lib/utils";
+import { cn, friendlyError } from "../lib/utils";
 
 const PAGE_SIZES = [10, 25, 50, 100];
 const DEFAULT_GROUP_COLOR = "#228B22";
@@ -391,7 +392,7 @@ const Cameras = () => {
   const navigate = useNavigate();
   const { canOperate, canManage } = usePermissions();
   const { cameraCap: licenseCap } = useLicense();
-  const { data: cameras = [], isLoading } = useCamerasQuery();
+  const { data: cameras = [], isLoading, isError: camerasError, refetch: refetchCameras } = useCamerasQuery();
   const mutations = useCameraMutations();
   const [prefs, setPrefs] = useUiPrefs();
   const camerasView = prefs.camerasView || "table";
@@ -618,7 +619,7 @@ const Cameras = () => {
       resetGroupForm();
       invalidateGroups();
     },
-    onError: (e) => toast.error(e.response?.data?.detail || "Could not save group"),
+    onError: (e) => toast.error(friendlyError(e, "Couldn't save the group")),
   });
 
   const groupDeleteMutation = useMutation({
@@ -630,7 +631,7 @@ const Cameras = () => {
       if (moveGroupId) setMoveGroupId("");
       invalidateGroups();
     },
-    onError: (e) => toast.error(e.response?.data?.detail || "Could not delete group"),
+    onError: (e) => toast.error(friendlyError(e, "Couldn't delete the group")),
   });
 
   const bulkDeleteMutation = useMutation({
@@ -660,7 +661,7 @@ const Cameras = () => {
       setDeletePwdError(
         e.response?.status === 401
           ? "Incorrect password"
-          : e.response?.data?.detail || "Verification failed",
+          : friendlyError(e, "Verification failed"),
       );
       return;
     }
@@ -684,7 +685,7 @@ const Cameras = () => {
       setDeletePwdError(
         e.response?.status === 401
           ? "Incorrect password"
-          : e.response?.data?.detail || "Verification failed",
+          : friendlyError(e, "Verification failed"),
       );
       return;
     }
@@ -1128,6 +1129,21 @@ const Cameras = () => {
             >
               Loading cameras…
             </div>
+          ) : camerasError && cameras.length === 0 ? (
+            <div className="text-center py-10 flex flex-col items-center gap-3">
+              <AlertTriangle className="h-8 w-8" style={{ color: "var(--console-rec)" }} />
+              <p className="text-xs font-telemetry" style={{ color: "var(--console-rec)" }}>
+                Couldn't load cameras
+              </p>
+              <button
+                type="button"
+                onClick={() => refetchCameras()}
+                className="px-3 py-1.5 rounded text-xs font-telemetry border"
+                style={{ borderColor: "var(--console-border)", color: "var(--console-text)", background: "var(--console-raised)" }}
+              >
+                <RefreshCw className="h-3.5 w-3.5 inline mr-1" /> Retry
+              </button>
+            </div>
           ) : paginated.length === 0 ? (
             <div className="text-center py-10">
               <Camera className="h-10 w-10 mx-auto mb-3" style={{ color: "var(--console-muted)" }} />
@@ -1289,6 +1305,23 @@ const Cameras = () => {
                         colSpan={sortAllowsDrag && canManage ? 10 : 9}
                         className="text-center py-12"
                       >
+                        {!isLoading && camerasError && cameras.length === 0 ? (
+                          <>
+                            <AlertTriangle className="h-10 w-10 mx-auto mb-3" style={{ color: "var(--console-rec)" }} />
+                            <p className="font-telemetry text-xs" style={{ color: "var(--console-rec)" }}>
+                              Couldn't load cameras
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => refetchCameras()}
+                              className="mt-4 px-3 py-1.5 rounded text-xs font-telemetry border"
+                              style={{ borderColor: "var(--console-border)", color: "var(--console-text)", background: "var(--console-raised)" }}
+                            >
+                              <RefreshCw className="h-3.5 w-3.5 inline mr-1" /> Retry
+                            </button>
+                          </>
+                        ) : (
+                        <>
                         <Camera className="h-10 w-10 mx-auto mb-3" style={{ color: "var(--console-muted)" }} />
                         <p className="font-telemetry text-xs" style={{ color: "var(--console-muted)" }}>
                           {isLoading
@@ -1311,6 +1344,8 @@ const Cameras = () => {
                             <Plus className="h-3.5 w-3.5 inline mr-1" />
                             Add Your First Camera
                           </button>
+                        )}
+                        </>
                         )}
                       </td>
                     </tr>
@@ -1390,7 +1425,7 @@ const Cameras = () => {
                                 className="font-telemetry text-[10px] truncate max-w-[200px] mt-0.5"
                                 style={{ color: "var(--console-muted)" }}
                               >
-                                {maskStreamUrl(camera.main_stream_url)}
+                                {camera.main_stream_url ? "Stream configured ✓" : "No stream configured"}
                               </p>
                             </div>
                           </td>
@@ -1528,6 +1563,21 @@ const Cameras = () => {
                   style={{ color: "var(--console-muted)" }}
                 >
                   Loading cameras…
+                </div>
+              ) : camerasError && cameras.length === 0 ? (
+                <div className="text-center py-16 flex flex-col items-center gap-3">
+                  <AlertTriangle className="h-12 w-12" style={{ color: "var(--console-rec)" }} />
+                  <p className="font-telemetry text-xs" style={{ color: "var(--console-rec)" }}>
+                    Couldn't load cameras
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => refetchCameras()}
+                    className="px-3 py-1.5 rounded text-xs font-telemetry border"
+                    style={{ borderColor: "var(--console-border)", color: "var(--console-text)", background: "var(--console-raised)" }}
+                  >
+                    <RefreshCw className="h-3.5 w-3.5 inline mr-1" /> Retry
+                  </button>
                 </div>
               ) : paginated.length === 0 ? (
                 <div className="text-center py-16">
@@ -2186,7 +2236,7 @@ const Cameras = () => {
                 style={{ borderColor: "var(--console-border)", color: "var(--console-muted)" }}
               >
                 <span className="truncate flex-1">
-                  {maskStreamUrl(previewCamera.main_stream_url)}
+                  {previewCamera.name}
                 </span>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   {previewCamera.resolution && (

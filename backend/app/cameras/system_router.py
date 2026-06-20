@@ -239,4 +239,14 @@ async def upload_firmware(
         details={"bytes": len(firmware_bytes), "result": result},
     )
     await db.commit()
-    return {"camera_id": camera_id, "started": result.get("started", False), "message": result.get("message", "")}
+
+    if not result.get("started", False):
+        # Surface a real failure instead of a 202 that the operator reads as
+        # success. Log the underlying reason; return a clean operator message.
+        logger.warning(
+            "Firmware upload not started for camera %s: %s",
+            camera_id, result.get("message", ""),
+        )
+        raise HTTPException(400, "Firmware update is not supported on this camera")
+
+    return {"camera_id": camera_id, "started": True, "message": result.get("message", "")}

@@ -15,7 +15,7 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
-import { maskStreamUrl } from "../../lib/utils";
+import { friendlyError } from "../../lib/utils";
 import apiClient from "../../api/client";
 
 // ── Firmware Upload Card ─────────────────────────────────────────────────────
@@ -37,7 +37,7 @@ const FirmwareCard = ({ cameraId, firmwareVersion }) => {
       setFile(null);
     },
     onError: (err) =>
-      toast.error(err?.response?.data?.detail || "Firmware upload failed"),
+      toast.error(friendlyError(err, "Firmware update failed")),
   });
 
   return (
@@ -101,7 +101,7 @@ const CredentialCard = ({ cameraId, username }) => {
       setConfirmPass("");
     },
     onError: (err) =>
-      toast.error(err?.response?.data?.detail || "Credential rotation failed"),
+      toast.error(friendlyError(err, "Couldn't rotate credentials")),
   });
 
   const handleSubmit = () => {
@@ -185,7 +185,7 @@ const BandwidthPolicyCard = ({ cameraId }) => {
       toast.success("Bandwidth policy saved");
       qc.invalidateQueries(["bw-policy", cameraId]);
     },
-    onError: (e) => toast.error(`Save failed: ${e?.response?.data?.detail || e.message}`),
+    onError: (e) => toast.error(friendlyError(e, "Couldn't save the bandwidth policy")),
   });
 
   const handleSave = () => {
@@ -291,7 +291,7 @@ const AnrSettingsCard = ({ cameraId, camera }) => {
       qc.invalidateQueries(["camera", cameraId]);
     },
     onError: (err) =>
-      toast.error(err?.response?.data?.detail || "Failed to save ANR settings"),
+      toast.error(friendlyError(err, "Couldn't save ANR settings")),
   });
 
   const { mutate: triggerAnr, isPending: triggering } = useMutation({
@@ -303,7 +303,7 @@ const AnrSettingsCard = ({ cameraId, camera }) => {
       qc.invalidateQueries(["anr-jobs", cameraId]);
     },
     onError: (err) =>
-      toast.error(err?.response?.data?.detail || "Failed to trigger ANR"),
+      toast.error(friendlyError(err, "Couldn't start ANR backfill")),
   });
 
   const { data: anrStatus, isLoading: statusLoading } = useQuery({
@@ -476,7 +476,7 @@ const SubStreamRecordingCard = ({ cameraId, camera }) => {
       qc.invalidateQueries(["camera", cameraId]);
     },
     onError: (err) =>
-      toast.error(err?.response?.data?.detail || "Failed to save preference"),
+      toast.error(friendlyError(err, "Couldn't save the preference")),
   });
 
   return (
@@ -522,8 +522,7 @@ const SubStreamRecordingCard = ({ cameraId, camera }) => {
         </div>
         {enabled && hasSubStream && (
           <p className="text-xs text-teal-400">
-            Active — FFmpeg will record from sub-stream:{" "}
-            <span className="font-mono break-all">{maskStreamUrl(camera.sub_stream_url)}</span>
+            Active — recording from the sub-stream.
           </p>
         )}
       </CardContent>
@@ -544,10 +543,10 @@ const PosOverlayCard = ({ cameraId, camera }) => {
       toast.success("POS overlay settings saved");
       qc.invalidateQueries(["camera", cameraId]);
     },
-    onError: (err) => toast.error(err?.response?.data?.detail || "Failed to save"),
+    onError: (err) => toast.error(friendlyError(err, "Couldn't save the settings")),
   });
 
-  const [text, setText] = React.useState("TEST TRANSACTION: $123.45");
+  const [text, setText] = React.useState("");
 
   // Local draft state for free-text fields so we PUT on blur (explicit commit)
   // instead of firing a network write + toast on every keystroke.
@@ -598,7 +597,7 @@ const PosOverlayCard = ({ cameraId, camera }) => {
         {enabled && (
           <>
             <div className="space-y-1.5">
-              <Label className="text-xs text-[#8a8f98]">Text Style (FFmpeg drawtext opts)</Label>
+              <Label className="text-xs text-[#8a8f98]">Overlay text style</Label>
               <Input
                 value={textStyle}
                 onChange={(e) => setTextStyle(e.target.value)}
@@ -606,7 +605,7 @@ const PosOverlayCard = ({ cameraId, camera }) => {
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs text-[#8a8f98]">Position (x=y=...)</Label>
+              <Label className="text-xs text-[#8a8f98]">Overlay position</Label>
               <Input
                 value={position}
                 onChange={(e) => setPosition(e.target.value)}
@@ -616,7 +615,7 @@ const PosOverlayCard = ({ cameraId, camera }) => {
             <div className="space-y-1.5">
               <Label className="text-xs text-[#8a8f98]">Test Text</Label>
               <div className="flex gap-2">
-                <Input value={text} onChange={(e) => setText(e.target.value)} />
+                <Input value={text} onChange={(e) => setText(e.target.value)} placeholder="Enter sample text to preview" />
                 <Button size="sm" onClick={() => apiClient.post(`/pos-overlay/${cameraId}`, { text }).then(() => toast.success("Sent")).catch(() => toast.error("Failed"))}>
                   Send
                 </Button>
@@ -642,7 +641,7 @@ const DewarpCard = ({ cameraId, camera }) => {
       toast.success("Dewarp settings saved");
       qc.invalidateQueries(["camera", cameraId]);
     },
-    onError: (err) => toast.error(err?.response?.data?.detail || "Failed to save"),
+    onError: (err) => toast.error(friendlyError(err, "Couldn't save the settings")),
   });
 
   // Local draft state for FOV numeric inputs — commit on blur instead of a
@@ -746,10 +745,6 @@ const SettingsPage = () => {
   const { canManage, isAdmin } = usePermissions();
   const [activeTab, setActiveTab] = useState("recording");
 
-  const GO2RTC_URL =
-    process.env.REACT_APP_GO2RTC_URL || "/go2rtc";
-  const snapshotUrl = `${GO2RTC_URL}/api/frame.jpeg?src=${encodeURIComponent(cameraId)}`;
-
   if (!canManage) {
     return (
       <div className="p-6 text-center">
@@ -810,7 +805,6 @@ const SettingsPage = () => {
       {CAPTURE_TABS.includes(currentTab) && (
         <CameraSettingsPanel
           cameraId={cameraId}
-          snapshotUrl={snapshotUrl}
           activeTab={currentTab}
           showChrome={false}
         />

@@ -48,3 +48,57 @@ export function getErrorMessage(error, fallback = "Something went wrong") {
 
   return fallback;
 }
+
+/**
+ * Operator-safe error message.
+ *
+ * Unlike getErrorMessage(), this NEVER surfaces raw backend strings — those can
+ * leak ffmpeg stderr, RTSP URLs with passwords, SOAP faults, internal IPs, or
+ * stack traces. It maps the HTTP status (and a few well-known structured cases)
+ * to clean, non-technical text suitable for a commercial NVR operator UI.
+ *
+ * Pass a `fallback` describing the action ("Couldn't add the camera") so the
+ * default message reads naturally for the specific operation.
+ */
+export function friendlyError(error, fallback = "Operation failed, please try again") {
+  // Validation errors (422) are user-fixable and safe to surface as a short,
+  // generic hint — but never the raw `loc`/`input` internals.
+  const detail = error?.response?.data?.detail;
+  if (Array.isArray(detail)) {
+    return "Please check the values entered and try again.";
+  }
+
+  const status = error?.response?.status;
+  switch (status) {
+    case 400:
+      return "That request couldn't be completed. Please review and try again.";
+    case 401:
+    case 403:
+      return "You don't have permission to do that.";
+    case 404:
+      return "That item could not be found.";
+    case 409:
+      return "That conflicts with an existing item.";
+    case 422:
+      return "Please check the values entered and try again.";
+    case 429:
+      return "Too many requests — please wait a moment and try again.";
+    case 502:
+    case 503:
+    case 504:
+      return "Couldn't reach the camera. Please check it's online and try again.";
+    default:
+      break;
+  }
+
+  if (status && status >= 500) {
+    return fallback;
+  }
+
+  // No response → network/transport failure (offline, CORS, timeout).
+  if (!error?.response) {
+    return "Network problem — please check your connection and try again.";
+  }
+
+  return fallback;
+}
