@@ -71,7 +71,7 @@ import {
 } from "../ui/alert-dialog";
 import { Badge } from "../ui/badge";
 import { toast } from "sonner";
-import { cn } from "../../lib/utils";
+import { cn, friendlyError } from "../../lib/utils";
 import { usePermissions } from "../../hooks/usePermissions";
 
 // ---------------------------------------------------------------------------
@@ -124,7 +124,7 @@ const EventsTab = ({ camera, cameraId }) => {
       qc.invalidateQueries({ queryKey: ["camera", cameraId] });
       toast.success("ONVIF event settings saved");
     },
-    onError: (e) => toast.error(e.response?.data?.detail || "Save failed"),
+    onError: (e) => toast.error(friendlyError(e, "Save failed")),
   });
 
   const toggleTopic = (topic) => {
@@ -320,7 +320,7 @@ const EdgeRecordingsTab = ({ camera, cameraId }) => {
       setReplayByToken((prev) => ({ ...prev, [result.recording_token]: result.uri }));
       toast.success("Replay URI resolved");
     },
-    onError: (e) => toast.error(e.response?.data?.detail || "Replay URI not available"),
+    onError: (e) => toast.error(friendlyError(e, "Replay URI not available")),
   });
 
   if (!camera?.onvif_host) {
@@ -384,7 +384,7 @@ const EdgeRecordingsTab = ({ camera, cameraId }) => {
       {isError && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
           <AlertTriangle className="h-4 w-4 text-amber-400" />
-          {error?.response?.data?.detail || "Could not search camera edge recordings."}
+          {friendlyError(error, "Could not search camera edge recordings.")}
         </div>
       )}
 
@@ -483,13 +483,13 @@ const ImagingTab = ({ camera, cameraId }) => {
       toast.success("Imaging settings applied");
       refetch();
     },
-    onError: (e) => toast.error(e.response?.data?.detail || "Failed to apply imaging settings"),
+    onError: (e) => toast.error(friendlyError(e, "Failed to apply imaging settings")),
   });
 
   const focusMutation = useMutation({
     mutationFn: (data) => moveFocus(cameraId, data),
     onSuccess: () => toast.success("Focus command sent"),
-    onError: (e) => toast.error(e.response?.data?.detail || "Focus command failed"),
+    onError: (e) => toast.error(friendlyError(e, "Focus command failed")),
   });
 
   const update = (key, value) => {
@@ -520,7 +520,7 @@ const ImagingTab = ({ camera, cameraId }) => {
       <div className="text-center py-12">
         <AlertTriangle className="h-10 w-10 mx-auto mb-3 text-amber-400" />
         <p className="text-sm text-muted-foreground max-w-md mx-auto">
-          {error?.response?.data?.detail || "Could not load imaging settings from camera."}
+          {friendlyError(error, "Could not load imaging settings from camera.")}
         </p>
         <Button variant="outline" size="sm" className="mt-3" onClick={refetch}>
           Retry
@@ -708,7 +708,7 @@ const DigitalIOTab = ({ camera, cameraId }) => {
       refetchRelays();
     },
     onError: (e, { token }) => {
-      toast.error(e.response?.data?.detail || `Failed to trigger relay ${token}`);
+      toast.error(friendlyError(e, `Failed to trigger relay ${token}`));
       setTriggeringRelay(null);
     },
   });
@@ -742,7 +742,7 @@ const DigitalIOTab = ({ camera, cameraId }) => {
         ) : relaysError ? (
           <p className="text-sm text-muted-foreground py-4">
             <AlertTriangle className="h-4 w-4 inline mr-1 text-amber-400" />
-            {relaysErr?.response?.data?.detail || "Could not load relay outputs from camera."}
+            {friendlyError(relaysErr, "Could not load relay outputs from camera.")}
           </p>
         ) : !relays?.length ? (
           <p className="text-sm text-muted-foreground py-4">No relay outputs reported by camera.</p>
@@ -810,7 +810,7 @@ const DigitalIOTab = ({ camera, cameraId }) => {
         ) : inputsError ? (
           <p className="text-sm text-muted-foreground py-4">
             <AlertTriangle className="h-4 w-4 inline mr-1 text-amber-400" />
-            {inputsErr?.response?.data?.detail || "Could not load digital inputs from camera."}
+            {friendlyError(inputsErr, "Could not load digital inputs from camera.")}
           </p>
         ) : !inputs?.length ? (
           <p className="text-sm text-muted-foreground py-4">No digital inputs reported by camera.</p>
@@ -882,7 +882,7 @@ const SystemTab = ({ camera, cameraId }) => {
       toast.success("Camera time synchronized to server time");
       refetchTime();
     },
-    onError: (e) => toast.error(e.response?.data?.detail || "Time sync failed"),
+    onError: (e) => toast.error(friendlyError(e, "Time sync failed")),
   });
 
   const rebootMutation = useMutation({
@@ -892,7 +892,7 @@ const SystemTab = ({ camera, cameraId }) => {
       setShowRebootConfirm(false);
     },
     onError: (e) => {
-      toast.error(e.response?.data?.detail || "Reboot command failed");
+      toast.error(friendlyError(e, "Reboot command failed"));
       setShowRebootConfirm(false);
     },
   });
@@ -904,7 +904,7 @@ const SystemTab = ({ camera, cameraId }) => {
       setShowFactoryConfirm(false);
     },
     onError: (e) => {
-      toast.error(e.response?.data?.detail || "Factory reset failed");
+      toast.error(friendlyError(e, "Factory reset failed"));
       setShowFactoryConfirm(false);
     },
   });
@@ -942,7 +942,7 @@ const SystemTab = ({ camera, cameraId }) => {
         ) : infoError ? (
           <p className="text-sm text-muted-foreground py-2">
             <AlertTriangle className="h-4 w-4 inline mr-1 text-amber-400" />
-            {infoErr?.response?.data?.detail || "Could not retrieve device information."}
+            {friendlyError(infoErr, "Could not retrieve device information.")}
           </p>
         ) : deviceInfo ? (
           <div className="bg-[var(--console-panel)] rounded-lg p-3">

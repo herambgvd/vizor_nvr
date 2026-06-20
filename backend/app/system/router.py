@@ -318,7 +318,7 @@ async def license_upload(
     """Legacy upload route backed by the active .lic license service."""
     from sqlalchemy import func, select
     from app.cameras.models import Camera
-    from app.license.service import LicenseError, get_license_service
+    from app.license.service import LicenseError, friendly_reason, get_license_service
 
     body = await file.read()
     if len(body) > 64_000:
@@ -327,7 +327,8 @@ async def license_upload(
     try:
         await get_license_service().activate(blob)
     except LicenseError as e:
-        raise HTTPException(400, str(e))
+        logger.warning(f"License activation failed: {e}")
+        raise HTTPException(400, friendly_reason(str(e)))
     await write_audit(
         db, action="license_upload",
         user_id=user["id"], username=user["username"],

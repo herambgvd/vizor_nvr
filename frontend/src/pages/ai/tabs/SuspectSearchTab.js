@@ -43,6 +43,7 @@ import {
   scenarioSearch,
   scenarioThumbnailUrl,
 } from "../../../api/ai";
+import { friendlyError } from "../../../lib/utils";
 
 // ── Shared style tokens (every colour is a --console-* custom property) ───────
 const inputClass = "h-8 w-full rounded border px-2.5 text-[12px] outline-none";
@@ -276,7 +277,7 @@ const SuspectSearchTab = ({ scenario }) => {
     if (!job?.job_id || ["completed", "failed", "cancelled"].includes(job.status)) return undefined;
     const timer = setInterval(() => {
       setPolling(true);
-      refreshJob(job.job_id).catch((err) => setError(err?.response?.data?.detail || err.message)).finally(() => setPolling(false));
+      refreshJob(job.job_id).catch((err) => setError(friendlyError(err, "Something went wrong. Please try again."))).finally(() => setPolling(false));
     }, 2500);
     return () => clearInterval(timer);
   }, [job?.job_id, job?.status]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -351,7 +352,7 @@ const SuspectSearchTab = ({ scenario }) => {
       setResults(response.items || []);
       setResultTotal(response.total || (response.items || []).length);
     } catch (err) {
-      setError(err?.response?.data?.detail || err.message || "Search failed.");
+      setError(friendlyError(err, "Search failed."));
     } finally {
       setLoading(false);
     }
@@ -391,7 +392,7 @@ const SuspectSearchTab = ({ scenario }) => {
       setJob(created);
       if (created?.job_id) await refreshJob(created.job_id);
     } catch (err) {
-      setError(err?.response?.data?.detail || err.message || "Index job failed.");
+      setError(friendlyError(err, "Index job failed."));
     } finally {
       setLoading(false);
     }
@@ -415,7 +416,7 @@ const SuspectSearchTab = ({ scenario }) => {
       setResults(response.items || []);
       setResultTotal(response.total || (response.items || []).length);
     } catch (err) {
-      setError(err?.response?.data?.detail || err.message || "Nested search failed.");
+      setError(friendlyError(err, "Nested search failed."));
     } finally {
       setLoading(false);
     }
@@ -991,7 +992,7 @@ const SuspectSearchTab = ({ scenario }) => {
               {job && (
                 <button
                   type="button"
-                  onClick={() => refreshJob().catch((err) => setError(err?.response?.data?.detail || err.message))}
+                  onClick={() => refreshJob().catch((err) => setError(friendlyError(err, "Something went wrong. Please try again.")))}
                   className="inline-flex items-center justify-center rounded h-8 w-8 border"
                   style={{ borderColor: "var(--console-border)", background: "var(--console-raised)", color: "var(--console-text)" }}
                   title="Refresh index status"
@@ -1002,7 +1003,7 @@ const SuspectSearchTab = ({ scenario }) => {
               {indexRunning && (
                 <button
                   type="button"
-                  onClick={() => cancelScenarioJob(scenario.slug, job.job_id).then(setJob).catch((err) => setError(err?.response?.data?.detail || err.message))}
+                  onClick={() => cancelScenarioJob(scenario.slug, job.job_id).then(setJob).catch((err) => setError(friendlyError(err, "Something went wrong. Please try again.")))}
                   className="inline-flex items-center justify-center rounded h-8 w-8 border"
                   style={{ borderColor: "var(--console-rec)", background: "var(--console-raised)", color: "var(--console-rec)" }}
                   title="Cancel index job"

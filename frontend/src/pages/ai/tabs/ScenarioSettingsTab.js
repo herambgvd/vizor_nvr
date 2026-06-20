@@ -12,6 +12,7 @@ import {
   Video,
 } from "lucide-react";
 import { toast } from "sonner";
+import { friendlyError } from "../../../lib/utils";
 import { getScenarioHealth, toggleScenario } from "../../../api/ai";
 
 const friendlyCapability = {
@@ -94,7 +95,7 @@ const ScenarioSettingsTab = ({ scenario }) => {
       queryClient.invalidateQueries({ queryKey: ["ai-scenario", "slug", scenario.slug] });
       toast.success("Feature setting updated");
     },
-    onError: (e) => toast.error(e.response?.data?.detail || "Could not update feature"),
+    onError: (e) => toast.error(friendlyError(e, "Could not update feature")),
   });
 
   const workerReady = scenario.registered && !healthQuery.isError;

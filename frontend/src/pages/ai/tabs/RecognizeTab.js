@@ -18,6 +18,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ScanFace, Upload, Film, Loader2, X, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
+import { friendlyError } from "../../../lib/utils";
 
 import {
   recognizeImage,
@@ -162,7 +163,7 @@ const ImageSection = () => {
   const mut = useMutation({
     mutationFn: () => recognizeImage(file),
     onSuccess: (data) => setResult(data),
-    onError: (e) => toast.error(e?.response?.data?.detail || "Recognition failed"),
+    onError: (e) => toast.error(friendlyError(e, "Recognition failed")),
   });
 
   const onPick = (e) => {
@@ -333,7 +334,7 @@ const VideoSection = () => {
       setJobId(id);
       toast.success("Video job submitted");
     },
-    onError: (e) => toast.error(e?.response?.data?.detail || "Submit failed"),
+    onError: (e) => toast.error(friendlyError(e, "Submit failed")),
   });
 
   const { data: status } = useQuery({

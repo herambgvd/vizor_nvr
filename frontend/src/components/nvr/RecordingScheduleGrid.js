@@ -9,6 +9,7 @@ import { Button } from "../ui/button";
 import { Label } from "../ui/label";
 import { Input } from "../ui/input";
 import { toast } from "sonner";
+import { friendlyError } from "../../lib/utils";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -81,7 +82,7 @@ export const RecordingScheduleGrid = ({
       setTplName("");
       setTplDesc("");
     },
-    onError: (err) => toast.error(err?.response?.data?.detail || "Failed to save template"),
+    onError: (err) => toast.error(friendlyError(err, "Failed to save template")),
   });
 
   // Sync with external prop changes

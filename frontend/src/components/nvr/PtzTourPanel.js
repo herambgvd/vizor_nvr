@@ -7,6 +7,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { GripVertical, Plus, Trash2, Play, Square } from "lucide-react";
 import { toast } from "sonner";
+import { friendlyError } from "../../lib/utils";
 import apiClient from "../../api/client";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -77,7 +78,7 @@ const PtzTourPanel = ({ cameraId, ptzCapable }) => {
       qc.invalidateQueries({ queryKey: ["ptz-tour", cameraId] });
     },
     onError: (err) =>
-      toast.error(err?.response?.data?.detail || "Failed to start tour"),
+      toast.error(friendlyError(err, "Failed to start tour")),
   });
 
   const stopMutation = useMutation({

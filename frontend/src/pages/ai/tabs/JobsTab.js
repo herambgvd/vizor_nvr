@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Briefcase, RefreshCw, XCircle } from "lucide-react";
 
 import { cancelScenarioJob, listScenarioJobs } from "../../../api/ai";
+import { friendlyError } from "../../../lib/utils";
 
 const terminalStates = new Set(["completed", "failed", "cancelled"]);
 
@@ -77,7 +78,7 @@ const JobsTab = ({ scenario }) => {
           <div className="p-10 text-center text-[12px] text-zinc-500">Loading jobs...</div>
         ) : error ? (
           <div className="p-10 text-center text-[12px] text-red-300">
-            {error?.response?.data?.detail || error.message || "Could not load jobs."}
+            {friendlyError(error, "Could not load jobs.")}
           </div>
         ) : jobs.length === 0 ? (
           <div className="p-12 text-center text-zinc-600">

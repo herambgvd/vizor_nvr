@@ -90,7 +90,8 @@ async def onvif_discover(
             password=password,
         )
     except RuntimeError as e:
-        raise HTTPException(500, str(e))
+        logger.error(f"Camera discovery failed: {e}")
+        raise HTTPException(500, "Camera discovery couldn't be completed. Please try again.")
     return devices
 
 

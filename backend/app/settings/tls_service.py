@@ -148,11 +148,13 @@ def install_custom(cert_pem: bytes, key_pem: bytes) -> TLSStatus:
     try:
         cert = x509.load_pem_x509_certificate(cert_pem)
     except Exception as e:
-        raise ValueError(f"Invalid certificate PEM: {e}")
+        logger.warning(f"TLS install: certificate parse failed: {e}")
+        raise ValueError("The certificate file is not valid. Please upload a valid PEM certificate.")
     try:
         priv = serialization.load_pem_private_key(key_pem, password=None)
     except Exception as e:
-        raise ValueError(f"Invalid private key PEM: {e}")
+        logger.warning(f"TLS install: private key parse failed: {e}")
+        raise ValueError("The private key file is not valid. Please upload a valid PEM private key.")
 
     # Key/cert match check — public key bytes must be identical
     cert_pub = cert.public_key().public_bytes(

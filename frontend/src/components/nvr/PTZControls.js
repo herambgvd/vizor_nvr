@@ -43,6 +43,7 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { cn } from "../../lib/utils";
 import { toast } from "sonner";
+import { friendlyError } from "../../lib/utils";
 
 /**
  * PTZ Controls overlay — absolute-positioned within a camera player container.
@@ -91,7 +92,7 @@ export const PTZControls = ({ cameraId, className, speed = 0.5, ptzCapable = tru
       // Refresh presets list
       fetchPresets();
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Failed to save preset");
+      toast.error(friendlyError(error, "Failed to save preset"));
     } finally {
       setSaving(false);
     }

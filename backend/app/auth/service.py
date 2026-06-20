@@ -93,7 +93,7 @@ class AuthService:
 
         role = await AuthService.get_role_by_name(db, role_name)
         if not role:
-            raise ValueError(f"Role '{role_name}' not found — run seed_roles first")
+            raise ValueError("The selected role is not available. Please contact your administrator.")
 
         # Enforce password policy (Phase 5.6)
         from app.auth.password_policy import validate

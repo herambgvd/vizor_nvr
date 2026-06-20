@@ -30,6 +30,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
+import { friendlyError } from "../../../lib/utils";
 import { format } from "date-fns";
 
 import { createInvestigation, listInvestigations, getInvestigation, scenarioSnapshotUrl } from "../../../api/ai";
@@ -244,7 +245,7 @@ const InvestigateTab = () => {
     mutationFn: () =>
       createInvestigation(file, { top_k: Number(maxResults) || DEFAULT_MAX_RESULTS }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["frs-investigations"] }),
-    onError: (e) => toast.error(e?.response?.data?.detail || "Investigation failed"),
+    onError: (e) => toast.error(friendlyError(e, "Investigation failed")),
   });
 
   const setQueryFile = useCallback((f) => {

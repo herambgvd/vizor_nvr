@@ -37,7 +37,7 @@ _NO_RETRY_CODES = {21211, 21212, 21408, 21610, 21614, 21615, 63003, 63007}
 
 _TWILIO_ERRORS = {
     21211: "Invalid 'To' number — check E.164 format",
-    21212: "Invalid 'From' number — check TWILIO_WHATSAPP_FROM configuration",
+    21212: "Invalid sender number — check the WhatsApp sender configuration",
     21408: "Permission denied — number not approved for this region",
     21610: "Recipient opted out — do not retry",
     63003: "Channel capability error — recipient not reachable on WhatsApp",
@@ -152,23 +152,14 @@ class WhatsAppService:
         if not client:
             return {
                 "ok": False,
-                "error": (
-                    "Twilio not configured for WhatsApp. "
-                    "Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_WHATSAPP_FROM. "
-                    "Get your WhatsApp Business number at: "
-                    "https://console.twilio.com/us1/develop/sms/whatsapp/learn"
-                ),
+                "error": "WhatsApp is not configured yet. Add your WhatsApp provider credentials in settings.",
             }
 
         _from = from_number or await self._get_from_number()
         if not _from:
             return {
                 "ok": False,
-                "error": (
-                    "WhatsApp sender number not configured (TWILIO_WHATSAPP_FROM). "
-                    "Register a WhatsApp Business number at: "
-                    "https://console.twilio.com/us1/develop/sms/whatsapp/learn"
-                ),
+                "error": "No WhatsApp sender number is configured. Add one in settings.",
             }
 
         # Ensure whatsapp: prefix

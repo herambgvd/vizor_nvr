@@ -123,13 +123,10 @@ class NASService:
             return {"ok": True, "message": "Local pool — no mount needed"}
 
         if not NASService._has_mount_privileges():
+            logger.warning("[NAS] mount denied — system lacks mount privileges")
             return {
                 "ok": False,
-                "message": (
-                    "Container lacks CAP_SYS_ADMIN (mount privileges). "
-                    "Mount the share on the host and bind-mount the path into the container, "
-                    "or run the backend container with --privileged."
-                ),
+                "message": "This system is not permitted to mount network shares directly. Please contact your administrator.",
             }
 
         # Ensure mount point exists

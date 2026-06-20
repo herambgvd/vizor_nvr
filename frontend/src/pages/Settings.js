@@ -29,6 +29,7 @@ import { Switch } from "../components/ui/switch";
 import TwoFactorCard from "../components/auth/TwoFactorCard";
 import { KeyRound } from "lucide-react";
 import { toast } from "sonner";
+import { friendlyError } from "../lib/utils";
 
 // ── shared styles ─────────────────────────────────────────────────────────────
 
@@ -191,7 +192,7 @@ const RetentionTab = ({ queryClient }) => {
       toast.success("Retention policy updated");
     },
     onError: (e) =>
-      toast.error(e.response?.data?.detail || "Failed to update retention"),
+      toast.error(friendlyError(e, "Failed to update retention")),
   });
 
   const set = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
@@ -291,7 +292,7 @@ const RecordingTab = ({ queryClient }) => {
       queryClient.invalidateQueries({ queryKey: ["recording-config"] });
       toast.success("Recording config updated");
     },
-    onError: (e) => toast.error(e.response?.data?.detail || "Failed"),
+    onError: (e) => toast.error(friendlyError(e, "Failed")),
   });
 
   const set = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
@@ -414,7 +415,7 @@ const GeneralTab = ({ queryClient }) => {
       queryClient.invalidateQueries({ queryKey: ["public-branding"] });
       toast.success("Settings saved");
     },
-    onError: (e) => toast.error(e.response?.data?.detail || "Failed"),
+    onError: (e) => toast.error(friendlyError(e, "Failed")),
   });
 
   const set = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
@@ -422,7 +423,7 @@ const GeneralTab = ({ queryClient }) => {
     try {
       set(key, await readImageAsDataUrl(file));
     } catch (e) {
-      toast.error(e.message || "Invalid image");
+      toast.error("That image couldn't be loaded. Please choose a different file.");
     }
   };
   const saveGeneralSettings = () => {
@@ -764,7 +765,7 @@ const SecurityTab = ({ queryClient }) => {
       queryClient.invalidateQueries({ queryKey: ["settings"] });
       toast.success("Security policy updated");
     },
-    onError: (e) => toast.error(e.response?.data?.detail || "Failed to update"),
+    onError: (e) => toast.error(friendlyError(e, "Failed to update")),
   });
 
   const set = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));

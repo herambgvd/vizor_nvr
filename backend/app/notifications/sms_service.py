@@ -39,8 +39,8 @@ _NO_RETRY_CODES = {21211, 21212, 21408, 21610, 21614, 21615}
 # Human-readable Twilio error explanations
 _TWILIO_ERRORS = {
     21211: "Invalid 'To' phone number — check the recipient number format (E.164 required)",
-    21212: "Invalid 'From' number — check TWILIO_FROM_NUMBER configuration",
-    21408: "Twilio account does not have permission to send SMS to this region",
+    21212: "Invalid sender number — check the SMS sender configuration",
+    21408: "SMS sending is not permitted to this region",
     21610: "Recipient has opted out (blacklisted) — do not retry",
     21614: "'To' number is not a valid mobile number",
     21615: "'To' number is not SMS-capable",
@@ -152,11 +152,11 @@ class SMSService:
 
         client = await self._get_client()
         if not client:
-            return {"ok": False, "error": "Twilio not configured (check TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN)"}
+            return {"ok": False, "error": "SMS is not configured yet. Add your SMS provider credentials in settings."}
 
         _from = from_number or await self._get_from_number()
         if not _from:
-            return {"ok": False, "error": "Twilio sender number not configured (check TWILIO_FROM_NUMBER)"}
+            return {"ok": False, "error": "No SMS sender number is configured. Add one in settings."}
 
         try:
             from asyncio import to_thread
@@ -176,7 +176,7 @@ class SMSService:
             no_retry = False
             # Clean, non-technical default — never surface raw SDK/exception text
             # to the operator. Classified Twilio codes get a specific message.
-            error_msg = "Couldn't send the SMS. Check the number and Twilio settings."
+            error_msg = "Couldn't send the SMS. Check the number and SMS settings."
 
             # Classify Twilio REST exceptions
             try:

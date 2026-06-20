@@ -79,12 +79,11 @@ class RAIDService:
         """Return availability status without raising.  Safe to call anywhere."""
         if not _is_linux():
             return _unavailable_response(
-                f"RAID management requires Linux; this host is {platform.system()}. "
-                "On macOS or Windows (Docker Desktop) RAID is not supported."
+                "RAID management is not supported on this system."
             )
         if not _mdadm_available():
             return _unavailable_response(
-                "mdadm is not installed.  Install with: apt install mdadm"
+                "RAID management is not available on this system."
             )
         return {"available": True}
 
@@ -217,19 +216,19 @@ class RAIDService:
                 return {"success": True, "message": f"RAID {level} created on {device}"}
             err = stderr.decode(errors="replace")[-500:]
             logger.warning(f"[raid] mdadm create failed: {err}")
-            return {"success": False, "message": err}
+            return {"success": False, "message": "Could not create the storage array. Please check the selected disks and try again."}
         except asyncio.TimeoutError:
-            return {"success": False, "message": "mdadm create timed out"}
+            logger.warning("[raid] mdadm create timed out")
+            return {"success": False, "message": "The operation timed out. Please try again."}
         except PermissionError:
+            logger.warning("[raid] mdadm create denied — missing CAP_SYS_ADMIN")
             return {
                 "success": False,
-                "message": (
-                    "Permission denied — mdadm requires CAP_SYS_ADMIN. "
-                    "Run the container with --privileged or add the capability."
-                ),
+                "message": "Insufficient privileges to manage storage arrays on this system.",
             }
         except OSError as exc:
-            return {"success": False, "message": str(exc)}
+            logger.warning(f"[raid] mdadm create OS error: {exc}")
+            return {"success": False, "message": "Could not create the storage array. Please try again."}
 
     async def stop_array(self, device: str) -> Dict:
         probe = self.probe_available()
@@ -244,11 +243,14 @@ class RAIDService:
             _, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
             if proc.returncode == 0:
                 return {"success": True, "message": f"Stopped {device}"}
-            return {"success": False, "message": stderr.decode(errors="replace")}
+            logger.warning(f"[raid] mdadm stop failed for {device}: {stderr.decode(errors='replace')[-500:]}")
+            return {"success": False, "message": "Could not stop the storage array. Please try again."}
         except asyncio.TimeoutError:
-            return {"success": False, "message": "mdadm stop timed out"}
+            logger.warning("[raid] mdadm stop timed out")
+            return {"success": False, "message": "The operation timed out. Please try again."}
         except OSError as exc:
-            return {"success": False, "message": str(exc)}
+            logger.warning(f"[raid] mdadm stop OS error: {exc}")
+            return {"success": False, "message": "Could not stop the storage array. Please try again."}
 
     async def remove_array(self, device: str) -> Dict:
         """Stop array and zero-superblock all members."""

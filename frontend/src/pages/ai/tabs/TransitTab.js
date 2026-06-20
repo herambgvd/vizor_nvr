@@ -36,6 +36,7 @@ import {
   Clock,
 } from "lucide-react";
 import { toast } from "sonner";
+import { friendlyError } from "../../../lib/utils";
 import { format } from "date-fns";
 
 import {
@@ -200,7 +201,7 @@ const RuleForm = ({ initial, cameras, onClose, qc }) => {
       toast.success(editing ? "Rule updated" : "Rule created");
       onClose();
     },
-    onError: (e) => toast.error(e?.response?.data?.detail || "Failed to save rule"),
+    onError: (e) => toast.error(friendlyError(e, "Failed to save rule")),
   });
 
   const submit = () => {
@@ -309,7 +310,7 @@ const RulesPanel = ({ rules, rulesLoading, cameras, camName, qc }) => {
       qc.invalidateQueries({ queryKey: ["frs-transit-rules"] });
       toast.success("Rule deleted");
     },
-    onError: (e) => toast.error(e?.response?.data?.detail || "Failed to delete rule"),
+    onError: (e) => toast.error(friendlyError(e, "Failed to delete rule")),
   });
 
   const onDelete = (rule) => {

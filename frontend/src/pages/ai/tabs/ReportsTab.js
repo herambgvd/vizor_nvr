@@ -38,7 +38,7 @@ const SCOPE_BY_SLUG = {
     blurb:
       "Suspect Search reports are plugin-driven. Indexed detections remain searchable even after a camera is disabled.",
     footnote:
-      "Detailed detection counts will populate here once the ONNX detector/ReID engine publishes plugin report metrics.",
+      "Detailed detection counts will populate here once the scenario begins publishing report metrics.",
   },
   ppe: {
     activeLabel: "Compliance active",
@@ -370,7 +370,7 @@ export default function ReportsTab({ scenario }) {
         />
         <StatCard
           icon={BarChart3}
-          label={scenario?.slug === "suspect-search" ? "Qdrant points" : "Detection classes"}
+          label={scenario?.slug === "suspect-search" ? "Indexed detections" : "Detection classes"}
           value={scenario?.slug === "suspect-search" ? (pluginSummary?.qdrant_points ?? 0) : scopeItems.length}
           accent="text-purple-400"
         />

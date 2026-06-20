@@ -23,6 +23,7 @@ import {
   VideoOff,
 } from "lucide-react";
 import { toast } from "sonner";
+import { friendlyError } from "../../../lib/utils";
 
 import { getAllCameras } from "../../../api/cameras";
 import { BACKEND_URL } from "../../../api/client";
@@ -317,15 +318,14 @@ const ConfigPanel = ({ camera, config, scenario, scenarioId, qc }) => {
     mutationFn: () => assignCamera(scenarioId, { camera_id: camera.id, enabled: true, config: draft }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["scenario-cameras", scenarioId] }); toast.success("Scenario enabled on camera"); },
     onError: (e) => {
-      const d = e?.response?.data?.detail || "";
-      if (e?.response?.status === 403) toast.error(d || "Camera limit reached");
-      else toast.error(d || "Failed to enable");
+      if (e?.response?.status === 403) toast.error("Camera limit reached for this scenario");
+      else toast.error(friendlyError(e, "Couldn't enable the scenario on this camera"));
     },
   });
   const saveMut = useMutation({
     mutationFn: () => updateCameraConfig(config.id, { config: draft }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["scenario-cameras", scenarioId] }); toast.success("Config saved"); },
-    onError: (e) => toast.error(e?.response?.data?.detail || "Failed to save"),
+    onError: (e) => toast.error(friendlyError(e, "Failed to save")),
   });
   const toggleMut = useMutation({
     mutationFn: (en) => updateCameraConfig(config.id, { enabled: en }),

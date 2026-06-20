@@ -37,6 +37,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
+import { friendlyError } from "../../../lib/utils";
 
 import {
   listPersons,
@@ -186,7 +187,7 @@ const PersonForm = ({ initial, groups, onClose, qc }) => {
       toast.success(editing ? "Person updated" : "Person created");
       onClose();
     },
-    onError: (e) => toast.error(e?.response?.data?.detail || "Failed to save person"),
+    onError: (e) => toast.error(friendlyError(e, "Failed to save person")),
   });
 
   const submit = () => {
@@ -274,12 +275,12 @@ const PhotoCard = ({ photo, qc, personId }) => {
   const delMut = useMutation({
     mutationFn: () => deletePhoto(photo.id),
     onSuccess: () => { invalidate(); toast.success("Photo deleted"); },
-    onError: (e) => toast.error(e?.response?.data?.detail || "Failed to delete photo"),
+    onError: (e) => toast.error(friendlyError(e, "Failed to delete photo")),
   });
   const retryMut = useMutation({
     mutationFn: () => retryPhoto(photo.id),
     onSuccess: () => { invalidate(); toast.success("Re-enrollment triggered"); },
-    onError: (e) => toast.error(e?.response?.data?.detail || "Retry failed"),
+    onError: (e) => toast.error(friendlyError(e, "Retry failed")),
   });
 
   const color = PHOTO_STATUS_COLOR[photo.status] || "var(--console-muted)";
@@ -360,7 +361,7 @@ const PersonDrawer = ({ person, groups, onClose, qc }) => {
       qc.invalidateQueries({ queryKey: ["frs-persons"] });
       toast.success("Photo uploaded — enrollment pending");
     },
-    onError: (e) => toast.error(e?.response?.data?.detail || "Upload failed"),
+    onError: (e) => toast.error(friendlyError(e, "Upload failed")),
   });
 
   const delMut = useMutation({
@@ -370,7 +371,7 @@ const PersonDrawer = ({ person, groups, onClose, qc }) => {
       toast.success("Person deleted");
       onClose();
     },
-    onError: (e) => toast.error(e?.response?.data?.detail || "Failed to delete person"),
+    onError: (e) => toast.error(friendlyError(e, "Failed to delete person")),
   });
 
   const [dragOver, setDragOver] = useState(false);

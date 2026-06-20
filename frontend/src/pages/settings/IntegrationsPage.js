@@ -440,8 +440,9 @@ const IntegrationsPage = () => {
             className="font-telemetry text-[11px] -mt-1 mb-2"
             style={{ color: "var(--console-muted)" }}
           >
-            Requires FFmpeg ≥ 4.3 (v360 filter). Without a GPU encoder, output is
-            automatically scaled to the fallback resolution.
+            Converts 360° fisheye cameras into flat panoramic views. Without a
+            GPU encoder, output is automatically scaled to the fallback
+            resolution.
           </p>
           <Field label="Max Concurrent Jobs" hint="CPU guard — default 4">
             <ConsoleInput
@@ -485,15 +486,8 @@ const IntegrationsPage = () => {
             className="font-telemetry text-[11px] -mt-1 mb-2"
             style={{ color: "var(--console-muted)" }}
           >
-            RAID management requires Linux + mdadm. On macOS/Windows containers
-            the RAID service returns{" "}
-            <code
-              className="px-1 rounded"
-              style={{ background: "var(--console-raised)", color: "var(--console-text)" }}
-            >
-              available: false
-            </code>
-            .
+            RAID management is available on supported systems only. Where it is
+            not supported, RAID monitoring is automatically disabled.
           </p>
           <Field label="Poll Interval (seconds)" hint="How often to check for degraded arrays">
             <ConsoleInput
@@ -545,8 +539,8 @@ const IntegrationsPage = () => {
             className="font-telemetry text-[11px] -mt-1 mb-2"
             style={{ color: "var(--console-muted)" }}
           >
-            These settings take effect on restart. Leader election uses Postgres
-            advisory locks — requires PostgreSQL (SQLite is single-node only).
+            These settings take effect on restart. High-availability failover
+            requires a clustered database; single-node deployments run standalone.
           </p>
           <Field label="Node ID" hint="Unique name for this NVR node (default: hostname)">
             <ConsoleInput

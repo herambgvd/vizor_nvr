@@ -341,7 +341,7 @@ const NetworkSettingsPage = () => {
             </div>
 
             <div>
-              <FieldLabel>go2rtc WebRTC ICE Candidates</FieldLabel>
+              <FieldLabel>WebRTC ICE Candidates</FieldLabel>
               <ConsoleInput
                 type="text"
                 value={go2rtcCandidates}
@@ -352,7 +352,7 @@ const NetworkSettingsPage = () => {
                 placeholder="e.g. stun:stun.l.google.com:19302"
               />
               <FieldHint>
-                Comma-separated ICE server URLs passed to go2rtc WebRTC config.
+                Comma-separated STUN/TURN server URLs for live WebRTC streaming.
               </FieldHint>
             </div>
           </div>

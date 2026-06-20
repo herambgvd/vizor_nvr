@@ -2,6 +2,7 @@
 # Snapshots Router — per-camera scheduled snapshot config + gallery
 # =============================================================================
 
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -13,6 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user, get_admin_user
 from app.database import get_db
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/cameras", tags=["Snapshots"])
 
@@ -193,7 +196,8 @@ async def annotate_snapshot(
     try:
         result = apply_operations(image_bytes, ops)
     except RuntimeError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Snapshot annotation failed: {e}")
+        raise HTTPException(status_code=500, detail="Could not generate the annotated snapshot.")
 
     return Response(content=result, media_type="image/jpeg")
 
@@ -215,7 +219,8 @@ async def annotate_and_save_snapshot(
     try:
         result = apply_operations(image_bytes, ops)
     except RuntimeError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Snapshot annotation failed: {e}")
+        raise HTTPException(status_code=500, detail="Could not save the annotated snapshot.")
 
     # Persist alongside regular snapshots
     from app.services.snapshot_service import _snapshot_base_path

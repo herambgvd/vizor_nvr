@@ -20,6 +20,7 @@ import {
   Users,
 } from "lucide-react";
 import { toast } from "sonner";
+import { friendlyError } from "../../../lib/utils";
 
 import { listGroups, createGroup, updateGroup, deleteGroup } from "../../../api/ai";
 import { useConfirm } from "../../../components/ui/confirm";
@@ -88,7 +89,7 @@ const GroupForm = ({ initial, onClose, qc }) => {
       toast.success(editing ? "Group updated" : "Group created");
       onClose();
     },
-    onError: (e) => toast.error(e?.response?.data?.detail || "Failed to save group"),
+    onError: (e) => toast.error(friendlyError(e, "Failed to save group")),
   });
 
   const submit = () => {
@@ -200,7 +201,7 @@ const GroupCard = ({ group, onEdit, qc }) => {
       qc.invalidateQueries({ queryKey: ["frs-groups"] });
       toast.success("Group deleted");
     },
-    onError: (e) => toast.error(e?.response?.data?.detail || "Failed to delete group"),
+    onError: (e) => toast.error(friendlyError(e, "Failed to delete group")),
   });
 
   const onDelete = () => {

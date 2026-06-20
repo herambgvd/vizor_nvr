@@ -113,7 +113,8 @@ async def reboot_camera(
             camera.onvif_host, camera.onvif_port, onvif_user, onvif_pass,
         )
     except RuntimeError as e:
-        raise HTTPException(500, str(e))
+        logger.error(f"Camera reboot failed for {camera_id}: {e}")
+        raise HTTPException(500, "The camera didn't accept the reboot command. Please check the camera and try again.")
     await write_audit(
         db, action="camera_reboot", user_id=user["id"], username=user["username"],
         ip_address=client_ip(request), resource_type="camera", resource_id=camera_id,
@@ -146,7 +147,8 @@ async def factory_default_camera(
             hard=hard,
         )
     except RuntimeError as e:
-        raise HTTPException(500, str(e))
+        logger.error(f"Camera factory reset failed for {camera_id}: {e}")
+        raise HTTPException(500, "The camera didn't accept the reset command. Please check the camera and try again.")
     await write_audit(
         db, action="camera_factory_default",
         user_id=user["id"], username=user["username"],

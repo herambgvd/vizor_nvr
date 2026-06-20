@@ -13,6 +13,7 @@ import React, { useRef, useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
 import { Button } from "../ui/button";
 import { BACKEND_URL } from "../../api/client";
+import { friendlyError } from "../../lib/utils";
 import { annotateSnapshot, annotateAndSaveSnapshot } from "../../api/cameras";
 
 const TOOLS = ["blur", "rect", "arrow", "text", "eraser"];
@@ -245,7 +246,7 @@ export default function SnapshotAnnotator({ cameraId, sourceUrl, onClose, onSave
       previewUrlRef.current = url;
       setPreviewDataUrl(url);
     } catch (e) {
-      toast.error(`Preview failed: ${e?.response?.data?.detail || e.message}`);
+      toast.error(friendlyError(e, "Couldn't generate the preview"));
     } finally {
       setPreviewing(false);
     }
@@ -262,7 +263,7 @@ export default function SnapshotAnnotator({ cameraId, sourceUrl, onClose, onSave
       if (onSaved) onSaved(result.url);
       // Do NOT close — show the "Add to Evidence Export" offer
     } catch (e) {
-      toast.error(`Save failed: ${e?.response?.data?.detail || e.message}`);
+      toast.error(friendlyError(e, "Couldn't save the annotated snapshot"));
     } finally {
       setSaving(false);
     }
@@ -280,7 +281,7 @@ export default function SnapshotAnnotator({ cameraId, sourceUrl, onClose, onSave
       toast.success(`Evidence bundle created: ${res.data.filename}`);
       setShowEvidenceDialog(false);
     } catch (e) {
-      toast.error(`Evidence export failed: ${e?.response?.data?.detail || e.message}`);
+      toast.error(friendlyError(e, "Couldn't create the evidence bundle"));
     } finally {
       setExportingEvidence(false);
     }

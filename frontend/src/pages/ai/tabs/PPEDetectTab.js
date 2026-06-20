@@ -18,6 +18,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { HardHat, Upload, Film, Loader2, X, ShieldCheck, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
+import { friendlyError } from "../../../lib/utils";
 
 import {
   detectPPE,
@@ -194,7 +195,7 @@ const ImageSection = () => {
   const mut = useMutation({
     mutationFn: () => detectPPE(file),
     onSuccess: (data) => setResult(data),
-    onError: (e) => toast.error(e?.response?.data?.detail || "Detection failed"),
+    onError: (e) => toast.error(friendlyError(e, "Detection failed")),
   });
 
   const onPick = (e) => {
@@ -363,7 +364,7 @@ const VideoSection = () => {
       setJobId(id);
       toast.success("Video job submitted");
     },
-    onError: (e) => toast.error(e?.response?.data?.detail || "Submit failed"),
+    onError: (e) => toast.error(friendlyError(e, "Submit failed")),
   });
 
   const { data: status } = useQuery({

@@ -303,17 +303,19 @@ class CloudStorageService:
             except ClientError as e:
                 error_code = e.response.get("Error", {}).get("Code", "Unknown")
                 error_msg = e.response.get("Error", {}).get("Message", str(e))
+                logger.warning(f"[cloud] connection test failed: {error_code}: {error_msg}")
                 return {
                     "success": False,
-                    "error": f"{error_code}: {error_msg}",
+                    "error": "Could not connect. Check the bucket, region, endpoint and credentials.",
                 }
             except EndpointConnectionError:
                 return {
                     "success": False,
-                    "error": "Cannot connect to endpoint. Check URL and network.",
+                    "error": "Could not connect. Check the endpoint URL and network.",
                 }
             except Exception as e:
-                return {"success": False, "error": str(e)}
+                logger.warning(f"[cloud] connection test error: {e}")
+                return {"success": False, "error": "Could not connect to cloud storage. Please try again."}
 
         return await asyncio.to_thread(_test)
 
