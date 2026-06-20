@@ -296,7 +296,7 @@ const ScenarioSettingsTab = ({ scenario }) => {
   const events = (scenario.event_types || []).map(titleCase);
 
   return (
-    <div className="p-6 w-full space-y-5">
+    <div className="p-6 w-full space-y-5 h-full overflow-y-auto">
       <div
         className="rounded p-5 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between"
         style={{ background: "var(--console-panel)", border: "1px solid var(--console-border)" }}

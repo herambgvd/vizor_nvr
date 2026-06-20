@@ -1,44 +1,170 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // Public, UNAUTHENTICATED FRS analytics dashboard. Aggregate numbers only — no
-// faces, no snapshots. Realtime via the backend's SSE relay. If the operator
+// faces, no snapshots. Realtime via the backend SSE relay. Charts are inline SVG
+// (no chart dependency) so this standalone page stays light. If the operator
 // hasn't enabled the public dashboard, the API returns 404 and we show an
 // "unavailable" state (no internals leaked).
 
 const DASHBOARD_URL = "/api/ai/frs/public/dashboard";
 const STREAM_URL = "/api/ai/frs/public/stream";
 
-const Stat = ({ label, value, accent }) => (
-  <div
-    style={{
-      background: "#0f1f1a",
-      border: "1px solid #1f3a30",
-      borderRadius: 10,
-      padding: "20px 22px",
-      minWidth: 0,
-    }}
-  >
-    <div style={{ fontSize: 11, letterSpacing: 2, textTransform: "uppercase", color: "#6f8c80" }}>{label}</div>
-    <div style={{ marginTop: 8, fontSize: 34, fontWeight: 700, color: accent || "#e6f2ec" }}>{value}</div>
+const C = {
+  bg: "#0a1410",
+  panel: "#0f1f1a",
+  panel2: "#102b21",
+  border: "#1f3a30",
+  text: "#e6f2ec",
+  muted: "#7d978b",
+  faint: "#48655a",
+  green: "#22c55e",
+  greenDim: "#15803d",
+  amber: "#eab308",
+  grid: "#16302600",
+};
+
+// ── Animated number ──────────────────────────────────────────────────────────
+function useCountUp(target, ms = 700) {
+  const [v, setV] = useState(0);
+  const from = useRef(0);
+  useEffect(() => {
+    const start = performance.now();
+    const a = from.current;
+    const b = Number(target) || 0;
+    let raf;
+    const tick = (now) => {
+      const p = Math.min(1, (now - start) / ms);
+      const eased = 1 - Math.pow(1 - p, 3);
+      setV(Math.round(a + (b - a) * eased));
+      if (p < 1) raf = requestAnimationFrame(tick);
+      else from.current = b;
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, ms]);
+  return v;
+}
+
+const StatCard = ({ label, value, accent, sub }) => {
+  const n = useCountUp(value);
+  return (
+    <div style={{ background: C.panel, border: `1px solid ${C.border}`, borderRadius: 14, padding: "22px 24px", position: "relative", overflow: "hidden" }}>
+      <div style={{ position: "absolute", inset: 0, background: `radial-gradient(120% 120% at 100% 0%, ${accent}14, transparent 60%)` }} />
+      <div style={{ position: "relative" }}>
+        <div style={{ fontSize: 11, letterSpacing: 2, textTransform: "uppercase", color: C.muted }}>{label}</div>
+        <div style={{ marginTop: 10, fontSize: 40, fontWeight: 800, lineHeight: 1, color: accent || C.text }}>{n}</div>
+        {sub && <div style={{ marginTop: 6, fontSize: 12, color: C.faint }}>{sub}</div>}
+      </div>
+    </div>
+  );
+};
+
+// ── Donut (recognized vs unknown) ────────────────────────────────────────────
+const Donut = ({ recognized, unknown }) => {
+  const total = recognized + unknown;
+  const r = 62, sw = 18, cx = 80, cy = 80, circ = 2 * Math.PI * r;
+  const recFrac = total ? recognized / total : 0;
+  const recLen = circ * recFrac;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 22 }}>
+      <svg width="160" height="160" viewBox="0 0 160 160">
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke={C.panel2} strokeWidth={sw} />
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke={C.amber} strokeWidth={sw}
+          strokeDasharray={`${circ} ${circ}`} transform={`rotate(-90 ${cx} ${cy})`} />
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke={C.green} strokeWidth={sw} strokeLinecap="round"
+          strokeDasharray={`${recLen} ${circ}`} transform={`rotate(-90 ${cx} ${cy})`}
+          style={{ transition: "stroke-dasharray .8s cubic-bezier(.4,0,.2,1)" }} />
+        <text x={cx} y={cy - 4} textAnchor="middle" fill={C.text} fontSize="30" fontWeight="800">{total}</text>
+        <text x={cx} y={cy + 16} textAnchor="middle" fill={C.muted} fontSize="10" letterSpacing="1.5">TODAY</text>
+      </svg>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <Legend color={C.green} label="Recognized" value={recognized} pct={total ? Math.round(recFrac * 100) : 0} />
+        <Legend color={C.amber} label="Unknown" value={unknown} pct={total ? Math.round((1 - recFrac) * 100) : 0} />
+      </div>
+    </div>
+  );
+};
+const Legend = ({ color, label, value, pct }) => (
+  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+    <span style={{ width: 10, height: 10, borderRadius: 3, background: color }} />
+    <div>
+      <div style={{ fontSize: 13, color: C.text, fontWeight: 600 }}>{value} <span style={{ color: C.faint, fontWeight: 400 }}>· {pct}%</span></div>
+      <div style={{ fontSize: 11, color: C.muted }}>{label}</div>
+    </div>
   </div>
 );
 
-const Bar = ({ label, value, max }) => (
-  <div style={{ marginBottom: 10 }}>
-    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#9fb6ab", marginBottom: 4 }}>
-      <span>{label}</span>
-      <span>{value}</span>
+// ── Area/line trend (24h) ────────────────────────────────────────────────────
+const AreaChart = ({ data }) => {
+  const w = 560, h = 180, pad = 28;
+  if (!data.length) return <Empty label="No activity in the last 24 hours yet." h={h} />;
+  const max = Math.max(1, ...data.map((d) => d.count));
+  const stepX = data.length > 1 ? (w - pad * 2) / (data.length - 1) : 0;
+  const x = (i) => pad + i * stepX;
+  const y = (v) => h - pad - (v / max) * (h - pad * 2);
+  const line = data.map((d, i) => `${i === 0 ? "M" : "L"}${x(i)},${y(d.count)}`).join(" ");
+  const area = `${line} L${x(data.length - 1)},${h - pad} L${x(0)},${h - pad} Z`;
+  return (
+    <svg width="100%" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ display: "block" }}>
+      <defs>
+        <linearGradient id="frsArea" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={C.green} stopOpacity="0.35" />
+          <stop offset="100%" stopColor={C.green} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      {[0.25, 0.5, 0.75, 1].map((g) => (
+        <line key={g} x1={pad} x2={w - pad} y1={y(max * g)} y2={y(max * g)} stroke={C.border} strokeWidth="1" strokeDasharray="3 4" />
+      ))}
+      <path d={area} fill="url(#frsArea)" />
+      <path d={line} fill="none" stroke={C.green} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+      {data.map((d, i) => <circle key={i} cx={x(i)} cy={y(d.count)} r="3" fill={C.green} />)}
+      {data.map((d, i) => (
+        (i === 0 || i === data.length - 1 || i === Math.floor(data.length / 2)) &&
+        <text key={`t${i}`} x={x(i)} y={h - 8} textAnchor="middle" fill={C.muted} fontSize="10">{d.hour}</text>
+      ))}
+    </svg>
+  );
+};
+
+// ── Horizontal bars (per camera) ─────────────────────────────────────────────
+const HBars = ({ data }) => {
+  if (!data.length) return <Empty label="No camera activity yet." h={120} />;
+  const max = Math.max(1, ...data.map((d) => d.count));
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {data.map((d) => (
+        <div key={d.camera_id}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.muted, marginBottom: 5 }}>
+            <span style={{ color: C.text }}>{d.camera_id}</span><span>{d.count}</span>
+          </div>
+          <div style={{ height: 10, background: C.panel2, borderRadius: 5, overflow: "hidden" }}>
+            <div style={{ width: `${(d.count / max) * 100}%`, height: "100%", background: `linear-gradient(90deg, ${C.greenDim}, ${C.green})`, borderRadius: 5, transition: "width .8s cubic-bezier(.4,0,.2,1)" }} />
+          </div>
+        </div>
+      ))}
     </div>
-    <div style={{ height: 8, background: "#102019", borderRadius: 4, overflow: "hidden" }}>
-      <div style={{ width: `${max ? (value / max) * 100 : 0}%`, height: "100%", background: "#228B22" }} />
+  );
+};
+
+const Empty = ({ label, h }) => (
+  <div style={{ height: h, display: "flex", alignItems: "center", justifyContent: "center", color: C.faint, fontSize: 13 }}>{label}</div>
+);
+
+const Panel = ({ title, children, right }) => (
+  <div style={{ background: C.panel, border: `1px solid ${C.border}`, borderRadius: 14, padding: 20 }}>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+      <h3 style={{ margin: 0, fontSize: 12, textTransform: "uppercase", letterSpacing: 1.5, color: C.muted }}>{title}</h3>
+      {right}
     </div>
+    {children}
   </div>
 );
 
 export default function PublicFrsDashboard() {
   const [data, setData] = useState(null);
-  const [status, setStatus] = useState("loading"); // loading | ok | unavailable | error
+  const [status, setStatus] = useState("loading");
   const [live, setLive] = useState([]);
+  const [flash, setFlash] = useState(false);
   const esRef = useRef(null);
 
   const load = async () => {
@@ -48,119 +174,114 @@ export default function PublicFrsDashboard() {
       if (!r.ok) { setStatus("error"); return; }
       setData(await r.json());
       setStatus("ok");
-    } catch {
-      setStatus("error");
-    }
+    } catch { setStatus("error"); }
   };
 
   useEffect(() => {
     load();
-    const poll = setInterval(load, 30000); // periodic refresh of aggregates
-    // Realtime feed.
+    const poll = setInterval(load, 30000);
     try {
       const es = new EventSource(STREAM_URL);
       es.onmessage = (e) => {
         try {
           const ev = JSON.parse(e.data);
-          setLive((prev) => [ev, ...prev].slice(0, 15));
-          // A new event arrived — refresh aggregates soon.
-        } catch {
-          /* ignore heartbeats / non-JSON */
-        }
+          setLive((prev) => [ev, ...prev].slice(0, 12));
+          setFlash(true);
+          setTimeout(() => setFlash(false), 600);
+          load(); // refresh aggregates on each new event
+        } catch { /* heartbeat */ }
       };
-      es.onerror = () => { /* browser auto-reconnects */ };
       esRef.current = es;
-    } catch {
-      /* SSE unsupported — polling still updates */
-    }
-    return () => {
-      clearInterval(poll);
-      esRef.current?.close();
-    };
+    } catch { /* SSE unsupported */ }
+    return () => { clearInterval(poll); esRef.current?.close(); };
   }, []);
 
-  const wrap = (children) => (
-    <div style={{ minHeight: "100vh", background: "#0a1410", color: "#e6f2ec", fontFamily: "system-ui, sans-serif" }}>
-      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "28px 22px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 24 }}>
-          <div style={{ width: 10, height: 10, borderRadius: 999, background: "#228B22" }} />
-          <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>Face Recognition — Live Overview</h1>
+  const shell = (children) => (
+    <div style={{ minHeight: "100vh", background: C.bg, color: C.text, fontFamily: "system-ui, sans-serif" }}>
+      <div style={{ maxWidth: 1160, margin: "0 auto", padding: "32px 24px 48px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 28 }}>
+          <span style={{ width: 11, height: 11, borderRadius: 999, background: C.green, boxShadow: `0 0 0 ${flash ? 8 : 4}px ${C.green}22`, transition: "box-shadow .4s" }} />
+          <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0, letterSpacing: -0.3 }}>Face Recognition — Live Overview</h1>
+          <span style={{ marginLeft: "auto", fontSize: 11, color: C.faint }}>
+            {data?.generated_at ? `Updated ${new Date(data.generated_at).toLocaleTimeString()}` : ""}
+          </span>
         </div>
         {children}
       </div>
     </div>
   );
 
-  if (status === "loading") return wrap(<p style={{ color: "#6f8c80" }}>Loading…</p>);
-  if (status === "unavailable")
-    return wrap(<p style={{ color: "#9fb6ab" }}>This dashboard is not available.</p>);
-  if (status === "error")
-    return wrap(<p style={{ color: "#d98a8a" }}>Couldn’t load the dashboard. Please try again later.</p>);
+  if (status === "loading") return shell(<p style={{ color: C.muted }}>Loading…</p>);
+  if (status === "unavailable") return shell(<Centered title="Dashboard not available" sub="This public view is currently turned off." />);
+  if (status === "error") return shell(<Centered title="Couldn’t load the dashboard" sub="Please try again in a moment." />);
 
   const t = data?.totals || {};
-  const maxCam = Math.max(1, ...(data?.by_camera || []).map((c) => c.count));
-  const maxHour = Math.max(1, ...(data?.hourly_trend || []).map((h) => h.count));
 
-  return wrap(
+  return shell(
     <>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12, marginBottom: 22 }}>
-        <Stat label="Recognized today" value={t.recognized_today ?? 0} accent="#3fd07a" />
-        <Stat label="Unknown today" value={t.unknown_today ?? 0} accent="#e6b800" />
-        <Stat label="Events today" value={t.events_today ?? 0} />
-        <Stat label="Enrolled people" value={t.enrolled_persons ?? 0} />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 14, marginBottom: 18 }}>
+        <StatCard label="Recognized today" value={t.recognized_today ?? 0} accent={C.green} />
+        <StatCard label="Unknown today" value={t.unknown_today ?? 0} accent={C.amber} />
+        <StatCard label="Events today" value={t.events_today ?? 0} accent="#38bdf8" />
+        <StatCard label="Enrolled people" value={t.enrolled_persons ?? 0} accent="#a78bfa" />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 22 }}>
-        <div style={{ background: "#0f1f1a", border: "1px solid #1f3a30", borderRadius: 10, padding: 18 }}>
-          <h3 style={{ margin: "0 0 14px", fontSize: 13, textTransform: "uppercase", letterSpacing: 1, color: "#9fb6ab" }}>By camera (today)</h3>
-          {(data?.by_camera || []).length
-            ? data.by_camera.map((c) => <Bar key={c.camera_id} label={c.camera_id} value={c.count} max={maxCam} />)
-            : <p style={{ color: "#6f8c80", fontSize: 13 }}>No activity yet.</p>}
-        </div>
-        <div style={{ background: "#0f1f1a", border: "1px solid #1f3a30", borderRadius: 10, padding: 18 }}>
-          <h3 style={{ margin: "0 0 14px", fontSize: 13, textTransform: "uppercase", letterSpacing: 1, color: "#9fb6ab" }}>Last 24 hours</h3>
-          {(data?.hourly_trend || []).length
-            ? data.hourly_trend.map((h) => <Bar key={h.hour} label={h.hour} value={h.count} max={maxHour} />)
-            : <p style={{ color: "#6f8c80", fontSize: 13 }}>No activity yet.</p>}
-        </div>
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.6fr) minmax(0,1fr)", gap: 16, marginBottom: 16 }}>
+        <Panel title="Activity — last 24 hours"><AreaChart data={data?.hourly_trend || []} /></Panel>
+        <Panel title="Recognition split"><Donut recognized={t.recognized_today ?? 0} unknown={t.unknown_today ?? 0} /></Panel>
       </div>
 
-      {data?.show_names && (data?.top_persons || []).length > 0 && (
-        <div style={{ background: "#0f1f1a", border: "1px solid #1f3a30", borderRadius: 10, padding: 18, marginBottom: 22 }}>
-          <h3 style={{ margin: "0 0 14px", fontSize: 13, textTransform: "uppercase", letterSpacing: 1, color: "#9fb6ab" }}>Most seen today</h3>
-          {data.top_persons.map((p, i) => (
-            <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 14, padding: "6px 0", borderBottom: "1px solid #14271f" }}>
-              <span>{p.name}</span><span style={{ color: "#3fd07a" }}>{p.count}</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div style={{ background: "#0f1f1a", border: "1px solid #1f3a30", borderRadius: 10, padding: 18 }}>
-        <h3 style={{ margin: "0 0 14px", fontSize: 13, textTransform: "uppercase", letterSpacing: 1, color: "#9fb6ab" }}>
-          Live feed <span style={{ color: "#3fd07a" }}>●</span>
-        </h3>
-        {live.length === 0 ? (
-          <p style={{ color: "#6f8c80", fontSize: 13 }}>Waiting for new events…</p>
-        ) : (
-          live.map((ev, i) => (
-            <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "6px 0", borderBottom: "1px solid #14271f" }}>
-              <span>
-                {ev.event_type === "face_recognized" ? "✔ " : ev.event_type === "face_unknown" ? "? " : "• "}
-                {data?.show_names && ev.person_name ? ev.person_name : ev.event_type?.replace(/_/g, " ")}
-                <span style={{ color: "#6f8c80" }}> · {ev.camera_id || "—"}</span>
-              </span>
-              <span style={{ color: "#6f8c80" }}>
-                {ev.triggered_at ? new Date(ev.triggered_at).toLocaleTimeString() : ""}
-              </span>
-            </div>
-          ))
+      <div style={{ display: "grid", gridTemplateColumns: data?.show_names && (data?.top_persons || []).length ? "minmax(0,1fr) minmax(0,1fr)" : "1fr", gap: 16, marginBottom: 16 }}>
+        <Panel title="By camera (today)"><HBars data={data?.by_camera || []} /></Panel>
+        {data?.show_names && (data?.top_persons || []).length > 0 && (
+          <Panel title="Most seen today">
+            {data.top_persons.map((p, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 0", borderBottom: i < data.top_persons.length - 1 ? `1px solid ${C.border}` : "none" }}>
+                <span style={{ width: 24, height: 24, borderRadius: 999, background: C.panel2, color: C.green, fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{i + 1}</span>
+                <span style={{ flex: 1, fontSize: 14 }}>{p.name}</span>
+                <span style={{ color: C.green, fontWeight: 700 }}>{p.count}</span>
+              </div>
+            ))}
+          </Panel>
         )}
       </div>
 
-      <p style={{ marginTop: 18, fontSize: 11, color: "#48655a", textAlign: "center" }}>
-        Aggregate view · refreshed live · {data?.generated_at ? new Date(data.generated_at).toLocaleString() : ""}
+      <Panel title="Live feed" right={<span style={{ fontSize: 11, color: C.green }}>● realtime</span>}>
+        {live.length === 0 ? (
+          <Empty label="Waiting for new events…" h={80} />
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            {live.map((ev, i) => {
+              const rec = ev.event_type === "face_recognized";
+              return (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: i < live.length - 1 ? `1px solid ${C.border}` : "none", animation: i === 0 ? "frsIn .4s ease" : "none" }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 999, background: rec ? C.green : C.amber }} />
+                  <span style={{ flex: 1, fontSize: 13 }}>
+                    {data?.show_names && ev.person_name ? ev.person_name : (ev.event_type || "").replace(/_/g, " ")}
+                    <span style={{ color: C.faint }}> · {ev.camera_id || "—"}</span>
+                  </span>
+                  {ev.confidence != null && <span style={{ fontSize: 12, color: C.muted }}>{Math.round(ev.confidence * 100)}%</span>}
+                  <span style={{ fontSize: 12, color: C.faint, minWidth: 64, textAlign: "right" }}>
+                    {ev.triggered_at ? new Date(ev.triggered_at).toLocaleTimeString() : ""}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Panel>
+
+      <p style={{ marginTop: 22, fontSize: 11, color: C.faint, textAlign: "center" }}>
+        Aggregate view · live · no personal images are shown
       </p>
+      <style>{`@keyframes frsIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}`}</style>
     </>
   );
 }
+
+const Centered = ({ title, sub }) => (
+  <div style={{ minHeight: "50vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8 }}>
+    <p style={{ fontSize: 18, fontWeight: 700, color: "#e6f2ec", margin: 0 }}>{title}</p>
+    <p style={{ fontSize: 13, color: "#7d978b", margin: 0 }}>{sub}</p>
+  </div>
+);
