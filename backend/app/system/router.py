@@ -145,9 +145,24 @@ async def get_time(user: dict = Depends(get_admin_user)):
                         ntp_synced = v.strip().lower() == "yes"
         except Exception as e:
             logger.debug(f"timedatectl probe failed: {e}")
+    # Localize the current time into the operator-chosen display timezone so the
+    # UI can show wall-clock time, not just UTC.
+    now_utc = datetime.now(_tz.utc)
+    now_local = now_utc.isoformat()
+    tz_abbrev = "UTC"
+    if tz_name and tz_name != "UTC":
+        try:
+            from zoneinfo import ZoneInfo
+            local = now_utc.astimezone(ZoneInfo(tz_name))
+            now_local = local.isoformat()
+            tz_abbrev = local.tzname() or tz_name
+        except Exception as e:
+            logger.debug(f"timezone localize failed for {tz_name!r}: {e}")
     return {
-        "now_utc": datetime.now(_tz.utc).isoformat(),
-        "timezone": tz_name,
+        "now_utc": now_utc.isoformat(),
+        "now_local": now_local,
+        "timezone": tz_name or "UTC",
+        "tz_abbrev": tz_abbrev,
         "ntp_server": ntp_server,
         "ntp_synced": ntp_synced,
     }

@@ -241,13 +241,19 @@ const TimeSettingsPage = () => {
                 className="font-telemetry text-[10px] uppercase tracking-widest mb-0.5"
                 style={{ color: "var(--console-muted)" }}
               >
-                NVR Current Time (UTC)
+                NVR Current Time {data?.tz_abbrev ? `(${data.tz_abbrev})` : "(UTC)"}
               </p>
               <p
                 className="font-telemetry text-sm tabular-nums"
                 style={{ color: "var(--console-accent)" }}
               >
-                {data?.now_utc ? new Date(data.now_utc).toUTCString() : "—"}
+                {data?.now_local || data?.now_utc
+                  ? new Date(data.now_local || data.now_utc).toLocaleString("en-GB", {
+                      timeZone: data?.timezone && data.timezone !== "UTC" ? data.timezone : "UTC",
+                      weekday: "short", day: "2-digit", month: "short", year: "numeric",
+                      hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+                    })
+                  : "—"}
               </p>
               <p
                 className="font-telemetry text-[11px] mt-0.5"
