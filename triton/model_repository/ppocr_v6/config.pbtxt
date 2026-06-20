@@ -1,0 +1,14 @@
+# PP-OCRv6 text recognition (CTC). Dynamic batch + dynamic width; fixed H=48.
+# Input x: [N,3,48,W]; output: [N,T,18710] logits over the dict_v6 charset.
+# The plugin does CTC greedy decode client-side.
+name: "ppocr_v6"
+platform: "onnxruntime_onnx"
+max_batch_size: 16
+input [
+  { name: "x" data_type: TYPE_FP32 dims: [ 3, 48, -1 ] }
+]
+output [
+  { name: "fetch_name_0" data_type: TYPE_FP32 dims: [ -1, 18710 ] }
+]
+dynamic_batching { preferred_batch_size: [ 4, 8 ] max_queue_delay_microseconds: 3000 }
+instance_group [ { count: 1 kind: KIND_GPU } ]

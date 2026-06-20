@@ -1,0 +1,13 @@
+# PPE detector (YOLO26n, exported from best.pt). 11 classes — the plugin uses
+# Person, helmet, vest, no_helmet. NMS baked into the export -> [1,300,6]
+# (x1,y1,x2,y2,score,class). Fixed 640x640 input.
+name: "ppe_yolo26"
+platform: "onnxruntime_onnx"
+max_batch_size: 0
+input [
+  { name: "images" data_type: TYPE_FP32 dims: [ 1, 3, 640, 640 ] }
+]
+output [
+  { name: "output0" data_type: TYPE_FP32 dims: [ 1, 300, 6 ] }
+]
+instance_group [ { count: 2 kind: KIND_GPU } ]
