@@ -1,0 +1,6 @@
+# Scenario app deps. The Vizor SDK (vizor-scenario-sdk) is installed from
+# ../_sdk by the Dockerfile, and pulls fastapi/uvicorn/httpx/numpy via its
+# [app] extra. Add scenario-specific deps (model pre/post libs) below.
+opencv-python-headless==4.10.0.84
+tritonclient[http]==2.49.0
+# qdrant-client==1.7.0   # uncomment for vector (embed->match) scenarios
