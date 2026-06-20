@@ -95,7 +95,8 @@ def public_dashboard() -> dict:
                 top.append({"name": p.full_name if p else "—", "count": int(n)})
 
     return {
-        "generated_at": now.isoformat(),
+        # Stamp +00:00 so the browser parses it as UTC, not local time.
+        "generated_at": now.isoformat() + "Z",
         "show_names": show_names,
         "totals": {
             "recognized_all_time": recognized,

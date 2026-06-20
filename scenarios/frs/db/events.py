@@ -24,6 +24,16 @@ _subscribers: set[queue.Queue] = set()
 _sub_lock = threading.Lock()
 
 
+def _iso_utc(dt) -> str | None:
+    """ISO-8601 string that always carries a UTC marker. FRS stores naive-UTC, so
+    a tz-naive datetime gets a 'Z' appended; an already tz-aware one is emitted
+    with its own offset (no double-stamp)."""
+    if dt is None or not hasattr(dt, "isoformat"):
+        return None
+    s = dt.isoformat()
+    return s if (dt.tzinfo is not None) else s + "Z"
+
+
 def subscribe() -> queue.Queue:
     q: queue.Queue = queue.Queue(maxsize=100)
     with _sub_lock:
@@ -95,6 +105,6 @@ def record_event(
         "camera_id": camera_id,
         "person_name": person_name,
         "confidence": confidence,
-        "triggered_at": (ts or utcnow()).isoformat() if hasattr((ts or utcnow()), "isoformat") else None,
+        "triggered_at": _iso_utc(ts or utcnow()),
     })
     return new_id
