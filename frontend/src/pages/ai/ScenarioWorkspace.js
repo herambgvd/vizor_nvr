@@ -11,6 +11,7 @@ import React, { lazy, Suspense, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
+  ArrowLeft,
   ScanFace,
   HardHat,
   Cpu,
@@ -149,6 +150,15 @@ const ScenarioWorkspace = () => {
         style={{ borderBottom: "1px solid var(--console-border)" }}
       >
         <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => navigate("/ai")}
+            title="Back to AI features"
+            className="h-9 w-9 rounded flex items-center justify-center shrink-0 transition-colors"
+            style={{ background: "var(--console-raised)", border: "1px solid var(--console-border)", color: "var(--console-muted)" }}
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </button>
           <div
             className="h-10 w-10 rounded flex items-center justify-center"
             style={{ background: "var(--console-raised)" }}
