@@ -99,7 +99,7 @@ const Legend = ({ color, label, value, pct }) => (
 
 const AreaChart = ({ data }) => {
   const w = 720, h = 220, pad = 30;
-  if (!data.length) return <Empty label="No activity in the last 24 hours yet." h={h} />;
+  if (!data.length) return <Empty label="No activity in the last 24 hours yet." h="100%" />;
   const max = Math.max(1, ...data.map((d) => d.count));
   const stepX = data.length > 1 ? (w - pad * 2) / (data.length - 1) : 0;
   const x = (i) => pad + i * stepX;
@@ -107,7 +107,7 @@ const AreaChart = ({ data }) => {
   const line = data.map((d, i) => `${i === 0 ? "M" : "L"}${x(i)},${y(d.count)}`).join(" ");
   const area = `${line} L${x(data.length - 1)},${h - pad} L${x(0)},${h - pad} Z`;
   return (
-    <svg width="100%" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ display: "block" }}>
+    <svg width="100%" height="100%" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ display: "block" }}>
       <defs>
         <linearGradient id="frsArea" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={C.green} stopOpacity="0.22" />
@@ -151,13 +151,15 @@ const Empty = ({ label, h }) => (
   <div style={{ height: h, display: "flex", alignItems: "center", justifyContent: "center", color: C.faint, fontSize: 13 }}>{label}</div>
 );
 
-const Panel = ({ title, children, right }) => (
-  <div style={{ ...card, padding: 22 }}>
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
-      <h3 style={{ margin: 0, fontSize: 12, textTransform: "uppercase", letterSpacing: 1, color: C.muted, fontWeight: 600 }}>{title}</h3>
+const Panel = ({ title, children, right, fill, scroll }) => (
+  <div style={{ ...card, padding: 18, display: "flex", flexDirection: "column", minHeight: 0, height: fill ? "100%" : undefined }}>
+    <div style={{ flex: "0 0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+      <h3 style={{ margin: 0, fontSize: 11, textTransform: "uppercase", letterSpacing: 1, color: C.muted, fontWeight: 600 }}>{title}</h3>
       {right}
     </div>
-    {children}
+    <div style={{ flex: fill ? "1 1 0" : "0 0 auto", minHeight: 0, overflowY: scroll ? "auto" : "visible", display: "flex", flexDirection: "column", justifyContent: scroll ? "flex-start" : "center" }}>
+      {children}
+    </div>
   </div>
 );
 
@@ -198,17 +200,17 @@ export default function PublicFrsDashboard() {
   }, []);
 
   const shell = (children) => (
-    <div style={{ minHeight: "100vh", width: "100%", background: C.bg, color: C.text, fontFamily: "Inter, system-ui, sans-serif" }}>
+    <div style={{ height: "100vh", width: "100%", background: C.bg, color: C.text, fontFamily: "Inter, system-ui, sans-serif", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       {/* full-bleed header bar */}
-      <div style={{ borderBottom: `1px solid ${C.border}`, padding: "18px 32px", display: "flex", alignItems: "center", gap: 12 }}>
+      <div style={{ flex: "0 0 auto", borderBottom: `1px solid ${C.border}`, padding: "14px 28px", display: "flex", alignItems: "center", gap: 12 }}>
         <span style={{ width: 10, height: 10, borderRadius: 999, background: C.green, boxShadow: `0 0 0 ${flash ? 7 : 3}px ${C.green}1f`, transition: "box-shadow .4s" }} />
-        <h1 style={{ fontSize: 18, fontWeight: 600, margin: 0, letterSpacing: -0.2 }}>Face Recognition</h1>
+        <h1 style={{ fontSize: 17, fontWeight: 600, margin: 0, letterSpacing: -0.2 }}>Face Recognition</h1>
         <span style={{ fontSize: 13, color: C.faint }}>Live Overview</span>
         <span style={{ marginLeft: "auto", fontSize: 12, color: C.faint }}>
           {data?.generated_at ? `Updated ${new Date(data.generated_at).toLocaleTimeString()}` : ""}
         </span>
       </div>
-      <div style={{ padding: "28px 32px 56px" }}>{children}</div>
+      <div style={{ flex: "1 1 auto", minHeight: 0, padding: "16px 28px", display: "flex", flexDirection: "column", gap: 14 }}>{children}</div>
     </div>
   );
 
@@ -217,37 +219,39 @@ export default function PublicFrsDashboard() {
   if (status === "error") return shell(<Centered title="Couldn’t load the dashboard" sub="Please try again in a moment." />);
 
   const t = data?.totals || {};
+  const hasNames = data?.show_names && (data?.top_persons || []).length > 0;
 
   return shell(
     <>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 16, marginBottom: 16 }}>
+      {/* Row 1 — stat cards (fixed) */}
+      <div style={{ flex: "0 0 auto", display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14 }}>
         <StatCard label="Recognized today" value={t.recognized_today ?? 0} accent={C.green} />
         <StatCard label="Unknown today" value={t.unknown_today ?? 0} accent={C.amber} />
         <StatCard label="Events today" value={t.events_today ?? 0} accent={C.blue} />
         <StatCard label="Enrolled people" value={t.enrolled_persons ?? 0} accent={C.violet} />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(0,2fr) minmax(0,1fr)", gap: 16, marginBottom: 16 }}>
-        <Panel title="Activity — last 24 hours"><AreaChart data={data?.hourly_trend || []} /></Panel>
-        <Panel title="Recognition split"><Donut recognized={t.recognized_today ?? 0} unknown={t.unknown_today ?? 0} /></Panel>
+      {/* Row 2 — trend + split (fills, equal share) */}
+      <div style={{ flex: "1 1 0", minHeight: 0, display: "grid", gridTemplateColumns: "minmax(0,2fr) minmax(0,1fr)", gap: 14 }}>
+        <Panel title="Activity — last 24 hours" fill><div style={{ flex: 1, minHeight: 0 }}><AreaChart data={data?.hourly_trend || []} /></div></Panel>
+        <Panel title="Recognition split" fill><Donut recognized={t.recognized_today ?? 0} unknown={t.unknown_today ?? 0} /></Panel>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: data?.show_names && (data?.top_persons || []).length ? "minmax(0,1fr) minmax(0,1fr)" : "1fr", gap: 16, marginBottom: 16 }}>
-        <Panel title="By camera (today)"><HBars data={data?.by_camera || []} /></Panel>
-        {data?.show_names && (data?.top_persons || []).length > 0 && (
-          <Panel title="Most seen today">
+      {/* Row 3 — by camera / top persons + live feed (fills, equal share) */}
+      <div style={{ flex: "1 1 0", minHeight: 0, display: "grid", gridTemplateColumns: hasNames ? "1fr 1fr 1.2fr" : "1fr 1.4fr", gap: 14 }}>
+        <Panel title="By camera (today)" fill scroll><HBars data={data?.by_camera || []} /></Panel>
+        {hasNames && (
+          <Panel title="Most seen today" fill scroll>
             {data.top_persons.map((p, i) => (
-              <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: i < data.top_persons.length - 1 ? `1px solid ${C.border}` : "none" }}>
-                <span style={{ width: 24, height: 24, borderRadius: 6, background: C.panel2, color: C.green, fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{i + 1}</span>
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 0", borderBottom: i < data.top_persons.length - 1 ? `1px solid ${C.border}` : "none" }}>
+                <span style={{ width: 22, height: 22, borderRadius: 6, background: C.panel2, color: C.green, fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{i + 1}</span>
                 <span style={{ flex: 1, fontSize: 14 }}>{p.name}</span>
                 <span style={{ color: C.text, fontWeight: 600 }}>{p.count}</span>
               </div>
             ))}
           </Panel>
         )}
-      </div>
-
-      <Panel title="Live feed" right={<span style={{ fontSize: 11, color: C.green, display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 6, height: 6, borderRadius: 999, background: C.green }} />realtime</span>}>
+        <Panel title="Live feed" fill scroll right={<span style={{ fontSize: 11, color: C.green, display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 6, height: 6, borderRadius: 999, background: C.green }} />realtime</span>}>
         {live.length === 0 ? (
           <Empty label="Waiting for new events…" h={72} />
         ) : (
@@ -270,11 +274,9 @@ export default function PublicFrsDashboard() {
             })}
           </div>
         )}
-      </Panel>
+        </Panel>
+      </div>
 
-      <p style={{ marginTop: 24, fontSize: 12, color: C.faint, textAlign: "center" }}>
-        Aggregate view · live · no personal images are shown
-      </p>
       <style>{`@keyframes frsIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}`}</style>
     </>
   );
