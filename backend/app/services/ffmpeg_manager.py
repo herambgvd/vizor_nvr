@@ -528,28 +528,60 @@ class FFmpegManager:
             except ValueError:
                 start_time = datetime.now(timezone.utc)
 
+            from datetime import timedelta as _timedelta
+
+            # Configured segment length for this process — the correct fallback
+            # when ffprobe can't read the duration (NOT a magic 180). Falls back
+            # to the manager default if the process is already gone.
+            ff_proc_for_dur = self._processes.get(camera_id)
+            configured_seg = (
+                ff_proc_for_dur.segment_duration if ff_proc_for_dur
+                else self._segment_duration
+            )
+            # Upper sanity bound: allow a generous margin over the configured
+            # segment length (configurable-by-derivation, not a hardcoded magic),
+            # with an absolute ceiling so a bad mtime can't produce an absurd value.
+            max_plausible = max(7200, configured_seg * 2)
+
             # Probe duration with ffprobe
             duration = await self._probe_duration(segment_path)
-            
+
             # Calculate end_time
-            if duration:
-                end_time = start_time + __import__("datetime").timedelta(seconds=duration)
+            if duration and 0 < duration < max_plausible:
+                end_time = start_time + _timedelta(seconds=duration)
             else:
-                # Fallback: estimate duration from file modification time if ffprobe fails
-                logger.warning(f"[{camera_id}] Could not probe duration for {basename}, using file mtime")
+                if duration:
+                    logger.warning(
+                        f"[{camera_id}] ffprobe duration {duration}s for {basename} "
+                        f"outside plausible bound (0,{max_plausible}) — re-deriving"
+                    )
+                else:
+                    logger.warning(
+                        f"[{camera_id}] Could not probe duration for {basename}, "
+                        f"deriving from wall-clock / segment length"
+                    )
+                duration = None
+                # 1) Derive from the segment's actual wall-clock window: filename
+                #    start time → file mtime (when FFmpeg finished writing it).
                 try:
-                    mtime = datetime.fromtimestamp(os.path.getmtime(segment_path))
-                    estimated_duration = int((mtime - start_time).total_seconds())
-                    if 0 < estimated_duration < 7200:  # Sanity check: 0-120 minutes
-                        duration = estimated_duration
+                    mtime_ts = os.path.getmtime(segment_path)
+                    mtime = datetime.fromtimestamp(mtime_ts, tz=timezone.utc)
+                    wall_duration = int((mtime - start_time).total_seconds())
+                    if 0 < wall_duration < max_plausible:
+                        duration = wall_duration
                         end_time = mtime
-                    else:
-                        # Last resort: use default segment duration (180 seconds)
-                        duration = 180
-                        end_time = start_time + __import__("datetime").timedelta(seconds=180)
                 except Exception:
-                    duration = 180
-                    end_time = start_time + __import__("datetime").timedelta(seconds=180)
+                    pass
+
+                # 2) Otherwise use the CONFIGURED segment length (not a magic 180).
+                if duration is None:
+                    duration = configured_seg
+                    end_time = start_time + _timedelta(seconds=configured_seg)
+                    logger.warning(
+                        f"[{camera_id}] Using configured segment length "
+                        f"{configured_seg}s as duration for {basename} "
+                        f"(wall-clock derivation unavailable)"
+                    )
 
             from app.database import async_session_maker
             from app.recordings.service import RecordingService
@@ -564,60 +596,87 @@ class FFmpegManager:
                 logger.warning(f"[{camera_id}] checksum compute failed: {_hash_err}")
                 checksum = None
 
-            async with async_session_maker() as session:
-                # Resolve storage pool
-                from app.cameras.service import CameraService
-                camera = await CameraService.get_by_id(session, camera_id)
-                pool_id = camera.storage_pool_id if camera else None
+            # Retry the DB registration so a transient commit failure (e.g.
+            # brief DB hiccup) does NOT orphan an on-disk .mp4 that is never
+            # indexed and thus invisible to playback/retention (leaking disk).
+            db_attempts = 3
+            last_db_error: Optional[Exception] = None
+            for db_attempt in range(db_attempts):
+                try:
+                    async with async_session_maker() as session:
+                        # Resolve storage pool
+                        from app.cameras.service import CameraService
+                        camera = await CameraService.get_by_id(session, camera_id)
+                        pool_id = camera.storage_pool_id if camera else None
 
-                # ── Mirror copy (Phase 4.4) ───────────────────────────────
-                # When camera.redundancy_enabled is set, copy the finalized
-                # segment to a secondary pool. Failures here are logged but
-                # don't fail the primary write — that's the whole point.
-                redundant_path = None
-                if camera and getattr(camera, "redundancy_enabled", False):
-                    try:
-                        from app.storage.service import StorageService
-                        mirror_pool = await StorageService.select_mirror_pool(session, pool_id)
-                        if mirror_pool:
-                            import shutil as _sh
-                            mirror_dir = os.path.join(mirror_pool.path, camera_id)
-                            os.makedirs(mirror_dir, exist_ok=True)
-                            mirror_path = os.path.join(mirror_dir, basename)
-                            await asyncio.to_thread(_sh.copy2, segment_path, mirror_path)
-                            redundant_path = mirror_path
-                            logger.debug(
-                                f"[{camera_id}] Mirrored segment to pool "
-                                f"{mirror_pool.id} ({mirror_pool.name})"
-                            )
-                    except Exception as mirror_err:
-                        logger.warning(f"[{camera_id}] mirror copy failed: {mirror_err}")
+                        # ── Mirror copy (Phase 4.4) ───────────────────────────────
+                        # When camera.redundancy_enabled is set, copy the finalized
+                        # segment to a secondary pool. Failures here are logged but
+                        # don't fail the primary write — that's the whole point.
+                        redundant_path = None
+                        if camera and getattr(camera, "redundancy_enabled", False):
+                            try:
+                                from app.storage.service import StorageService
+                                mirror_pool = await StorageService.select_mirror_pool(session, pool_id)
+                                if mirror_pool:
+                                    import shutil as _sh
+                                    mirror_dir = os.path.join(mirror_pool.path, camera_id)
+                                    os.makedirs(mirror_dir, exist_ok=True)
+                                    mirror_path = os.path.join(mirror_dir, basename)
+                                    await asyncio.to_thread(_sh.copy2, segment_path, mirror_path)
+                                    redundant_path = mirror_path
+                                    logger.debug(
+                                        f"[{camera_id}] Mirrored segment to pool "
+                                        f"{mirror_pool.id} ({mirror_pool.name})"
+                                    )
+                            except Exception as mirror_err:
+                                logger.warning(f"[{camera_id}] mirror copy failed: {mirror_err}")
 
-                # Determine actual stream type from process state
-                ff_proc = self._processes.get(camera_id)
-                stream_type = "sub" if (ff_proc and ff_proc.failover_active) else "main"
+                        # Determine actual stream type from process state
+                        ff_proc = self._processes.get(camera_id)
+                        stream_type = "sub" if (ff_proc and ff_proc.failover_active) else "main"
 
-                await RecordingService.register_segment(
-                    session,
-                    camera_id=camera_id,
-                    file_path=segment_path,
-                    start_time=start_time,
-                    end_time=end_time,
-                    duration=duration,
-                    file_size=file_size,
-                    stream_type=stream_type,
-                    storage_pool_id=pool_id,
-                    checksum=checksum,
+                        await RecordingService.register_segment(
+                            session,
+                            camera_id=camera_id,
+                            file_path=segment_path,
+                            start_time=start_time,
+                            end_time=end_time,
+                            duration=duration,
+                            file_size=file_size,
+                            stream_type=stream_type,
+                            storage_pool_id=pool_id,
+                            checksum=checksum,
+                        )
+                        if redundant_path:
+                            from sqlalchemy import text as _text
+                            # register_segment uses raw SQL — patch the just-inserted row.
+                            await session.execute(_text("""
+                                UPDATE recordings SET redundant_path = :rp
+                                WHERE camera_id = :cid AND file_path = :fp
+                            """), {"rp": redundant_path, "cid": camera_id, "fp": segment_path})
+                            await session.commit()
+                        logger.debug(f"[{camera_id}] Segment registered: {basename} ({file_size / 1_048_576:.1f} MB)")
+                    last_db_error = None
+                    break
+                except Exception as db_err:
+                    last_db_error = db_err
+                    logger.warning(
+                        f"[{camera_id}] Segment DB registration failed "
+                        f"(attempt {db_attempt + 1}/{db_attempts}) for {basename}: {db_err}"
+                    )
+                    if db_attempt < db_attempts - 1:
+                        await asyncio.sleep(2 ** db_attempt)
+
+            if last_db_error is not None:
+                # Loud, file-path-tagged error so an operator / DB rescan can
+                # recover the orphaned segment rather than it silently leaking.
+                logger.error(
+                    f"[{camera_id}] ORPHANED SEGMENT — failed to register "
+                    f"{segment_path} in DB after {db_attempts} attempts: "
+                    f"{last_db_error}. File exists on disk but is NOT indexed "
+                    f"(invisible to playback/retention) — needs rescan."
                 )
-                if redundant_path:
-                    from sqlalchemy import text as _text
-                    # register_segment uses raw SQL — patch the just-inserted row.
-                    await session.execute(_text("""
-                        UPDATE recordings SET redundant_path = :rp
-                        WHERE camera_id = :cid AND file_path = :fp
-                    """), {"rp": redundant_path, "cid": camera_id, "fp": segment_path})
-                    await session.commit()
-                logger.debug(f"[{camera_id}] Segment registered: {basename} ({file_size / 1_048_576:.1f} MB)")
 
         except Exception as e:
             logger.error(f"[{camera_id}] Failed to register segment: {e}")

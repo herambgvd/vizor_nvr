@@ -34,6 +34,7 @@ import {
   Eye,
   Trash2,
   PlayCircle,
+  RefreshCw,
 } from "lucide-react";
 import {
   getEvents,
@@ -189,7 +190,7 @@ const Events = () => {
   }, [page, eventType, severity, cameraId, acknowledged, startDate, endDate]);
 
   // ── Queries ───────────────────────────────────────────────────────────────
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["events", params],
     queryFn: () => getEvents(params),
     placeholderData: keepPreviousData,
@@ -672,6 +673,23 @@ const Events = () => {
             {isLoading ? (
               <div className="flex items-center justify-center py-16 text-xs" style={{ color: "var(--console-muted)" }}>
                 Loading events…
+              </div>
+            ) : isError && rawEvents.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 gap-3 px-4 text-center">
+                <AlertTriangle className="h-7 w-7" style={{ color: "var(--console-rec)" }} />
+                <span className="text-xs" style={{ color: "var(--console-rec)" }}>
+                  Failed to load events
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs hover:bg-[var(--console-hover)]"
+                  style={{ borderColor: "var(--console-border)", color: "var(--console-text)" }}
+                  onClick={() => refetch()}
+                >
+                  <RefreshCw className="h-3.5 w-3.5 mr-1" />
+                  Retry
+                </Button>
               </div>
             ) : events.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 gap-2" style={{ color: "var(--console-muted)" }}>

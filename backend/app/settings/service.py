@@ -10,11 +10,60 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.settings.models import Settings, DEFAULT_SETTINGS
+from app.core.crypto import encrypt_value, decrypt_value, is_encrypted
 
 logger = logging.getLogger(__name__)
 
 
+# Keys whose stored value must be encrypted at rest (Fernet, machine-bound).
+# Derived from DEFAULT_SETTINGS entries flagged "sensitive". Secrets like the
+# SMTP password and Twilio auth token are encrypted on write and transparently
+# decrypted on read so callers stay unchanged.
+SENSITIVE_KEYS = frozenset(
+    k for k, meta in DEFAULT_SETTINGS.items() if meta.get("sensitive")
+)
+
+
+# Mask the API returns for sensitive values. An incoming write equal to this
+# sentinel means "unchanged" — the UI rendered the mask and the operator did not
+# retype the secret, so the stored ciphertext must be preserved as-is.
+SENSITIVE_MASK = "********"
+
+
+def _is_sensitive_key(key: str) -> bool:
+    return key in SENSITIVE_KEYS
+
+
+def _encrypt_if_sensitive(key: str, value: Optional[str]) -> Optional[str]:
+    """Encrypt the value when the key is sensitive. Idempotent and safe on
+    empty/None values (passed through by encrypt_value)."""
+    if value and _is_sensitive_key(key):
+        return encrypt_value(value)
+    return value
+
+
+def _decrypt_if_sensitive(key: str, value: Optional[str]) -> Optional[str]:
+    """Decrypt a sensitive value for return to callers. Legacy plaintext rows
+    (no 'enc:' prefix) are returned as-is; a corrupt/undecryptable ciphertext
+    is logged and returned as-is rather than raising, so reads never 500."""
+    if not value or not _is_sensitive_key(key):
+        return value
+    if not is_encrypted(value):
+        return value  # legacy plaintext — returned until next write re-encrypts
+    try:
+        return decrypt_value(value)
+    except Exception as e:
+        logger.error(f"Failed to decrypt sensitive setting '{key}': {e}")
+        return value
+
+
 class SettingsService:
+
+    # Expose decrypt helper so routers can return cleartext-equivalent values
+    # without reimplementing the sensitive-key logic.
+    @staticmethod
+    def decrypt_for_display(key: str, value: Optional[str]) -> Optional[str]:
+        return _decrypt_if_sensitive(key, value)
 
     @staticmethod
     async def seed_defaults(db: AsyncSession):
@@ -24,7 +73,7 @@ class SettingsService:
             if existing.scalar_one_or_none() is None:
                 db.add(Settings(
                     key=key,
-                    value=meta["value"],
+                    value=_encrypt_if_sensitive(key, meta["value"]),
                     value_type=meta["type"],
                     category=meta["category"],
                     description=meta["desc"],
@@ -51,7 +100,7 @@ class SettingsService:
     async def get_value(db: AsyncSession, key: str, default: str = "") -> str:
         setting = await SettingsService.get(db, key)
         if setting:
-            return setting.value or default
+            return _decrypt_if_sensitive(key, setting.value) or default
         return default
 
     @staticmethod
@@ -75,8 +124,13 @@ class SettingsService:
             category = category or meta["category"]
             is_sensitive = is_sensitive or meta.get("sensitive", False)
         setting = await SettingsService.get(db, key)
+        # Unchanged-secret guard: a sensitive write equal to the mask means the
+        # operator left the masked field untouched — keep the existing value.
+        if _is_sensitive_key(key) and value == SENSITIVE_MASK and setting:
+            return setting
+        stored_value = _encrypt_if_sensitive(key, value)
         if setting:
-            setting.value = value
+            setting.value = stored_value
             if category is not None:
                 setting.category = category
             if is_sensitive:
@@ -84,7 +138,7 @@ class SettingsService:
         else:
             setting = Settings(
                 key=key,
-                value=value,
+                value=stored_value,
                 value_type=meta["type"] if meta else "string",
                 category=category or "general",
                 description=meta["desc"] if meta else None,
@@ -100,8 +154,12 @@ class SettingsService:
         for key, value in values.items():
             meta = DEFAULT_SETTINGS.get(key)
             setting = await SettingsService.get(db, key)
+            # Unchanged-secret guard (see set_value): skip masked sensitive writes.
+            if _is_sensitive_key(key) and value == SENSITIVE_MASK and setting:
+                continue
+            stored_value = _encrypt_if_sensitive(key, value)
             if setting:
-                setting.value = value
+                setting.value = stored_value
                 if meta:
                     setting.value_type = meta["type"]
                     setting.category = meta["category"]
@@ -110,7 +168,7 @@ class SettingsService:
             else:
                 db.add(Settings(
                     key=key,
-                    value=value,
+                    value=stored_value,
                     value_type=meta["type"] if meta else "string",
                     category=meta["category"] if meta else "general",
                     description=meta["desc"] if meta else None,

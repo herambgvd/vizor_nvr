@@ -11,7 +11,6 @@ export { Go2RTCPlayer } from "./Go2RTCPlayer";
 export { WebRTCPlayer } from "./WebRTCPlayer";
 export { PTZControls } from "./PTZControls";
 export { ONVIFDiscovery } from "./ONVIFDiscovery";
-export { MultiCameraPlayback } from "./MultiCameraPlayback";
 export { RecordingCalendar } from "./RecordingCalendar";
 export { ClipBuilder } from "./ClipBuilder";
 export { MotionZoneEditor } from "./MotionZoneEditor";

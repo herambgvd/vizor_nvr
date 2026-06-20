@@ -183,16 +183,28 @@ async def onvif_bulk_add(
     Returns {"created": [<camera_response>, ...], "failed": [{"name":..., "error":...}, ...]}.
     """
     from app.cameras.models import CameraCreate
+    from app.license.service import get_license_service
 
     cameras_data = body.get("cameras") or []
     if not isinstance(cameras_data, list):
         raise HTTPException(400, "'cameras' must be a list")
+
+    # Bulk onboarding must respect the licence channel cap (single-create does).
+    lic = get_license_service()
+    if not lic.is_active():
+        raise HTTPException(403, "License required: install a valid license to onboard cameras.")
+    cap = lic.camera_limit()
+    onboarded = await svc.count(db)
 
     created = []
     failed = []
 
     for entry in cameras_data:
         entry_name = entry.get("name", "<unnamed>")
+        if cap and onboarded >= cap:
+            failed.append({"name": entry_name,
+                           "error": f"License channel limit reached: {onboarded}/{cap} cameras."})
+            continue
         try:
             cam_create = CameraCreate(
                 name=entry_name,
@@ -215,6 +227,7 @@ async def onvif_bulk_add(
                 raise ValueError("main_stream_url is required")
 
             camera = await svc.create(db, cam_create)
+            onboarded += 1   # count toward the licence cap for the rest of the batch
             # Also persist onvif_profile_token (not in Camera constructor yet via CameraCreate)
             if cam_create.onvif_profile_token and not camera.onvif_profile_token:
                 camera.onvif_profile_token = cam_create.onvif_profile_token

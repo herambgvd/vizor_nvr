@@ -23,9 +23,20 @@ class RetentionService:
     4. Storage tier rules (move between pools)
     """
 
+    # Max wall-clock seconds to spend scanning a single pool's on-disk size.
+    # A stale NFS mount can make os.walk() hang indefinitely; this bounds it.
+    _POOL_WALK_TIMEOUT = 30
+    # Fire an operator alert once unlink failures reach this many in a single
+    # retention cycle (deletes failing = disk fills silently otherwise).
+    _UNLINK_ALERT_THRESHOLD = 5
+
     def __init__(self):
         self._running = False
         self._task = None
+        # Count of unlink failures in the CURRENT retention cycle (reset each run).
+        self._unlink_failures = 0
+        # Whether we've already alerted for this cycle (avoid alert spam).
+        self._unlink_alert_fired = False
 
     async def start(self):
         if self._running:
@@ -43,6 +54,46 @@ class RetentionService:
             except asyncio.CancelledError:
                 pass
         logger.info("Retention service stopped")
+
+    async def _record_unlink_failure(self, file_path: str, error: Exception):
+        """Track an unlink failure and, once persistent failures cross the
+        threshold in this cycle, fire the existing alert mechanisms so an
+        operator knows deletes are failing (disk fills silently otherwise).
+
+        Reuses linkage_engine.fire_event + notification_service.notify — the
+        same alert path used by ffmpeg_manager / camera_monitor.
+        """
+        self._unlink_failures += 1
+        logger.warning(f"Failed to delete {file_path}: {error}")
+        if (
+            self._unlink_failures >= self._UNLINK_ALERT_THRESHOLD
+            and not self._unlink_alert_fired
+        ):
+            self._unlink_alert_fired = True
+            reason = (
+                f"Retention delete failures: {self._unlink_failures} recording file(s) "
+                f"could not be unlinked this cycle (permission / read-only remount?). "
+                f"Disk may fill — manual intervention needed."
+            )
+            logger.error(reason)
+            try:
+                from app.events.linkage_service import linkage_engine
+                from app.notifications.service import notification_service
+                from app.notifications.models import NotificationEvent
+                await linkage_engine.fire_event(
+                    camera_id=None,
+                    event_type="storage_error",
+                    severity="critical",
+                    title="Retention delete failures",
+                    description=reason,
+                    metadata={"unlink_failures": self._unlink_failures},
+                )
+                await notification_service.notify(
+                    NotificationEvent.SYSTEM_ERROR,
+                    {"message": reason},
+                )
+            except Exception as e:
+                logger.debug(f"Retention unlink-failure alert dispatch error: {e}")
 
     async def _loop(self):
         await asyncio.sleep(30)  # initial delay
@@ -69,6 +120,10 @@ class RetentionService:
         from app.recordings.models import Recording
         from app.settings.service import SettingsService
         from app.storage.service import StorageService
+
+        # Reset per-cycle unlink failure tracking (alert fires once per cycle).
+        self._unlink_failures = 0
+        self._unlink_alert_fired = False
 
         async with async_session_maker() as db:
             config = await SettingsService.get_retention_config(db)
@@ -127,7 +182,7 @@ class RetentionService:
                             try:
                                 os.unlink(rec.file_path)
                             except Exception as e:
-                                logger.warning(f"Failed to delete {rec.file_path}: {e}")
+                                await self._record_unlink_failure(rec.file_path, e)
                         await db.delete(rec)
                         deleted += 1
 
@@ -166,8 +221,8 @@ class RetentionService:
                             try:
                                 os.unlink(rec.file_path)
                                 freed += size
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                await self._record_unlink_failure(rec.file_path, e)
                         await db.delete(rec)
                         deleted += 1
 
@@ -175,7 +230,21 @@ class RetentionService:
             pools = await StorageService.get_all_pools(db)
             for pool in pools:
                 if pool.max_size_bytes and pool.max_size_bytes > 0:
-                    used = StorageService.get_pool_used_bytes(pool.path)
+                    # Guard the os.walk size computation with a timeout: a hung /
+                    # stale NFS mount must not block the entire retention loop
+                    # forever. On timeout, log + skip THIS pool this cycle.
+                    try:
+                        used = await asyncio.wait_for(
+                            asyncio.to_thread(StorageService.get_pool_used_bytes, pool.path),
+                            timeout=self._POOL_WALK_TIMEOUT,
+                        )
+                    except asyncio.TimeoutError:
+                        logger.error(
+                            f"Retention: pool '{pool.name}' size scan timed out after "
+                            f"{self._POOL_WALK_TIMEOUT}s (stale/hung mount at {pool.path}?) "
+                            f"— skipping this pool this cycle"
+                        )
+                        continue
                     if used > pool.max_size_bytes:
                         excess = used - pool.max_size_bytes
                         recs = await db.execute(
@@ -204,8 +273,8 @@ class RetentionService:
                                 try:
                                     os.unlink(rec.file_path)
                                     freed += size
-                                except Exception:
-                                    pass
+                                except Exception as e:
+                                    await self._record_unlink_failure(rec.file_path, e)
                             await db.delete(rec)
                             deleted += 1
 
@@ -257,8 +326,8 @@ class RetentionService:
                         try:
                             os.unlink(rec.file_path)
                             freed += size
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            await self._record_unlink_failure(rec.file_path, e)
                     await db.delete(rec)
                     deleted += 1
                 if freed:

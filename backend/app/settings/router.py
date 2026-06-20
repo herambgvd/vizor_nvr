@@ -57,11 +57,16 @@ async def list_settings(
     result = []
     for s in items:
         val = s.value
-        if s.key in ("license_key",) and val:
+        if s.is_sensitive and val:
+            # Encrypted-at-rest secrets (SMTP password, Twilio token, ...) must
+            # never leave the API as ciphertext or cleartext — show a fixed mask.
+            val = "********"
+        elif s.key in ("license_key",) and val:
             val = val[:4] + "****" + val[-4:] if len(val) > 8 else "****"
         result.append(SettingResponse(
             key=s.key, value=val, value_type=s.value_type,
-            category=s.category, description=s.description, updated_at=s.updated_at,
+            category=s.category, description=s.description,
+            is_sensitive=s.is_sensitive, updated_at=s.updated_at,
         ))
     return result
 
@@ -75,7 +80,14 @@ async def get_setting(
     setting = await svc.get(db, key)
     if not setting:
         raise HTTPException(404)
-    return setting
+    val = setting.value
+    if setting.is_sensitive and val:
+        val = "********"  # never expose the encrypted-at-rest secret
+    return SettingResponse(
+        key=setting.key, value=val, value_type=setting.value_type,
+        category=setting.category, description=setting.description,
+        is_sensitive=setting.is_sensitive, updated_at=setting.updated_at,
+    )
 
 
 @router.put("/{key}", response_model=SettingResponse)
@@ -87,14 +99,23 @@ async def update_setting(
     db: AsyncSession = Depends(get_db),
 ):
     setting = await svc.set_value(db, key, body.value)
+    # Do not record sensitive secret values into the audit log.
+    audit_value = "********" if setting.is_sensitive else body.value
     await write_audit(
         db, action="setting_update", user_id=user["id"], username=user["username"],
         ip_address=client_ip(request), resource_type="setting",
         description=f"Setting '{key}' updated",
-        details={"key": key, "value": body.value},
+        details={"key": key, "value": audit_value},
     )
     await db.commit()
-    return setting
+    val = setting.value
+    if setting.is_sensitive and val:
+        val = "********"  # never echo the encrypted-at-rest secret back
+    return SettingResponse(
+        key=setting.key, value=val, value_type=setting.value_type,
+        category=setting.category, description=setting.description,
+        is_sensitive=setting.is_sensitive, updated_at=setting.updated_at,
+    )
 
 
 @router.put("", status_code=204)

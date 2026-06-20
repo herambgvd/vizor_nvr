@@ -72,6 +72,7 @@ import {
 } from "../components/ui/select";
 import { toast } from "sonner";
 import { usePermissions } from "../hooks";
+import { useConfirm } from "../components/ui/confirm";
 import { cn } from "../lib/utils";
 
 // ── helpers ────────────────────────────────────────────────────────────────────
@@ -109,6 +110,7 @@ const Storage = () => {
   const { isAdmin, canManageStorage } = usePermissions();
   const canManage = isAdmin || canManageStorage;
   const qc = useQueryClient();
+  const confirm = useConfirm();
   const [activeTab, setActiveTab] = useState("overview");
 
   const { data: pools = [] } = useQuery({
@@ -252,8 +254,13 @@ const Storage = () => {
     </div>
   );
 
-  function handleDeletePool(id) {
-    if (!window.confirm("Delete this storage pool?")) return;
+  async function handleDeletePool(id) {
+    if (!(await confirm({
+      title: "Delete storage pool?",
+      description: "Recordings on this pool will no longer be tracked. This cannot be undone.",
+      confirmText: "Delete",
+      danger: true,
+    }))) return;
     deleteStoragePool(id)
       .then(() => {
         qc.invalidateQueries({ queryKey: ["storage-pools"] });
@@ -263,8 +270,12 @@ const Storage = () => {
       .catch((e) => toast.error(e.response?.data?.detail || "Failed to delete pool"));
   }
 
-  function handleDeleteRule(id) {
-    if (!window.confirm("Delete this tier rule?")) return;
+  async function handleDeleteRule(id) {
+    if (!(await confirm({
+      title: "Delete tier rule?",
+      confirmText: "Delete",
+      danger: true,
+    }))) return;
     deleteStorageRule(id)
       .then(() => {
         qc.invalidateQueries({ queryKey: ["storage-rules"] });
@@ -273,8 +284,12 @@ const Storage = () => {
       .catch((e) => toast.error(e.response?.data?.detail || "Failed to delete rule"));
   }
 
-  function handleDeleteCloud(id) {
-    if (!window.confirm("Delete this cloud config?")) return;
+  async function handleDeleteCloud(id) {
+    if (!(await confirm({
+      title: "Delete cloud config?",
+      confirmText: "Delete",
+      danger: true,
+    }))) return;
     deleteCloudConfig(id)
       .then(() => {
         qc.invalidateQueries({ queryKey: ["cloud-configs"] });
@@ -283,8 +298,12 @@ const Storage = () => {
       .catch((e) => toast.error(e.response?.data?.detail || "Failed to delete"));
   }
 
-  function handleDeleteBackup(id) {
-    if (!window.confirm("Delete this backup schedule?")) return;
+  async function handleDeleteBackup(id) {
+    if (!(await confirm({
+      title: "Delete backup schedule?",
+      confirmText: "Delete",
+      danger: true,
+    }))) return;
     deleteBackupSchedule(id)
       .then(() => {
         qc.invalidateQueries({ queryKey: ["backup-schedules"] });

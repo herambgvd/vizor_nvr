@@ -30,9 +30,10 @@ async def system_resources(user: dict = Depends(get_current_user)):
 
 
 @router.get("/system-info")
-async def system_info(user: dict = Depends(get_current_user)):
-    """One-time host info: CPU model, GPU model + memory, OS. Cached
-    on the client since this rarely changes."""
+async def system_info(user: dict = Depends(get_admin_user)):
+    """One-time host info: CPU model, GPU model + memory, OS. Admin-only —
+    exposes host hardware/OS detail. Cached on the client since this rarely
+    changes."""
     return monitoring_service.system_info()
 
 
@@ -258,9 +259,10 @@ async def camera_bandwidth_history(
 # ------------------------------------------------------------------
 
 @router.get("/health")
-async def system_health(user: dict = Depends(get_current_user)):
+async def system_health(user: dict = Depends(get_admin_user)):
     """
-    Aggregated health dashboard:
+    Aggregated health dashboard (admin-only — exposes storage paths, pool
+    capacities, and per-camera failover state):
     - System resources (CPU / RAM / disk)
     - FFmpeg process status per camera
     - go2rtc status

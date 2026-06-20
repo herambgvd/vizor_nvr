@@ -17,6 +17,8 @@ import {
   Edit2,
   Check,
   X,
+  AlertTriangle,
+  RefreshCw,
 } from "lucide-react";
 import { getBookmarks, updateBookmark, deleteBookmark } from "../api/bookmarks";
 import { getAllCameras } from "../api/cameras";
@@ -81,6 +83,8 @@ const Bookmarks = () => {
     data: bookmarks = [],
     isLoading,
     isFetching,
+    isError,
+    refetch,
   } = useQuery({
     queryKey: ["bookmarks", params],
     queryFn: () => getBookmarks(params),
@@ -263,6 +267,32 @@ const Bookmarks = () => {
               style={{ color: "var(--console-muted)" }}
             >
               Loading bookmarks…
+            </div>
+          ) : isError ? (
+            <div className="p-8 text-center">
+              <AlertTriangle
+                className="h-10 w-10 mx-auto mb-3"
+                style={{ color: "var(--console-rec)" }}
+              />
+              <p
+                className="font-telemetry text-xs mb-3"
+                style={{ color: "var(--console-rec)" }}
+              >
+                Failed to load bookmarks
+              </p>
+              <button
+                type="button"
+                onClick={() => refetch()}
+                className="inline-flex items-center gap-1.5 h-[28px] px-3 rounded font-telemetry text-xs border transition-colors hover:bg-white/5"
+                style={{
+                  background: "var(--console-raised)",
+                  borderColor: "var(--console-border)",
+                  color: "var(--console-text)",
+                }}
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                Retry
+              </button>
             </div>
           ) : bookmarks.length === 0 ? (
             <div className="p-8 text-center">

@@ -39,7 +39,10 @@ _ALLOWED_PREFIXES = (
 
 
 def _is_allowed(path: str) -> bool:
-    return any(path == p or path.startswith(p + "/") or path.startswith(p)
+    # Exact match or a proper path-segment prefix only. A bare startswith(p)
+    # would wrongly exempt sibling paths like /api/licensexyz or
+    # /api/healthcheck-x from licensing enforcement.
+    return any(path == p or path.startswith(p + "/")
                for p in _ALLOWED_PREFIXES)
 
 

@@ -44,6 +44,9 @@ const SettingsLayout = lazy(() =>
 );
 const SettingsConfiguration = lazy(() => import("./pages/Settings"));
 const SettingsLicense = lazy(() => import("./pages/settings/LicensePage"));
+const SettingsAIScenarios = lazy(() =>
+  import("./pages/settings/AIScenariosPage"),
+);
 const SettingsTime = lazy(() => import("./pages/settings/TimeSettingsPage"));
 const SettingsNetwork = lazy(() => import("./pages/settings/NetworkSettingsPage"));
 const SettingsIntegrations = lazy(() =>
@@ -185,6 +188,7 @@ const AppRoutes = () => (
           <Route path="resources" element={<SettingsResources />} />
           <Route path="storage" element={<SettingsStorage />} />
           <Route path="license" element={<AdminRoute><SettingsLicense /></AdminRoute>} />
+          <Route path="ai-scenarios" element={<AdminRoute><SettingsAIScenarios /></AdminRoute>} />
           <Route path="time" element={<AdminRoute><SettingsTime /></AdminRoute>} />
           <Route path="network" element={<AdminRoute><SettingsNetwork /></AdminRoute>} />
           <Route path="integrations" element={<AdminRoute><SettingsIntegrations /></AdminRoute>} />

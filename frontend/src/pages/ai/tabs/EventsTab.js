@@ -329,6 +329,9 @@ export default function EventsTab({ scenario }) {
     mutationFn: (eventId) => acknowledgeEvent(eventId),
     onSuccess: () => {
       toast.success("Event acknowledged");
+      // The table reads ["scenario-events", slug, params] — invalidate that so
+      // the acked row refetches. (Also nudge the legacy ["frs","events"] key.)
+      qc.invalidateQueries({ queryKey: ["scenario-events", scenario?.slug] });
       qc.invalidateQueries({ queryKey: ["frs", "events"] });
     },
     onError: () => toast.error("Couldn't acknowledge event"),

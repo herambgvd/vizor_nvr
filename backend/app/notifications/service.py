@@ -34,9 +34,16 @@ class NotificationService:
         )
     """
 
+    # Bound the in-memory queue so a backend stall (slow/blocked dispatch)
+    # can't grow it without limit and OOM the process. When full, the oldest
+    # queued notification is dropped (see notify()).
+    _MAX_QUEUE_SIZE = 10000
+    # Per-channel dispatch retry policy (transient failures).
+    _DISPATCH_MAX_ATTEMPTS = 3
+
     def __init__(self):
         self._client: Optional[httpx.AsyncClient] = None
-        self._queue: asyncio.Queue = asyncio.Queue()
+        self._queue: asyncio.Queue = asyncio.Queue(maxsize=self._MAX_QUEUE_SIZE)
         self._worker_task: Optional[asyncio.Task] = None
         self._running = False
 
@@ -94,7 +101,26 @@ class NotificationService:
             data: Event payload data
             camera_id: Optional camera ID for filtering
         """
-        await self._queue.put((event, data, camera_id))
+        try:
+            self._queue.put_nowait((event, data, camera_id))
+        except asyncio.QueueFull:
+            # Queue is at the bounded cap — drop the OLDEST item to make room
+            # rather than block the caller or grow unbounded. Log loudly so the
+            # backpressure is visible.
+            try:
+                dropped = self._queue.get_nowait()
+                logger.error(
+                    f"Notification queue full ({self._MAX_QUEUE_SIZE}) — "
+                    f"dropped oldest queued event {dropped[0].value if dropped else '?'}"
+                )
+            except asyncio.QueueEmpty:
+                pass
+            try:
+                self._queue.put_nowait((event, data, camera_id))
+            except asyncio.QueueFull:
+                logger.error(
+                    f"Notification queue still full after eviction — dropping {event.value}"
+                )
 
     async def notify_sync(
         self,
@@ -370,6 +396,97 @@ class NotificationService:
             return {"success": False, "error": str(e)}
 
     # ------------------------------------------------------------------
+    # Channel dispatch with NotificationLog + retry (DLQ pattern)
+    # ------------------------------------------------------------------
+
+    async def _dispatch_channel(
+        self,
+        channel: str,
+        event: NotificationEvent,
+        payload: Dict[str, Any],
+        send_coro_factory,
+    ) -> None:
+        """Run a per-channel send (email/SMS/WhatsApp/push) with a NotificationLog
+        row and bounded retry — mirrors the webhook log+retry pattern.
+
+        - Creates a NotificationLog row (webhook_id=None, status="pending").
+        - Calls ``send_coro_factory()`` (a zero-arg callable returning a coroutine)
+          up to _DISPATCH_MAX_ATTEMPTS times with exponential backoff on failure.
+        - On success → status="sent". On final failure → status="failed" with the
+          error preserved. The failed row IS the DLQ: a queryable record of every
+          notification that never went out (rather than a silently swallowed error).
+
+        ``send_coro_factory`` should raise on hard failure. send_bulk-style helpers
+        that return per-recipient dicts are inspected: if every recipient failed,
+        that is treated as a failure for retry/logging purposes.
+        """
+        log_payload = {
+            "channel": channel,
+            "event": event.value,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "data": payload,
+        }
+        log = NotificationLog(
+            webhook_id=None,
+            event_type=event.value,
+            payload=log_payload,
+            status="pending",
+        )
+
+        last_error: Optional[str] = None
+        succeeded = False
+        for attempt in range(self._DISPATCH_MAX_ATTEMPTS):
+            log.attempts = attempt + 1
+            try:
+                result = await send_coro_factory()
+                # send_bulk returns a list of {"to":..., "ok":bool,...}. Treat
+                # "all recipients failed" as a retryable error; partial success
+                # counts as sent (per-recipient errors are captured in the result).
+                if isinstance(result, list) and result:
+                    oks = [r for r in result if isinstance(r, dict) and r.get("ok")]
+                    if not oks:
+                        errs = "; ".join(
+                            str(r.get("error")) for r in result
+                            if isinstance(r, dict) and r.get("error")
+                        )
+                        # If every recipient is no_retry (e.g. invalid number,
+                        # opted out, rate-limited), don't waste retries.
+                        all_no_retry = all(
+                            isinstance(r, dict) and r.get("no_retry")
+                            for r in result
+                        )
+                        last_error = errs or "all recipients failed"
+                        if all_no_retry:
+                            break
+                        raise RuntimeError(last_error)
+                succeeded = True
+                break
+            except Exception as e:
+                last_error = str(e)
+                logger.warning(
+                    f"{channel} dispatch failed for {event.value} "
+                    f"(attempt {attempt + 1}/{self._DISPATCH_MAX_ATTEMPTS}): {e}"
+                )
+                if attempt < self._DISPATCH_MAX_ATTEMPTS - 1:
+                    await asyncio.sleep(2 ** attempt)
+
+        log.status = "sent" if succeeded else "failed"
+        if not succeeded:
+            log.error_message = last_error
+            logger.error(
+                f"{channel} dispatch FAILED after {self._DISPATCH_MAX_ATTEMPTS} "
+                f"attempts for {event.value}: {last_error}"
+            )
+
+        # Persist the log row (this is the queryable DLQ for failed sends).
+        try:
+            async with async_session_maker() as db:
+                db.add(log)
+                await db.commit()
+        except Exception as e:
+            logger.error(f"Failed to persist NotificationLog for {channel}/{event.value}: {e}")
+
+    # ------------------------------------------------------------------
     # Email dispatch
     # ------------------------------------------------------------------
 
@@ -412,12 +529,18 @@ class NotificationService:
                     "from_name":  await SettingsService.get_value(db, "smtp_from_name", "Vizor NVR"),
                 }
 
-            await smtp_service.send_event_email(
-                event_type=event.value,
-                data=data,
-                recipients=recipients,
-                smtp_config=smtp_config,
-            )
+            async def _send():
+                ok = await smtp_service.send_event_email(
+                    event_type=event.value,
+                    data=data,
+                    recipients=recipients,
+                    smtp_config=smtp_config,
+                )
+                if not ok:
+                    raise RuntimeError("SMTP send returned failure")
+                return ok
+
+            await self._dispatch_channel("email", event, {"recipients": recipients, **data}, _send)
         except Exception as e:
             logger.error(f"Email dispatch error for {event.value}: {e}")
 
@@ -454,14 +577,21 @@ class NotificationService:
                 result = await db.execute(select(User))
                 users = result.scalars().all()
 
-            for user in users:
-                await push_service.notify_event(
-                    user_id=user.id,
-                    event_type=event.value,
-                    camera_id=camera_id,
-                    camera_name=data.get("camera_name"),
-                    snapshot_url=data.get("snapshot_url"),
-                )
+            if not users:
+                return
+
+            async def _send():
+                for user in users:
+                    await push_service.notify_event(
+                        user_id=user.id,
+                        event_type=event.value,
+                        camera_id=camera_id,
+                        camera_name=data.get("camera_name"),
+                        snapshot_url=data.get("snapshot_url"),
+                    )
+                return True
+
+            await self._dispatch_channel("push", event, {"camera_id": camera_id, **data}, _send)
         except Exception as e:
             logger.error(f"Push dispatch error for {event.value}: {e}")
 
@@ -498,7 +628,10 @@ class NotificationService:
             if data.get("message"):
                 message += f" | {data['message']}"
 
-            await sms_service.send_bulk(recipients, message)
+            await self._dispatch_channel(
+                "sms", event, {"recipients": recipients, **data},
+                lambda: sms_service.send_bulk(recipients, message),
+            )
         except Exception as e:
             logger.error(f"SMS dispatch error for {event.value}: {e}")
 
@@ -535,7 +668,10 @@ class NotificationService:
             if data.get("message"):
                 message += f"\nDetails: {data['message']}"
 
-            await whatsapp_service.send_bulk(recipients, message)
+            await self._dispatch_channel(
+                "whatsapp", event, {"recipients": recipients, **data},
+                lambda: whatsapp_service.send_bulk(recipients, message),
+            )
         except Exception as e:
             logger.error(f"WhatsApp dispatch error for {event.value}: {e}")
 

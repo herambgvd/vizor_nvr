@@ -15,6 +15,7 @@ import {
   ChevronRight,
   Calendar,
   Pencil,
+  ImageOff,
 } from "lucide-react";
 import SnapshotAnnotator from "../../components/nvr/SnapshotAnnotator";
 import { toast } from "sonner";
@@ -42,6 +43,31 @@ const iso24hAgo = () => {
 };
 
 const isoNow = () => new Date().toISOString();
+
+// Gallery thumbnail that degrades to a clean placeholder instead of a broken
+// image glyph when the snapshot file 404s (deleted/rotated out).
+const SnapshotThumb = ({ src, alt }) => {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <div
+        className="w-full h-full flex items-center justify-center"
+        style={{ background: "var(--console-raised)" }}
+      >
+        <ImageOff className="h-5 w-5" style={{ color: "var(--console-muted)" }} />
+      </div>
+    );
+  }
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className="w-full h-full object-cover"
+      loading="lazy"
+      onError={() => setFailed(true)}
+    />
+  );
+};
 
 const SnapshotsPage = () => {
   const { cameraId } = useOutletContext();
@@ -85,7 +111,7 @@ const SnapshotsPage = () => {
   const [lightboxIdx, setLightboxIdx] = useState(null);
   const [annotatorUrl, setAnnotatorUrl] = useState(null);
 
-  const { data: snaps = [], isFetching: snapsFetching, refetch: refetchSnaps } = useQuery({
+  const { data: snaps = [], isFetching: snapsFetching, isError: snapsError, refetch: refetchSnaps } = useQuery({
     queryKey: ["snapshots-list", cameraId, fromDt, toDt],
     queryFn: () => listSnapshots(cameraId, { from: fromDt, to: toDt, limit: 200 }),
     enabled: true,
@@ -251,7 +277,17 @@ const SnapshotsPage = () => {
           </Button>
         </div>
 
-        {snaps.length === 0 ? (
+        {snapsError && snaps.length === 0 ? (
+          <div className="py-6 flex flex-col items-center gap-3">
+            <p className="text-sm" style={{ color: "var(--console-rec)" }}>
+              Failed to load snapshots.
+            </p>
+            <Button variant="outline" size="sm" onClick={() => refetchSnaps()}>
+              <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+              Retry
+            </Button>
+          </div>
+        ) : snaps.length === 0 ? (
           <p className="text-sm text-[#8a8f98] py-4 text-center">
             No snapshots found in selected range.
           </p>
@@ -260,12 +296,7 @@ const SnapshotsPage = () => {
             {snaps.map((snap, idx) => (
               <div key={snap.url} className="relative group rounded-md overflow-hidden border border-[#1f1f1f] hover:border-teal-500/60 transition-colors aspect-video">
                 <button className="w-full h-full" onClick={() => openLightbox(idx)}>
-                  <img
-                    src={getImgSrc(snap.url)}
-                    alt={snap.timestamp}
-                    className="w-full h-full object-cover"
-                    loading="lazy"
-                  />
+                  <SnapshotThumb src={getImgSrc(snap.url)} alt={snap.timestamp} />
                 </button>
                 <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-2 py-1 text-[10px] text-zinc-300 font-mono opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-between">
                   <span>{new Date(snap.timestamp).toLocaleTimeString()}</span>
@@ -311,6 +342,7 @@ const SnapshotsPage = () => {
               src={getImgSrc(snaps[lightboxIdx].url)}
               alt={snaps[lightboxIdx].timestamp}
               className="max-w-full max-h-[80vh] rounded-lg shadow-2xl"
+              onError={(e) => { e.currentTarget.style.display = "none"; }}
             />
             <div className="flex items-center gap-4">
               <p className="text-sm text-zinc-400 font-mono">

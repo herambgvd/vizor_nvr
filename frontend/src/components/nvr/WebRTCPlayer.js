@@ -16,10 +16,29 @@ const BASE_RECONNECT_DELAY = 2000;
 // If the peer connects but no actual video frames arrive within this window we
 // treat the tile as a failed attempt and retry instead of showing frozen black.
 const MEDIA_WATCHDOG_MS = 8000;
-const ICE_SERVERS = [
+// ICE servers are configurable so an on-prem NVR can supply a TURN relay (the
+// default Google STUN can't traverse symmetric NAT). Set REACT_APP_ICE_SERVERS
+// to a JSON array of RTCIceServer entries, e.g.
+//   [{"urls":"turn:turn.example.com:3478","username":"u","credential":"p"}]
+// Falls back to the public Google STUN servers when unset or malformed.
+const DEFAULT_ICE_SERVERS = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
 ];
+
+function resolveIceServers() {
+  const raw = process.env.REACT_APP_ICE_SERVERS;
+  if (!raw) return DEFAULT_ICE_SERVERS;
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+  } catch (e) {
+    console.warn("[WebRTC] Invalid REACT_APP_ICE_SERVERS, using STUN default:", e);
+  }
+  return DEFAULT_ICE_SERVERS;
+}
+
+const ICE_SERVERS = resolveIceServers();
 
 export const WebRTCPlayer = ({
   streamId,

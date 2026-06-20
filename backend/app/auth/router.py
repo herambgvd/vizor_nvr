@@ -23,7 +23,7 @@ from app.auth.service import AuthService, AccountLockedError
 from app.core.security import create_access_token, create_refresh_token, verify_token
 from app.core.dependencies import get_current_user, get_admin_user
 from app.core.audit_logger import write_audit, client_ip
-from app.core.rate_limiter import auth_limiter
+from app.core.rate_limiter import auth_limiter, strict_limiter
 from app.config import settings as app_settings
 
 
@@ -85,6 +85,40 @@ async def _revoke_token_hash(db: AsyncSession, token: str):
         rt.revoked_at = datetime.utcnow()
 
 
+async def _detect_refresh_reuse_and_revoke_family(db: AsyncSession, token: str) -> bool:
+    """Reuse detection: if the presented refresh token matches a row that is
+    already REVOKED, the token was rotated away (or stolen and replayed). Treat
+    it as a compromise and revoke the entire token family for that user so the
+    attacker (and the legitimate client) are forced to re-authenticate.
+
+    Returns True if reuse was detected (caller must reject), False otherwise.
+    """
+    h = _hash_token(token)
+    result = await db.execute(
+        select(RefreshToken).where(RefreshToken.token_hash == h)
+    )
+    rt = result.scalar_one_or_none()
+    if rt is None or not rt.revoked:
+        return False
+    # Revoke every still-active refresh token for this user (the whole family).
+    now = datetime.utcnow()
+    fam = await db.execute(
+        select(RefreshToken).where(
+            RefreshToken.user_id == rt.user_id,
+            RefreshToken.revoked.is_(False),
+        )
+    )
+    for sibling in fam.scalars().all():
+        sibling.revoked = True
+        sibling.revoked_at = now
+    await db.commit()
+    logger.warning(
+        f"Refresh token reuse detected for user {rt.user_id} — "
+        "revoked entire token family"
+    )
+    return True
+
+
 async def _validate_refresh_token_in_db(db: AsyncSession, token: str) -> bool:
     """Return True if the token exists in DB and is NOT revoked. Also bumps
     last_seen_at so the session list shows the most-recent activity time."""
@@ -106,6 +140,41 @@ async def _validate_refresh_token_in_db(db: AsyncSession, token: str) -> bool:
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 svc = AuthService()
+
+
+async def _count_active_admins(db: AsyncSession, exclude_user_id: Optional[str] = None) -> int:
+    """Count users who are currently active AND hold the 'admin' role.
+    Optionally exclude one user (the target of a demotion/deactivation/delete)."""
+    from sqlalchemy import func as sqlfunc
+    q = (
+        select(sqlfunc.count(User.id))
+        .join(Role, User.role_id == Role.id)
+        .where(Role.name == "admin", User.is_active.is_(True))
+    )
+    if exclude_user_id is not None:
+        q = q.where(User.id != exclude_user_id)
+    return (await db.execute(q)).scalar() or 0
+
+
+async def _is_admin_user(db: AsyncSession, user: User) -> bool:
+    """True if the loaded user currently holds the admin role."""
+    if user.role_id is None:
+        return False
+    role = (await db.execute(select(Role).where(Role.id == user.role_id))).scalar_one_or_none()
+    return bool(role and role.name == "admin")
+
+
+async def _guard_last_admin(db: AsyncSession, target: User, *, action: str):
+    """Reject an action that would remove the last active administrator.
+
+    Call BEFORE applying a demotion / role-change-away-from-admin /
+    deactivation / deletion to an admin user. No-op if the target is not an
+    active admin, or if at least one OTHER active admin remains.
+    """
+    if not target.is_active or not await _is_admin_user(db, target):
+        return
+    if await _count_active_admins(db, exclude_user_id=target.id) == 0:
+        raise HTTPException(400, f"Cannot {action} the last administrator")
 
 
 # ------------------------------------------------------------------
@@ -303,6 +372,11 @@ async def refresh_token(
     if not payload:
         raise HTTPException(401, "Invalid or expired refresh token")
 
+    # Reuse detection: a presented token that is already revoked = a rotated /
+    # stolen token replayed. Revoke the whole family and reject.
+    if await _detect_refresh_reuse_and_revoke_family(db, body.refresh_token):
+        raise HTTPException(401, "Refresh token reuse detected — all sessions revoked")
+
     # Validate against revocation DB
     if not await _validate_refresh_token_in_db(db, body.refresh_token):
         raise HTTPException(401, "Refresh token has been revoked or does not exist")
@@ -396,6 +470,7 @@ async def change_own_password(
     request: Request,
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    _rate_limit: None = Depends(strict_limiter.limit),
 ):
     """Self-service password change with current-password verification."""
     db_user = await svc.get_user_by_id(db, user["id"])
@@ -430,8 +505,10 @@ class PasswordVerifyBody(BaseModel):
 @router.post("/me/verify-password", status_code=200)
 async def verify_own_password(
     body: PasswordVerifyBody,
+    request: Request,
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    _rate_limit: None = Depends(strict_limiter.limit),
 ):
     """Re-authenticate the current user by their password.
 
@@ -502,6 +579,14 @@ async def update_user_admin(
     old_user = await svc.get_user_by_id(db, user_id)
     if not old_user:
         raise HTTPException(404, "User not found")
+
+    # Retain-≥1-admin invariant: block deactivating or demoting the last admin.
+    demotes_role = data.role_name is not None and data.role_name != "admin"
+    deactivates = data.is_active is False
+    if demotes_role or deactivates:
+        action = "deactivate" if deactivates else "demote"
+        await _guard_last_admin(db, old_user, action=action)
+
     updated = await svc.update_user(db, user_id, data)
     await db.refresh(updated, ["role"])
 
@@ -524,6 +609,12 @@ async def delete_user_admin(
 ):
     if user_id == admin["id"]:
         raise HTTPException(400, "Cannot delete your own account")
+
+    # Retain-≥1-admin invariant: block deleting the last active administrator.
+    target = await svc.get_user_by_id(db, user_id)
+    if target:
+        await _guard_last_admin(db, target, action="delete")
+
     # Revoke all active tokens before deleting user
     await db.execute(
         delete(RefreshToken).where(

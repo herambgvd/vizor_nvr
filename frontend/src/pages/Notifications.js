@@ -21,6 +21,7 @@ import {
 } from "../components/ui/table";
 import { Checkbox } from "../components/ui/checkbox";
 import { ScrollArea } from "../components/ui/scroll-area";
+import { useConfirm } from "../components/ui/confirm";
 import api from "../api/client";
 
 // ─── shared styles ────────────────────────────────────────────────────────────
@@ -617,6 +618,7 @@ const LogsPanel = () => {
 
 export default function Notifications() {
   const qc = useQueryClient();
+  const confirm = useConfirm();
   const [showForm, setShowForm] = useState(false);
   const [editWebhook, setEditWebhook] = useState(null);
   const [tab, setTab] = useState("webhooks");
@@ -789,8 +791,13 @@ export default function Notifications() {
                               <Settings2 className="h-3.5 w-3.5" />
                             </GhostIconBtn>
                             <GhostIconBtn
-                              onClick={() => {
-                                if (window.confirm(`Delete webhook "${wh.name}"?`)) {
+                              onClick={async () => {
+                                if (await confirm({
+                                  title: `Delete webhook "${wh.name}"?`,
+                                  description: "This webhook will stop receiving event notifications.",
+                                  confirmText: "Delete",
+                                  danger: true,
+                                })) {
                                   deleteMutation.mutate(wh.id);
                                 }
                               }}

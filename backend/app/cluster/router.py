@@ -17,9 +17,10 @@ async def cluster_status(user: dict = Depends(get_admin_user)):
 
 
 @router.get("/nodes")
-async def list_cluster_nodes(user: dict = Depends(get_current_user)):
+async def list_cluster_nodes(user: dict = Depends(get_admin_user)):
     """
-    Return list of known cluster nodes.
+    Return list of known cluster nodes. Admin-only — leaks node IP addresses
+    and topology (matches /cluster/status gating).
 
     Safe on a fresh single-node install — never returns 500.
     Each entry: {node_id, hostname, role, is_leader, last_heartbeat_at,

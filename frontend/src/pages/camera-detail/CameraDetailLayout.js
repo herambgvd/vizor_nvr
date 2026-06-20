@@ -66,7 +66,7 @@ const CameraDetailLayout = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const { data: camera, isLoading } = useQuery({
+  const { data: camera, isLoading, isError, refetch } = useQuery({
     queryKey: ["camera", cameraId],
     queryFn: () => getCamera(cameraId),
     // Status flips are pushed via WS; no need for tight polling.
@@ -90,6 +90,37 @@ const CameraDetailLayout = () => {
           className="h-6 w-6 animate-spin"
           style={{ color: "var(--console-muted)" }}
         />
+      </div>
+    );
+  }
+
+  // A transient fetch error (e.g. a 500 / network blip) must NOT look like the
+  // camera was deleted. Show a distinct "failed to load" + Retry state and keep
+  // the "Camera not found" copy only for a genuinely empty successful response.
+  if (isError && !camera) {
+    return (
+      <div
+        className="h-full flex items-center justify-center"
+        style={{ background: "var(--console-bg)" }}
+      >
+        <div className="text-center">
+          <Activity
+            className="h-10 w-10 mx-auto mb-3"
+            style={{ color: "var(--console-rec)" }}
+          />
+          <p className="mb-3" style={{ color: "var(--console-rec)" }}>
+            Failed to load camera
+          </p>
+          <div className="flex items-center justify-center gap-2">
+            <Button variant="outline" onClick={() => refetch()}>
+              <RefreshCw className="h-4 w-4 mr-1.5" />
+              Retry
+            </Button>
+            <Button variant="ghost" onClick={() => navigate("/cameras")}>
+              Back to Cameras
+            </Button>
+          </div>
+        </div>
       </div>
     );
   }

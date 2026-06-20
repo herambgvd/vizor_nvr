@@ -23,6 +23,9 @@ const CameraCell = React.forwardRef(function CameraCell(
   const segmentsRef = useRef([]);
   const currentSegIdxRef = useRef(0);
   const pendingSeekRef = useRef(null);
+  // Tracks transient <video> reload attempts (e.g. 403/expired token) so a
+  // blip retries instead of permanently showing "No recording".
+  const errorRetryRef = useRef(0);
   const [currentSegIdx, setCurrentSegIdx] = useState(0);
   const [loaded, setLoaded] = useState(false);
   const [noRecording, setNoRecording] = useState(false);
@@ -70,6 +73,8 @@ const CameraCell = React.forwardRef(function CameraCell(
     // fast playback drops back to 1× every time a segment boundary advances.
     const prevRate = videoRef.current.playbackRate || 1;
 
+    // New segment load — reset the transient-error retry budget.
+    errorRetryRef.current = 0;
     const token = localStorage.getItem("nvr_token") || "";
     videoRef.current.src = `${BACKEND_URL}/api/recordings/${seg.id}/download?token=${token}`;
     videoRef.current.load();
@@ -83,6 +88,35 @@ const CameraCell = React.forwardRef(function CameraCell(
     };
     videoRef.current.addEventListener("loadedmetadata", onMeta, { once: true });
   }, [currentSegIdx, totalSegments]);
+
+  // A <video> error on a cell that HAS segments is usually transient — an
+  // expired token or a momentary 403 on the segment download. Re-fetch a fresh
+  // token and reload the current segment a couple of times before giving up,
+  // instead of permanently flipping to the "No recording" placeholder.
+  const MAX_VIDEO_RETRIES = 2;
+  const handleError = useCallback(() => {
+    const segs = segmentsRef.current;
+    if (!segs.length) {
+      // Genuinely nothing to play.
+      setNoRecording(true);
+      return;
+    }
+    if (errorRetryRef.current >= MAX_VIDEO_RETRIES) {
+      setNoRecording(true);
+      return;
+    }
+    errorRetryRef.current += 1;
+    const seg = segs[currentSegIdxRef.current];
+    if (!seg || !videoRef.current) return;
+    // Backoff a touch, refresh the token, and reload the same segment.
+    setTimeout(() => {
+      if (!videoRef.current) return;
+      const token = localStorage.getItem("nvr_token") || "";
+      videoRef.current.src = `${BACKEND_URL}/api/recordings/${seg.id}/download?token=${token}`;
+      videoRef.current.load();
+      videoRef.current.play?.().catch(() => {});
+    }, 800 * errorRetryRef.current);
+  }, []);
 
   const handleEnded = useCallback(() => {
     const next = currentSegIdxRef.current + 1;
@@ -152,8 +186,8 @@ const CameraCell = React.forwardRef(function CameraCell(
             className="w-full h-full object-contain"
             muted
             playsInline
-            onCanPlay={() => setLoaded(true)}
-            onError={() => setNoRecording(true)}
+            onCanPlay={() => { setLoaded(true); setNoRecording(false); }}
+            onError={handleError}
             onEnded={handleEnded}
           />
 

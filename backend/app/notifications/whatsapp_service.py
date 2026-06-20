@@ -60,7 +60,11 @@ class WhatsAppService:
 
     # ── Twilio client ──────────────────────────────────────────────────
 
-    def _get_client(self):
+    async def _get_client(self):
+        """Lazy-init Twilio client.  Env vars > DB settings (async read).
+
+        DB settings are read through SettingsService.get_value which transparently
+        decrypts sensitive keys (e.g. twilio_auth_token, encrypted at rest)."""
         if self._client is not None:
             return self._client
         try:
@@ -72,10 +76,12 @@ class WhatsAppService:
             if not sid or not token:
                 try:
                     from app.settings.service import SettingsService
-                    sid = sid or SettingsService.get_sync("twilio_account_sid", "")
-                    token = token or SettingsService.get_sync("twilio_auth_token", "")
-                except Exception:
-                    pass
+                    from app.database import async_session_maker
+                    async with async_session_maker() as db:
+                        sid = sid or await SettingsService.get_value(db, "twilio_account_sid", "")
+                        token = token or await SettingsService.get_value(db, "twilio_auth_token", "")
+                except Exception as exc:
+                    logger.debug(f"[whatsapp] DB settings read failed: {exc}")
 
             if not sid or not token:
                 return None
@@ -89,14 +95,16 @@ class WhatsAppService:
             logger.warning(f"[whatsapp] Twilio client init failed: {exc}")
             return None
 
-    def _get_from_number(self) -> str:
+    async def _get_from_number(self) -> str:
         from_number = settings.TWILIO_WHATSAPP_FROM
         if not from_number:
             try:
                 from app.settings.service import SettingsService
-                from_number = SettingsService.get_sync("twilio_whatsapp_number", "")
-            except Exception:
-                pass
+                from app.database import async_session_maker
+                async with async_session_maker() as db:
+                    from_number = await SettingsService.get_value(db, "twilio_whatsapp_number", "")
+            except Exception as exc:
+                logger.debug(f"[whatsapp] DB from-number read failed: {exc}")
         return from_number
 
     # ── Rate limiting ──────────────────────────────────────────────────
@@ -140,7 +148,7 @@ class WhatsAppService:
                 "no_retry": True,
             }
 
-        client = self._get_client()
+        client = await self._get_client()
         if not client:
             return {
                 "ok": False,
@@ -152,7 +160,7 @@ class WhatsAppService:
                 ),
             }
 
-        _from = from_number or self._get_from_number()
+        _from = from_number or await self._get_from_number()
         if not _from:
             return {
                 "ok": False,

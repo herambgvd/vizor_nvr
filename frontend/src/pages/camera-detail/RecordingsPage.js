@@ -15,6 +15,8 @@ import {
   ChevronRight,
   Calendar as CalendarIcon,
   Download,
+  AlertTriangle,
+  RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -51,7 +53,12 @@ const RecordingsPage = () => {
     enabled: !!cameraId,
   });
 
-  const { data: timeline = [], isLoading: timelineLoading } = useQuery({
+  const {
+    data: timeline = [],
+    isLoading: timelineLoading,
+    isError: timelineError,
+    refetch: refetchTimeline,
+  } = useQuery({
     queryKey: ["timeline", cameraId, selectedDate?.toISOString()],
     queryFn: () => getTimeline(cameraId, selectedDate?.toISOString()),
     enabled: !!cameraId && !!selectedDate,
@@ -189,6 +196,28 @@ const RecordingsPage = () => {
           Export Day
         </Button>
       </div>
+
+      {timelineError && (
+        <div
+          className="flex items-center justify-between gap-3 rounded-md border px-3 py-2"
+          style={{
+            borderColor: "var(--console-border)",
+            background: "var(--console-panel)",
+          }}
+        >
+          <span
+            className="flex items-center gap-2 text-xs"
+            style={{ color: "var(--console-rec)" }}
+          >
+            <AlertTriangle className="h-4 w-4" />
+            Failed to load timeline for this day.
+          </span>
+          <Button variant="outline" size="sm" onClick={() => refetchTimeline()}>
+            <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+            Retry
+          </Button>
+        </div>
+      )}
 
       <div className="flex flex-col xl:flex-row gap-4">
         <div className="flex-1 min-w-0">
