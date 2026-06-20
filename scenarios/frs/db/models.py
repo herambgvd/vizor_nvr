@@ -162,3 +162,17 @@ class InvestigationJob(Base):
     results = Column(JSON, nullable=True)
     error = Column(Text, nullable=True)
     created_at = Column(DateTime, default=_utcnow)
+
+
+class FRSSettings(Base):
+    """Singleton FRS feature config (one row, id='singleton'). Holds the operator
+    toggles for the public dashboard + third-party ingest API, and the ingest
+    API key. Plugin-owned so FRS config stays with FRS."""
+    __tablename__ = "frs_settings"
+    id = Column(String, primary_key=True, default="singleton")
+    public_dashboard_enabled = Column(Boolean, nullable=False, default=False)
+    ingest_api_enabled = Column(Boolean, nullable=False, default=False)
+    ingest_api_key = Column(String(128), nullable=True)
+    # Privacy: whether the public dashboard may show person names (never snapshots).
+    public_show_names = Column(Boolean, nullable=False, default=False)
+    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)

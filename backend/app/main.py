@@ -470,9 +470,12 @@ app.include_router(license_router)
 if settings.ENABLE_AI_MODULES:
     from app.ai.core.router import router as ai_router
     from app.ai.core.camera_config_router import router as ai_camera_config_router
+    from app.ai.public_router import router as ai_public_router
 
     app.include_router(ai_router)
     app.include_router(ai_camera_config_router)
+    # Un-authenticated AI endpoints (third-party ingest + public dashboard).
+    app.include_router(ai_public_router)
 app.include_router(schedule_templates_router, prefix="/api")
 app.include_router(spot_output_router, prefix="/api")
 

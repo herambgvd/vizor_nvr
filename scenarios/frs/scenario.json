@@ -44,6 +44,10 @@
     { "method": "GET", "path": "/health" },
     { "method": "POST", "path": "/health/deep" },
 
+    { "method": "GET", "path": "/settings" },
+    { "method": "PUT", "path": "/settings" },
+    { "method": "POST", "path": "/settings/ingest-key/rotate" },
+
     { "method": "GET", "path": "/groups" },
     { "method": "POST", "path": "/groups" },
     { "method": "GET", "path": "/groups/{group_id}" },

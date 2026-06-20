@@ -45,35 +45,9 @@ def _bbox_obj(bbox):
     return {"x": round(x1, 4), "y": round(y1, 4), "w": round(x2 - x1, 4), "h": round(y2 - y1, 4)}
 
 
-def _record_event(camera_id, person_id, person_name, confidence, snapshot_path, event_type, ts,
-                  bbox=None, attributes=None):
-    """Insert an FRS event; for recognised persons also upsert daily attendance."""
-    from db.models import FRSAttendance, FRSEvent  # local import
-    from sqlalchemy import select
-    with session() as s:
-        ev = FRSEvent(
-            camera_id=camera_id, event_type=event_type, severity="info",
-            title=person_name or ("Face detected" if event_type == "face_detected" else "Unknown face"),
-            detection_type="face", person_id=person_id,
-            confidence=round(float(confidence), 4) if confidence is not None else None,
-            bbox=bbox, attributes=attributes,
-            snapshot_path=snapshot_path, triggered_at=naive(ts) or ts,
-        )
-        s.add(ev)
-        if person_id:
-            face_snap = (attributes or {}).get("face_snapshot") or snapshot_path
-            day_key = (ts or utcnow()).date().isoformat()
-            existing = s.scalar(select(FRSAttendance).where(
-                FRSAttendance.person_id == person_id, FRSAttendance.day_key == day_key))
-            if existing:
-                existing.check_out_at = naive(ts)
-                existing.check_out_snapshot = face_snap
-            else:
-                s.add(FRSAttendance(person_id=person_id, camera_id=camera_id, day_key=day_key,
-                                    check_in_at=naive(ts), check_in_snapshot=face_snap,
-                                    sighting_type="seen", event_id=ev.id))
-        s.commit()
-        return ev.id
+# The event insert path now lives in db/events.py (shared with third-party
+# ingest). Thin alias keeps this module's call sites unchanged.
+from db.events import record_event as _record_event  # noqa: E402,F401
 
 
 class CameraWorker(threading.Thread):

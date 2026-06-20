@@ -25,11 +25,14 @@ from registration import register_on_boot
 from routers import (
     groups,
     health,
+    ingest,
     investigate,
     persons,
     photos,
+    public,
     recognize,
     reports,
+    settings as settings_router,
     transit,
     video_jobs,
 )
@@ -37,7 +40,7 @@ from routers import (
 app = FastAPI(title="Vizor Face Recognition", version=config.VERSION)
 
 for module in (health, groups, persons, photos, recognize, investigate,
-               transit, video_jobs, reports):
+               transit, video_jobs, reports, ingest, public, settings_router):
     app.include_router(module.router)
 
 
