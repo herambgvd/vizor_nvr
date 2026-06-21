@@ -20,6 +20,7 @@ from fastapi import APIRouter, Body, Header, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
 
+import config
 from db import session
 from db.events import record_event
 from db.models import FRSPerson
@@ -40,6 +41,8 @@ class IngestEvent(BaseModel):
     bbox: Optional[dict] = None
     attributes: Optional[dict] = None
     source: Optional[str] = Field(None, description="Free label for the originating system, e.g. 'hikvision'")
+    snapshot_base64: Optional[str] = Field(
+        None, description="Event image as base64 JPEG/PNG (or a data URL). Stored + served as the event snapshot.")
 
 
 def _resolve_person(ext_id: Optional[str], name: Optional[str]) -> tuple[Optional[str], Optional[str]]:
@@ -78,12 +81,16 @@ def ingest_event(
     if body.camera_name:
         attrs.setdefault("camera_name", body.camera_name)
 
+    # Persist the event image (base64 -> /snapshot?key=ingest:<id>). Best-effort.
+    from vizor_sdk import save_ingest_snapshot
+    snapshot_path = save_ingest_snapshot(body.snapshot_base64, config.DATA_PATH)
+
     event_id = record_event(
         camera_id=body.camera_id,
         person_id=person_id,
         person_name=display_name,
         confidence=body.confidence,
-        snapshot_path=None,
+        snapshot_path=snapshot_path,
         event_type=body.event_type,
         ts=ts,
         bbox=body.bbox,

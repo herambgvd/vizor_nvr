@@ -21,15 +21,66 @@ callable that turns a posted payload into a recorded event.
 """
 from __future__ import annotations
 
+import base64
+import binascii
 import hmac
 import json
+import logging
 import queue
 import secrets
 import threading
+import uuid
+from pathlib import Path
 from typing import Callable, Optional
 
 from fastapi import APIRouter, Body, Header, HTTPException
 from fastapi.responses import StreamingResponse
+
+logger = logging.getLogger(__name__)
+
+# Cap an ingested image so a caller can't push a giant blob (10 MB decoded).
+_MAX_SNAPSHOT_BYTES = 10 * 1024 * 1024
+_JPEG_MAGIC = b"\xff\xd8\xff"
+_PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+
+
+def save_ingest_snapshot(snapshot_base64: Optional[str], data_path) -> Optional[str]:
+    """Decode a base64 image from an ingest payload, save it under
+    <data_path>/snapshots/<uuid>.jpg, and return the snapshot key path
+    ("/snapshot?key=ingest:<uuid>") the scenario's /snapshot route serves —
+    same scheme the live workers use. Returns None on absent/invalid input
+    (ingest still records the event, just without an image).
+
+    Accepts a raw base64 string or a data URL ("data:image/jpeg;base64,...").
+    """
+    if not snapshot_base64:
+        return None
+    s = snapshot_base64.strip()
+    if s.startswith("data:"):
+        # data URL — drop the "data:...;base64," prefix.
+        comma = s.find(",")
+        if comma != -1:
+            s = s[comma + 1:]
+    try:
+        raw = base64.b64decode(s, validate=True)
+    except (binascii.Error, ValueError):
+        logger.warning("[ingest] snapshot_base64 is not valid base64 — dropping image")
+        return None
+    if not raw or len(raw) > _MAX_SNAPSHOT_BYTES:
+        logger.warning("[ingest] snapshot empty or over %d bytes — dropping image", _MAX_SNAPSHOT_BYTES)
+        return None
+    if not (raw[:3] == _JPEG_MAGIC or raw[:8] == _PNG_MAGIC):
+        logger.warning("[ingest] snapshot is not a JPEG/PNG — dropping image")
+        return None
+    try:
+        base = Path(data_path) / "snapshots"
+        base.mkdir(parents=True, exist_ok=True)
+        key = uuid.uuid4().hex
+        (base / f"{key}.jpg").write_bytes(raw)
+        return f"/snapshot?key=ingest:{key}"
+    except Exception as exc:  # noqa: BLE001 — image is best-effort, never fail ingest
+        logger.warning("[ingest] could not save snapshot: %s", exc)
+        return None
 
 
 # ── settings store (works on the plugin's own singleton model) ───────────────

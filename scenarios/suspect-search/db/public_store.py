@@ -24,9 +24,9 @@ import json
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from vizor_sdk import EventBus
+from vizor_sdk import EventBus, save_ingest_snapshot
 
-from config.settings import DATABASE_URL
+from config.settings import DATA_DIR, DATABASE_URL
 
 # Shared SDK in-process pub/sub for the public SSE stream. SS rarely produces live
 # events, but an ingested sighting publishes here so the stream is functional.
@@ -282,6 +282,7 @@ SAMPLE_INGEST_PAYLOAD = {
     "timestamp": "2026-06-20T14:30:00Z",
     "label": "subject-of-interest",
     "source": "edge-reid",
+    "snapshot_base64": "<base64 JPEG/PNG or data: URL — stored as the sighting thumbnail>",
 }
 
 
@@ -291,7 +292,15 @@ def ingest(payload: dict) -> dict:
     SS ingest is less natural than for live scenarios — it has no per-frame event
     feed. We treat a posted payload as an external "sighting" and store it as a
     result row (job_id NULL) so it shows up in reports + the public dashboard,
-    tagged source="external:...". Aggregate-safe: no image bytes are accepted."""
+    tagged source="external:...".
+
+    Optional snapshot_base64 (base64 JPEG/PNG or data URL) is saved under
+    <DATA_DIR>/snapshots/<uuid>.jpg via the SDK helper; the resulting filesystem
+    path is stored in the result row's thumb_path column, so the EXISTING
+    GET /results/{result_id}/thumbnail route serves it unchanged (that route reads
+    thumb_path as a filesystem path). The /snapshot?key=ingest:<uuid> key is also
+    recorded in the row's payload_json (meta) for parity with the live workers.
+    Best-effort: a bad/absent image never fails the ingest (thumb_path stays "")."""
     camera_id = payload.get("camera_id")
     if not camera_id:
         return {"ok": False, "detail": "camera_id is required"}
@@ -308,6 +317,17 @@ def ingest(payload: dict) -> dict:
             ts = _utcnow()
 
     source = payload.get("source") or payload.get("camera_name") or camera_id
+
+    # Persist the sighting image (base64 -> <DATA_DIR>/snapshots/<uuid>.jpg).
+    # The SDK helper returns "/snapshot?key=ingest:<uuid>" (or None). SS serves
+    # thumbnails by reading thumb_path AS A FILESYSTEM PATH, so we store the actual
+    # file path there; the snapshot key goes into the payload meta. Best-effort.
+    snapshot_key = save_ingest_snapshot(payload.get("snapshot_base64"), DATA_DIR)
+    thumb_path = ""
+    if snapshot_key:
+        snap_uuid = snapshot_key.rsplit(":", 1)[-1]
+        thumb_path = str(DATA_DIR / "snapshots" / f"{snap_uuid}.jpg")
+
     record = {
         "result_id": result_id,
         "camera_id": str(camera_id),
@@ -316,6 +336,8 @@ def ingest(payload: dict) -> dict:
         "score": payload.get("score"),
         "label": payload.get("label"),
         "source": f"external:{source}",
+        "snapshot_key": snapshot_key,
+        "thumbnail_url": f"/results/{result_id}/thumbnail" if snapshot_key else None,
     }
 
     try:
@@ -329,7 +351,7 @@ def ingest(payload: dict) -> dict:
                     VALUES (%s, NULL, %s, %s, %s, %s, %s::jsonb)
                     ON CONFLICT (result_id) DO NOTHING
                     """,
-                    (result_id, str(camera_id), object_type, ts, "",
+                    (result_id, str(camera_id), object_type, ts, thumb_path,
                      json.dumps(record, default=str)),
                 )
             conn.commit()

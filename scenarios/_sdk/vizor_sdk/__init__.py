@@ -53,11 +53,13 @@ try:
     # Generic public dashboard + third-party ingest (needs fastapi).
     from .public import (  # noqa: F401
         SettingsStore, EventBus, build_public_router, build_ingest_router,
+        save_ingest_snapshot,
     )
 
     __all__ += [
         "build_app", "ScenarioEvent",
         "SettingsStore", "EventBus", "build_public_router", "build_ingest_router",
+        "save_ingest_snapshot",
     ]
 except Exception:  # noqa: BLE001
     pass

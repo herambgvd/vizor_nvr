@@ -16,8 +16,9 @@ from datetime import timedelta
 from typing import Optional
 
 from sqlalchemy import func, select
-from vizor_sdk import SettingsStore
+from vizor_sdk import SettingsStore, save_ingest_snapshot
 
+import config
 from db import session
 from db.events import record_event
 from db.models import PPEEvent, PPESettings
@@ -131,6 +132,7 @@ SAMPLE_INGEST_PAYLOAD = {
     "timestamp": "2026-06-20T14:30:00Z",
     "bbox": {"x": 100, "y": 80, "w": 120, "h": 220},
     "source": "edge-cam-ai",
+    "snapshot_base64": "<base64 JPEG/PNG or data: URL — stored + served as the event snapshot>",
 }
 
 
@@ -139,8 +141,10 @@ def ingest(payload: dict) -> dict:
 
     payload: {camera_id, camera_name?, event_type(ppe_missing/ppe_removed/
     ppe_compliant), worker_id?, missing_items?[], present_items?[], confidence?,
-    timestamp?, bbox?, source?}. Tagged attributes.source="external:..." via the
-    event title; the recorder owns the single insert path."""
+    timestamp?, bbox?, source?, snapshot_base64?}. Tagged attributes.source=
+    "external:..." via the event title; the recorder owns the single insert path.
+    snapshot_base64 (base64 JPEG/PNG or data URL) is saved + served as the event
+    snapshot (best-effort — a bad/absent image never fails the ingest)."""
     camera_id = payload.get("camera_id")
     if not camera_id:
         return {"ok": False, "detail": "camera_id is required"}
@@ -173,6 +177,10 @@ def ingest(payload: dict) -> dict:
     except (TypeError, ValueError):
         confidence = None
 
+    # Persist the event image (base64 -> /snapshot?key=ingest:<id>). Best-effort:
+    # a bad/absent image returns None and the event still records without a snapshot.
+    snapshot_path = save_ingest_snapshot(payload.get("snapshot_base64"), config.DATA_PATH)
+
     event_id = record_event(
         camera_id=str(camera_id),
         event_type=event_type,
@@ -181,7 +189,7 @@ def ingest(payload: dict) -> dict:
         missing_items=list(missing_items) if missing_items else None,
         present_items=list(present_items) if present_items else None,
         confidence=confidence,
-        snapshot_path=None,
+        snapshot_path=snapshot_path,
         ts=ts,
         bbox=payload.get("bbox"),
     )

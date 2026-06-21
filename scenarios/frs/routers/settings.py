@@ -24,6 +24,7 @@ SAMPLE_INGEST_PAYLOAD = {
     "timestamp": "2026-06-20T14:30:00Z",
     "bbox": {"x": 100, "y": 80, "w": 120, "h": 140},
     "source": "hikvision-nvr",
+    "snapshot_base64": "<base64 JPEG/PNG or data: URL — the event image>",
     "attributes": {"site": "HQ"},
 }
 

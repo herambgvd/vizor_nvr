@@ -15,8 +15,9 @@ from __future__ import annotations
 from datetime import timedelta
 
 from sqlalchemy import func, select
-from vizor_sdk import SettingsStore
+from vizor_sdk import SettingsStore, save_ingest_snapshot
 
+import config
 from db import session
 from db.events import record_event
 from db.list_store import match_plate, normalize_plate
@@ -129,6 +130,7 @@ SAMPLE_INGEST_PAYLOAD = {
     "timestamp": "2026-06-20T14:30:00Z",
     "bbox": {"x": 100, "y": 80, "w": 160, "h": 60},
     "source": "milesight-nvr",
+    "snapshot_base64": "<base64 JPEG/PNG or data: URL — stored + served as the plate-read snapshot>",
 }
 
 
@@ -139,7 +141,10 @@ def ingest(payload: dict) -> dict:
     plate still hits alert/allow/log lists), derives the event_type from the
     matched action exactly as the live worker does, and records via the shared
     record_event path. payload: {camera_id, camera_name?, plate, vehicle_type?,
-    direction?, speed_kmh?, confidence?, timestamp?, bbox?, source?}."""
+    direction?, speed_kmh?, confidence?, timestamp?, bbox?, source?,
+    snapshot_base64?}. snapshot_base64 (base64 JPEG/PNG or data URL) is saved +
+    served as the plate-read snapshot (best-effort — a bad/absent image never
+    fails the ingest)."""
     camera_id = payload.get("camera_id")
     plate = payload.get("plate")
     if not camera_id or not plate:
@@ -172,6 +177,9 @@ def ingest(payload: dict) -> dict:
             return None
 
     ts = parse_dt(payload.get("timestamp")) or utcnow()
+    # Persist the plate-read image (base64 -> /snapshot?key=ingest:<id>). Best-effort:
+    # a bad/absent image returns None and the read still records without a snapshot.
+    snapshot_path = save_ingest_snapshot(payload.get("snapshot_base64"), config.DATA_PATH)
     event_id = record_event(
         str(camera_id),
         norm,
@@ -185,7 +193,7 @@ def ingest(payload: dict) -> dict:
         track_id=None,
         n_frames=None,
         bbox=payload.get("bbox"),
-        snapshot_path=None,
+        snapshot_path=snapshot_path,
         ts=ts,
     )
     return {

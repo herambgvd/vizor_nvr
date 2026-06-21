@@ -40,14 +40,20 @@ async def detect_faces(file: UploadFile = File(...), _: None = Depends(require_s
 
 @router.get("/snapshot")
 def snapshot(key: str = Query(...), _: None = Depends(require_service_token)):
-    # Two kinds of snapshot key:
-    #   live:<id>  → a live-worker frame stored under DATA_PATH/snapshots
-    #   <photo_id> → an enrolled person photo
-    if key.startswith("live:"):
-        path = DATA_PATH / "snapshots" / f"{key[5:]}.jpg"
-        if not path.exists():
-            raise HTTPException(404, "snapshot not found")
-        return FileResponse(str(path), media_type="image/jpeg")
+    # Snapshot key kinds:
+    #   live:<id>    → a live-worker frame stored under DATA_PATH/snapshots
+    #   ingest:<id>  → a third-party ingested image (same dir)
+    #   <photo_id>   → an enrolled person photo
+    for prefix in ("live:", "ingest:"):
+        if key.startswith(prefix):
+            name = key[len(prefix):]
+            # uuid hex only — never let the key escape the snapshots dir.
+            if not name.isalnum():
+                raise HTTPException(404, "snapshot not found")
+            path = DATA_PATH / "snapshots" / f"{name}.jpg"
+            if not path.exists():
+                raise HTTPException(404, "snapshot not found")
+            return FileResponse(str(path), media_type="image/jpeg")
     with session() as s:
         ph = s.get(FRSPhoto, key)
         path = DATA_PATH / ph.storage_key if (ph and ph.storage_key) else None
