@@ -23,11 +23,19 @@ from db import init_db
 from live import start_live_manager
 from live.retention import start_retention_sweeper
 from registration import register_on_boot
-from routers import events, health, reports, settings as settings_router, snapshot
+from routers import (
+    events,
+    health,
+    ingest,
+    public,
+    reports,
+    settings as settings_router,
+    snapshot,
+)
 
 app = FastAPI(title="Vizor PPE Compliance", version=config.VERSION)
 
-for module in (health, events, reports, snapshot, settings_router):
+for module in (health, events, reports, snapshot, settings_router, public, ingest):
     app.include_router(module.router)
 
 

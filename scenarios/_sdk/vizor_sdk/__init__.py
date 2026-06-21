@@ -50,8 +50,15 @@ __all__ = [
 try:
     from .app import build_app  # noqa: F401
     from .events import ScenarioEvent  # noqa: F401
+    # Generic public dashboard + third-party ingest (needs fastapi).
+    from .public import (  # noqa: F401
+        SettingsStore, EventBus, build_public_router, build_ingest_router,
+    )
 
-    __all__ += ["build_app", "ScenarioEvent"]
+    __all__ += [
+        "build_app", "ScenarioEvent",
+        "SettingsStore", "EventBus", "build_public_router", "build_ingest_router",
+    ]
 except Exception:  # noqa: BLE001
     pass
 

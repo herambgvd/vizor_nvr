@@ -18,11 +18,11 @@ import {
 import { toast } from "sonner";
 import { friendlyError } from "../../../lib/utils";
 import {
-  getFrsFeatureSettings,
+  getScenarioFeatureSettings,
   getScenarioHealth,
-  rotateFrsIngestKey,
+  rotateScenarioIngestKey,
   toggleScenario,
-  updateFrsFeatureSettings,
+  updateScenarioFeatureSettings,
 } from "../../../api/ai";
 
 const copyText = (value, label) => {
@@ -31,34 +31,34 @@ const copyText = (value, label) => {
 };
 
 // FRS-only: public dashboard + third-party ingest API controls.
-const FrsIntegrationPanel = () => {
+const ScenarioIntegrationPanel = ({ slug }) => {
   const qc = useQueryClient();
   const { data, isLoading } = useQuery({
-    queryKey: ["frs-feature-settings"],
-    queryFn: () => getFrsFeatureSettings("frs"),
+    queryKey: ["scenario-feature-settings", slug],
+    queryFn: () => getScenarioFeatureSettings(slug),
     retry: 1,
   });
 
   const save = useMutation({
-    mutationFn: (patch) => updateFrsFeatureSettings(patch, "frs"),
+    mutationFn: (patch) => updateScenarioFeatureSettings(slug, patch),
     onSuccess: (res) => {
-      qc.setQueryData(["frs-feature-settings"], res);
+      qc.setQueryData(["scenario-feature-settings", slug], res);
       toast.success("Saved");
     },
     onError: (e) => toast.error(friendlyError(e, "Could not save")),
   });
 
   const rotate = useMutation({
-    mutationFn: () => rotateFrsIngestKey("frs"),
+    mutationFn: () => rotateScenarioIngestKey(slug),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["frs-feature-settings"] });
+      qc.invalidateQueries({ queryKey: ["scenario-feature-settings", slug] });
       toast.success("New ingest key generated");
     },
     onError: (e) => toast.error(friendlyError(e, "Could not rotate key")),
   });
 
-  const publicUrl = `${window.location.origin}/public/frs`;
-  const ingestUrl = `${window.location.origin}/api/ai/frs/ingest`;
+  const publicUrl = `${window.location.origin}/public/${slug}`;
+  const ingestUrl = `${window.location.origin}/api/ai/${slug}/ingest`;
   const sample = data?.sample_ingest_payload || {};
 
   const Row = ({ icon: Icon, title, desc, checked, onToggle, children }) => (
@@ -158,7 +158,7 @@ const FrsIntegrationPanel = () => {
             <div className="flex items-end gap-2">
               <div className="flex-1 min-w-0">
                 <Field
-                  label="API key (header: X-FRS-Ingest-Key)"
+                  label="API key (header: X-Scn-Ingest-Key)"
                   value={data?.ingest_api_key || "—"}
                   onCopy={() => copyText(data?.ingest_api_key, "Key")}
                 />
@@ -409,7 +409,7 @@ const ScenarioSettingsTab = ({ scenario }) => {
         </div>
       </div>
 
-      {scenario.slug === "frs" && <FrsIntegrationPanel />}
+      <ScenarioIntegrationPanel slug={scenario.slug} />
 
       <div
         className="rounded p-4 text-[12px] leading-relaxed"

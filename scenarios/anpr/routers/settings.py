@@ -9,6 +9,7 @@ import re
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 
+from db.public_store import SAMPLE_INGEST_PAYLOAD, store as public_store
 from db.settings_store import get_settings, update_settings
 from deps import require_service_token
 
@@ -16,9 +17,21 @@ router = APIRouter(prefix="/settings", tags=["settings"],
                    dependencies=[Depends(require_service_token)])
 
 
+def _public_block() -> dict:
+    st = public_store.get()
+    return {
+        "public_dashboard_enabled": st["public_dashboard_enabled"],
+        "ingest_api_enabled": st["ingest_api_enabled"],
+        "public_show_names": st["public_show_names"],
+        # Key returned so the operator can copy it into the third-party system.
+        "ingest_api_key": st["ingest_api_key"],
+        "sample_ingest_payload": SAMPLE_INGEST_PAYLOAD,
+    }
+
+
 @router.get("")
 def read_settings() -> dict:
-    return get_settings()
+    return {**get_settings(), **_public_block()}
 
 
 @router.put("")
@@ -48,4 +61,18 @@ def write_settings(body: dict = Body(...)) -> dict:
                 patch[k] = int(body[k])
             except (TypeError, ValueError):
                 pass
-    return update_settings(**patch)
+    st = update_settings(**patch)
+
+    # Public / ingest toggles go to the SDK store (separate columns, same row).
+    public_patch = {k: bool(body[k]) for k in
+                    ("public_dashboard_enabled", "ingest_api_enabled",
+                     "public_show_names") if k in body}
+    if public_patch:
+        public_store.update(**public_patch)
+
+    return {**st, **_public_block()}
+
+
+@router.post("/ingest-key/rotate")
+def rotate_key() -> dict:
+    return {"ingest_api_key": public_store.rotate_key()}

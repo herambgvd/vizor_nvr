@@ -1,13 +1,62 @@
 import React, { useEffect, useRef, useState } from "react";
+import { useParams } from "react-router-dom";
 
-// Public, UNAUTHENTICATED FRS analytics dashboard. Aggregate numbers only — no
-// faces, no snapshots. Realtime via the backend SSE relay. Vercel-style: full-
-// bleed, near-black surface, hairline borders, restrained accent, generous
-// spacing. Charts are inline SVG (no chart dependency).
+// Public, UNAUTHENTICATED scenario analytics dashboard (FRS / PPE / ANPR / …).
+// Aggregate numbers only — no snapshots/raw images. Realtime via the backend SSE
+// relay. Vercel-style: full-bleed near-black surface, hairline borders, inline
+// SVG charts. Per-scenario labels come from SCENARIO_DESCRIPTORS; the data shape
+// (totals / by_camera / hourly_trend) is uniform across scenarios.
 
-const DASHBOARD_URL = "/api/ai/frs/public/dashboard";
-const STREAM_URL = "/api/ai/frs/public/stream";
 const BRANDING_URL = "/api/settings/public/branding";
+
+// Per-scenario presentation. `cards` map totals keys -> label+accent; `split`
+// (optional) draws the two-way donut; `topList` (optional) renders a ranked list
+// (gated behind show_names for PII). `feedLabel(ev)` formats a live-feed row.
+const SCENARIO_DESCRIPTORS = {
+  frs: {
+    title: "Face Recognition",
+    cards: [
+      { key: "recognized_today", label: "Recognized today", accent: "green" },
+      { key: "unknown_today", label: "Unknown today", accent: "amber" },
+      { key: "events_today", label: "Events today", accent: "blue" },
+      { key: "enrolled_persons", label: "Enrolled people", accent: "violet" },
+    ],
+    split: { title: "Recognition split", a: "recognized_today", aLabel: "Recognized", b: "unknown_today", bLabel: "Unknown" },
+    topList: { title: "Most seen today", source: "top_persons", name: "name" },
+    feedLabel: (ev) => (ev.person_name || (ev.event_type || "").replace(/_/g, " ")),
+  },
+  ppe: {
+    title: "PPE Compliance",
+    cards: [
+      { key: "violations_today", label: "Violations today", accent: "amber" },
+      { key: "compliant_today", label: "Compliant today", accent: "green" },
+      { key: "events_today", label: "Events today", accent: "blue" },
+    ],
+    split: { title: "Compliance split", a: "compliant_today", aLabel: "Compliant", b: "violations_today", bLabel: "Violation" },
+    topList: { title: "Top violations today", source: "top_violation_types", name: "type" },
+    feedLabel: (ev) => (ev.label || (ev.event_type || "").replace(/_/g, " ")),
+  },
+  anpr: {
+    title: "License Plate Recognition",
+    cards: [
+      { key: "reads_today", label: "Plate reads today", accent: "blue" },
+      { key: "blacklist_hits_today", label: "Alert hits today", accent: "amber" },
+      { key: "whitelist_hits_today", label: "Allowed today", accent: "green" },
+      { key: "unique_plates_today", label: "Unique plates", accent: "violet" },
+    ],
+    topList: { title: "By vehicle type", source: "by_vehicle_type", name: "type", count: "count" },
+    feedLabel: (ev) => (ev.label || ev.plate || (ev.event_type || "").replace(/_/g, " ")),
+  },
+  "suspect-search": {
+    title: "Suspect Search",
+    cards: [
+      { key: "searches_today", label: "Searches today", accent: "blue" },
+      { key: "matches_today", label: "Matches today", accent: "green" },
+      { key: "indexed_candidates", label: "Indexed", accent: "violet" },
+    ],
+    feedLabel: (ev) => (ev.label || (ev.event_type || "").replace(/_/g, " ")),
+  },
+};
 
 // Format a timestamp in the operator-configured display timezone (fetched from
 // public branding). Falls back to browser-local until tz is known.
@@ -74,7 +123,7 @@ const StatCard = ({ label, value, accent }) => {
   );
 };
 
-const Donut = ({ recognized, unknown }) => {
+const Donut = ({ recognized, unknown, aLabel = "Recognized", bLabel = "Unknown" }) => {
   const total = recognized + unknown;
   const r = 58, sw = 14, cx = 76, cy = 76, circ = 2 * Math.PI * r;
   const recFrac = total ? recognized / total : 0;
@@ -95,8 +144,8 @@ const Donut = ({ recognized, unknown }) => {
         <text x={cx} y={cy + 16} textAnchor="middle" fill={C.faint} fontSize="9" letterSpacing="1.5">TODAY</text>
       </svg>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <Legend color={C.green} label="Recognized" value={recognized} pct={total ? Math.round(recFrac * 100) : 0} />
-        <Legend color={C.amber} label="Unknown" value={unknown} pct={total ? Math.round((1 - recFrac) * 100) : 0} />
+        <Legend color={C.green} label={aLabel} value={recognized} pct={total ? Math.round(recFrac * 100) : 0} />
+        <Legend color={C.amber} label={bLabel} value={unknown} pct={total ? Math.round((1 - recFrac) * 100) : 0} />
       </div>
     </div>
   );
@@ -177,7 +226,14 @@ const Panel = ({ title, children, right, fill, scroll }) => (
   </div>
 );
 
-export default function PublicFrsDashboard() {
+export default function PublicScenarioDashboard() {
+  const { slug = "frs" } = useParams();
+  const desc = SCENARIO_DESCRIPTORS[slug] || {
+    title: slug.toUpperCase(), cards: [], feedLabel: (ev) => (ev.event_type || "").replace(/_/g, " "),
+  };
+  const DASHBOARD_URL = `/api/ai/${slug}/public/dashboard`;
+  const STREAM_URL = `/api/ai/${slug}/public/stream`;
+
   const [data, setData] = useState(null);
   const [status, setStatus] = useState("loading");
   const [live, setLive] = useState([]);
@@ -223,7 +279,7 @@ export default function PublicFrsDashboard() {
       {/* full-bleed header bar */}
       <div style={{ flex: "0 0 auto", borderBottom: `1px solid ${C.border}`, padding: "14px 28px", display: "flex", alignItems: "center", gap: 12 }}>
         <span style={{ width: 10, height: 10, borderRadius: 999, background: C.green, boxShadow: `0 0 0 ${flash ? 7 : 3}px ${C.green}1f`, transition: "box-shadow .4s" }} />
-        <h1 style={{ fontSize: 17, fontWeight: 600, margin: 0, letterSpacing: -0.2 }}>Face Recognition</h1>
+        <h1 style={{ fontSize: 17, fontWeight: 600, margin: 0, letterSpacing: -0.2 }}>{desc.title}</h1>
         <span style={{ fontSize: 13, color: C.faint }}>Live Overview</span>
         <span style={{ marginLeft: "auto", fontSize: 12, color: C.faint }}>
           {data?.generated_at ? `Updated ${fmtTime(data.generated_at, tz)}` : ""}
@@ -238,34 +294,42 @@ export default function PublicFrsDashboard() {
   if (status === "error") return shell(<Centered title="Couldn’t load the dashboard" sub="Please try again in a moment." />);
 
   const t = data?.totals || {};
-  const hasNames = data?.show_names && (data?.top_persons || []).length > 0;
+  const ACCENT = { green: C.green, amber: C.amber, blue: C.blue, violet: C.violet };
+  // Top list comes from a scenario-named source array; gate identity lists behind show_names.
+  const topSrc = desc.topList ? (data?.[desc.topList.source] || []) : [];
+  const topIsPII = desc.topList && desc.topList.source === "top_persons";
+  const hasTop = desc.topList && topSrc.length > 0 && (!topIsPII || data?.show_names);
+  const cards = (desc.cards || []).slice(0, 4);
 
   return shell(
     <>
       {/* Row 1 — stat cards (fixed) */}
-      <div style={{ flex: "0 0 auto", display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14 }}>
-        <StatCard label="Recognized today" value={t.recognized_today ?? 0} accent={C.green} />
-        <StatCard label="Unknown today" value={t.unknown_today ?? 0} accent={C.amber} />
-        <StatCard label="Events today" value={t.events_today ?? 0} accent={C.blue} />
-        <StatCard label="Enrolled people" value={t.enrolled_persons ?? 0} accent={C.violet} />
+      <div style={{ flex: "0 0 auto", display: "grid", gridTemplateColumns: `repeat(${cards.length || 1},1fr)`, gap: 14 }}>
+        {cards.map((c) => (
+          <StatCard key={c.key} label={c.label} value={t[c.key] ?? 0} accent={ACCENT[c.accent] || C.blue} />
+        ))}
       </div>
 
       {/* Row 2 — trend + split (fills, equal share) */}
-      <div style={{ flex: "1 1 0", minHeight: 0, display: "grid", gridTemplateColumns: "minmax(0,2fr) minmax(0,1fr)", gap: 14 }}>
+      <div style={{ flex: "1 1 0", minHeight: 0, display: "grid", gridTemplateColumns: desc.split ? "minmax(0,2fr) minmax(0,1fr)" : "1fr", gap: 14 }}>
         <Panel title="Activity — last 24 hours" fill><div style={{ flex: 1, minHeight: 0 }}><AreaChart data={data?.hourly_trend || []} /></div></Panel>
-        <Panel title="Recognition split" fill><Donut recognized={t.recognized_today ?? 0} unknown={t.unknown_today ?? 0} /></Panel>
+        {desc.split && (
+          <Panel title={desc.split.title} fill>
+            <Donut recognized={t[desc.split.a] ?? 0} unknown={t[desc.split.b] ?? 0} aLabel={desc.split.aLabel} bLabel={desc.split.bLabel} />
+          </Panel>
+        )}
       </div>
 
-      {/* Row 3 — by camera / top persons + live feed (fills, equal share) */}
-      <div style={{ flex: "1 1 0", minHeight: 0, display: "grid", gridTemplateColumns: hasNames ? "1fr 1fr 1.2fr" : "1fr 1.4fr", gap: 14 }}>
+      {/* Row 3 — by camera / top list + live feed (fills, equal share) */}
+      <div style={{ flex: "1 1 0", minHeight: 0, display: "grid", gridTemplateColumns: hasTop ? "1fr 1fr 1.2fr" : "1fr 1.4fr", gap: 14 }}>
         <Panel title="By camera (today)" fill scroll><HBars data={data?.by_camera || []} /></Panel>
-        {hasNames && (
-          <Panel title="Most seen today" fill scroll>
-            {data.top_persons.map((p, i) => (
-              <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 0", borderBottom: i < data.top_persons.length - 1 ? `1px solid ${C.border}` : "none" }}>
+        {hasTop && (
+          <Panel title={desc.topList.title} fill scroll>
+            {topSrc.map((p, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 0", borderBottom: i < topSrc.length - 1 ? `1px solid ${C.border}` : "none" }}>
                 <span style={{ width: 22, height: 22, borderRadius: 6, background: C.panel2, color: C.green, fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{i + 1}</span>
-                <span style={{ flex: 1, fontSize: 14 }}>{p.name}</span>
-                <span style={{ color: C.text, fontWeight: 600 }}>{p.count}</span>
+                <span style={{ flex: 1, fontSize: 14 }}>{p[desc.topList.name] ?? "—"}</span>
+                <span style={{ color: C.text, fontWeight: 600 }}>{p[desc.topList.count || "count"] ?? 0}</span>
               </div>
             ))}
           </Panel>
@@ -281,7 +345,7 @@ export default function PublicFrsDashboard() {
                 <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 0", borderBottom: i < live.length - 1 ? `1px solid ${C.border}` : "none", animation: i === 0 ? "frsIn .4s ease" : "none" }}>
                   <span style={{ width: 7, height: 7, borderRadius: 999, background: rec ? C.green : C.amber }} />
                   <span style={{ flex: 1, fontSize: 13.5 }}>
-                    {data?.show_names && ev.person_name ? ev.person_name : (ev.event_type || "").replace(/_/g, " ")}
+                    {desc.feedLabel(ev)}
                     <span style={{ color: C.faint }}> · {ev.camera_id || "—"}</span>
                   </span>
                   {ev.confidence != null && <span style={{ fontSize: 12, color: C.muted }}>{Math.round(ev.confidence * 100)}%</span>}

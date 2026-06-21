@@ -583,6 +583,13 @@ def _startup() -> None:
     _safe_init_store()
     _maybe_migrate_sqlite()
     _load_store()
+    # Public dashboard + ingest settings table (SS has no Alembic runner — the
+    # SDK-backed settings store owns its own idempotent CREATE TABLE).
+    try:
+        from db.public_store import init_settings_table
+        init_settings_table()
+    except Exception as exc:  # noqa: BLE001
+        print(f"[suspect-search] settings table init failed: {exc}", flush=True)
     _qdrant_client()
     threading.Thread(target=register_on_boot, daemon=True).start()
     threading.Thread(target=_retention_loop, daemon=True).start()

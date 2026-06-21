@@ -120,4 +120,11 @@ class ANPRSettings(Base):
     min_plate_w = Column(Integer, nullable=True)
     min_reads = Column(Integer, nullable=True)
     speed_enabled = Column(Boolean, nullable=False, default=False)
+    # Public dashboard + third-party ingest (SDK SettingsStore columns).
+    public_dashboard_enabled = Column(Boolean, nullable=False, default=False)
+    ingest_api_enabled = Column(Boolean, nullable=False, default=False)
+    ingest_api_key = Column(String(128), nullable=True)
+    # Privacy: plates are sensitive — only show plate text on the public
+    # dashboard when the operator opts in (public_show_names).
+    public_show_names = Column(Boolean, nullable=False, default=False)
     updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)

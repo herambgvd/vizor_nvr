@@ -28,10 +28,6 @@ logger = logging.getLogger(__name__)
 # No auth dependency — these endpoints are intentionally public.
 router = APIRouter(prefix="/api/ai", tags=["AI Public"])
 
-# Scenarios that expose a public surface, and which plugin paths are allowed.
-_PUBLIC_SCENARIOS = {"frs"}
-
-
 def _manifest(scenario) -> dict:
     return scenario.manifest if isinstance(scenario.manifest, dict) else {}
 
@@ -43,8 +39,9 @@ def _service_url(scenario) -> str | None:
 
 
 async def _resolve(slug: str, db: AsyncSession):
-    if slug not in _PUBLIC_SCENARIOS:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
+    """Resolve any registered + licensed scenario's plugin URL. The plugin itself
+    enforces the public toggle / ingest key, so the NVR just forwards — every
+    scenario gets a public surface uniformly (no per-slug allowlist)."""
     scenario = await ai_service.get_scenario_by_slug(db, slug)
     if not scenario or not scenario.registered or not scenario.licensed:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
@@ -66,13 +63,19 @@ def _service_headers(extra: dict | None = None) -> dict:
 @router.post("/{slug}/ingest")
 async def ingest_event(slug: str, request: Request, db: AsyncSession = Depends(get_db)) -> Response:
     """Third-party event ingest. The caller supplies the scenario ingest API key
-    in X-FRS-Ingest-Key; the plugin verifies it (returns 401 if invalid/disabled)."""
+    in X-Scn-Ingest-Key (or the legacy X-FRS-Ingest-Key); the plugin verifies it
+    (returns 401 if invalid/disabled)."""
     service_url = await _resolve(slug, db)
     body = await request.body()
     headers = _service_headers({"content-type": request.headers.get("content-type", "application/json")})
-    # Forward the ingest key the plugin checks.
-    key = request.headers.get("X-FRS-Ingest-Key") or request.headers.get("x-frs-ingest-key")
+    # Forward the ingest key the plugin checks (accept generic + legacy FRS header;
+    # forward both so the plugin can read whichever it expects).
+    key = (request.headers.get("X-Scn-Ingest-Key")
+           or request.headers.get("x-scn-ingest-key")
+           or request.headers.get("X-FRS-Ingest-Key")
+           or request.headers.get("x-frs-ingest-key"))
     if key:
+        headers["X-Scn-Ingest-Key"] = key
         headers["X-FRS-Ingest-Key"] = key
     try:
         async with httpx.AsyncClient(timeout=settings.AI_PLUGIN_PROXY_TIMEOUT) as client:

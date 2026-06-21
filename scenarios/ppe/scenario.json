@@ -37,6 +37,11 @@
 
     { "method": "GET", "path": "/settings" },
     { "method": "PUT", "path": "/settings" },
+    { "method": "POST", "path": "/settings/ingest-key/rotate" },
+
+    { "method": "GET", "path": "/public/dashboard" },
+    { "method": "GET", "path": "/public/stream" },
+    { "method": "POST", "path": "/ingest/event" },
 
     { "method": "GET", "path": "/events" },
     { "method": "DELETE", "path": "/events/{event_id}" },

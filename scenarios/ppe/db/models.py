@@ -66,4 +66,11 @@ class PPESettings(Base):
     missing_grace = Column(Float, nullable=True)
     min_present = Column(Float, nullable=True)
     cooldown = Column(Float, nullable=True)
+    # Public dashboard + third-party ingest (SDK SettingsStore columns).
+    public_dashboard_enabled = Column(Boolean, nullable=False, default=False)
+    ingest_api_enabled = Column(Boolean, nullable=False, default=False)
+    ingest_api_key = Column(String(128), nullable=True)
+    # Privacy: whether the public dashboard may show non-PII labels (PPE item /
+    # violation types are not PII; this gates any worker identity if ever shown).
+    public_show_names = Column(Boolean, nullable=False, default=False)
     updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)

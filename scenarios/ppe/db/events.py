@@ -8,18 +8,18 @@ NVR proxy + events module render PPE uniformly.
 from __future__ import annotations
 
 import queue
-import threading
 from typing import Optional
+
+from vizor_sdk import EventBus
 
 from db import session
 from schemas import naive, utcnow
 
 
-# ── realtime bus (for a future public SSE dashboard) ─────────────────────────
-# Each subscriber gets a bounded queue; a slow/dead client drops events rather
-# than back-pressuring the recorder.
-_subscribers: set[queue.Queue] = set()
-_sub_lock = threading.Lock()
+# ── realtime bus (for the public SSE dashboard) ──────────────────────────────
+# Shared SDK in-process pub/sub. The public router subscribes to this same bus;
+# record_event publishes a small aggregate-safe dict on every insert.
+bus = EventBus()
 
 
 def _iso_utc(dt) -> str | None:
@@ -33,25 +33,15 @@ def _iso_utc(dt) -> str | None:
 
 
 def subscribe() -> queue.Queue:
-    q: queue.Queue = queue.Queue(maxsize=100)
-    with _sub_lock:
-        _subscribers.add(q)
-    return q
+    return bus.subscribe()
 
 
 def unsubscribe(q: queue.Queue) -> None:
-    with _sub_lock:
-        _subscribers.discard(q)
+    bus.unsubscribe(q)
 
 
 def _publish(payload: dict) -> None:
-    with _sub_lock:
-        subs = list(_subscribers)
-    for q in subs:
-        try:
-            q.put_nowait(payload)
-        except queue.Full:
-            pass  # slow client — drop rather than block the recorder
+    bus.publish(payload)
 
 
 _TITLES = {
@@ -105,10 +95,13 @@ def record_event(
         new_id = ev.id
 
     # Notify the realtime dashboard (aggregate-safe: no snapshot bytes).
+    # label = the violation summary (PPE item or missing-item list), never PII.
+    label = ppe_item or (", ".join(missing_items) if missing_items else None)
     _publish({
         "event_id": new_id,
         "event_type": event_type,
         "camera_id": camera_id,
+        "label": label,
         "worker_track_id": worker_track_id,
         "ppe_item": ppe_item,
         "missing_items": missing_items,

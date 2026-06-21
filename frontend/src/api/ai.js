@@ -59,16 +59,22 @@ export const proxyScenario = async (
   return r.data;
 };
 
-// FRS feature settings (public dashboard + third-party ingest API). Operator-
-// facing, routed through the authenticated proxy.
-export const getFrsFeatureSettings = (slug = "frs") =>
+// Scenario feature settings (public dashboard + third-party ingest API) — works
+// for ANY scenario (frs/ppe/anpr/suspect-search). Operator-facing, routed through
+// the authenticated proxy.
+export const getScenarioFeatureSettings = (slug) =>
   proxyScenario(slug, "/settings");
 
-export const updateFrsFeatureSettings = (patch, slug = "frs") =>
+export const updateScenarioFeatureSettings = (slug, patch) =>
   proxyScenario(slug, "/settings", { method: "PUT", data: patch });
 
-export const rotateFrsIngestKey = (slug = "frs") =>
+export const rotateScenarioIngestKey = (slug) =>
   proxyScenario(slug, "/settings/ingest-key/rotate", { method: "POST" });
+
+// Back-compat FRS-named aliases (kept so existing callers don't break).
+export const getFrsFeatureSettings = (slug = "frs") => getScenarioFeatureSettings(slug);
+export const updateFrsFeatureSettings = (patch, slug = "frs") => updateScenarioFeatureSettings(slug, patch);
+export const rotateFrsIngestKey = (slug = "frs") => rotateScenarioIngestKey(slug);
 
 // Realtime search — returns matching events directly ({items, total}); no job,
 // no polling. The primary search path.

@@ -8,16 +8,18 @@ so the NVR proxy + events module render ANPR uniformly.
 from __future__ import annotations
 
 import queue
-import threading
 from typing import Optional
+
+from vizor_sdk import EventBus
 
 from db import session
 from schemas import naive, utcnow
 
 
-# ── realtime bus (for a future public SSE dashboard) ─────────────────────────
-_subscribers: set[queue.Queue] = set()
-_sub_lock = threading.Lock()
+# ── realtime bus (for the public SSE dashboard) ──────────────────────────────
+# Shared SDK in-process pub/sub. The public router subscribes to this same bus;
+# record_event publishes a small aggregate-safe dict on every insert.
+bus = EventBus()
 
 
 def _iso_utc(dt) -> str | None:
@@ -31,25 +33,33 @@ def _iso_utc(dt) -> str | None:
 
 
 def subscribe() -> queue.Queue:
-    q: queue.Queue = queue.Queue(maxsize=100)
-    with _sub_lock:
-        _subscribers.add(q)
-    return q
+    return bus.subscribe()
 
 
 def unsubscribe(q: queue.Queue) -> None:
-    with _sub_lock:
-        _subscribers.discard(q)
+    bus.unsubscribe(q)
 
 
 def _publish(payload: dict) -> None:
-    with _sub_lock:
-        subs = list(_subscribers)
-    for q in subs:
-        try:
-            q.put_nowait(payload)
-        except queue.Full:
-            pass  # slow client — drop rather than block the recorder
+    bus.publish(payload)
+
+
+def _mask_plate(plate: Optional[str]) -> Optional[str]:
+    """Privacy mask for the public SSE: keep the last 3 chars, hash the rest."""
+    if not plate:
+        return None
+    p = str(plate)
+    return ("•" * max(0, len(p) - 3)) + p[-3:] if len(p) > 3 else "•••"
+
+
+def _public_show_names() -> bool:
+    """Whether the operator allows plate text on the public surface. Read lazily
+    (local import) to avoid an import cycle with the SDK settings store."""
+    try:
+        from db.public_store import store  # local import (avoid cycle)
+        return bool(store.get().get("public_show_names"))
+    except Exception:  # noqa: BLE001
+        return False
 
 
 # event_type ∈ {plate_read, whitelist_hit, blacklist_hit}. A blacklist hit is a
@@ -112,12 +122,18 @@ def record_event(
         s.commit()
         new_id = ev.id
 
-    # Notify the realtime dashboard (aggregate-safe: no snapshot bytes).
+    # Notify the realtime dashboard (aggregate-safe: no snapshot bytes). The SSE
+    # stream is PUBLIC, and plates are sensitive — only emit the plate text when
+    # the operator opted into public_show_names; otherwise mask it. label mirrors
+    # that decision so a subscriber never sees a raw plate it shouldn't.
+    show_plate = _public_show_names()
+    masked_plate = plate if show_plate else _mask_plate(plate)
     _publish({
         "event_id": new_id,
         "event_type": event_type,
         "camera_id": camera_id,
-        "plate": plate,
+        "plate": masked_plate,
+        "label": masked_plate,
         "vehicle_type": vehicle_type,
         "direction": direction,
         "speed_kmh": speed_kmh,
