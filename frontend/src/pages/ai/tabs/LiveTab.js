@@ -115,6 +115,50 @@ function playAlertBeepThrottled() {
   playAlertBeep();
 }
 
+// Spoken voice announcement on a violation (client wants a voice saying e.g.
+// "helmet not detected" instead of a plain beep). Uses the browser's built-in
+// SpeechSynthesis — no audio files to manage, and the phrase is event-specific.
+// Throttled with the same gate as the beep so a burst doesn't talk over itself.
+let _lastSpeakAt = 0;
+function speakPhrase(phrase) {
+  if (!phrase) return;
+  const synth = window.speechSynthesis;
+  if (!synth) return false;
+  const now = Date.now();
+  if (now - _lastSpeakAt < ALARM_THROTTLE_MS) return true;
+  _lastSpeakAt = now;
+  try {
+    synth.cancel(); // drop any queued utterance so we stay current
+    const u = new SpeechSynthesisUtterance(phrase);
+    u.rate = 1.0;
+    u.pitch = 1.0;
+    u.volume = 1.0;
+    synth.speak(u);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Build the per-event spoken phrase. PPE names the missing items; other scenarios
+// get a sensible default.
+function violationPhrase(ev, slug) {
+  if (slug === "ppe") {
+    const missing = Array.isArray(ev?.missing_items) ? ev.missing_items : [];
+    if (missing.length) {
+      const items = missing.map((m) => String(m).replace(/_/g, " ")).join(" and ");
+      return `${items} not detected`;
+    }
+    return "P P E not detected";
+  }
+  if (slug === "anpr") return "Blacklisted vehicle detected";
+  if (slug === "frs") {
+    if (ev?.event_type === "spoof_detected") return "Spoof detected";
+    return "Unknown person detected";
+  }
+  return "Alert";
+}
+
 // Does this fresh event warrant the loud alarm? Violation-ish across scenarios:
 // PPE missing PPE, FRS unknown/spoof, ANPR blacklist hit. Anything else is a
 // routine detection → soft chirp.
@@ -482,17 +526,22 @@ export default function LiveTab({ scenario }) {
     }, NEW_EVENT_HIGHLIGHT_MS);
 
     // Audio cue — only for genuinely new events, only when not muted. A
-    // violation-ish event (PPE missing / FRS unknown|spoof / ANPR blacklist hit)
-    // fires the loud alarm, THROTTLED to once per 1.5s so a burst doesn't stack.
-    // Everything else is a routine detection → soft chirp. Works for every
-    // scenario; scenarios without violation types simply never hit the alarm.
+    // violation-ish event SPEAKS an event-specific phrase (e.g. "helmet not
+    // detected") via the browser voice; falls back to the loud beep if speech
+    // synthesis isn't available. Throttled to once per 1.5s so a burst doesn't
+    // talk over itself. Routine detections → soft chirp.
     if (!mutedRef.current) {
-      if (fresh.some(isViolationEvent)) playAlertBeepThrottled();
-      else playSoftBeep();
+      const violation = fresh.find(isViolationEvent);
+      if (violation) {
+        const spoke = speakPhrase(violationPhrase(violation, slug));
+        if (!spoke) playAlertBeepThrottled();
+      } else {
+        playSoftBeep();
+      }
     }
 
     return () => clearTimeout(timer);
-  }, [live, isFrs]);
+  }, [live, isFrs, slug]);
 
   if (camsLoading) {
     return (
