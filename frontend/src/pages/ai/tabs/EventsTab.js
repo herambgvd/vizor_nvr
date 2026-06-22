@@ -299,9 +299,6 @@ const COLUMN_CONFIGS = {
           />
         ) : <span className="text-zinc-600 text-xs">—</span>
       ) },
-      { key: "bbox", header: "BBox", cell: (ev) => (
-        <span className="text-[11px] text-zinc-400 font-telemetry whitespace-nowrap">{fmtBbox(ev.bbox)}</span>
-      ) },
     ],
   },
 
@@ -329,9 +326,6 @@ const COLUMN_CONFIGS = {
       ) },
       { key: "conf", header: "Conf.", cell: (ev) => ConfBadge(ev) },
       { key: "snapshot", header: "Snapshot", cell: (ev, ctx) => <SnapshotThumb ev={ev} slug={ctx.slug} /> },
-      { key: "bbox", header: "BBox", cell: (ev) => (
-        <span className="text-[11px] text-zinc-400 font-telemetry whitespace-nowrap">{fmtBbox(ev.bbox)}</span>
-      ) },
     ],
   },
 
@@ -390,9 +384,6 @@ const DEFAULT_COLUMN_CONFIG = {
     { key: "type", header: "Type", cell: (ev) => TypeChip(ev, false) },
     { key: "conf", header: "Conf.", cell: (ev) => ConfBadge(ev) },
     { key: "snapshot", header: "Snapshot", cell: (ev, ctx) => <SnapshotThumb ev={ev} slug={ctx.slug} /> },
-    { key: "bbox", header: "BBox", cell: (ev) => (
-      <span className="text-[11px] text-zinc-400 font-telemetry whitespace-nowrap">{fmtBbox(ev.bbox)}</span>
-    ) },
   ],
 };
 
@@ -703,10 +694,10 @@ export default function EventsTab({ scenario }) {
   const countNoun = isAnpr ? "read" : "event";
 
   return (
-    <div className="p-4 space-y-3">
+    <div className="p-4 space-y-3 h-full flex flex-col min-h-0">
       {/* Filter bar */}
       <div
-        className="flex flex-wrap items-end gap-2 rounded-lg border p-3"
+        className="flex flex-wrap items-end gap-2 rounded-lg border p-3 shrink-0"
         style={{
           borderColor: "var(--console-border)",
           background: "var(--console-panel)",
@@ -848,11 +839,11 @@ export default function EventsTab({ scenario }) {
 
       {/* Table */}
       <div
-        className="rounded-lg border overflow-hidden"
+        className="rounded-lg border overflow-auto flex-1 min-h-0"
         style={{ borderColor: "var(--console-border)" }}
       >
         <table className="w-full text-left">
-          <thead>
+          <thead className="sticky top-0 z-10">
             <tr
               className="text-[10px] uppercase tracking-wider text-zinc-500 font-telemetry"
               style={{ background: "var(--console-raised)" }}
