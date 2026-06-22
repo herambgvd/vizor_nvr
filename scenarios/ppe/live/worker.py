@@ -53,7 +53,10 @@ except Exception:  # noqa: BLE001
 _INFLIGHT = threading.Semaphore(int(os.getenv("PPE_MAX_INFLIGHT", "12")))
 
 # Map our internal event verbs to the stored event_type.
-_EVENT_TYPE = {"PPE_MISSING": "ppe_missing", "PPE_REMOVED": "ppe_removed"}
+# Operators only need two states: PPE Missing (a violation) or Compliant. The
+# engine's "removed" (worn earlier, then taken off) is still "not wearing PPE
+# now", so it's recorded as ppe_missing too — no confusing third state.
+_EVENT_TYPE = {"PPE_MISSING": "ppe_missing", "PPE_REMOVED": "ppe_missing"}
 
 
 def _bbox_obj(box, frame_w: int, frame_h: int):

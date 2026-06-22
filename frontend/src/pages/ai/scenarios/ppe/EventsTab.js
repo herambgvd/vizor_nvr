@@ -59,9 +59,12 @@ const PAGE_SIZE = 25;
 const ALL = "__all__";
 const SLUG = "ppe";
 
+// Operators only care about two states: PPE Missing (a violation) or Compliant.
+// ppe_removed (worn earlier, then taken off) is still "not wearing PPE now", so
+// it's shown as PPE Missing — no confusing third state.
 const PPE_EVENT_LABEL = {
   ppe_missing: "PPE Missing",
-  ppe_removed: "PPE Restored",
+  ppe_removed: "PPE Missing",
   ppe_compliant: "Compliant",
 };
 
@@ -85,9 +88,8 @@ function typeBadgeClass(type) {
     case "ppe_compliant":
       return "border-emerald-500/40 bg-emerald-500/15 text-emerald-300";
     case "ppe_missing":
-      return "border-rose-500/40 bg-rose-500/15 text-rose-300";
     case "ppe_removed":
-      return "border-amber-500/40 bg-amber-500/15 text-amber-300";
+      return "border-rose-500/40 bg-rose-500/15 text-rose-300";
     default:
       return "border-zinc-600/50 bg-zinc-700/30 text-zinc-300";
   }
@@ -125,7 +127,7 @@ function SnapshotThumb({ ev }) {
   );
 }
 
-function AuthImage({ fetcher, deps, className, fallback }) {
+function AuthImage({ fetcher, deps, className, fallback, fit = "cover" }) {
   const [url, setUrl] = useState(null);
   const [err, setErr] = useState(false);
   useEffect(() => {
@@ -148,7 +150,7 @@ function AuthImage({ fetcher, deps, className, fallback }) {
       </div>
     );
   }
-  return <img src={url} alt="" className={className} style={{ objectFit: "cover" }} />;
+  return <img src={url} alt="" className={className} style={{ objectFit: fit }} />;
 }
 
 function ChipList({ items, tone }) {
@@ -180,41 +182,92 @@ const ConfBadge = (ev) => (
   </span>
 );
 
+// Item chips for the detail modal — missing items render as red "No {item}"
+// violation chips, present items as emerald compliant chips (vizor-app palette).
+function ItemChip({ label, tone }) {
+  const cls =
+    tone === "danger"
+      ? "bg-red-500/10 text-red-400 border-red-500/30"
+      : "bg-emerald-500/10 text-emerald-400 border-emerald-500/30";
+  return (
+    <span className={cn("text-[11px] px-2 py-0.5 rounded border", cls)}>{label}</span>
+  );
+}
+
 function EventDetailModal({ event, camMap, onClose }) {
   if (!event) return null;
   const ev = event;
   const confPct = typeof ev.confidence === "number" ? `${(ev.confidence * 100).toFixed(1)}%` : "—";
+  const isViolation = ev.event_type === "ppe_missing" || ev.event_type === "ppe_removed";
+  const missing = Array.isArray(ev.missing_items) ? ev.missing_items : [];
+  const present = Array.isArray(ev.present_items) ? ev.present_items : [];
+  const prettyItem = (it) => String(it).replace(/_/g, " ");
+  // Person crop = the SAME snapshot path with &crop=1 appended (backend already
+  // renders the tight person crop for that key). scenarioSnapshotUrl forwards the
+  // full query string through the proxy, so the crop arrives authenticated.
+  const cropPath = ev.snapshot_path
+    ? `${ev.snapshot_path}${ev.snapshot_path.includes("?") ? "&" : "?"}crop=1`
+    : null;
   const rows = [
     ["Time", fmtTime(ev.triggered_at)],
     ["Type", prettyEventLabel(ev.event_type)],
     ["Camera", camMap[ev.camera_id] || ev.camera_id || "—"],
     ev.worker_track_id != null ? ["Worker", `#${ev.worker_track_id}`] : null,
-    Array.isArray(ev.missing_items) && ev.missing_items.length ? ["Missing", ev.missing_items.join(", ")] : null,
-    Array.isArray(ev.present_items) && ev.present_items.length ? ["Present", ev.present_items.join(", ")] : null,
     ["Confidence", confPct],
     ["BBox", fmtBbox(ev.bbox)],
+    ev.id != null ? ["Event ID", String(ev.id)] : null,
   ].filter(Boolean);
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.7)" }} onClick={onClose}>
-      <div className="w-full max-w-3xl rounded-lg flex flex-col" style={{ background: "var(--console-panel)", border: "1px solid var(--console-border)" }} onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: "1px solid var(--console-border)" }}>
+      <div className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-lg flex flex-col" style={{ background: "var(--console-panel)", border: "1px solid var(--console-border)" }} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 sticky top-0 z-10" style={{ borderBottom: "1px solid var(--console-border)", background: "var(--console-panel)" }}>
           <span className="font-telemetry text-[12px] font-semibold uppercase tracking-widest" style={{ color: "var(--console-text)" }}>Event details</span>
           <button type="button" onClick={onClose} className="h-7 w-7 inline-flex items-center justify-center rounded hover:opacity-70" style={{ color: "var(--console-muted)" }}>
             <X className="h-4 w-4" />
           </button>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4 p-4">
-          <div className="md:col-span-3">
-            <div className="font-telemetry text-[9px] uppercase tracking-widest mb-1.5" style={{ color: "var(--console-muted)" }}>Snapshot</div>
-            <AuthImage
-              fetcher={ev.snapshot_path ? () => scenarioSnapshotUrl(SLUG, ev.snapshot_path) : null}
-              deps={[ev.id, ev.snapshot_path]}
-              className="w-full rounded border aspect-video"
-              fallback={<div className="w-full aspect-video rounded border flex items-center justify-center" style={{ borderColor: "var(--console-border)", background: "var(--console-raised)" }}><ImageOff className="h-5 w-5 text-zinc-600" /></div>}
-            />
+          {/* LEFT (3 cols): full annotated frame + person close-up crop below it. */}
+          <div className="md:col-span-3 flex flex-col gap-3">
+            <div>
+              <div className="font-telemetry text-[9px] uppercase tracking-widest mb-1.5" style={{ color: "var(--console-muted)" }}>Snapshot</div>
+              <AuthImage
+                fetcher={ev.snapshot_path ? () => scenarioSnapshotUrl(SLUG, ev.snapshot_path) : null}
+                deps={[ev.id, ev.snapshot_path]}
+                className="w-full rounded border aspect-video"
+                fit="contain"
+                fallback={<div className="w-full aspect-video rounded border flex items-center justify-center" style={{ borderColor: "var(--console-border)", background: "var(--console-raised)" }}><ImageOff className="h-5 w-5 text-zinc-600" /></div>}
+              />
+            </div>
+            <div className="rounded border overflow-hidden" style={{ borderColor: "var(--console-border)" }}>
+              <div className="px-3 py-1.5 font-telemetry text-[9px] uppercase tracking-widest" style={{ color: "var(--console-muted)", borderBottom: "1px solid var(--console-border)", background: "var(--console-raised)" }}>
+                Person close-up
+              </div>
+              <AuthImage
+                fetcher={cropPath ? () => scenarioSnapshotUrl(SLUG, cropPath) : null}
+                deps={[ev.id, cropPath]}
+                className="w-full max-h-[320px]"
+                fit="contain"
+                fallback={<div className="w-full h-32 flex items-center justify-center" style={{ background: "var(--console-raised)" }}><ImageOff className="h-5 w-5 text-zinc-600" /></div>}
+              />
+            </div>
           </div>
+          {/* RIGHT (2 cols): badge row + item chips + metadata rows. */}
           <div className="md:col-span-2 flex flex-col gap-3">
+            <div className="flex items-center gap-2 flex-wrap">
+              {isViolation ? (
+                <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/30">Violation</span>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">Compliant</span>
+              )}
+              {missing.map((it) => (
+                <ItemChip key={`m-${it}`} label={`No ${prettyItem(it)}`} tone="danger" />
+              ))}
+              {present.map((it) => (
+                <ItemChip key={`p-${it}`} label={prettyItem(it)} tone="ok" />
+              ))}
+            </div>
             <div className="flex flex-col gap-1.5">
               {rows.map(([k, v]) => (
                 <div key={k} className="flex items-start gap-2">
@@ -236,11 +289,12 @@ export default function EventsTab({ scenario }) {
   const confirm = useConfirm();
   const [detailEvent, setDetailEvent] = useState(null);
 
-  const eventTypeOptions = (
-    Array.isArray(scenario?.event_types) && scenario.event_types.length
-      ? scenario.event_types
-      : ["ppe_missing", "ppe_removed", "ppe_compliant"]
-  ).map((v) => ({ value: v, label: prettyEventLabel(v) }));
+  // Operator-facing filter: just Missing vs Compliant. ppe_removed is folded into
+  // "PPE Missing" (same label) so we don't list it as a separate confusing option.
+  const eventTypeOptions = [
+    { value: "ppe_missing", label: "PPE Missing" },
+    { value: "ppe_compliant", label: "Compliant" },
+  ];
 
   const [page, setPage] = useState(0);
   const [cameraId, setCameraId] = useState(ALL);

@@ -19,6 +19,9 @@ import {
   UserX,
   Volume2,
   VolumeX,
+  ImageOff,
+  Loader2,
+  X,
 } from "lucide-react";
 
 import { WebRTCPlayer } from "../../../components/nvr/WebRTCPlayer";
@@ -100,6 +103,31 @@ function playSoftBeep() {
   }
 }
 
+// Alarm throttle — bursts of new violations (a whole crew walking past a camera)
+// would otherwise stack overlapping beeps. Gate the audible cue to at most once
+// per ALARM_THROTTLE_MS regardless of how many fresh events arrive in one poll.
+const ALARM_THROTTLE_MS = 1500;
+let _lastAlarmAt = 0;
+function playAlertBeepThrottled() {
+  const now = Date.now();
+  if (now - _lastAlarmAt < ALARM_THROTTLE_MS) return;
+  _lastAlarmAt = now;
+  playAlertBeep();
+}
+
+// Does this fresh event warrant the loud alarm? Violation-ish across scenarios:
+// PPE missing PPE, FRS unknown/spoof, ANPR blacklist hit. Anything else is a
+// routine detection → soft chirp.
+function isViolationEvent(ev) {
+  const t = ev?.event_type;
+  return (
+    t === "ppe_missing" ||
+    t === "face_unknown" ||
+    t === "spoof_detected" ||
+    t === "blacklist_hit"
+  );
+}
+
 // Friendly fallback label for an arbitrary event_type ("ppe_missing" → "ppe missing").
 function friendlyEventType(type) {
   if (!type) return "Detection";
@@ -152,6 +180,110 @@ function FeedThumb({ ev, slug }) {
     );
   }
   return <img src={url} alt="" className="h-9 w-9 rounded shrink-0 object-cover" />;
+}
+
+// Auth-blob snapshot image for the modal — fetches the bytes through the proxy
+// (so the bearer token is applied) and shows a spinner / ImageOff fallback.
+function ModalImage({ slug, path, className }) {
+  const [url, setUrl] = useState(null);
+  const [err, setErr] = useState(false);
+  useEffect(() => {
+    setUrl(null); setErr(false);
+    if (!path || !slug || !path.startsWith("/snapshot")) { setErr(true); return undefined; }
+    let active = true; let obj = null;
+    scenarioSnapshotUrl(slug, path).then((u) => {
+      if (!active) { if (u) URL.revokeObjectURL(u); return; }
+      if (u) { obj = u; setUrl(u); } else setErr(true);
+    }).catch(() => active && setErr(true));
+    return () => { active = false; if (obj) URL.revokeObjectURL(obj); };
+  }, [slug, path]);
+  if (err) {
+    return (
+      <div className={cn(className, "flex items-center justify-center")} style={{ background: "var(--console-raised)" }}>
+        <ImageOff className="h-5 w-5 text-zinc-600" />
+      </div>
+    );
+  }
+  if (!url) {
+    return (
+      <div className={cn(className, "flex items-center justify-center")} style={{ background: "var(--console-raised)" }}>
+        <Loader2 className="h-4 w-4 animate-spin text-zinc-500" />
+      </div>
+    );
+  }
+  return <img src={url} alt="" className={className} style={{ objectFit: "contain" }} />;
+}
+
+// Generic live-event detail modal — shared across every scenario, so it stays
+// lightweight: full annotated frame + person close-up crop (snapshot_path +
+// "&crop=1") + the scenario's primary label + confidence / time / camera. FRS
+// keeps its own rich modal elsewhere; this only backs the Live feed.
+function LiveEventModal({ event, slug, camName, onClose }) {
+  if (!event) return null;
+  const ev = event;
+  const path = ev.attributes?.face_snapshot || ev.snapshot_path;
+  const cropPath = ev.snapshot_path
+    ? `${ev.snapshot_path}${ev.snapshot_path.includes("?") ? "&" : "?"}crop=1`
+    : null;
+  const confPct = typeof ev.confidence === "number" ? `${(ev.confidence * 100).toFixed(1)}%` : "—";
+  const missing = Array.isArray(ev.missing_items) ? ev.missing_items : [];
+  const present = Array.isArray(ev.present_items) ? ev.present_items : [];
+  const prettyItem = (it) => String(it).replace(/_/g, " ");
+  const rows = [
+    ["Label", liveEventLabel(ev, slug)],
+    ["Time", fmtFeedTime(ev.triggered_at)],
+    ["Camera", camName || ev.camera_id || "—"],
+    ["Confidence", confPct],
+  ];
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.7)" }} onClick={onClose}>
+      <div className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-lg flex flex-col" style={{ background: "var(--console-panel)", border: "1px solid var(--console-border)" }} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 sticky top-0 z-10" style={{ borderBottom: "1px solid var(--console-border)", background: "var(--console-panel)" }}>
+          <span className="font-telemetry text-[12px] font-semibold uppercase tracking-widest" style={{ color: "var(--console-text)" }}>Event details</span>
+          <button type="button" onClick={onClose} className="h-7 w-7 inline-flex items-center justify-center rounded hover:opacity-70" style={{ color: "var(--console-muted)" }}>
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 p-4">
+          <div className="md:col-span-3 flex flex-col gap-3">
+            <div>
+              <div className="font-telemetry text-[9px] uppercase tracking-widest mb-1.5" style={{ color: "var(--console-muted)" }}>Snapshot</div>
+              <ModalImage slug={slug} path={path} className="w-full rounded border aspect-video" />
+            </div>
+            {cropPath && (
+              <div className="rounded border overflow-hidden" style={{ borderColor: "var(--console-border)" }}>
+                <div className="px-3 py-1.5 font-telemetry text-[9px] uppercase tracking-widest" style={{ color: "var(--console-muted)", borderBottom: "1px solid var(--console-border)", background: "var(--console-raised)" }}>
+                  Person close-up
+                </div>
+                <ModalImage slug={slug} path={cropPath} className="w-full max-h-[320px]" />
+              </div>
+            )}
+          </div>
+          <div className="md:col-span-2 flex flex-col gap-3">
+            {(missing.length > 0 || present.length > 0) && (
+              <div className="flex items-center gap-2 flex-wrap">
+                {missing.map((it) => (
+                  <span key={`m-${it}`} className="text-[11px] px-2 py-0.5 rounded border bg-red-500/10 text-red-400 border-red-500/30">{`No ${prettyItem(it)}`}</span>
+                ))}
+                {present.map((it) => (
+                  <span key={`p-${it}`} className="text-[11px] px-2 py-0.5 rounded border bg-emerald-500/10 text-emerald-400 border-emerald-500/30">{prettyItem(it)}</span>
+                ))}
+              </div>
+            )}
+            <div className="flex flex-col gap-1.5">
+              {rows.map(([k, v]) => (
+                <div key={k} className="flex items-start gap-2">
+                  <div className="w-24 shrink-0 font-telemetry text-[9px] uppercase tracking-widest pt-0.5" style={{ color: "var(--console-muted)" }}>{k}</div>
+                  <div className="flex-1 min-w-0 font-telemetry text-[11px] break-all" style={{ color: "var(--console-text)" }}>{v}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function CameraTile({ cam, events, newEventIds }) {
@@ -260,6 +392,14 @@ export default function LiveTab({ scenario }) {
   const slug = scenario?.slug || "";
   const isFrs = slug === "frs";
 
+  // Clicking a feed row opens a generic detail modal for that event.
+  const [detailEvent, setDetailEvent] = useState(null);
+  const camNameById = useMemo(() => {
+    const m = {};
+    cameras.forEach((c) => { m[c.camera_id] = c.camera_name || c.camera_id; });
+    return m;
+  }, [cameras]);
+
   // Poll recent events for the live feed — for EVERY scenario, not just FRS.
   // FRS keeps its proven /live path; other plugins read via their own
   // events/plates endpoint. Both are normalised to { items: [...] }.
@@ -328,23 +468,14 @@ export default function LiveTab({ scenario }) {
       });
     }, NEW_EVENT_HIGHLIGHT_MS);
 
-    // Audio cue — only for genuinely new events, only when not muted. FRS uses
-    // its alert/recognized distinction; other scenarios get the soft chirp so a
-    // fresh detection is still audible without inventing per-type rules.
+    // Audio cue — only for genuinely new events, only when not muted. A
+    // violation-ish event (PPE missing / FRS unknown|spoof / ANPR blacklist hit)
+    // fires the loud alarm, THROTTLED to once per 1.5s so a burst doesn't stack.
+    // Everything else is a routine detection → soft chirp. Works for every
+    // scenario; scenarios without violation types simply never hit the alarm.
     if (!mutedRef.current) {
-      if (isFrs) {
-        const hasAlert = fresh.some(
-          (ev) =>
-            ev.event_type === "face_unknown" || ev.event_type === "spoof_detected",
-        );
-        const hasRecognized = fresh.some(
-          (ev) => ev.event_type === "face_recognized",
-        );
-        if (hasAlert) playAlertBeep();
-        else if (hasRecognized) playSoftBeep();
-      } else {
-        playSoftBeep();
-      }
+      if (fresh.some(isViolationEvent)) playAlertBeepThrottled();
+      else playSoftBeep();
     }
 
     return () => clearTimeout(timer);
@@ -459,11 +590,13 @@ export default function LiveTab({ scenario }) {
                 </div>
               ) : (
                 (live.items || []).map((ev) => (
-                  <div
+                  <button
                     key={ev.id}
+                    type="button"
+                    onClick={() => setDetailEvent(ev)}
                     className={cn(
-                      "flex items-center gap-2.5 px-3 py-2 border-b",
-                      newEventIds?.has(ev.id) && "animate-[liveBadgeIn_300ms_ease-out]",
+                      "w-full text-left flex items-center gap-2.5 px-3 py-2 border-b hover:bg-white/[0.04] transition-colors",
+                      newEventIds?.has(ev.id) && "ring-1 ring-inset ring-[var(--console-accent)] animate-[liveBadgeIn_300ms_ease-out]",
                     )}
                     style={{
                       borderColor: "var(--console-border)",
@@ -485,12 +618,21 @@ export default function LiveTab({ scenario }) {
                     <span className={cn("rounded border px-1 text-[10px] font-telemetry shrink-0", confidenceBadgeClass(ev.confidence))}>
                       {fmtConfidence(ev.confidence)}
                     </span>
-                  </div>
+                  </button>
                 ))
               )}
             </div>
         </div>
       </div>
+
+      {detailEvent && (
+        <LiveEventModal
+          event={detailEvent}
+          slug={slug}
+          camName={camNameById[detailEvent.camera_id]}
+          onClose={() => setDetailEvent(null)}
+        />
+      )}
     </div>
   );
 }
