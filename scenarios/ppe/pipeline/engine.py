@@ -301,15 +301,24 @@ def eligible_people(
     min_person_height: int,
     min_foot_y: float,
     border_margin: int,
+    max_aspect: float = 5.0,
 ) -> list[Detection]:
-    """Suppress partial-edge tracks and camera artifacts from compliance decisions."""
+    """Suppress partial-edge tracks and camera artifacts from compliance decisions.
+
+    `max_aspect` rejects absurdly tall+thin boxes (height/width) that the detector
+    sometimes hallucinates as a 'person' on standing objects — a water bottle, a
+    pole, a chair leg. A real standing/seated worker tops out around 4:1; a bottle
+    runs much higher, so this drops the false person without touching real ones."""
     accepted = []
     for person in persons:
         x1, _y1, x2, y2 = person.box
-        height = person.box[3] - person.box[1]
+        height = y2 - person.box[1]
+        width = max(1, x2 - x1)
+        aspect = height / width
         touches_edge = x1 <= border_margin or x2 >= frame_w - border_margin
         foot_too_high = y2 < min_foot_y * frame_h
-        if height >= min_person_height and not touches_edge and not foot_too_high:
+        if (height >= min_person_height and not touches_edge
+                and not foot_too_high and aspect <= max_aspect):
             accepted.append(person)
     return accepted
 

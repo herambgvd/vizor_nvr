@@ -345,7 +345,8 @@ class CameraWorker(threading.Thread):
         # Eligibility + dedup + ROI gate (ported order from run_video.run).
         persons = deduplicate_persons(
             eligible_people(all_persons, h, w, config.MIN_PERSON_HEIGHT,
-                            config.MIN_FOOT_Y, config.BORDER_MARGIN)
+                            config.MIN_FOOT_Y, config.BORDER_MARGIN,
+                            config.MAX_PERSON_ASPECT)
         )
         if self._roi is not None:
             persons = [p for p in persons if in_roi(p, self._roi)]

@@ -96,6 +96,8 @@ STABLE_ID_MAX_AGE = float(os.getenv("PPE_STABLE_ID_MAX_AGE", "12.0"))  # relink 
 MIN_PERSON_HEIGHT = int(os.getenv("PPE_MIN_PERSON_HEIGHT", "80"))
 MIN_FOOT_Y = float(os.getenv("PPE_MIN_FOOT_Y", "0.20"))
 BORDER_MARGIN = int(os.getenv("PPE_BORDER_MARGIN", "6"))
+# Reject tall+thin false 'person' boxes (water bottle, pole). Real worker ~<=4:1.
+MAX_PERSON_ASPECT = float(os.getenv("PPE_MAX_PERSON_ASPECT", "4.5"))
 
 # Default required PPE when a camera does not configure it. Canonical labels.
 REQUIRED_PPE_DEFAULT = [
