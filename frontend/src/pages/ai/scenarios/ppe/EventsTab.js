@@ -208,13 +208,13 @@ function EventDetailModal({ event, camMap, onClose }) {
   const cropPath = ev.snapshot_path
     ? `${ev.snapshot_path}${ev.snapshot_path.includes("?") ? "&" : "?"}crop=1`
     : null;
+  // The chips above already state the PPE status (No helmet / vest worn …), so no
+  // redundant "Type: ppe missing" row.
   const rows = [
     ["Time", fmtTime(ev.triggered_at)],
-    ["Type", prettyEventLabel(ev.event_type)],
     ["Camera", camMap[ev.camera_id] || ev.camera_id || "—"],
     ev.worker_track_id != null ? ["Worker", `#${ev.worker_track_id}`] : null,
     ["Confidence", confPct],
-    ["BBox", fmtBbox(ev.bbox)],
     ev.id != null ? ["Event ID", String(ev.id)] : null,
   ].filter(Boolean);
 

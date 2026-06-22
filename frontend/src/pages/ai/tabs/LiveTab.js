@@ -148,7 +148,14 @@ function liveEventLabel(ev, slug) {
   if (!ev) return "Detection";
   if (slug === "frs") return eventPersonName(ev);
   if (slug === "anpr") return ev.plate || ev.label || friendlyEventType(ev.event_type);
-  // PPE and any other plugin scenario.
+  // PPE: name the actual PPE state — missing items, or "Compliant" — not the raw
+  // "ppe missing" slug.
+  if (slug === "ppe") {
+    const missing = Array.isArray(ev.missing_items) ? ev.missing_items : [];
+    if (ev.event_type === "ppe_compliant") return "Compliant";
+    if (missing.length) return `No ${missing.join(", ")}`;
+    return "PPE Missing";
+  }
   return ev.label || friendlyEventType(ev.event_type);
 }
 
@@ -230,7 +237,9 @@ function LiveEventModal({ event, slug, camName, onClose }) {
   const present = Array.isArray(ev.present_items) ? ev.present_items : [];
   const prettyItem = (it) => String(it).replace(/_/g, " ");
   const rows = [
-    ["Label", liveEventLabel(ev, slug)],
+    // PPE: the chips above already state the PPE status, so skip a redundant
+    // "Label: ppe missing" row. Other scenarios show the person/plate label.
+    ...(slug === "ppe" ? [] : [["Label", liveEventLabel(ev, slug)]]),
     ["Time", fmtFeedTime(ev.triggered_at)],
     ["Camera", camName || ev.camera_id || "—"],
     ["Confidence", confPct],
@@ -286,8 +295,12 @@ function LiveEventModal({ event, slug, camName, onClose }) {
   );
 }
 
-function CameraTile({ cam, events, newEventIds }) {
-  const recent = (events || []).slice(0, MAX_OVERLAY_PER_CAM);
+function CameraTile({ cam, events, newEventIds, slug }) {
+  // The bottom per-person recognition overlay is FRS-specific (shows enrolled
+  // person names). Other scenarios (PPE/ANPR) have no per-person name to show on
+  // the tile — their detections live in the Live-events feed + Events tab — so we
+  // don't render the overlay (it was showing a meaningless "Unknown" badge).
+  const recent = slug === "frs" ? (events || []).slice(0, MAX_OVERLAY_PER_CAM) : [];
 
   return (
     <div
@@ -560,6 +573,7 @@ export default function LiveTab({ scenario }) {
             <CameraTile
               key={cam.id || cam.camera_id}
               cam={cam}
+              slug={slug}
               events={eventsByCamera[cam.camera_id]}
               newEventIds={isFrs ? newEventIds : undefined}
             />
