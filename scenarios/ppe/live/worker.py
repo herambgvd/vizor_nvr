@@ -59,6 +59,31 @@ _INFLIGHT = threading.Semaphore(int(os.getenv("PPE_MAX_INFLIGHT", "12")))
 _EVENT_TYPE = {"PPE_MISSING": "ppe_missing", "PPE_REMOVED": "ppe_missing"}
 
 
+# Status colors (BGR) — matches the POC overlay.
+_BOX_RED = (60, 60, 235)     # violation
+_BOX_GREEN = (90, 210, 120)  # compliant
+
+
+def _draw_corner_box(frame, box, color) -> None:
+    """Modern corner-bracket box (POC draw_corner_box): a thin base rectangle plus
+    thicker accented corner brackets, stroke scaled to frame size. Reads clearly
+    on both sub- and main-stream resolutions."""
+    import cv2 as _cv2
+    x1, y1, x2, y2 = (int(v) for v in box)
+    scale = max(frame.shape[0] / 720.0, 1.0)
+    base = max(2, int(round(2 * scale)))
+    accent = max(4, int(round(4 * scale)))
+    length = max(16, min(40, int(min(x2 - x1, y2 - y1) * 0.18)))
+    _cv2.rectangle(frame, (x1, y1), (x2, y2), color, base, _cv2.LINE_AA)
+    for start, end in (
+        ((x1, y1), (x1 + length, y1)), ((x1, y1), (x1, y1 + length)),
+        ((x2, y1), (x2 - length, y1)), ((x2, y1), (x2, y1 + length)),
+        ((x1, y2), (x1 + length, y2)), ((x1, y2), (x1, y2 - length)),
+        ((x2, y2), (x2 - length, y2)), ((x2, y2), (x2, y2 - length)),
+    ):
+        _cv2.line(frame, start, end, color, accent, _cv2.LINE_AA)
+
+
 def _merge_links(primary: dict, secondary: dict) -> dict:
     """Confidence-wise fusion of full-frame + crop PPE evidence (proven worker's
     merge_links). Keeps the higher-confidence detection per (track, label)."""
@@ -403,16 +428,17 @@ class CameraWorker(threading.Thread):
         # factor), NOT the person-box score (that was the bogus "34%").
         confs = [evidence[r].confidence for r in self.required_canonical if evidence.get(r)]
         conf = min(confs) if confs else None
-        snap = self._snapshot(frame_bgr, person.box)
+        snap = self._snapshot(frame_bgr, person.box, _BOX_GREEN)
         _record_event(
             self.camera_id, "ppe_compliant", person.track_id, None,
             [], present_items, conf, snap, utcnow(),
             bbox=_bbox_obj(person.box, w, h),
         )
 
-    def _snapshot(self, frame_bgr, box) -> str | None:
-        """Persist the full annotated-free frame + a person crop. Returns the full
-        snapshot key the /snapshot route serves, or None on failure."""
+    def _snapshot(self, frame_bgr, box, color=_BOX_RED) -> str | None:
+        """Persist the full annotated frame (offender in a corner-bracket box) +
+        a person crop. Returns the snapshot key the /snapshot route serves, or
+        None on failure. `color` (BGR) marks the box red=violation / green=ok."""
         if cv2 is None:
             return None
         frame_id = str(uuid.uuid4())
@@ -434,10 +460,10 @@ class CameraWorker(threading.Thread):
                         (base / f"{frame_id}_crop.jpg").write_bytes(cbuf.tobytes())
             except Exception:  # noqa: BLE001
                 pass
-            # Full frame with the offending person boxed (red) so the operator can
-            # immediately locate them in context.
+            # Full frame with the person in a modern corner-bracket box (POC style)
+            # so the operator can immediately locate them in context.
             annotated = frame_bgr.copy()
-            cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 0, 255), 3)
+            _draw_corner_box(annotated, (x1, y1, x2, y2), color)
             ok, buf = cv2.imencode(".jpg", annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
             if not ok:
                 return None
