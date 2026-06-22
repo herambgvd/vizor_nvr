@@ -106,13 +106,18 @@ class PPEDetector:
             return []
         dets: list[Detection] = []
         inv = 1.0 / scale if scale else 1.0
+        # The NMS-baked export pads the fixed 300 rows with very-low-score
+        # detections (0.01–0.10). A floor below the lowest real per-class
+        # threshold (no_hardhat 0.15) drops that noise so person tracking + PPE
+        # association aren't polluted; per-class floors apply downstream.
+        floor = config.DECODE_SCORE_FLOOR
         for row in raw:
             x1, y1, x2, y2, score, cls = (
                 float(row[0]), float(row[1]), float(row[2]), float(row[3]),
                 float(row[4]), int(round(float(row[5]))),
             )
-            if score <= 0.0:
-                continue  # padded / empty rows
+            if score < floor:
+                continue  # padded / empty / noise rows
             label = canonical_label(_CLASS_NAMES.get(cls, str(cls)))
             # Un-letterbox: subtract pad, divide by scale, clamp to frame.
             ox1 = (x1 - pad_x) * inv

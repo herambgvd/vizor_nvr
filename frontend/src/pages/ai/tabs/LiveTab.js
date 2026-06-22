@@ -23,7 +23,7 @@ import {
 
 import { WebRTCPlayer } from "../../../components/nvr/WebRTCPlayer";
 import { getScenarioCameras, listFrsLive } from "../../../api/frs";
-import { scenarioSnapshotUrl } from "../../../api/ai";
+import { scenarioSnapshotUrl, listScenarioPluginEvents } from "../../../api/ai";
 import {
   eventPersonName,
   eventTypeBadgeClass,
@@ -100,10 +100,28 @@ function playSoftBeep() {
   }
 }
 
+// Friendly fallback label for an arbitrary event_type ("ppe_missing" → "ppe missing").
+function friendlyEventType(type) {
+  if (!type) return "Detection";
+  return String(type).replace(/_/g, " ");
+}
+
 function OverlayIcon({ type }) {
   if (type === "spoof_detected") return <ShieldAlert className="h-3 w-3" />;
   if (type === "face_unknown") return <UserX className="h-3 w-3" />;
-  return <UserCheck className="h-3 w-3" />;
+  if (type === "face_recognized") return <UserCheck className="h-3 w-3" />;
+  // Unknown / non-FRS event types — neutral dot so any scenario renders cleanly.
+  return <span className="inline-block h-2 w-2 rounded-full bg-current opacity-80" />;
+}
+
+// Per-scenario display label for a live-event row. FRS keeps its proven
+// person-name resolution; other scenarios surface their own primary field.
+function liveEventLabel(ev, slug) {
+  if (!ev) return "Detection";
+  if (slug === "frs") return eventPersonName(ev);
+  if (slug === "anpr") return ev.plate || ev.label || friendlyEventType(ev.event_type);
+  // PPE and any other plugin scenario.
+  return ev.label || friendlyEventType(ev.event_type);
 }
 
 function fmtFeedTime(iso) {
@@ -111,8 +129,10 @@ function fmtFeedTime(iso) {
   try { return formatTime(iso); } catch { return iso; }
 }
 
-// Live-feed face thumbnail — auth blob fetch of the event's face crop.
-function FeedFace({ ev, slug }) {
+// Live-feed thumbnail — auth blob fetch of the event's snapshot. FRS prefers
+// its face crop (attributes.face_snapshot); other scenarios use snapshot_path.
+// Falls back to a scenario icon placeholder when no snapshot is available.
+function FeedThumb({ ev, slug }) {
   const [url, setUrl] = useState(null);
   const path = ev.attributes?.face_snapshot || ev.snapshot_path;
   useEffect(() => {
@@ -235,15 +255,22 @@ export default function LiveTab({ scenario }) {
     [enabledCameras],
   );
 
-  // Recognition overlay is FRS-only — other scenarios have no live per-person
-  // feed, so skip the poll and render a plain camera wall.
-  const isFrs = (scenario?.slug || "") === "frs";
+  // Face-overlay-on-tile is FRS-specific (face boxes/names). Other scenarios
+  // share the same live-events FEED but not the FRS tile overlay.
+  const slug = scenario?.slug || "";
+  const isFrs = slug === "frs";
 
-  // Poll recent recognition events; group by camera for overlays.
+  // Poll recent events for the live feed — for EVERY scenario, not just FRS.
+  // FRS keeps its proven /live path; other plugins read via their own
+  // events/plates endpoint. Both are normalised to { items: [...] }.
   const { data: live } = useQuery({
-    queryKey: ["frs", "live", cameraIds],
-    queryFn: () => listFrsLive({ camera_id: cameraIds, limit: 100 }),
-    enabled: isFrs && cameraIds.length > 0,
+    queryKey: ["ai", "live", slug, cameraIds],
+    queryFn: async () => {
+      if (isFrs) return listFrsLive({ camera_id: cameraIds, limit: 100 });
+      const r = await listScenarioPluginEvents(slug, { camera_id: cameraIds, limit: 100 });
+      return { items: r?.items || [] };
+    },
+    enabled: !!slug && cameraIds.length > 0,
     refetchInterval: LIVE_POLL_MS,
     refetchIntervalInBackground: false,
   });
@@ -271,7 +298,6 @@ export default function LiveTab({ scenario }) {
   }, [muted]);
 
   useEffect(() => {
-    if (!isFrs) return;
     const items = live?.items || [];
     const currentIds = new Set(items.map((ev) => ev.id));
 
@@ -302,17 +328,23 @@ export default function LiveTab({ scenario }) {
       });
     }, NEW_EVENT_HIGHLIGHT_MS);
 
-    // Audio cue — only for genuinely new events, only when not muted.
+    // Audio cue — only for genuinely new events, only when not muted. FRS uses
+    // its alert/recognized distinction; other scenarios get the soft chirp so a
+    // fresh detection is still audible without inventing per-type rules.
     if (!mutedRef.current) {
-      const hasAlert = fresh.some(
-        (ev) =>
-          ev.event_type === "face_unknown" || ev.event_type === "spoof_detected",
-      );
-      const hasRecognized = fresh.some(
-        (ev) => ev.event_type === "face_recognized",
-      );
-      if (hasAlert) playAlertBeep();
-      else if (hasRecognized) playSoftBeep();
+      if (isFrs) {
+        const hasAlert = fresh.some(
+          (ev) =>
+            ev.event_type === "face_unknown" || ev.event_type === "spoof_detected",
+        );
+        const hasRecognized = fresh.some(
+          (ev) => ev.event_type === "face_recognized",
+        );
+        if (hasAlert) playAlertBeep();
+        else if (hasRecognized) playSoftBeep();
+      } else {
+        playSoftBeep();
+      }
     }
 
     return () => clearTimeout(timer);
@@ -367,14 +399,13 @@ export default function LiveTab({ scenario }) {
         }
       `}</style>
 
-      {/* FRS-only header row — audio mute toggle for recognition alerts. */}
-      {isFrs && (
-        <div className="flex items-center justify-end mb-3">
+      {/* Header row — audio mute toggle for live-event alerts (all scenarios). */}
+      <div className="flex items-center justify-end mb-3">
           <button
             type="button"
             onClick={() => setMuted((m) => !m)}
             aria-pressed={muted}
-            title={muted ? "Unmute recognition alerts" : "Mute recognition alerts"}
+            title={muted ? "Unmute detection alerts" : "Mute detection alerts"}
             className="flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-telemetry tracking-wider uppercase transition-colors"
             style={{
               borderColor: "var(--console-border)",
@@ -389,8 +420,7 @@ export default function LiveTab({ scenario }) {
             )}
             {muted ? "Muted" : "Alerts"}
           </button>
-        </div>
-      )}
+      </div>
 
       <div className="flex gap-4">
         {/* Camera wall */}
@@ -405,10 +435,9 @@ export default function LiveTab({ scenario }) {
           ))}
         </div>
 
-        {/* FRS live-events feed (right) — shows detections in real time so the
-            operator can see recognition is happening. */}
-        {isFrs && (
-          <div
+        {/* Live-events feed (right) — shows detections in real time so the
+            operator can see the scenario is working. Rendered for ALL scenarios. */}
+        <div
             className="w-[300px] shrink-0 hidden lg:flex flex-col rounded-lg border overflow-hidden self-start"
             style={{ borderColor: "var(--console-border)", background: "var(--console-panel)", maxHeight: "calc(100vh - 240px)" }}
           >
@@ -441,12 +470,12 @@ export default function LiveTab({ scenario }) {
                       background: newEventIds?.has(ev.id) ? "rgba(45,212,191,0.06)" : "transparent",
                     }}
                   >
-                    <FeedFace ev={ev} slug={scenario?.slug} />
+                    <FeedThumb ev={ev} slug={slug} />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5">
                         <OverlayIcon type={ev.event_type} />
                         <span className="font-telemetry text-[12px] truncate" style={{ color: "var(--console-text)" }}>
-                          {eventPersonName(ev)}
+                          {liveEventLabel(ev, slug)}
                         </span>
                       </div>
                       <div className="font-telemetry text-[9px] uppercase tracking-widest truncate" style={{ color: "var(--console-muted)" }}>
@@ -460,8 +489,7 @@ export default function LiveTab({ scenario }) {
                 ))
               )}
             </div>
-          </div>
-        )}
+        </div>
       </div>
     </div>
   );

@@ -54,6 +54,9 @@ PPE_VIT_VEST_RESCUE = float(os.getenv("PPE_VIT_VEST_RESCUE", "0.92"))  # add ves
 PPE_VIT_INTERVAL = int(os.getenv("PPE_VIT_INTERVAL", "5"))         # run once / N frames
 
 # ── Detection / compliance thresholds (POC run_video.py defaults) ────────────
+# Decode floor — drop the NMS-baked export's low-score padding rows before any
+# per-class logic. Just under the lowest real per-class threshold.
+DECODE_SCORE_FLOOR = float(os.getenv("PPE_DECODE_SCORE_FLOOR", "0.12"))
 PERSON_CONF = float(os.getenv("PPE_PERSON_CONF", "0.20"))
 HARDHAT_CONF = float(os.getenv("PPE_HARDHAT_CONF", "0.10"))
 VEST_CONF = float(os.getenv("PPE_VEST_CONF", "0.50"))

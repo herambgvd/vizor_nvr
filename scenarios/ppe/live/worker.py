@@ -80,6 +80,8 @@ class CameraWorker(threading.Thread):
         self._stop = threading.Event()
         self.last_frame_ts = 0.0                   # liveness: last decoded frame (epoch)
         self._frame_no = 0
+        self._dbg_persons = 0      # persons seen in the last processed frame
+        self._dbg_violations = 0   # total violations emitted by this worker
         self._roi = None
         self._roi_built = False
 
@@ -202,10 +204,20 @@ class CameraWorker(threading.Thread):
             return
         try:
             self._process(frame_bgr, now)
-        except Exception:  # noqa: BLE001 — one bad frame must not kill the worker
+        except Exception as exc:  # noqa: BLE001 — one bad frame must not kill the worker
+            # Log (rate-limited) instead of swallowing silently — needed to debug
+            # why a stream produces no events.
+            if self._frame_no % 50 == 0:
+                print(f"[ppe-live] {self.camera_id[:8]} frame error: {exc}", flush=True)
             return
         finally:
             _INFLIGHT.release()
+        # Heartbeat: every ~100 analysed frames, report what the pipeline saw so
+        # operators/testers can tell detection is alive even with zero events.
+        if self._frame_no % 100 == 0:
+            print(f"[ppe-live] {self.camera_id[:8]} frames={self._frame_no} "
+                  f"persons_last={self._dbg_persons} violations_total={self._dbg_violations}",
+                  flush=True)
 
     def _process(self, frame_bgr, now: float) -> None:
         h, w = frame_bgr.shape[:2]
@@ -237,6 +249,7 @@ class CameraWorker(threading.Thread):
         )
         if self._roi is not None:
             persons = [p for p in persons if in_roi(p, self._roi)]
+        self._dbg_persons = len(persons)
         if not persons:
             self._tracker.update([])
             self._engine.purge(now)
@@ -279,6 +292,7 @@ class CameraWorker(threading.Thread):
             fired = self._engine.update(tid, evidence, now)
             present_items = [CANONICAL_TO_ITEM.get(k, k) for k in evidence]
             for event, ppe in fired:
+                self._dbg_violations += 1
                 self._emit(person, event, ppe, evidence, present_items, frame_bgr, h, w)
             # Optional positive compliant event: all required present + none firing.
             if self.emit_compliant and not fired \
