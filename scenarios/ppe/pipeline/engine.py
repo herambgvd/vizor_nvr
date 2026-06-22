@@ -235,7 +235,13 @@ class StableIdMapper:
                     continue
                 overlap = box_iou(person.box, old.box)
                 distance = self.center_distance(person.box, old.box)
-                if overlap >= 0.05 or distance <= 0.75:
+                # Relink a re-appearing worker generously: at 5 fps a walking person
+                # moves more than 0.75x their height between frames, which broke the
+                # link and spawned a NEW stable id every few frames — that id churn
+                # reset the compliance state and re-fired the SAME person's violation
+                # over and over (event flood). A larger distance window keeps the
+                # link, so one violation stays one event while the worker is present.
+                if overlap >= 0.02 or distance <= 1.6:
                     candidates.append((2.0 * overlap - distance, stable_id))
             if candidates:
                 _, stable_id = max(candidates)
