@@ -526,6 +526,18 @@ class CameraWorker(threading.Thread):
             # Full frame with the person in a modern corner-bracket box (POC style)
             # so the operator can immediately locate them in context.
             annotated = frame_bgr.copy()
+            # Draw the evaluation ROI (amber outline) + the worker's foot-point
+            # (the bottom-centre dot ROI membership is tested against). This makes
+            # it OBVIOUS why a person counted — a worker near the door still
+            # evaluates if their feet fall inside the configured zone.
+            if self._roi is not None:
+                try:
+                    roi_thick = max(2, int(round(2 * annotated.shape[0] / 720.0)))
+                    cv2.polylines(annotated, [self._roi], True, (70, 200, 235), roi_thick, cv2.LINE_AA)
+                except Exception:  # noqa: BLE001
+                    pass
+            foot = (int((x1 + x2) / 2), int(y2))
+            cv2.circle(annotated, foot, max(4, int(annotated.shape[0] / 180)), color, -1, cv2.LINE_AA)
             _draw_corner_box(annotated, (x1, y1, x2, y2), color)
             if helmet_color is not None or vest_color is not None:
                 _draw_status_card(annotated, (x1, y1, x2, y2), track_id, helmet_color, vest_color)
