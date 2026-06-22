@@ -191,24 +191,81 @@ const RoiField = ({ field, value, onChange, cameraId }) => {
   const [snap, setSnap] = React.useState(
     cameraId ? `${BACKEND_URL}/go2rtc/api/frame.jpeg?src=${cameraId.toLowerCase()}&t=${bust}` : null
   );
+  // drag: { type: 'vertex', index } resizes one corner; { type: 'poly', ... }
+  // moves the whole shape. While dragging, clicks don't add points.
+  const drag = React.useRef(null);
+  const [dragging, setDragging] = React.useState(false);
+
+  const relXY = (e) => {
+    const box = wrapRef.current?.getBoundingClientRect();
+    if (!box) return null;
+    return [
+      Math.min(1, Math.max(0, (e.clientX - box.left) / box.width)),
+      Math.min(1, Math.max(0, (e.clientY - box.top) / box.height)),
+    ];
+  };
+  const round = (n) => Number(n.toFixed(4));
 
   const addPoint = (e) => {
-    const box = wrapRef.current?.getBoundingClientRect();
-    if (!box) return;
-    const x = Math.min(1, Math.max(0, (e.clientX - box.left) / box.width));
-    const y = Math.min(1, Math.max(0, (e.clientY - box.top) / box.height));
-    onChange([...points, [Number(x.toFixed(4)), Number(y.toFixed(4))]]);
+    if (drag.current) return; // a drag just ended — don't also add a point
+    const p = relXY(e);
+    if (!p) return;
+    onChange([...points, [round(p[0]), round(p[1])]]);
   };
+
+  // Start dragging a vertex (resize) or the polygon body (move).
+  const startVertexDrag = (e, index) => {
+    e.stopPropagation();
+    drag.current = { type: "vertex", index };
+    setDragging(true);
+  };
+  const startPolyDrag = (e) => {
+    e.stopPropagation();
+    const p = relXY(e);
+    if (!p) return;
+    drag.current = { type: "poly", origin: p, base: points.map((q) => [...q]) };
+    setDragging(true);
+  };
+  React.useEffect(() => {
+    if (!dragging) return;
+    const onMove = (e) => {
+      const d = drag.current;
+      if (!d) return;
+      const p = relXY(e);
+      if (!p) return;
+      if (d.type === "vertex") {
+        const next = points.map((q, i) => (i === d.index ? [round(p[0]), round(p[1])] : q));
+        onChange(next);
+      } else {
+        const dx = p[0] - d.origin[0];
+        const dy = p[1] - d.origin[1];
+        onChange(d.base.map(([x, y]) => [
+          round(Math.min(1, Math.max(0, x + dx))),
+          round(Math.min(1, Math.max(0, y + dy))),
+        ]));
+      }
+    };
+    const onUp = () => {
+      setDragging(false);
+      // Clear the drag flag on the next tick so the trailing click is swallowed.
+      setTimeout(() => { drag.current = null; }, 0);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [dragging, points, onChange]);
+
   const undo = () => onChange(points.slice(0, -1));
   const clear = () => onChange([]);
   const poly = points.map((p) => `${p[0] * 100},${p[1] * 100}`).join(" ");
+  const closed = points.length > 2;
 
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="flex items-center justify-between">
-        <label className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
-          {field.label}
-        </label>
+      <div className="flex items-center justify-end">
         <div className="flex items-center gap-2">
           <button type="button" onClick={undo} disabled={!points.length}
             className="font-telemetry text-[10px] uppercase tracking-wide px-2 py-0.5 rounded border disabled:opacity-40"
@@ -223,18 +280,28 @@ const RoiField = ({ field, value, onChange, cameraId }) => {
         </div>
       </div>
       <div ref={wrapRef} onClick={addPoint}
-        className="relative w-full rounded border overflow-hidden cursor-crosshair"
-        style={{ borderColor: "var(--console-border)", background: "#000", aspectRatio: "16 / 9" }}>
+        className="relative w-full rounded border overflow-hidden"
+        style={{ borderColor: "var(--console-border)", background: "#000", aspectRatio: "16 / 9",
+          cursor: dragging ? "grabbing" : "crosshair" }}>
         {snap && (
           <img src={snap} alt="" className="absolute inset-0 w-full h-full object-contain pointer-events-none"
             onError={() => setSnap(null)} />
         )}
-        <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
+        <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
           {points.length > 1 && (
-            <polygon points={poly} fill="rgba(45,212,191,0.18)" stroke="var(--console-accent)" strokeWidth="0.4" />
+            <polygon points={poly} fill="rgba(45,212,191,0.18)" stroke="var(--console-accent)" strokeWidth="0.4"
+              style={{ cursor: closed ? "grab" : "default", pointerEvents: closed ? "auto" : "none" }}
+              onMouseDown={closed ? startPolyDrag : undefined} />
           )}
           {points.map((p, i) => (
-            <circle key={i} cx={p[0] * 100} cy={p[1] * 100} r="0.9" fill="var(--console-accent)" />
+            <g key={i}>
+              {/* large invisible hit-target so the small handle is easy to grab */}
+              <circle cx={p[0] * 100} cy={p[1] * 100} r="2.6" fill="transparent"
+                style={{ cursor: "grab", pointerEvents: "auto" }}
+                onMouseDown={(e) => startVertexDrag(e, i)} />
+              <circle cx={p[0] * 100} cy={p[1] * 100} r="1.1" fill="var(--console-accent)"
+                stroke="#fff" strokeWidth="0.3" style={{ pointerEvents: "none" }} />
+            </g>
           ))}
         </svg>
         {!points.length && (
@@ -245,7 +312,7 @@ const RoiField = ({ field, value, onChange, cameraId }) => {
         )}
       </div>
       <span className="font-telemetry text-[10px]" style={{ color: "var(--console-muted)" }}>
-        {points.length} point{points.length === 1 ? "" : "s"} — empty = whole frame
+        {points.length} point{points.length === 1 ? "" : "s"} — click to add · drag a corner to resize · drag inside to move · empty = whole frame
       </span>
     </div>
   );
