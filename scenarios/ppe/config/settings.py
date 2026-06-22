@@ -36,7 +36,10 @@ TRITON_URL = os.getenv("TRITON_URL", "triton:8000")
 PPE_MODEL_NAME = os.getenv("PPE_MODEL_NAME", "ppe_yolo26")
 PPE_MODEL_INPUT = os.getenv("PPE_MODEL_INPUT", "images")
 PPE_MODEL_OUTPUT = os.getenv("PPE_MODEL_OUTPUT", "output0")
-PPE_MODEL_IMGSZ = int(os.getenv("PPE_MODEL_IMGSZ", "640"))
+# 1280 matches the POC's full-frame inference size (the model is exported at
+# 1280); 640 lost too much detail on wide/top-down scenes -> weak persons + false
+# PPE. Must equal the Triton ppe_yolo26 input dims.
+PPE_MODEL_IMGSZ = int(os.getenv("PPE_MODEL_IMGSZ", "1280"))
 
 # Optional DINOv2 head/torso verifier — Triton model name. Empty = YOLO-only
 # baseline (the POC supports this by omitting --vit-verifier). Wiring is present
@@ -57,12 +60,12 @@ PPE_VIT_INTERVAL = int(os.getenv("PPE_VIT_INTERVAL", "5"))         # run once / 
 # Decode floor — drop the NMS-baked export's low-score padding rows before any
 # per-class logic. Just under the lowest real per-class threshold.
 DECODE_SCORE_FLOOR = float(os.getenv("PPE_DECODE_SCORE_FLOOR", "0.12"))
-PERSON_CONF = float(os.getenv("PPE_PERSON_CONF", "0.25"))
-# Helmet floor raised from the POC's 0.10 — at 0.10 the detector calls faint
-# noise a "helmet", so plain-clothes people get falsely marked compliant. A
-# higher floor needs a real helmet to count it present.
-HARDHAT_CONF = float(os.getenv("PPE_HARDHAT_CONF", "0.35"))
-VEST_CONF = float(os.getenv("PPE_VEST_CONF", "0.55"))
+# POC-proven floors (these gave good accuracy AT 1280 input). The earlier
+# false-compliant was a 640-resolution artifact, not a threshold problem — fixed
+# by the 1280 export. Operators can still raise helmet/vest per camera in the UI.
+PERSON_CONF = float(os.getenv("PPE_PERSON_CONF", "0.20"))
+HARDHAT_CONF = float(os.getenv("PPE_HARDHAT_CONF", "0.10"))
+VEST_CONF = float(os.getenv("PPE_VEST_CONF", "0.50"))
 NO_HARDHAT_CONF = float(os.getenv("PPE_NO_HARDHAT_CONF", "0.15"))
 NEGATIVE_MARGIN = float(os.getenv("PPE_NEGATIVE_MARGIN", "1.20"))
 IOU = float(os.getenv("PPE_IOU", "0.50"))
