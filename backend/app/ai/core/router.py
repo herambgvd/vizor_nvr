@@ -426,7 +426,14 @@ async def _proxy_to_scenario(
             status.HTTP_403_FORBIDDEN,
             "No cameras have been assigned to this scenario. Assign at least one camera before searching.",
         )
-    allowed_camera_ids = assigned_camera_ids if is_search else enabled_camera_ids
+    # Read scope vs write scope. GET requests (event/plate/report history) must
+    # see data from every ASSIGNED camera — a camera the operator turned OFF still
+    # has historical events the operator should be able to review. Only writes /
+    # search use the narrower enabled set.
+    if request.method == "GET" or is_search:
+        allowed_camera_ids = assigned_camera_ids
+    else:
+        allowed_camera_ids = enabled_camera_ids
 
     target = urljoin(f"{service_url}/", path)
     body = await request.body()

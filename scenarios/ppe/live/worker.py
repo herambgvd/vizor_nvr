@@ -354,13 +354,10 @@ class CameraWorker(threading.Thread):
         try:
             base = config.DATA_PATH / "snapshots"
             base.mkdir(parents=True, exist_ok=True)
-            ok, buf = cv2.imencode(".jpg", frame_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
-            if not ok:
-                return None
-            (base / f"{frame_id}.jpg").write_bytes(buf.tobytes())
-            # Person crop with context (0.15 padding, POC parity) for the events UI.
+            x1, y1, x2, y2 = (int(v) for v in box)
+            # Person crop with context (0.15 padding, POC parity) — saved FIRST,
+            # from the clean frame, so the events UI can show the offender tightly.
             try:
-                x1, y1, x2, y2 = box
                 pw, ph = x2 - x1, y2 - y1
                 cx1 = max(0, int(x1 - 0.15 * pw)); cy1 = max(0, int(y1 - 0.15 * ph))
                 cx2 = min(frame_bgr.shape[1], int(x2 + 0.15 * pw))
@@ -372,6 +369,14 @@ class CameraWorker(threading.Thread):
                         (base / f"{frame_id}_crop.jpg").write_bytes(cbuf.tobytes())
             except Exception:  # noqa: BLE001
                 pass
+            # Full frame with the offending person boxed (red) so the operator can
+            # immediately locate them in context.
+            annotated = frame_bgr.copy()
+            cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 0, 255), 3)
+            ok, buf = cv2.imencode(".jpg", annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+            if not ok:
+                return None
+            (base / f"{frame_id}.jpg").write_bytes(buf.tobytes())
             return f"/snapshot?key=live:{frame_id}"
         except Exception:  # noqa: BLE001
             return None
