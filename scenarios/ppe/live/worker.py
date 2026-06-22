@@ -213,8 +213,7 @@ class CameraWorker(threading.Thread):
         try:
             self._process(frame_bgr, now)
         except Exception as exc:  # noqa: BLE001 — one bad frame must not kill the worker
-            # Log (rate-limited) instead of swallowing silently — needed to debug
-            # why a stream produces no events.
+            # Log (rate-limited) instead of swallowing silently.
             if self._frame_no % 50 == 0:
                 print(f"[ppe-live] {self.camera_id[:8]} frame error: {exc}", flush=True)
             return
