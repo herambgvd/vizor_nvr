@@ -102,6 +102,22 @@ async def public_dashboard(slug: str, db: AsyncSession = Depends(get_db)) -> Res
                     media_type=up.headers.get("content-type"))
 
 
+@router.get("/{slug}/public/snapshot")
+async def public_snapshot(slug: str, key: str, db: AsyncSession = Depends(get_db)) -> Response:
+    """Person-crop thumbnail for a public live-feed event. The plugin serves only
+    the crop (never the full frame) and 404s when the public toggle is off."""
+    service_url = await _resolve(slug, db)
+    try:
+        async with httpx.AsyncClient(timeout=settings.AI_PLUGIN_PROXY_TIMEOUT) as client:
+            up = await client.get(f"{service_url}/public/snapshot",
+                                   params={"key": key}, headers=_service_headers())
+    except httpx.RequestError as exc:
+        logger.warning("[ai-public] %s snapshot failed: %s", slug, exc)
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "scenario plugin unavailable") from exc
+    return Response(content=up.content, status_code=up.status_code,
+                    media_type=up.headers.get("content-type", "image/jpeg"))
+
+
 @router.get("/{slug}/public/stream")
 async def public_stream(slug: str, db: AsyncSession = Depends(get_db)) -> StreamingResponse:
     """Proxy the plugin's SSE realtime stream to the public dashboard."""

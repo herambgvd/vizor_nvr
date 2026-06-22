@@ -123,11 +123,17 @@ def record_event(
         label = ", ".join(_item_label(m) for m in missing_items)
     else:
         label = _item_label(ppe_item) if ppe_item else "PPE Missing"
+    # Crop key for the public feed thumbnail (person crop only — never the full
+    # frame). snapshot_path looks like "/snapshot?key=live:<id>"; surface the key.
+    crop_key = None
+    if snapshot_path and "key=" in snapshot_path:
+        crop_key = snapshot_path.split("key=", 1)[1].split("&", 1)[0]
     _publish({
         "event_id": new_id,
         "event_type": event_type,
         "camera_id": camera_id,
         "camera_name": _camera_name(camera_id),
+        "crop_key": crop_key,
         "label": label,
         "worker_track_id": worker_track_id,
         "ppe_item": ppe_item,

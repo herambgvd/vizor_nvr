@@ -105,8 +105,10 @@ def build_dashboard(settings: dict) -> dict:
             "count": int(n),
         } for c, n in per_cam]
 
-        # Hourly trend — TODAY ONLY (00:00 -> current hour), zero-filled so the
-        # chart draws a continuous line. No carry-over from yesterday.
+        # Hourly trend — TODAY ONLY (day_start 00:00 -> current hour), zero-filled.
+        # Each bucket carries its UTC ISO timestamp so the browser renders the hour
+        # in the OPERATOR's local timezone (events are stored UTC; a UTC hour label
+        # looked wrong to a non-UTC operator).
         rows = s.execute(
             select(PPEEvent.triggered_at).where(PPEEvent.triggered_at >= day_start)
         ).all()
@@ -115,8 +117,14 @@ def build_dashboard(settings: dict) -> dict:
             if t is None:
                 continue
             buckets[t.hour] = buckets.get(t.hour, 0) + 1
-        hourly = [{"hour": f"{hr:02d}:00", "count": buckets.get(hr, 0)}
-                  for hr in range(0, now.hour + 1)]
+        hourly = []
+        for hr in range(0, now.hour + 1):
+            ht = day_start.replace(hour=hr)
+            hourly.append({
+                "hour": f"{hr:02d}:00",     # UTC fallback label
+                "ts": _iso_utc(ht),         # browser renders local hour
+                "count": buckets.get(hr, 0),
+            })
 
         # Top violations today — by the actual missing ITEM (Helmet / Vest), which
         # is what an operator wants to see, not the internal event_type. Falls

@@ -33,8 +33,8 @@ import uuid
 from pathlib import Path
 from typing import Callable, Optional
 
-from fastapi import APIRouter, Body, Header, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Body, Header, HTTPException, Query
+from fastapi.responses import FileResponse, StreamingResponse
 
 logger = logging.getLogger(__name__)
 
@@ -186,9 +186,13 @@ def build_public_router(
     store: SettingsStore,
     bus: EventBus,
     dashboard: Callable[[dict], dict],
+    data_path=None,
 ) -> APIRouter:
     """Public (no-auth) dashboard + SSE. `dashboard(settings)` returns the
-    aggregate stats dict. Both routes 404 when the public toggle is off."""
+    aggregate stats dict. All routes 404 when the public toggle is off. When
+    `data_path` is given, a /public/snapshot route serves the PERSON CROP for a
+    feed event (crop only — never the full-frame context) so the live feed can
+    show a thumbnail without leaking the wider scene."""
     router = APIRouter(prefix="/public", tags=["public"])
 
     def _guard() -> dict:
@@ -201,6 +205,22 @@ def build_public_router(
     def public_dashboard() -> dict:
         st = _guard()
         return dashboard(st)
+
+    @router.get("/snapshot")
+    def public_snapshot(key: str = Query(...)):
+        """Serve the person CROP for a feed key ("live:<id>" / "<id>"). Only the
+        crop variant — the full frame is never exposed publicly. 404 when the
+        public toggle is off or the crop is missing."""
+        _guard()
+        if data_path is None:
+            raise HTTPException(404, "not found")
+        frame_id = key.split(":", 1)[1] if ":" in key else key
+        if "/" in frame_id or "\\" in frame_id or ".." in frame_id:
+            raise HTTPException(400, "invalid key")
+        path = (data_path / "snapshots" / f"{frame_id}_crop.jpg")
+        if not path.exists():
+            raise HTTPException(404, "snapshot not found")
+        return FileResponse(str(path), media_type="image/jpeg")
 
     @router.get("/stream")
     def public_stream() -> StreamingResponse:

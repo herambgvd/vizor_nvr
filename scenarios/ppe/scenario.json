@@ -43,6 +43,7 @@
 
     { "method": "GET", "path": "/public/dashboard" },
     { "method": "GET", "path": "/public/stream" },
+    { "method": "GET", "path": "/public/snapshot" },
     { "method": "POST", "path": "/ingest/event" },
 
     { "method": "GET", "path": "/events" },

@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from vizor_sdk import build_public_router
 
+import config
 from db.events import bus
 from db.public_store import build_dashboard, store
 
-router = build_public_router(store, bus, build_dashboard)
+router = build_public_router(store, bus, build_dashboard, data_path=config.DATA_PATH)

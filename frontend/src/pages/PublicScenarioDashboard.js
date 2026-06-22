@@ -160,6 +160,16 @@ const Legend = ({ color, label, value, pct }) => (
   </div>
 );
 
+// Render an hourly bucket's label in the operator's local timezone (the backend
+// buckets in UTC and sends a UTC ISO `ts`); fall back to the UTC `hour` string.
+const hourLabel = (d) => {
+  if (d?.ts) {
+    const dt = new Date(d.ts);
+    if (!Number.isNaN(dt.getTime())) return `${String(dt.getHours()).padStart(2, "0")}:00`;
+  }
+  return d?.hour ?? "";
+};
+
 const AreaChart = ({ data }) => {
   const w = 720, h = 220, pad = 30;
   if (!data.length) return <Empty label="No activity today yet." h="100%" />;
@@ -185,7 +195,7 @@ const AreaChart = ({ data }) => {
       {data.map((d, i) => <circle key={i} cx={x(i)} cy={y(d.count)} r="2.5" fill={C.bg} stroke={C.green} strokeWidth="1.5" />)}
       {data.map((d, i) => (
         (i === 0 || i === data.length - 1 || i === Math.floor(data.length / 2)) &&
-        <text key={`t${i}`} x={x(i)} y={h - 9} textAnchor="middle" fill={C.faint} fontSize="10">{d.hour}</text>
+        <text key={`t${i}`} x={x(i)} y={h - 9} textAnchor="middle" fill={C.faint} fontSize="10">{hourLabel(d)}</text>
       ))}
     </svg>
   );
@@ -343,7 +353,13 @@ export default function PublicScenarioDashboard() {
               const rec = ev.event_type === "face_recognized";
               return (
                 <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 0", borderBottom: i < live.length - 1 ? `1px solid ${C.border}` : "none", animation: i === 0 ? "frsIn .4s ease" : "none" }}>
-                  <span style={{ width: 7, height: 7, borderRadius: 999, background: rec ? C.green : C.amber }} />
+                  {ev.crop_key ? (
+                    <img src={`/api/ai/${slug}/public/snapshot?key=${encodeURIComponent(ev.crop_key)}`} alt=""
+                      style={{ width: 34, height: 44, objectFit: "cover", borderRadius: 4, flexShrink: 0, background: C.panel2 }}
+                      onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                  ) : (
+                    <span style={{ width: 7, height: 7, borderRadius: 999, background: rec ? C.green : C.amber }} />
+                  )}
                   <span style={{ flex: 1, fontSize: 13.5 }}>
                     {desc.feedLabel(ev)}
                     <span style={{ color: C.faint }}> · {ev.camera_name || (ev.camera_id ? String(ev.camera_id).slice(0, 8) : "—")}</span>
