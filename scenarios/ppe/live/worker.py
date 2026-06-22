@@ -294,9 +294,16 @@ class CameraWorker(threading.Thread):
             evidence = positive_evidence(stable, config.NO_HARDHAT_CONF, config.NEGATIVE_MARGIN)
             fired = self._engine.update(tid, evidence, now)
             present_items = [CANONICAL_TO_ITEM.get(k, k) for k in evidence]
-            for event, ppe in fired:
-                self._dbg_violations += 1
-                self._emit(person, event, ppe, evidence, present_items, frame_bgr, h, w)
+            # The engine fires per missing PPE item; collapse to ONE event per
+            # person per event-type listing ALL missing items, so a worker without
+            # helmet AND vest is a single "PPE Missing (helmet, vest)" event, not two.
+            if fired:
+                by_event: dict[str, list[str]] = {}
+                for event, ppe in fired:
+                    by_event.setdefault(event, []).append(ppe)
+                for event, ppes in by_event.items():
+                    self._dbg_violations += 1
+                    self._emit(person, event, ppes, evidence, present_items, frame_bgr, h, w)
             # Optional positive compliant event: all required present + none firing.
             if self.emit_compliant and not fired \
                     and all(req in evidence for req in self.required_canonical):
@@ -315,17 +322,20 @@ class CameraWorker(threading.Thread):
         return config.HARDHAT_CONF
 
     # ── emission ────────────────────────────────────────────────────────────
-    def _emit(self, person, event, ppe, evidence, present_items, frame_bgr, h, w) -> None:
+    def _emit(self, person, event, ppes, evidence, present_items, frame_bgr, h, w) -> None:
         event_type = _EVENT_TYPE.get(event, "ppe_missing")
-        item = CANONICAL_TO_ITEM.get(ppe, ppe)
+        # ppes = all canonical PPE items missing for this person this fire.
+        items = [CANONICAL_TO_ITEM.get(p, p) for p in ppes]
+        primary = items[0] if items else None
         missing = [CANONICAL_TO_ITEM.get(r, r) for r in self.required_canonical
-                   if r not in evidence]
-        det = evidence.get(ppe)
-        conf = det.confidence if det else None
+                   if r not in evidence] or items
+        # Best available confidence among the fired items.
+        confs = [evidence[p].confidence for p in ppes if evidence.get(p)]
+        conf = max(confs) if confs else None
         snap = self._snapshot(frame_bgr, person.box)
         _record_event(
-            self.camera_id, event_type, person.track_id, item,
-            missing or [item], present_items, conf, snap, utcnow(),
+            self.camera_id, event_type, person.track_id, primary,
+            missing, present_items, conf, snap, utcnow(),
             bbox=_bbox_obj(person.box, w, h),
         )
 
