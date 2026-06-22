@@ -59,6 +59,20 @@ _INFLIGHT = threading.Semaphore(int(os.getenv("PPE_MAX_INFLIGHT", "12")))
 _EVENT_TYPE = {"PPE_MISSING": "ppe_missing", "PPE_REMOVED": "ppe_missing"}
 
 
+def _merge_links(primary: dict, secondary: dict) -> dict:
+    """Confidence-wise fusion of full-frame + crop PPE evidence (proven worker's
+    merge_links). Keeps the higher-confidence detection per (track, label)."""
+    merged: dict = {}
+    for source in (primary, secondary):
+        for tid, obs in source.items():
+            dst = merged.setdefault(tid, {})
+            for label, det in obs.items():
+                old = dst.get(label)
+                if old is None or det.confidence > old.confidence:
+                    dst[label] = det
+    return merged
+
+
 def _bbox_obj(box, frame_w: int, frame_h: int):
     """Pixel [x1,y1,x2,y2] → normalised {x,y,w,h} the UI renders."""
     if not box or len(box) != 4 or not frame_w or not frame_h:
@@ -162,6 +176,11 @@ class CameraWorker(threading.Thread):
     @property
     def person_conf(self) -> float:
         return self._cfg_num("person_conf", config.PERSON_CONF, float)
+
+    @property
+    def crop_stage(self) -> bool:
+        # Second-stage per-person crop re-detection (steadier PPE evidence).
+        return config.PPE_CROP_STAGE
 
     @property
     def emit_compliant(self) -> bool:
@@ -279,6 +298,18 @@ class CameraWorker(threading.Thread):
         # the proven confidence floors (helmet 0.10 / vest 0.50 / no_helmet 0.15).
         items = [it for it in items if it.confidence >= self._item_floor(it.label)]
         linked = associate_ppe(persons, items, DEFAULT_RULES)
+
+        # Second-stage: re-detect PPE on per-person crops and merge (the proven
+        # worker's detect_ppe_in_crops + merge_links). The full-frame pass alone
+        # gives weak/intermittent PPE evidence on wide scenes, which makes a person
+        # oscillate compliant<->missing; the crop pass steadies it.
+        if self.crop_stage:
+            try:
+                crop_links = self._detector.detect_crops(frame_bgr, persons)
+                linked = _merge_links(linked, crop_links)
+            except Exception as exc:  # noqa: BLE001 — never kill the frame
+                if self._frame_no % 100 == 0:
+                    print(f"[ppe-live] {self.camera_id[:8]} crop stage error: {exc}", flush=True)
 
         # DINOv2 second-stage verifier (when enabled): confirm weak helmet positives
         # / rescue confident missed helmet+vest, fused into `linked` before

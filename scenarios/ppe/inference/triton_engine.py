@@ -133,6 +133,44 @@ class PPEDetector:
             dets.append(Detection(label, score, (bx1, by1, bx2, by2), None))
         return dets
 
+    def detect_crops(self, frame_bgr, persons, padding: float = 0.15) -> dict:
+        """Second-stage PPE re-detection on per-person crops (the proven worker's
+        detect_ppe_in_crops). Running the detector on an enlarged crop recovers
+        small/distant PPE the full-frame pass misses, giving STEADY evidence
+        instead of full-frame-only flicker. Returns {track_id: {label: Detection}}
+        in ORIGINAL frame coordinates. PPE boxes are body-zone re-validated so a
+        neighbour caught in the padded crop can't leak onto this track."""
+        from pipeline.engine import point_in_zone, DEFAULT_RULES  # local import (cycle)
+
+        out: dict = {}
+        if not persons or frame_bgr is None:
+            return out
+        fh, fw = frame_bgr.shape[:2]
+        for p in persons:
+            tid = getattr(p, "track_id", None)
+            if tid is None:
+                continue
+            x1, y1, x2, y2 = (int(v) for v in p.box)
+            pw, ph = x2 - x1, y2 - y1
+            cx1 = max(0, int(x1 - padding * pw)); cy1 = max(0, int(y1 - padding * ph))
+            cx2 = min(fw, int(x2 + padding * pw)); cy2 = min(fh, int(y2 + padding * ph))
+            crop = frame_bgr[cy1:cy2, cx1:cx2]
+            if crop.size == 0:
+                continue
+            # detect() returns crop-local coords; shift back to full-frame.
+            for d in self.detect(crop):
+                bx1, by1, bx2, by2 = d.box
+                item = Detection(d.label, d.confidence,
+                                 (bx1 + cx1, by1 + cy1, bx2 + cx1, by2 + cy1), None)
+                # Body-zone validate against THIS person (drops a neighbour's PPE).
+                rule = DEFAULT_RULES.get(d.label)
+                if rule is not None and not point_in_zone(item, p, rule):
+                    continue
+                prev = out.setdefault(tid, {}).get(d.label)
+                if prev is None or item.confidence > prev.confidence:
+                    out[tid][d.label] = item
+        return out
+
 
 # Module-level singleton (lazy Triton connect inside TritonClient).
 detector = PPEDetector()

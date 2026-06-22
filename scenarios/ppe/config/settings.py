@@ -40,6 +40,11 @@ PPE_MODEL_OUTPUT = os.getenv("PPE_MODEL_OUTPUT", "output0")
 # 1280); 640 lost too much detail on wide/top-down scenes -> weak persons + false
 # PPE. Must equal the Triton ppe_yolo26 input dims.
 PPE_MODEL_IMGSZ = int(os.getenv("PPE_MODEL_IMGSZ", "1280"))
+# Second-stage per-person crop PPE re-detection (the proven worker's
+# detect_ppe_in_crops). Steadies helmet/vest evidence so a person doesn't
+# oscillate compliant<->missing. One extra Triton call per person per frame —
+# fine at the analyze-fps cap. Disable to fall back to full-frame-only.
+PPE_CROP_STAGE = os.getenv("PPE_CROP_STAGE", "true").lower() in ("1", "true", "yes", "on")
 
 # Optional DINOv2 head/torso verifier — Triton model name. Empty = YOLO-only
 # baseline (the POC supports this by omitting --vit-verifier). Wiring is present
