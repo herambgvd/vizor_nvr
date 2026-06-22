@@ -68,6 +68,7 @@ def _reconcile():
                 # key-order / null-vs-missing API differences don't churn the stream
                 # every poll.
                 if _cfg_sig(existing.config) != _cfg_sig(cam.get("config")):
+                    existing.replaced = True   # suppress its late "stopped" report
                     existing.stop()
                     nw = CameraWorker(cam, _report_state)
                     _WORKERS[cam_id] = nw

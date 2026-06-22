@@ -169,6 +169,11 @@ class CameraWorker(threading.Thread):
         self.config = cam.get("config") or {}
         self.report_state = report_state          # callback(config_id, state, error)
         self._stop = threading.Event()
+        # Set by the manager when this worker is being replaced by a fresh one on a
+        # config change. A replaced worker must NOT report "stopped" in its finally
+        # block — that race overwrote the new worker's "running" and left the UI
+        # stuck on STARTING/stopped while the stream was actually live.
+        self.replaced = False
         self.last_frame_ts = 0.0                   # liveness: last decoded frame (epoch)
         self._frame_no = 0
         self._dbg_persons = 0      # persons seen in the last processed frame
@@ -293,9 +298,13 @@ class CameraWorker(threading.Thread):
         try:
             self._puller.run(on_frame=self._on_frame, on_state=_on_state)
         except Exception as exc:  # noqa: BLE001
-            self.report_state(self.config_id, "error", str(exc)[:200])
+            if not self.replaced:
+                self.report_state(self.config_id, "error", str(exc)[:200])
         finally:
-            self.report_state(self.config_id, "stopped", None)
+            # Skip the stopped report when a fresh worker has taken over (config
+            # change) — otherwise this late report clobbers the new "running".
+            if not self.replaced:
+                self.report_state(self.config_id, "stopped", None)
 
     # ── per-frame pipeline ─────────────────────────────────────────────────
     def _on_frame(self, frame_bgr) -> None:
