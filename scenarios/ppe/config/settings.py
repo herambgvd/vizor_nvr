@@ -62,6 +62,10 @@ PPE_VIT_VEST_RESCUE = float(os.getenv("PPE_VIT_VEST_RESCUE", "0.92"))  # add ves
 # Veto a YOLO vest the DINOv2 torso head doesn't agree with — kills the common
 # "red/bright shirt read as a hi-vis vest" false positive. 0 = no vest veto.
 PPE_VIT_VEST_CONFIRM = float(os.getenv("PPE_VIT_VEST_CONFIRM", "0.50"))
+# The hosted DINOv2 vest head is untrained (returns ~0.96 for every torso), so
+# vest fusion (both rescue and veto) is OFF — vests come from YOLO only. Flip on
+# only with a properly trained vest head.
+PPE_VIT_FUSE_VEST = os.getenv("PPE_VIT_FUSE_VEST", "false").lower() in ("1", "true", "yes", "on")
 PPE_VIT_INTERVAL = int(os.getenv("PPE_VIT_INTERVAL", "5"))         # run once / N frames
 
 # ── Detection / compliance thresholds (POC run_video.py defaults) ────────────

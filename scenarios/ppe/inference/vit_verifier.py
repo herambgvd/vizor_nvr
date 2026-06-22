@@ -155,12 +155,22 @@ class VitVerifier:
 
     def fuse(self, linked: dict, scores: dict) -> None:
         """Mutate `linked` in place: confirm helmet positives, rescue confident
-        misses. Verbatim POC asymmetric policy."""
+        misses.
+
+        IMPORTANT — VEST fusion is DISABLED. The hosted DINOv2 vest/torso head is
+        untrained for this data: it returns ~0.96 for EVERY torso (plain shirt or
+        real hi-vis alike), so it can neither veto a false vest nor rescue a real
+        one — it only injected false vests via the rescue path (verified on the
+        event crops: vest-present 10 -> 63 after fusion). Vests are therefore left
+        to the YOLO detector + the body-zone/crop stages alone. Only the HELMET
+        head (which discriminates correctly) is fused."""
         if not self.enabled:
             return
         for tid, probs in scores.items():
             obs = linked.setdefault(tid, {})
             for kind, label in _LABEL.items():
+                if kind == "vest" and not config.PPE_VIT_FUSE_VEST:
+                    continue  # broken vest head — never fuse vest
                 prob = probs.get(kind)
                 if prob is None:
                     continue
