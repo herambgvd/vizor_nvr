@@ -308,10 +308,12 @@ class CameraWorker(threading.Thread):
                 for event, ppes in by_event.items():
                     self._dbg_violations += 1
                     self._emit(person, event, ppes, evidence, present_items, frame_bgr, h, w)
-            # Optional positive compliant event: all required present + none firing.
-            if self.emit_compliant and not fired \
-                    and all(req in evidence for req in self.required_canonical):
-                self._maybe_emit_compliant(person, present_items, frame_bgr, h, w, now)
+            # Optional positive compliant event — only when EVERY required item is
+            # POSITIVELY detected above its own confidence floor (not merely "no
+            # violation fired"). A weak/stray helmet box must not flip a person to
+            # compliant; that was the source of the false "Compliant 34%".
+            if self.emit_compliant and not fired and self._is_confidently_compliant(evidence):
+                self._maybe_emit_compliant(person, evidence, present_items, frame_bgr, h, w, now)
 
         self._smoother.purge(active_ids)
         self._engine.purge(now)
@@ -344,19 +346,36 @@ class CameraWorker(threading.Thread):
             bbox=_bbox_obj(person.box, w, h),
         )
 
-    def _maybe_emit_compliant(self, person, present_items, frame_bgr, h, w, now) -> None:
-        # Cooldown-gate compliant events per track via the engine's last_seen-style
-        # bookkeeping (reuse a simple per-track timestamp dict).
+    def _is_confidently_compliant(self, evidence: dict) -> bool:
+        """True only when every required PPE item is present AND its detection
+        confidence clears that item's floor — a real positive, not absence of a
+        violation. Mirrors the proven worker requiring a positive PPE box."""
+        for req in self.required_canonical:
+            det = evidence.get(req)
+            if det is None:
+                return False
+            # canonical req -> the detector label whose floor applies.
+            floor = self._item_floor("Hardhat" if req == "Hardhat" else "Safety_Vest")
+            if det.confidence < floor:
+                return False
+        return True
+
+    def _maybe_emit_compliant(self, person, evidence, present_items, frame_bgr, h, w, now) -> None:
+        # Cooldown-gate compliant events per track.
         key = f"compliant:{person.track_id}"
         last = getattr(self, "_compliant_last", {})
         if now - last.get(key, -1e12) < self.cooldown:
             return
         last[key] = now
         self._compliant_last = last
+        # Compliance confidence = the WEAKEST required-PPE detection (the limiting
+        # factor), NOT the person-box score (that was the bogus "34%").
+        confs = [evidence[r].confidence for r in self.required_canonical if evidence.get(r)]
+        conf = min(confs) if confs else None
         snap = self._snapshot(frame_bgr, person.box)
         _record_event(
             self.camera_id, "ppe_compliant", person.track_id, None,
-            [], present_items, person.confidence, snap, utcnow(),
+            [], present_items, conf, snap, utcnow(),
             bbox=_bbox_obj(person.box, w, h),
         )
 
