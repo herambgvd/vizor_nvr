@@ -10,8 +10,9 @@ from __future__ import annotations
 import queue
 from typing import Optional
 
-from vizor_sdk import EventBus
+from vizor_sdk import EventBus, NvrClient
 
+import config
 from db import session
 from schemas import naive, utcnow
 
@@ -20,6 +21,26 @@ from schemas import naive, utcnow
 # Shared SDK in-process pub/sub. The public router subscribes to this same bus;
 # record_event publishes a small aggregate-safe dict on every insert.
 bus = EventBus()
+
+# Camera id -> name resolver (TTL-cached) so live-feed rows show names, not UUIDs.
+_nvr = NvrClient(config.VIZOR_BASE_URL, config.VIZOR_API_KEY, config.SCENARIO_SLUG)
+_ITEM_LABELS = {"helmet": "Helmet", "vest": "Vest", "hardhat": "Helmet",
+                "safety_vest": "Vest"}
+
+
+def _item_label(it) -> str:
+    if not it:
+        return "PPE"
+    return _ITEM_LABELS.get(str(it).lower(), str(it).replace("_", " ").title())
+
+
+def _camera_name(camera_id) -> Optional[str]:
+    if not camera_id:
+        return None
+    try:
+        return _nvr.camera_names(config.VIZOR_SERVICE_TOKEN).get(str(camera_id)) or str(camera_id)[:8]
+    except Exception:  # noqa: BLE001
+        return str(camera_id)[:8]
 
 
 def _iso_utc(dt) -> str | None:
@@ -95,12 +116,18 @@ def record_event(
         new_id = ev.id
 
     # Notify the realtime dashboard (aggregate-safe: no snapshot bytes).
-    # label = the violation summary (PPE item or missing-item list), never PII.
-    label = ppe_item or (", ".join(missing_items) if missing_items else None)
+    # Friendly label for the feed: the missing items, or "Compliant" for a positive.
+    if event_type == "ppe_compliant":
+        label = "Compliant"
+    elif missing_items:
+        label = ", ".join(_item_label(m) for m in missing_items)
+    else:
+        label = _item_label(ppe_item) if ppe_item else "PPE Missing"
     _publish({
         "event_id": new_id,
         "event_type": event_type,
         "camera_id": camera_id,
+        "camera_name": _camera_name(camera_id),
         "label": label,
         "worker_track_id": worker_track_id,
         "ppe_item": ppe_item,

@@ -199,7 +199,7 @@ const HBars = ({ data }) => {
       {data.map((d) => (
         <div key={d.camera_id}>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 6 }}>
-            <span style={{ color: C.text }}>{d.camera_id}</span><span style={{ color: C.muted }}>{d.count}</span>
+            <span style={{ color: C.text }}>{d.camera_name || d.camera_id}</span><span style={{ color: C.muted }}>{d.count}</span>
           </div>
           <div style={{ height: 8, background: C.panel2, borderRadius: 4, overflow: "hidden" }}>
             <div style={{ width: `${(d.count / max) * 100}%`, height: "100%", background: C.green, borderRadius: 4, transition: "width .8s cubic-bezier(.4,0,.2,1)" }} />
@@ -346,7 +346,7 @@ export default function PublicScenarioDashboard() {
                   <span style={{ width: 7, height: 7, borderRadius: 999, background: rec ? C.green : C.amber }} />
                   <span style={{ flex: 1, fontSize: 13.5 }}>
                     {desc.feedLabel(ev)}
-                    <span style={{ color: C.faint }}> · {ev.camera_id || "—"}</span>
+                    <span style={{ color: C.faint }}> · {ev.camera_name || (ev.camera_id ? String(ev.camera_id).slice(0, 8) : "—")}</span>
                   </span>
                   {ev.confidence != null && <span style={{ fontSize: 12, color: C.muted }}>{Math.round(ev.confidence * 100)}%</span>}
                   <span style={{ fontSize: 12, color: C.faint, minWidth: 70, textAlign: "right" }}>

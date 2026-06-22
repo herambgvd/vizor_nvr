@@ -16,7 +16,7 @@ from datetime import timedelta
 from typing import Optional
 
 from sqlalchemy import func, select
-from vizor_sdk import SettingsStore, save_ingest_snapshot
+from vizor_sdk import NvrClient, SettingsStore, save_ingest_snapshot
 
 import config
 from db import session
@@ -26,6 +26,25 @@ from schemas import parse_dt, utcnow
 
 # Singleton settings store on the PPE settings row (key prefix "ppe").
 store = SettingsStore(session, PPESettings, key_prefix="ppe")
+
+# Camera id -> name resolver (TTL-cached) so dashboard rows read as names, not UUIDs.
+_nvr = NvrClient(config.VIZOR_BASE_URL, config.VIZOR_API_KEY, config.SCENARIO_SLUG)
+
+# Friendly labels for the violation types shown in "Top violations".
+_TYPE_LABELS = {
+    "ppe_missing": "PPE Missing",
+    "ppe_removed": "PPE Removed",
+    "ppe_compliant": "Compliant",
+}
+# Friendly labels for canonical PPE items.
+_ITEM_LABELS = {"helmet": "Helmet", "vest": "Vest", "hardhat": "Helmet",
+                "safety_vest": "Vest"}
+
+
+def _item_label(it) -> str:
+    if not it:
+        return "PPE"
+    return _ITEM_LABELS.get(str(it).lower(), str(it).replace("_", " ").title())
 
 
 def _iso_utc(dt) -> str:
@@ -70,19 +89,25 @@ def build_dashboard(settings: dict) -> dict:
             .group_by(PPEEvent.ppe_item)
             .order_by(func.count().desc())
         ).all()
-        by_missing_item = [{"item": it or "unknown", "count": int(n)}
+        by_missing_item = [{"item": _item_label(it), "count": int(n)}
                            for it, n in by_item_rows]
 
-        # Per-camera counts today.
+        # Per-camera counts today — resolved to camera NAMES (not UUIDs).
+        names = _nvr.camera_names(config.VIZOR_SERVICE_TOKEN)
         per_cam = s.execute(
             select(PPEEvent.camera_id, func.count())
             .where(PPEEvent.triggered_at >= day_start)
             .group_by(PPEEvent.camera_id)
+            .order_by(func.count().desc())
         ).all()
-        by_camera = [{"camera_id": c or "unknown", "count": int(n)}
-                     for c, n in per_cam]
+        by_camera = [{
+            "camera_id": c or "unknown",
+            "camera_name": names.get(str(c)) or (str(c)[:8] if c else "Unknown"),
+            "count": int(n),
+        } for c, n in per_cam]
 
-        # Hourly trend (last 24h) — bucket by hour.
+        # Hourly trend (last 24h) — bucket by hour, ZERO-FILLED across all 24
+        # hours so the chart draws a continuous line even on quiet hours.
         since = now - timedelta(hours=24)
         rows = s.execute(
             select(PPEEvent.triggered_at).where(PPEEvent.triggered_at >= since)
@@ -91,19 +116,29 @@ def build_dashboard(settings: dict) -> dict:
         for (t,) in rows:
             if t is None:
                 continue
-            key = t.strftime("%H:00")
+            key = t.strftime("%Y-%m-%d %H:00")
             buckets[key] = buckets.get(key, 0) + 1
-        hourly = [{"hour": h, "count": buckets[h]} for h in sorted(buckets.keys())]
+        hourly = []
+        for i in range(24, -1, -1):
+            ht = (now - timedelta(hours=i)).replace(minute=0, second=0, microsecond=0)
+            key = ht.strftime("%Y-%m-%d %H:00")
+            hourly.append({"hour": ht.strftime("%H:00"), "count": buckets.get(key, 0)})
 
-        # Top violation types today.
-        tv = s.execute(
-            select(PPEEvent.event_type, func.count())
+        # Top violations today — by the actual missing ITEM (Helmet / Vest), which
+        # is what an operator wants to see, not the internal event_type. Falls
+        # back to the event-type label when no item is recorded.
+        ti = s.execute(
+            select(PPEEvent.ppe_item, func.count())
             .where(PPEEvent.event_type.in_(_VIOLATION_TYPES),
                    PPEEvent.triggered_at >= day_start)
-            .group_by(PPEEvent.event_type)
+            .group_by(PPEEvent.ppe_item)
             .order_by(func.count().desc())
         ).all()
-        top_violation_types = [{"event_type": et, "count": int(n)} for et, n in tv]
+        top_violation_types = [{
+            "type": _item_label(it) if it else "PPE Missing",
+            "event_type": "ppe_missing",
+            "count": int(n),
+        } for it, n in ti]
 
     return {
         # Stamp a UTC marker so the browser parses it as UTC, not local time.

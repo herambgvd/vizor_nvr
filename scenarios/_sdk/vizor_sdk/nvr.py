@@ -115,6 +115,46 @@ class NvrClient:
             logger.warning("[%s] camera catalogue fetch failed: %s", self.slug, exc)
             return []
 
+    def list_cameras_sync(self, service_token: str = "", enabled_only: bool = False) -> list[dict]:
+        """Sync camera catalogue fetch via the trusted internal route — usable from
+        sync request handlers (the public dashboard). Uses the plugin<->NVR service
+        token, the same call the live manager makes. Best-effort: [] on failure."""
+        url = f"{self.base_url}/ai/internal/cameras"
+        headers = {"X-Vizor-Service-Token": service_token, "X-Vizor-Scenario": self.slug}
+        try:
+            resp = httpx.get(url, params={"enabled_only": str(enabled_only).lower()},
+                             headers=headers, timeout=self.timeout)
+            resp.raise_for_status()
+            data = resp.json()
+            return list(data.get("items") or []) if isinstance(data, dict) else (data or [])
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[%s] camera catalogue (sync) fetch failed: %s", self.slug, exc)
+            return []
+
+    # ── id -> name resolver (TTL-cached) ──────────────────────────────────────
+    _name_cache: dict = {}
+    _name_cache_at: float = 0.0
+
+    def camera_names(self, service_token: str = "", ttl: float = 60.0) -> dict:
+        """{camera_id: camera_name} for this plugin's cameras, cached for `ttl`
+        seconds so the public dashboard can label rows without hammering the NVR.
+        Falls back to the last good map (or {}) when the NVR is unreachable."""
+        now = time.time()
+        if self._name_cache and (now - self._name_cache_at) < ttl:
+            return self._name_cache
+        cams = self.list_cameras_sync(service_token=service_token, enabled_only=False)
+        if cams:
+            m = {}
+            for c in cams:
+                cid = c.get("camera_id") or c.get("id")
+                nm = c.get("camera_name") or c.get("name")
+                if cid:
+                    m[str(cid)] = nm or str(cid)
+            if m:
+                NvrClient._name_cache = m
+                NvrClient._name_cache_at = now
+        return self._name_cache
+
     async def emit_event(self, event: dict) -> bool:
         """Push a scenario event to the NVR (for plugins that emit directly rather
         than only persisting locally). Best-effort."""
