@@ -69,6 +69,7 @@ class VitVerifier:
         self.confirm = config.PPE_VIT_CONFIRM
         self.rescue = config.PPE_VIT_RESCUE
         self.vest_rescue = config.PPE_VIT_VEST_RESCUE
+        self.vest_confirm = config.PPE_VIT_VEST_CONFIRM
 
         if not self._model:
             return
@@ -166,6 +167,9 @@ class VitVerifier:
                 current = obs.get(label)
                 if kind == "helmet" and current is not None and prob < self.confirm:
                     obs.pop(label, None)  # veto weak helmet
+                elif (kind == "vest" and current is not None
+                      and self.vest_confirm > 0 and prob < self.vest_confirm):
+                    obs.pop(label, None)  # veto false vest (bright/red shirt)
                 elif (current is None
                       and prob >= (self.vest_rescue if kind == "vest" else self.rescue)
                       and not (kind == "helmet" and "NO_Hardhat" in obs)):

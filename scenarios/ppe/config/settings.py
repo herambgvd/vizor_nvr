@@ -56,9 +56,12 @@ PPE_VIT_ARTIFACT = os.getenv(
     "PPE_VIT_ARTIFACT",
     str(Path(__file__).resolve().parent.parent / "models" / "vit_ppe_dinov2_small.npz"),
 )
-PPE_VIT_CONFIRM = float(os.getenv("PPE_VIT_CONFIRM", "0.58"))      # reject below
+PPE_VIT_CONFIRM = float(os.getenv("PPE_VIT_CONFIRM", "0.58"))      # reject helmet below
 PPE_VIT_RESCUE = float(os.getenv("PPE_VIT_RESCUE", "0.82"))        # add helmet above
 PPE_VIT_VEST_RESCUE = float(os.getenv("PPE_VIT_VEST_RESCUE", "0.92"))  # add vest above
+# Veto a YOLO vest the DINOv2 torso head doesn't agree with — kills the common
+# "red/bright shirt read as a hi-vis vest" false positive. 0 = no vest veto.
+PPE_VIT_VEST_CONFIRM = float(os.getenv("PPE_VIT_VEST_CONFIRM", "0.50"))
 PPE_VIT_INTERVAL = int(os.getenv("PPE_VIT_INTERVAL", "5"))         # run once / N frames
 
 # ── Detection / compliance thresholds (POC run_video.py defaults) ────────────
@@ -98,6 +101,10 @@ MIN_FOOT_Y = float(os.getenv("PPE_MIN_FOOT_Y", "0.20"))
 BORDER_MARGIN = int(os.getenv("PPE_BORDER_MARGIN", "6"))
 # Reject tall+thin false 'person' boxes (water bottle, pole). Real worker ~<=4:1.
 MAX_PERSON_ASPECT = float(os.getenv("PPE_MAX_PERSON_ASPECT", "4.5"))
+# Minimum person height as a FRACTION of frame height. A far/small person (e.g.
+# someone at a doorway) is too low-res for reliable PPE detection and tends to
+# produce false PPE (a shirt read as a vest), so skip them. 0 = disabled.
+MIN_PERSON_FRAC = float(os.getenv("PPE_MIN_PERSON_FRAC", "0.22"))
 
 # Default required PPE when a camera does not configure it. Canonical labels.
 REQUIRED_PPE_DEFAULT = [

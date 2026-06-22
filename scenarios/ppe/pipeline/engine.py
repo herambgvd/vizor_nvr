@@ -302,13 +302,19 @@ def eligible_people(
     min_foot_y: float,
     border_margin: int,
     max_aspect: float = 5.0,
+    min_person_frac: float = 0.0,
 ) -> list[Detection]:
     """Suppress partial-edge tracks and camera artifacts from compliance decisions.
 
     `max_aspect` rejects absurdly tall+thin boxes (height/width) that the detector
     sometimes hallucinates as a 'person' on standing objects — a water bottle, a
     pole, a chair leg. A real standing/seated worker tops out around 4:1; a bottle
-    runs much higher, so this drops the false person without touching real ones."""
+    runs much higher, so this drops the false person without touching real ones.
+
+    `min_person_frac` (height as a fraction of the frame) drops far/small people —
+    e.g. someone at a distant doorway — who are too low-res for reliable PPE
+    detection and tend to produce false PPE (a plain shirt read as a vest)."""
+    min_frac_px = min_person_frac * frame_h if min_person_frac > 0 else 0
     accepted = []
     for person in persons:
         x1, _y1, x2, y2 = person.box
@@ -317,8 +323,8 @@ def eligible_people(
         aspect = height / width
         touches_edge = x1 <= border_margin or x2 >= frame_w - border_margin
         foot_too_high = y2 < min_foot_y * frame_h
-        if (height >= min_person_height and not touches_edge
-                and not foot_too_high and aspect <= max_aspect):
+        if (height >= min_person_height and height >= min_frac_px
+                and not touches_edge and not foot_too_high and aspect <= max_aspect):
             accepted.append(person)
     return accepted
 

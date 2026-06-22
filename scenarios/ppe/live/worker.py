@@ -257,6 +257,11 @@ class CameraWorker(threading.Thread):
         return config.PPE_CROP_STAGE
 
     @property
+    def min_person_frac(self) -> float:
+        # Skip far/small people (height < this fraction of frame) — unreliable PPE.
+        return self._cfg_num("min_person_frac", config.MIN_PERSON_FRAC, float)
+
+    @property
     def emit_compliant(self) -> bool:
         return bool(self.config.get("emit_compliant"))
 
@@ -346,7 +351,7 @@ class CameraWorker(threading.Thread):
         persons = deduplicate_persons(
             eligible_people(all_persons, h, w, config.MIN_PERSON_HEIGHT,
                             config.MIN_FOOT_Y, config.BORDER_MARGIN,
-                            config.MAX_PERSON_ASPECT)
+                            config.MAX_PERSON_ASPECT, self.min_person_frac)
         )
         if self._roi is not None:
             persons = [p for p in persons if in_roi(p, self._roi)]
