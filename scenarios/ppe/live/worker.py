@@ -175,13 +175,16 @@ class CameraWorker(threading.Thread):
     def run(self):
         from vizor_sdk.frames import FramePuller
 
+        rtsp = self._rtsp_url()
+        print(f"[ppe-live] {self.camera_id[:8]} pulling {rtsp} fps={self.fps} hwaccel={config.LIVE_HWACCEL}", flush=True)
         self._puller = FramePuller(
-            self._rtsp_url(), fps=self.fps, hwaccel=config.LIVE_HWACCEL,
+            rtsp, fps=self.fps, hwaccel=config.LIVE_HWACCEL,
             max_width=config.LIVE_MAX_WIDTH, stall_timeout=config.LIVE_STALL_TIMEOUT,
             label=self.camera_id,
         )
 
         def _on_state(state, detail):
+            print(f"[ppe-live] {self.camera_id[:8]} stream {state}" + (f": {detail}" if detail else ""), flush=True)
             self.report_state(self.config_id, state, detail)
 
         try:

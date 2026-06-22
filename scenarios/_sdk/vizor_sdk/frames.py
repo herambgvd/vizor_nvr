@@ -69,10 +69,14 @@ class FramePuller:
         # bound memory). Detectors letterbox internally, so an upstream downscale
         # would starve small/far objects — keep it native up to max_width.
         use_hw = self.hwaccel == "cuda" and not self._hw_failed
+        # RTSP socket I/O timeout (µs). ffmpeg 7.x dropped the old `-rw_timeout`
+        # and `-stimeout` CLI flags for the rtsp demuxer; the working one is
+        # `-timeout`. Without a valid flag ffmpeg errors out and yields no frames.
+        timeout_flag = ["-timeout", "10000000"]
         if use_hw:
             cmd = [
                 "ffmpeg", "-hide_banner", "-loglevel", "error",
-                "-rw_timeout", "10000000",  # 10s RTSP socket timeout (µs)
+                *timeout_flag,
                 "-hwaccel", "cuda", "-hwaccel_output_format", "cuda",
                 "-rtsp_transport", "tcp", "-i", self.rtsp_url,
                 "-vf", (f"fps={self.fps},scale_cuda='min({self.max_width},iw)':-2,"
@@ -82,7 +86,7 @@ class FramePuller:
         else:
             cmd = [
                 "ffmpeg", "-hide_banner", "-loglevel", "error",
-                "-rw_timeout", "10000000",
+                *timeout_flag,
                 "-rtsp_transport", "tcp", "-i", self.rtsp_url,
                 "-vf", f"fps={self.fps},scale='min({self.max_width},iw)':-2",
                 "-f", "image2pipe", "-vcodec", "mjpeg", "-q:v", "2", "pipe:1",
