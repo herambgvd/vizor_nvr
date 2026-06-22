@@ -95,8 +95,10 @@ class CameraWorker(threading.Thread):
         # Person tracking: SDK ByteTracker gives raw ids; StableIdMapper relinks
         # them to physical workers across short occlusions (proven POC relinker).
         from vizor_sdk import ByteTracker
+        # max_age in frames — keep a track alive through long detection gaps so a
+        # briefly-occluded / intermittently-detected person isn't re-numbered.
         self._tracker = ByteTracker(
-            iou_threshold=0.10, max_age=90, high_thresh=0.30, low_thresh=0.10,
+            iou_threshold=0.10, max_age=150, high_thresh=0.30, low_thresh=0.10,
         )
         self._stable = StableIdMapper(self.stable_id_max_age)
         self._smoother = EvidenceSmoother(config.SMOOTH_WINDOW, config.SMOOTH_MIN_HITS)
@@ -316,12 +318,13 @@ class CameraWorker(threading.Thread):
         self._engine.purge(now)
 
     def _item_floor(self, label: str) -> float:
+        # Per-camera operator overrides (Cameras tab) fall back to platform defaults.
         if label == "NO_Hardhat":
             return config.NO_HARDHAT_CONF
         if label == "Hardhat":
-            return config.HARDHAT_CONF
+            return self._cfg_num("hardhat_conf", config.HARDHAT_CONF, float)
         if label == "Safety_Vest":
-            return config.VEST_CONF
+            return self._cfg_num("vest_conf", config.VEST_CONF, float)
         return config.HARDHAT_CONF
 
     # ── emission ────────────────────────────────────────────────────────────

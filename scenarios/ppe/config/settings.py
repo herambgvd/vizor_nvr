@@ -57,24 +57,32 @@ PPE_VIT_INTERVAL = int(os.getenv("PPE_VIT_INTERVAL", "5"))         # run once / 
 # Decode floor — drop the NMS-baked export's low-score padding rows before any
 # per-class logic. Just under the lowest real per-class threshold.
 DECODE_SCORE_FLOOR = float(os.getenv("PPE_DECODE_SCORE_FLOOR", "0.12"))
-PERSON_CONF = float(os.getenv("PPE_PERSON_CONF", "0.20"))
-HARDHAT_CONF = float(os.getenv("PPE_HARDHAT_CONF", "0.10"))
-VEST_CONF = float(os.getenv("PPE_VEST_CONF", "0.50"))
+PERSON_CONF = float(os.getenv("PPE_PERSON_CONF", "0.25"))
+# Helmet floor raised from the POC's 0.10 — at 0.10 the detector calls faint
+# noise a "helmet", so plain-clothes people get falsely marked compliant. A
+# higher floor needs a real helmet to count it present.
+HARDHAT_CONF = float(os.getenv("PPE_HARDHAT_CONF", "0.35"))
+VEST_CONF = float(os.getenv("PPE_VEST_CONF", "0.55"))
 NO_HARDHAT_CONF = float(os.getenv("PPE_NO_HARDHAT_CONF", "0.15"))
 NEGATIVE_MARGIN = float(os.getenv("PPE_NEGATIVE_MARGIN", "1.20"))
 IOU = float(os.getenv("PPE_IOU", "0.50"))
 
-MISSING_GRACE = float(os.getenv("PPE_MISSING_GRACE", "1.0"))   # s absent before violation
+MISSING_GRACE = float(os.getenv("PPE_MISSING_GRACE", "2.0"))   # s absent before violation
 MIN_PRESENT = float(os.getenv("PPE_MIN_PRESENT", "3.0"))       # stable s before "removed"
 COOLDOWN = float(os.getenv("PPE_COOLDOWN", "30.0"))            # per-track/ppe event gap (s)
 ALERT_INITIAL_MISSING = os.getenv("PPE_ALERT_INITIAL_MISSING", "true").lower() in (
     "1", "true", "yes", "on",
 )
 
-# Temporal smoothing window (frames) — flicker rejection.
-SMOOTH_WINDOW = int(os.getenv("PPE_SMOOTH_WINDOW", "8"))
-SMOOTH_MIN_HITS = int(os.getenv("PPE_SMOOTH_MIN_HITS", "3"))
-STABLE_ID_MAX_AGE = float(os.getenv("PPE_STABLE_ID_MAX_AGE", "3.0"))  # relink seconds
+# Temporal smoothing window (frames) — flicker rejection. A wider window + higher
+# min-hits steadies a noisy detector so a person doesn't flip missing<->compliant
+# frame to frame.
+SMOOTH_WINDOW = int(os.getenv("PPE_SMOOTH_WINDOW", "15"))
+SMOOTH_MIN_HITS = int(os.getenv("PPE_SMOOTH_MIN_HITS", "6"))
+# Relink window — how long a worker's stable id survives while detection drops
+# out. Raised so an intermittently-detected person keeps ONE id (and thus one
+# cooldown) instead of churning into a new id + a fresh alert every few seconds.
+STABLE_ID_MAX_AGE = float(os.getenv("PPE_STABLE_ID_MAX_AGE", "12.0"))  # relink seconds
 
 # Eligibility gates (suppress edge / artifact tracks).
 MIN_PERSON_HEIGHT = int(os.getenv("PPE_MIN_PERSON_HEIGHT", "80"))
