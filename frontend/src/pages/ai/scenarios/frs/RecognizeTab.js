@@ -18,15 +18,15 @@ import React, { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ScanFace, Upload, Film, Loader2, X, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
-import { friendlyError } from "../../../lib/utils";
-import { formatDateTime } from "../../../lib/datetime";
+import { friendlyError } from "../../../../lib/utils";
+import { formatDateTime } from "../../../../lib/datetime";
 
 import {
   recognizeImage,
   submitVideoJob,
   videoJobStatus,
   videoJobResults,
-} from "../../../api/ai";
+} from "../../../../api/ai";
 
 // ---------------------------------------------------------------------------
 // shared primitives

@@ -23,16 +23,16 @@ import {
   Loader2,
   RefreshCw,
 } from "lucide-react";
-import { formatDateTime } from "../../../lib/datetime";
+import { formatDateTime } from "../../../../lib/datetime";
 
-import { getScenarioCameras } from "../../../api/frs";
+import { getScenarioCameras } from "../../../../api/frs";
 import {
   listScenarioPluginEvents,
   scenarioReportsSummary,
   scenarioSnapshotUrl,
-} from "../../../api/ai";
-import { cn } from "../../../lib/utils";
-import { cameraNameMap } from "./frsShared";
+} from "../../../../api/ai";
+import { cn } from "../../../../lib/utils";
+import { cameraNameMap } from "../frs/frsShared";
 
 const FEED_LIMIT = 20;
 const REFRESH_MS = 10000;

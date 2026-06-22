@@ -36,8 +36,8 @@ import {
   Clock,
 } from "lucide-react";
 import { toast } from "sonner";
-import { friendlyError } from "../../../lib/utils";
-import { formatDateTime } from "../../../lib/datetime";
+import { friendlyError } from "../../../../lib/utils";
+import { formatDateTime } from "../../../../lib/datetime";
 
 import {
   listTransitRules,
@@ -45,9 +45,9 @@ import {
   updateTransitRule,
   deleteTransitRule,
   listTransitSessions,
-} from "../../../api/ai";
-import { useConfirm } from "../../../components/ui/confirm";
-import { getAllCameras } from "../../../api/cameras";
+} from "../../../../api/ai";
+import { useConfirm } from "../../../../components/ui/confirm";
+import { getAllCameras } from "../../../../api/cameras";
 
 const inputStyle = {
   background: "var(--console-raised)",

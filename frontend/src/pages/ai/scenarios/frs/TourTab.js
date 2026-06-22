@@ -33,9 +33,9 @@ import {
   Clock,
 } from "lucide-react";
 import { format, formatDistanceToNowStrict } from "date-fns";
-import { formatDateTime, formatTime } from "../../../lib/datetime";
+import { formatDateTime, formatTime } from "../../../../lib/datetime";
 
-import { listPersons, personTimeline, photoImageUrl } from "../../../api/ai";
+import { listPersons, personTimeline, photoImageUrl } from "../../../../api/ai";
 import { snapshotUrl } from "./frsShared";
 
 const inputStyle = {

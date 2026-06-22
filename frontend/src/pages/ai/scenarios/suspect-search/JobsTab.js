@@ -2,8 +2,8 @@ import React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Briefcase, RefreshCw, XCircle } from "lucide-react";
 
-import { cancelScenarioJob, listScenarioJobs } from "../../../api/ai";
-import { friendlyError } from "../../../lib/utils";
+import { cancelScenarioJob, listScenarioJobs } from "../../../../api/ai";
+import { friendlyError } from "../../../../lib/utils";
 
 const terminalStates = new Set(["completed", "failed", "cancelled"]);
 

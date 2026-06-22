@@ -29,7 +29,7 @@ import {
   eventTypeBadgeClass,
   confidenceBadgeClass,
   fmtConfidence,
-} from "./frsShared";
+} from "../scenarios/frs/frsShared";
 import { cn } from "../../../lib/utils";
 import { formatTime } from "../../../lib/datetime";
 

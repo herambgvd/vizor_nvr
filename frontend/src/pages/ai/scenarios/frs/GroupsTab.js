@@ -20,10 +20,10 @@ import {
   Users,
 } from "lucide-react";
 import { toast } from "sonner";
-import { friendlyError } from "../../../lib/utils";
+import { friendlyError } from "../../../../lib/utils";
 
-import { listGroups, createGroup, updateGroup, deleteGroup } from "../../../api/ai";
-import { useConfirm } from "../../../components/ui/confirm";
+import { listGroups, createGroup, updateGroup, deleteGroup } from "../../../../api/ai";
+import { useConfirm } from "../../../../components/ui/confirm";
 
 const GROUP_TYPES = ["employee", "vip", "watchlist", "banned", "visitor"];
 const SWATCHES = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#a855f7", "#14b8a6", "#64748b"];

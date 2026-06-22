@@ -30,10 +30,10 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
-import { friendlyError } from "../../../lib/utils";
-import { formatDateTime } from "../../../lib/datetime";
+import { friendlyError } from "../../../../lib/utils";
+import { formatDateTime } from "../../../../lib/datetime";
 
-import { createInvestigation, listInvestigations, getInvestigation, scenarioSnapshotUrl } from "../../../api/ai";
+import { createInvestigation, listInvestigations, getInvestigation, scenarioSnapshotUrl } from "../../../../api/ai";
 
 const FRS_SLUG = "frs";
 

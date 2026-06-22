@@ -3,7 +3,7 @@
 // Reports). Pure functions only — no React, no side effects.
 // =============================================================================
 
-import { BACKEND_URL } from "../../../api/client";
+import { BACKEND_URL } from "../../../../api/client";
 
 // FRS recognition event types (mirrors the scenario catalog / query service).
 export const FRS_EVENT_TYPES = [

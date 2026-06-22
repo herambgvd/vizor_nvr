@@ -37,7 +37,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
-import { friendlyError } from "../../../lib/utils";
+import { friendlyError } from "../../../../lib/utils";
 
 import {
   listPersons,
@@ -50,8 +50,8 @@ import {
   deletePhoto,
   retryPhoto,
   photoImageUrl,
-} from "../../../api/ai";
-import { useConfirm } from "../../../components/ui/confirm";
+} from "../../../../api/ai";
+import { useConfirm } from "../../../../components/ui/confirm";
 
 const CATEGORIES = ["standard", "vip", "monitored", "restricted", "banned"];
 const PAGE_SIZE = 24;

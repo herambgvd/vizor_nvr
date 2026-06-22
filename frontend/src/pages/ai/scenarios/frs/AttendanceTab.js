@@ -28,11 +28,11 @@ import {
   listAttendance,
   attendanceReport,
   getScenarioCameras,
-} from "../../../api/frs";
-import { scenarioSnapshotUrl } from "../../../api/ai";
-import { Button } from "../../../components/ui/button";
-import { Input } from "../../../components/ui/input";
-import { cn } from "../../../lib/utils";
+} from "../../../../api/frs";
+import { scenarioSnapshotUrl } from "../../../../api/ai";
+import { Button } from "../../../../components/ui/button";
+import { Input } from "../../../../components/ui/input";
+import { cn } from "../../../../lib/utils";
 import { cameraNameMap } from "./frsShared";
 
 const PAGE_SIZE = 25;

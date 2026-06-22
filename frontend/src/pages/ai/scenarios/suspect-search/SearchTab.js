@@ -42,8 +42,8 @@ import {
   listScenarioCameras,
   scenarioSearch,
   scenarioThumbnailUrl,
-} from "../../../api/ai";
-import { friendlyError } from "../../../lib/utils";
+} from "../../../../api/ai";
+import { friendlyError } from "../../../../lib/utils";
 
 // ── Shared style tokens (every colour is a --console-* custom property) ───────
 const inputClass = "h-8 w-full rounded border px-2.5 text-[12px] outline-none";

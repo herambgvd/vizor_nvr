@@ -29,8 +29,8 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
-import { friendlyError } from "../../../lib/utils";
-import { formatDateTime } from "../../../lib/datetime";
+import { friendlyError } from "../../../../lib/utils";
+import { formatDateTime } from "../../../../lib/datetime";
 
 import {
   listAnprListDefs,
@@ -41,17 +41,17 @@ import {
   addAnprListEntry,
   deleteAnprListEntry,
   importAnprList,
-} from "../../../api/ai";
-import { useConfirm } from "../../../components/ui/confirm";
-import { Button } from "../../../components/ui/button";
-import { Input } from "../../../components/ui/input";
+} from "../../../../api/ai";
+import { useConfirm } from "../../../../components/ui/confirm";
+import { Button } from "../../../../components/ui/button";
+import { Input } from "../../../../components/ui/input";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "../../../components/ui/select";
+} from "../../../../components/ui/select";
 
 const PAGE_SIZE = 25;
 const ALL = "__all__";

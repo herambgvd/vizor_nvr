@@ -22,27 +22,27 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
-import { formatDateTime } from "../../../lib/datetime";
+import { formatDateTime } from "../../../../lib/datetime";
 
-import { getScenarioCameras } from "../../../api/frs";
+import { getScenarioCameras } from "../../../../api/frs";
 import {
   listScenarioPluginEvents,
   deleteScenarioPluginEvent,
   bulkDeleteScenarioPluginEvents,
   scenarioSnapshotUrl,
-} from "../../../api/ai";
-import { useConfirm } from "../../../components/ui/confirm";
-import { Button } from "../../../components/ui/button";
-import { Input } from "../../../components/ui/input";
+} from "../../../../api/ai";
+import { useConfirm } from "../../../../components/ui/confirm";
+import { Button } from "../../../../components/ui/button";
+import { Input } from "../../../../components/ui/input";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "../../../components/ui/select";
-import { cn } from "../../../lib/utils";
-import { confidenceBadgeClass, fmtConfidence, fmtBbox, cameraNameMap } from "./frsShared";
+} from "../../../../components/ui/select";
+import { cn } from "../../../../lib/utils";
+import { confidenceBadgeClass, fmtConfidence, fmtBbox, cameraNameMap } from "../frs/frsShared";
 
 const PAGE_SIZE = 25;
 const ALL = "__all__";
