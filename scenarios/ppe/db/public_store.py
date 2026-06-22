@@ -12,7 +12,6 @@ gates any worker identity (worker_track_id) if surfaced.
 """
 from __future__ import annotations
 
-from datetime import timedelta
 from typing import Optional
 
 from sqlalchemy import func, select
@@ -106,23 +105,18 @@ def build_dashboard(settings: dict) -> dict:
             "count": int(n),
         } for c, n in per_cam]
 
-        # Hourly trend (last 24h) — bucket by hour, ZERO-FILLED across all 24
-        # hours so the chart draws a continuous line even on quiet hours.
-        since = now - timedelta(hours=24)
+        # Hourly trend — TODAY ONLY (00:00 -> current hour), zero-filled so the
+        # chart draws a continuous line. No carry-over from yesterday.
         rows = s.execute(
-            select(PPEEvent.triggered_at).where(PPEEvent.triggered_at >= since)
+            select(PPEEvent.triggered_at).where(PPEEvent.triggered_at >= day_start)
         ).all()
-        buckets: dict[str, int] = {}
+        buckets: dict[int, int] = {}
         for (t,) in rows:
             if t is None:
                 continue
-            key = t.strftime("%Y-%m-%d %H:00")
-            buckets[key] = buckets.get(key, 0) + 1
-        hourly = []
-        for i in range(24, -1, -1):
-            ht = (now - timedelta(hours=i)).replace(minute=0, second=0, microsecond=0)
-            key = ht.strftime("%Y-%m-%d %H:00")
-            hourly.append({"hour": ht.strftime("%H:00"), "count": buckets.get(key, 0)})
+            buckets[t.hour] = buckets.get(t.hour, 0) + 1
+        hourly = [{"hour": f"{hr:02d}:00", "count": buckets.get(hr, 0)}
+                  for hr in range(0, now.hour + 1)]
 
         # Top violations today — by the actual missing ITEM (Helmet / Vest), which
         # is what an operator wants to see, not the internal event_type. Falls

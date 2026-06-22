@@ -162,7 +162,7 @@ const Legend = ({ color, label, value, pct }) => (
 
 const AreaChart = ({ data }) => {
   const w = 720, h = 220, pad = 30;
-  if (!data.length) return <Empty label="No activity in the last 24 hours yet." h="100%" />;
+  if (!data.length) return <Empty label="No activity today yet." h="100%" />;
   const max = Math.max(1, ...data.map((d) => d.count));
   const stepX = data.length > 1 ? (w - pad * 2) / (data.length - 1) : 0;
   const x = (i) => pad + i * stepX;
@@ -312,7 +312,7 @@ export default function PublicScenarioDashboard() {
 
       {/* Row 2 — trend + split (fills, equal share) */}
       <div style={{ flex: "1 1 0", minHeight: 0, display: "grid", gridTemplateColumns: desc.split ? "minmax(0,2fr) minmax(0,1fr)" : "1fr", gap: 14 }}>
-        <Panel title="Activity — last 24 hours" fill><div style={{ flex: 1, minHeight: 0 }}><AreaChart data={data?.hourly_trend || []} /></div></Panel>
+        <Panel title="Activity — today" fill><div style={{ flex: 1, minHeight: 0 }}><AreaChart data={data?.hourly_trend || []} /></div></Panel>
         {desc.split && (
           <Panel title={desc.split.title} fill>
             <Donut recognized={t[desc.split.a] ?? 0} unknown={t[desc.split.b] ?? 0} aLabel={desc.split.aLabel} bLabel={desc.split.bLabel} />

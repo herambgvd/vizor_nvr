@@ -106,10 +106,17 @@ class EventService:
             conditions.append(Event.severity == severity)
         if acknowledged is not None:
             conditions.append(Event.acknowledged == acknowledged)
+        # triggered_at is stored naive-UTC; a tz-aware bound from the client
+        # (e.g. "...Z") can't be compared against a naive column in asyncpg, so
+        # convert any aware datetime to naive UTC first.
+        def _naive_utc(dt):
+            if dt is not None and dt.tzinfo is not None:
+                return dt.astimezone(timezone.utc).replace(tzinfo=None)
+            return dt
         if start_date:
-            conditions.append(Event.triggered_at >= start_date)
+            conditions.append(Event.triggered_at >= _naive_utc(start_date))
         if end_date:
-            conditions.append(Event.triggered_at <= end_date)
+            conditions.append(Event.triggered_at <= _naive_utc(end_date))
 
         if conditions:
             query = query.where(and_(*conditions))
