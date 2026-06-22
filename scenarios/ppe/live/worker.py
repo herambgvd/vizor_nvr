@@ -60,8 +60,57 @@ _EVENT_TYPE = {"PPE_MISSING": "ppe_missing", "PPE_REMOVED": "ppe_missing"}
 
 
 # Status colors (BGR) — matches the POC overlay.
-_BOX_RED = (60, 60, 235)     # violation
-_BOX_GREEN = (90, 210, 120)  # compliant
+_BOX_RED = (45, 45, 235)      # violation
+_BOX_GREEN = (70, 210, 90)    # compliant / present
+_BOX_NEUTRAL = (155, 160, 168)
+_BOX_DARK = (24, 28, 34)
+
+
+def _translucent_panel(frame, tl, br, alpha=0.84) -> None:
+    import cv2 as _cv2
+    overlay = frame.copy()
+    _cv2.rectangle(overlay, tl, br, _BOX_DARK, -1, _cv2.LINE_AA)
+    _cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
+
+
+def _draw_helmet_icon(frame, center, color) -> None:
+    import cv2 as _cv2
+    cx, cy = center
+    _cv2.ellipse(frame, (cx, cy + 1), (10, 9), 0, 180, 360, color, -1, _cv2.LINE_AA)
+    _cv2.rectangle(frame, (cx - 12, cy + 1), (cx + 12, cy + 5), color, -1, _cv2.LINE_AA)
+    _cv2.line(frame, (cx, cy - 7), (cx, cy + 1), (245, 245, 245), 1, _cv2.LINE_AA)
+
+
+def _draw_vest_icon(frame, center, color) -> None:
+    import cv2 as _cv2, numpy as _np
+    cx, cy = center
+    pts = [(cx - 9, cy - 10), (cx - 3, cy - 12), (cx, cy - 6), (cx + 3, cy - 12),
+           (cx + 9, cy - 10), (cx + 12, cy + 11), (cx + 3, cy + 12),
+           (cx + 2, cy + 2), (cx - 2, cy + 2), (cx - 3, cy + 12), (cx - 12, cy + 11)]
+    _cv2.fillPoly(frame, [_np.array(pts, dtype=_np.int32)], color, _cv2.LINE_AA)
+    _cv2.line(frame, (cx, cy - 5), (cx, cy + 11), (245, 245, 245), 1, _cv2.LINE_AA)
+
+
+def _draw_status_card(frame, box, track_id, helmet_color, vest_color) -> None:
+    """POC status card: a translucent panel anchored at the worker's feet showing
+    the ID + a helmet and vest icon, each coloured green (worn) / red (missing)."""
+    import cv2 as _cv2
+    x1, y1, x2, y2 = (int(v) for v in box)
+    card_w, card_h = 146, 42
+    foot_x = (x1 + x2) // 2
+    card_x = max(0, min(foot_x - card_w // 2, frame.shape[1] - card_w - 1))
+    card_y = y2 - card_h - 6 if y2 >= card_h + 8 else y2 + 4
+    card_y = max(0, min(card_y, frame.shape[0] - card_h - 1))
+    _translucent_panel(frame, (card_x, card_y), (card_x + card_w, card_y + card_h))
+    overall = _BOX_RED if _BOX_RED in (helmet_color, vest_color) else (
+        _BOX_GREEN if helmet_color == vest_color == _BOX_GREEN else _BOX_NEUTRAL)
+    _cv2.rectangle(frame, (card_x, card_y), (card_x + 4, card_y + card_h), overall, -1)
+    _cv2.putText(frame, f"ID {track_id}", (card_x + 11, card_y + 25),
+                 _cv2.FONT_HERSHEY_SIMPLEX, 0.53, (240, 243, 247), 1, _cv2.LINE_AA)
+    if helmet_color is not None:
+        _draw_helmet_icon(frame, (card_x + 91, card_y + 19), helmet_color)
+    if vest_color is not None:
+        _draw_vest_icon(frame, (card_x + 127, card_y + 20), vest_color)
 
 
 def _draw_corner_box(frame, box, color) -> None:
@@ -385,6 +434,17 @@ class CameraWorker(threading.Thread):
         return config.HARDHAT_CONF
 
     # ── emission ────────────────────────────────────────────────────────────
+    def _status_colors(self, evidence: dict):
+        """(helmet_color, vest_color) for the status card — green if the item is in
+        evidence (worn), red if it's a required item that's missing, None if the
+        item isn't required for this camera."""
+        req = set(self.required_canonical)
+        def _c(canon):
+            if canon not in req:
+                return None
+            return _BOX_GREEN if canon in evidence else _BOX_RED
+        return _c("Hardhat"), _c("Safety_Vest")
+
     def _emit(self, person, event, ppes, evidence, present_items, frame_bgr, h, w) -> None:
         event_type = _EVENT_TYPE.get(event, "ppe_missing")
         # ppes = all canonical PPE items missing for this person this fire.
@@ -395,7 +455,8 @@ class CameraWorker(threading.Thread):
         # Best available confidence among the fired items.
         confs = [evidence[p].confidence for p in ppes if evidence.get(p)]
         conf = max(confs) if confs else None
-        snap = self._snapshot(frame_bgr, person.box)
+        hc, vc = self._status_colors(evidence)
+        snap = self._snapshot(frame_bgr, person.box, _BOX_RED, person.track_id, hc, vc)
         _record_event(
             self.camera_id, event_type, person.track_id, primary,
             missing, present_items, conf, snap, utcnow(),
@@ -428,17 +489,19 @@ class CameraWorker(threading.Thread):
         # factor), NOT the person-box score (that was the bogus "34%").
         confs = [evidence[r].confidence for r in self.required_canonical if evidence.get(r)]
         conf = min(confs) if confs else None
-        snap = self._snapshot(frame_bgr, person.box, _BOX_GREEN)
+        hc, vc = self._status_colors(evidence)
+        snap = self._snapshot(frame_bgr, person.box, _BOX_GREEN, person.track_id, hc, vc)
         _record_event(
             self.camera_id, "ppe_compliant", person.track_id, None,
             [], present_items, conf, snap, utcnow(),
             bbox=_bbox_obj(person.box, w, h),
         )
 
-    def _snapshot(self, frame_bgr, box, color=_BOX_RED) -> str | None:
-        """Persist the full annotated frame (offender in a corner-bracket box) +
-        a person crop. Returns the snapshot key the /snapshot route serves, or
-        None on failure. `color` (BGR) marks the box red=violation / green=ok."""
+    def _snapshot(self, frame_bgr, box, color=_BOX_RED, track_id=None,
+                  helmet_color=None, vest_color=None) -> str | None:
+        """Persist the full annotated frame (offender in a corner-bracket box +
+        POC status card showing helmet/vest icons) + a person crop. Returns the
+        snapshot key the /snapshot route serves, or None on failure."""
         if cv2 is None:
             return None
         frame_id = str(uuid.uuid4())
@@ -464,6 +527,8 @@ class CameraWorker(threading.Thread):
             # so the operator can immediately locate them in context.
             annotated = frame_bgr.copy()
             _draw_corner_box(annotated, (x1, y1, x2, y2), color)
+            if helmet_color is not None or vest_color is not None:
+                _draw_status_card(annotated, (x1, y1, x2, y2), track_id, helmet_color, vest_color)
             ok, buf = cv2.imencode(".jpg", annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
             if not ok:
                 return None
