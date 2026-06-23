@@ -15,270 +15,47 @@
     "triton_inference",
     "gpu_required"
   ],
-  "tabs": [
-    "cameras",
-    "live",
-    "ppe_detect",
-    "events",
-    "reports",
-    "settings"
-  ],
-  "module_tabs": [
-    "cameras",
-    "live",
-    "ppe_detect",
-    "events",
-    "reports",
-    "settings"
-  ],
+  "tabs": ["cameras", "live", "ppe_detect", "events", "reports", "settings"],
+  "module_tabs": ["cameras", "live", "ppe_detect", "events", "reports", "settings"],
   "camera_config_schema": {
     "fields": [
-      {
-        "key": "compliance_enabled",
-        "type": "bool",
-        "label": "PPE compliance",
-        "group": "Compliance",
-        "default": true,
-        "help": "Run per-worker PPE compliance on this camera."
-      },
-      {
-        "key": "required_items",
-        "type": "multiselect",
-        "label": "Required PPE",
-        "group": "Compliance",
-        "default": [
-          "helmet",
-          "vest"
-        ],
-        "options": [
-          "helmet",
-          "vest",
-          "goggles",
-          "boots"
-        ],
-        "help": "PPE a worker must wear in this zone. Only the items selected here are detected and alerted on \u2014 a worker missing any selected item raises a violation. Leave an item unchecked to ignore it on this camera."
-      },
-      {
-        "key": "emit_compliant",
-        "type": "bool",
-        "label": "Compliant events",
-        "group": "Compliance",
-        "default": false,
-        "help": "Also record a positive event when a worker is confirmed wearing all required PPE."
-      },
-      {
-        "key": "missing_grace",
-        "type": "float",
-        "label": "Missing grace (s)",
-        "group": "Timing",
-        "default": 1.0,
-        "min": 0.0,
-        "max": 10.0,
-        "step": 0.5,
-        "help": "Seconds a required item must stay absent before a violation fires (absorbs brief occlusion)."
-      },
-      {
-        "key": "min_present",
-        "type": "float",
-        "label": "Stable present (s)",
-        "group": "Timing",
-        "default": 3.0,
-        "min": 0.0,
-        "max": 15.0,
-        "step": 0.5,
-        "help": "Seconds PPE must be steadily worn before its later absence counts as 'removed' (vs 'missing')."
-      },
-      {
-        "key": "cooldown",
-        "type": "int",
-        "label": "Alert cooldown (s)",
-        "group": "Alerting",
-        "default": 30,
-        "min": 0,
-        "max": 3600,
-        "step": 5,
-        "help": "Minimum gap between repeat violations for the same worker + item."
-      },
-      {
-        "key": "person_conf",
-        "type": "float",
-        "label": "Person confidence",
-        "group": "Quality",
-        "default": 0.2,
-        "min": 0.05,
-        "max": 0.9,
-        "step": 0.05,
-        "help": "Detector confidence floor for tracking a person."
-      },
-      {
-        "key": "min_person_frac",
-        "type": "float",
-        "label": "Min person size",
-        "group": "Quality",
-        "default": 0.22,
-        "min": 0.0,
-        "max": 0.6,
-        "step": 0.02,
-        "help": "Ignore far/small people whose height is below this fraction of the frame \u2014 they are too low-res for reliable PPE and cause false alerts. Raise it to evaluate only nearby workers."
-      },
-      {
-        "key": "hardhat_conf",
-        "type": "float",
-        "label": "Helmet confidence",
-        "group": "Quality",
-        "default": 0.1,
-        "min": 0.05,
-        "max": 0.95,
-        "step": 0.05,
-        "help": "How sure the detector must be to count a helmet as worn. Raise it if plain-clothes people are wrongly marked compliant."
-      },
-      {
-        "key": "vest_conf",
-        "type": "float",
-        "label": "Vest confidence",
-        "group": "Quality",
-        "default": 0.5,
-        "min": 0.05,
-        "max": 0.95,
-        "step": 0.05,
-        "help": "How sure the detector must be to count a safety vest as worn."
-      },
-      {
-        "key": "goggles_conf",
-        "type": "float",
-        "label": "Goggles confidence",
-        "group": "Quality",
-        "default": 0.35,
-        "min": 0.05,
-        "max": 0.95,
-        "step": 0.05,
-        "help": "How sure the detector must be to count safety goggles as worn. Only used when Goggles is a required item."
-      },
-      {
-        "key": "boots_conf",
-        "type": "float",
-        "label": "Boots confidence",
-        "group": "Quality",
-        "default": 0.35,
-        "min": 0.05,
-        "max": 0.95,
-        "step": 0.05,
-        "help": "How sure the detector must be to count safety boots/shoes as worn. Only used when Boots is a required item."
-      },
-      {
-        "key": "fps",
-        "type": "int",
-        "label": "Analyze FPS",
-        "group": "Stream",
-        "default": 8,
-        "min": 1,
-        "max": 12,
-        "step": 1,
-        "help": "Frames analysed per second. With the TensorRT detector (GPU ~3.5 ms/frame) 8\u201310 is comfortable; raise it for snappier detection on fast-moving workers."
-      },
-      {
-        "key": "roi",
-        "type": "roi",
-        "label": "Region of interest",
-        "group": "Stream",
-        "help": "Only workers whose feet fall inside this zone are evaluated."
-      }
+      {"key": "compliance_enabled", "type": "bool", "label": "PPE compliance", "group": "Compliance", "default": true, "help": "Run per-worker PPE compliance on this camera."},
+      {"key": "required_items", "type": "multiselect", "label": "Required PPE", "group": "Compliance", "default": ["helmet", "vest"], "options": ["helmet", "vest", "goggles", "boots"], "help": "PPE a worker must wear in this zone. Only the items selected here are detected and alerted on — a worker missing any selected item raises a violation. Leave an item unchecked to ignore it on this camera."},
+      {"key": "emit_compliant", "type": "bool", "label": "Compliant events", "group": "Compliance", "default": false, "help": "Also record a positive event when a worker is confirmed wearing all required PPE."},
+      {"key": "missing_grace", "type": "float", "label": "Missing grace (s)", "group": "Timing", "default": 1.0, "min": 0.0, "max": 10.0, "step": 0.5, "help": "Seconds a required item must stay absent before a violation fires (absorbs brief occlusion)."},
+      {"key": "min_present", "type": "float", "label": "Stable present (s)", "group": "Timing", "default": 3.0, "min": 0.0, "max": 15.0, "step": 0.5, "help": "Seconds PPE must be steadily worn before its later absence counts as 'removed' (vs 'missing')."},
+      {"key": "cooldown", "type": "int", "label": "Alert cooldown (s)", "group": "Alerting", "default": 30, "min": 0, "max": 3600, "step": 5, "help": "Minimum gap between repeat violations for the same worker + item."},
+      {"key": "person_conf", "type": "float", "label": "Person confidence", "group": "Quality", "default": 0.20, "min": 0.05, "max": 0.9, "step": 0.05, "help": "Detector confidence floor for tracking a person."},
+      {"key": "min_person_frac", "type": "float", "label": "Min person size", "group": "Quality", "default": 0.22, "min": 0.0, "max": 0.6, "step": 0.02, "help": "Ignore far/small people whose height is below this fraction of the frame — they are too low-res for reliable PPE and cause false alerts. Raise it to evaluate only nearby workers."},
+      {"key": "hardhat_conf", "type": "float", "label": "Helmet confidence", "group": "Quality", "default": 0.10, "min": 0.05, "max": 0.95, "step": 0.05, "help": "How sure the detector must be to count a helmet as worn. Raise it if plain-clothes people are wrongly marked compliant."},
+      {"key": "vest_conf", "type": "float", "label": "Vest confidence", "group": "Quality", "default": 0.50, "min": 0.05, "max": 0.95, "step": 0.05, "help": "How sure the detector must be to count a safety vest as worn."},
+      {"key": "goggles_conf", "type": "float", "label": "Goggles confidence", "group": "Quality", "default": 0.35, "min": 0.05, "max": 0.95, "step": 0.05, "help": "How sure the detector must be to count safety goggles as worn. Only used when Goggles is a required item."},
+      {"key": "boots_conf", "type": "float", "label": "Boots confidence", "group": "Quality", "default": 0.35, "min": 0.05, "max": 0.95, "step": 0.05, "help": "How sure the detector must be to count safety boots/shoes as worn. Only used when Boots is a required item."},
+      {"key": "fps", "type": "int", "label": "Analyze FPS", "group": "Stream", "default": 8, "min": 1, "max": 12, "step": 1, "help": "Frames analysed per second. With the TensorRT detector (GPU ~3.5 ms/frame) 8–10 is comfortable; raise it for snappier detection on fast-moving workers."},
+      {"key": "roi", "type": "roi", "label": "Region of interest", "group": "Stream", "help": "Only workers whose feet fall inside this zone are evaluated."}
     ]
   },
-  "event_types": [
-    "ppe_missing",
-    "ppe_removed",
-    "ppe_compliant"
-  ],
+  "event_types": ["ppe_missing", "ppe_removed", "ppe_compliant"],
   "proxy_routes": [
-    {
-      "method": "GET",
-      "path": "/health"
-    },
-    {
-      "method": "POST",
-      "path": "/health/deep"
-    },
-    {
-      "method": "GET",
-      "path": "/live/logs"
-    },
-    {
-      "method": "GET",
-      "path": "/settings"
-    },
-    {
-      "method": "PUT",
-      "path": "/settings"
-    },
-    {
-      "method": "POST",
-      "path": "/settings/ingest-key/rotate"
-    },
-    {
-      "method": "GET",
-      "path": "/public/dashboard"
-    },
-    {
-      "method": "GET",
-      "path": "/public/stream"
-    },
-    {
-      "method": "GET",
-      "path": "/public/snapshot"
-    },
-    {
-      "method": "POST",
-      "path": "/ingest/event"
-    },
-    {
-      "method": "GET",
-      "path": "/events"
-    },
-    {
-      "method": "DELETE",
-      "path": "/events/{event_id}"
-    },
-    {
-      "method": "POST",
-      "path": "/events/delete"
-    },
-    {
-      "method": "GET",
-      "path": "/reports/summary"
-    },
-    {
-      "method": "GET",
-      "path": "/snapshot"
-    },
-    {
-      "method": "POST",
-      "path": "/media/upload"
-    },
-    {
-      "method": "GET",
-      "path": "/media/frame"
-    },
-    {
-      "method": "POST",
-      "path": "/media/analyze"
-    },
-    {
-      "method": "GET",
-      "path": "/media/status"
-    },
-    {
-      "method": "GET",
-      "path": "/media/result"
-    },
-    {
-      "method": "GET",
-      "path": "/media/list"
-    },
-    {
-      "method": "POST",
-      "path": "/media/delete"
-    }
+    { "method": "GET", "path": "/health" },
+    { "method": "POST", "path": "/health/deep" },
+    { "method": "GET", "path": "/live/logs" },
+
+    { "method": "GET", "path": "/settings" },
+    { "method": "PUT", "path": "/settings" },
+    { "method": "POST", "path": "/settings/ingest-key/rotate" },
+
+    { "method": "GET", "path": "/public/dashboard" },
+    { "method": "GET", "path": "/public/stream" },
+    { "method": "GET", "path": "/public/snapshot" },
+    { "method": "POST", "path": "/ingest/event" },
+
+    { "method": "GET", "path": "/events" },
+    { "method": "DELETE", "path": "/events/{event_id}" },
+    { "method": "POST", "path": "/events/delete" },
+
+    { "method": "GET", "path": "/reports/summary" },
+    { "method": "GET", "path": "/snapshot" }
   ],
   "resource_requirements": {
     "gpu": "required",
@@ -286,9 +63,6 @@
     "cpu_cores": 4,
     "memory_gb": 8,
     "storage": "event snapshots volume, own Postgres",
-    "models": [
-      "ppe_yolo26 (Triton)",
-      "DINOv2 PPE verifier (Triton, optional)"
-    ]
+    "models": ["ppe_yolo26 (Triton)", "DINOv2 PPE verifier (Triton, optional)"]
   }
 }

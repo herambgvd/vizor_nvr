@@ -498,11 +498,6 @@ class CameraWorker(threading.Thread):
             if self.emit_compliant and not fired and self._is_confidently_compliant(evidence):
                 self._maybe_emit_compliant(person, evidence, present_items, frame_bgr, h, w, now)
 
-            # Per-frame overlay hook — every tracked worker, every frame (not just on
-            # an event). The media pipeline overrides this to draw a continuous box;
-            # the live worker's default is a no-op.
-            self._on_person(person, evidence)
-
         self._smoother.purge(active_ids)
         self._engine.purge(now)
 
@@ -521,10 +516,6 @@ class CameraWorker(threading.Thread):
         return config.HARDHAT_CONF
 
     # ── emission ────────────────────────────────────────────────────────────
-    def _on_person(self, person, evidence) -> None:
-        """Per-frame, per-worker hook. No-op for the live worker; the media pipeline
-        overrides it to draw a box on every frame."""
-
     def _status_colors(self, evidence: dict) -> dict:
         """{canonical: color} for every REQUIRED PPE item — green if worn (in
         evidence), red if missing. Items not required on this camera are omitted,

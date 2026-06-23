@@ -479,14 +479,8 @@ async def _proxy_to_scenario(
     if content_type:
         headers["content-type"] = content_type
 
-    # Media video upload/download moves up to ~500 MB — give those routes a much
-    # longer timeout than the default 30s used for normal JSON calls.
-    proxy_timeout = settings.AI_PLUGIN_PROXY_TIMEOUT
-    if "media/upload" in path or "media/result" in path or "media/analyze" in path:
-        proxy_timeout = max(proxy_timeout, 600.0)
-
     try:
-        async with httpx.AsyncClient(timeout=proxy_timeout) as client:
+        async with httpx.AsyncClient(timeout=settings.AI_PLUGIN_PROXY_TIMEOUT) as client:
             upstream = await client.request(
                 request.method,
                 target,

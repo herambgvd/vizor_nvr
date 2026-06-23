@@ -45,22 +45,16 @@ export const getScenarioHealth = async (slug) => {
 export const proxyScenario = async (
   slug,
   path,
-  { method = "GET", data = undefined, params = undefined, headers = undefined, timeout = 120000, responseType = undefined } = {},
+  { method = "GET", data = undefined, params = undefined, headers = undefined, timeout = 120000 } = {},
 ) => {
   const clean = String(path || "").replace(/^\/+/, "");
-  // FormData must be sent as multipart, NOT serialised to JSON by the client's
-  // default Content-Type. Unset it so the browser sets multipart/form-data with the
-  // correct boundary; otherwise the body arrives as "{}" and the plugin 422s.
-  const isForm = typeof FormData !== "undefined" && data instanceof FormData;
-  const hdrs = isForm ? { ...(headers || {}), "Content-Type": undefined } : headers;
   const r = await apiClient.request({
     url: `/ai/scenarios/${slug}/proxy/${clean}`,
     method,
     data,
     params,
-    headers: hdrs,
+    headers,
     timeout,
-    responseType,
   });
   return r.data;
 };
