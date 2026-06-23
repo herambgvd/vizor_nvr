@@ -23,6 +23,16 @@ import { proxyScenario } from "../../../../api/ai";
 
 const REQUIRED_OPTIONS = ["helmet", "vest", "goggles", "boots"];
 
+// Coerce any backend error (string, FastAPI 422 array, or object) to a readable
+// string — never return an object, or React crashes trying to render it.
+function errMsg(e, fallback) {
+  const d = e?.response?.data?.detail ?? e?.response?.data ?? e?.message;
+  if (typeof d === "string") return d;
+  if (Array.isArray(d)) return d.map((x) => x?.msg || JSON.stringify(x)).join("; ");
+  if (d && typeof d === "object") return d.msg || JSON.stringify(d);
+  return fallback;
+}
+
 // ── ROI editor (click to add · drag corner to resize · drag inside to move) ──
 function RoiEditor({ imgUrl, points, onChange }) {
   const wrapRef = useRef(null);
@@ -156,7 +166,7 @@ export default function MediaTab({ scenario }) {
       if (blob) setFrameUrl(URL.createObjectURL(blob));
       setStage("config");
     } catch (e) {
-      setErr(e?.response?.data?.detail || "Upload failed.");
+      setErr(errMsg(e, "Upload failed."));
     } finally { setBusy(false); }
   };
 
@@ -172,7 +182,7 @@ export default function MediaTab({ scenario }) {
       setStage("running");
       pollRef.current = setInterval(() => poll(r.job_id), 2000);
     } catch (e) {
-      setErr(e?.response?.data?.detail || "Could not start analysis.");
+      setErr(errMsg(e, "Could not start analysis."));
       setBusy(false);
     }
   };
