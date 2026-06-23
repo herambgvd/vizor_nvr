@@ -203,6 +203,7 @@ def _run_job(job: MediaJob, video_path: str, cam_config: dict, sample_fps: int) 
         W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         job.frames_total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
+        _persist(job)   # publish the frame count immediately so the UI shows N, not "—"
 
         # Optional analyse-fps downsample (skip frames) for long videos.
         step = 1
@@ -210,9 +211,15 @@ def _run_job(job: MediaJob, video_path: str, cam_config: dict, sample_fps: int) 
             step = max(1, int(round(src_fps / sample_fps)))
         out_fps = src_fps / step
 
+        # Loading the detector/Triton/SigLIP takes a few seconds — flag it so the UI
+        # shows "Preparing model…" instead of a frozen 0%.
+        job.status = "preparing"
+        _persist(job)
         cam = {"camera_id": f"media:{job.job_id}", "config": cam_config}
         pipeline = PpePipeline(cam)
         enc = _open_h264_pipe(final_out, W, H, out_fps)
+        job.status = "running"
+        _persist(job)
 
         fno = 0
         while True:
@@ -231,7 +238,7 @@ def _run_job(job: MediaJob, video_path: str, cam_config: dict, sample_fps: int) 
             job.frames_done = fno
             if job.frames_total:
                 job.progress = min(1.0, fno / job.frames_total)
-            if fno % 200 == 0:
+            if fno % 50 == 0:
                 _persist(job)   # checkpoint so a reopened page sees live progress
         cap.release(); cap = None
         enc.stdin.close()

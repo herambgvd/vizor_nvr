@@ -398,7 +398,9 @@ export default function MediaTab({ scenario }) {
           <div className="rounded-lg border p-8 flex flex-col items-center gap-4" style={{ borderColor: "var(--console-border)", background: "var(--console-panel)" }}>
             <Loader2 className="h-8 w-8 animate-spin" style={{ color: "var(--console-accent)" }} />
             <p className="font-telemetry text-[13px]" style={{ color: "var(--console-text)" }}>
-              {job?.status === "encoding" ? "Encoding annotated video…" : "Analysing video…"}
+              {job?.status === "preparing" ? "Preparing model…"
+                : job?.status === "encoding" ? "Encoding annotated video…"
+                : "Analysing video…"}
             </p>
             <div className="w-full max-w-md h-2 rounded-full overflow-hidden" style={{ background: "var(--console-raised)" }}>
               <div className="h-full transition-all" style={{ width: `${Math.round((job?.progress || 0) * 100)}%`, background: "var(--console-accent)" }} />
