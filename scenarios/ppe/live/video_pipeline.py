@@ -33,6 +33,7 @@ class MediaJob:
     job_id: str
     name: str = ""                   # original filename, for the history list
     src_path: str = ""               # uploaded source video, removed on delete
+    pid: int = 0                     # child analysis process (liveness check)
     status: str = "queued"          # queued | running | encoding | done | error
     progress: float = 0.0           # 0..1
     frames_total: int = 0
@@ -70,35 +71,38 @@ def _persist(job: MediaJob) -> None:
 
 
 def get_job(job_id: str) -> Optional[MediaJob]:
-    with _LOCK:
-        j = _JOBS.get(job_id)
-    if j is not None:
-        return j
-    # Recover from disk (operator navigated away, or the dev uvicorn --reload killed
-    # the worker thread mid-job).
+    # The analysis runs in a child process that writes the canonical state to disk, so
+    # the on-disk json is the source of truth — always prefer it. Fall back to the
+    # in-memory record only if no json exists yet.
     import json
     p = _job_meta_path(job_id)
     if not p.exists():
-        return None
+        with _LOCK:
+            return _JOBS.get(job_id)
     try:
         d = json.loads(p.read_text())
         job = MediaJob(**d)
     except Exception:  # noqa: BLE001
-        return None
-    # Orphaned in-flight job: persisted as running but no live thread owns it (the dev
-    # uvicorn --reload restarted the process). The H.264 pipe streams as it goes, so
-    # whatever encoded so far is fine, but the run can't continue — mark it failed so
-    # the UI stops showing an endless spinner. (Production has no --reload.)
-    if job.status in ("running", "encoding"):
-        final_out = _media_dir() / f"{job.job_id}.mp4"
-        if final_out.exists() and (job.progress or 0) >= 0.999:
-            job.status = "done"
-            job.annotated_path = f"/media/result?job_id={job.job_id}"
-        else:
-            job.status = "error"
-            job.error = "interrupted before completion (process reload)"
+        with _LOCK:
+            return _JOBS.get(job_id)
+    # In-flight job whose child process has died (crash / kill) without reaching a
+    # terminal status: mark it failed so the UI stops spinning forever. A live child
+    # keeps `pid` running, so we only error out when the pid is gone.
+    if job.status in ("running", "encoding") and job.pid and not _pid_alive(job.pid):
+        job.status = "error"
+        job.error = "analysis process exited unexpectedly"
         _persist(job)
     return job
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except (OSError, ProcessLookupError):
+        return False
+    except Exception:  # noqa: BLE001
+        return True
 
 
 def delete_job(job_id: str) -> None:
@@ -152,14 +156,29 @@ def list_jobs() -> list:
 
 def start_media_job(video_path: str, cam_config: dict, *, sample_fps: int = 0, name: str = "") -> str:
     """Register + launch a background analysis of `video_path` using `cam_config`
-    (required_items, roi, *_conf, etc — same schema as a camera). Returns job_id."""
+    (required_items, roi, *_conf, etc — same schema as a camera). Returns job_id.
+
+    The analysis runs in a SEPARATE PROCESS, not a thread. The CV + Triton + ffmpeg
+    work is GIL-heavy and, inside the uvicorn worker, a background thread starved the
+    event loop (health checks timed out, the job itself stalled at frame 1). A child
+    process is fully isolated from uvicorn; it reports progress by writing the same
+    <job_id>.json the status endpoint already reads."""
+    import json
+    import sys
     job_id = uuid.uuid4().hex[:12]
     job = MediaJob(job_id=job_id, name=name or "video", src_path=str(video_path))
     with _LOCK:
         _JOBS[job_id] = job
     _persist(job)
-    threading.Thread(target=_run_job, args=(job, video_path, cam_config, sample_fps),
-                     name=f"ppe-media-{job_id}", daemon=True).start()
+    spec = json.dumps({
+        "job_id": job_id, "video_path": str(video_path), "cam_config": cam_config,
+        "sample_fps": sample_fps, "name": name or "video",
+    })
+    # python -m live.media_runner '<json>' — detached, its own GIL/fds.
+    subprocess.Popen([sys.executable, "-m", "live.media_runner", spec],
+                     cwd="/app", stdin=subprocess.DEVNULL,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                     start_new_session=True)
     return job_id
 
 
@@ -167,6 +186,8 @@ def _run_job(job: MediaJob, video_path: str, cam_config: dict, sample_fps: int) 
     from .async_pipeline import PpePipeline
 
     job.status = "running"
+    job.pid = os.getpid()
+    _persist(job)
     # Encode H.264 directly via an ffmpeg pipe — annotated BGR frames are written to
     # ffmpeg's stdin as they are produced, so the output is a browser-playable .mp4
     # the moment the last frame lands. No mp4v intermediate, no slow second-pass
@@ -241,7 +262,12 @@ def _run_job(job: MediaJob, video_path: str, cam_config: dict, sample_fps: int) 
 
 
 def _open_h264_pipe(dst: str, w: int, h: int, fps: float) -> "subprocess.Popen":
-    """ffmpeg reading raw BGR frames on stdin, writing a faststart H.264 mp4."""
+    """ffmpeg reading raw BGR frames on stdin, writing a faststart H.264 mp4.
+
+    stdout/stderr -> DEVNULL: under uvicorn the parent's stderr is a pipe, and if
+    ffmpeg's inherited stderr fills it ffmpeg blocks on its own log write, stops
+    draining stdin, and our stdin.write() deadlocks on the very first frame (job
+    stuck at 1/N). Discarding ffmpeg's output removes that backpressure."""
     return subprocess.Popen(
         ["ffmpeg", "-y", "-loglevel", "error",
          "-f", "rawvideo", "-pix_fmt", "bgr24",
@@ -249,6 +275,8 @@ def _open_h264_pipe(dst: str, w: int, h: int, fps: float) -> "subprocess.Popen":
          "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "26",
          "-pix_fmt", "yuv420p", "-movflags", "+faststart", dst],
         stdin=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
 
 

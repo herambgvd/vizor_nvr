@@ -87,10 +87,17 @@ services:
       disable: true
 
   ppe:
+    # Exclude the live/media worker modules from --reload: a media analysis runs in a
+    # background thread, and a hot-reload restart mid-job kills it (job stuck at 0%).
+    # Edits to these need a manual `docker compose restart ppe`.
     command: >
       python -m uvicorn app:app --host 0.0.0.0 --port 8092 --reload --reload-dir /app
+      --reload-exclude 'live/*'
     volumes:
       - ./scenarios/ppe:/app
+      # Mount the shared SDK so the container uses the current source (the baked image
+      # can lag behind, e.g. build_public_router's data_path kwarg).
+      - ./scenarios/_sdk/vizor_sdk:/usr/local/lib/python3.11/site-packages/vizor_sdk:ro
       - recordings:/data/recordings:ro
       - ppe_snapshots:/data/ppe
       - ./models:/models:ro
