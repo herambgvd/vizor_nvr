@@ -17,11 +17,16 @@ services:
     image: nvcr.io/nvidia/tritonserver:24.08-py3
     container_name: gvd_ai_triton
     restart: unless-stopped
+    # Explicit model control: load ONLY the models listed below, so the GPU isn't
+    # filled by every scenario's weights. Add --load-model lines as scenarios are
+    # tested. (Switch back to --model-control-mode=poll to auto-load the whole
+    # repo.) PPE testing needs just the detector + the SigLIP verifier.
     command: >
       tritonserver
       --model-repository=/models
-      --model-control-mode=poll
-      --repository-poll-secs=30
+      --model-control-mode=explicit
+      --load-model=ppe_yolo26
+      --load-model=siglip_ppe
       --log-verbose=0
       --strict-model-config=false
     networks:
