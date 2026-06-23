@@ -1,0 +1,7 @@
+# arcface_r50 — TensorRT FP16 face-embedding engine (rebuild from 1/model.onnx).
+name: "arcface_r50_trt"
+platform: "tensorrt_plan"
+max_batch_size: 0
+input [ { name: "input.1" data_type: TYPE_FP32 dims: [ 1, 3, 112, 112 ] } ]
+output [ { name: "683" data_type: TYPE_FP32 dims: [ 1, 512 ] } ]
+instance_group [ { count: 1 kind: KIND_GPU } ]
