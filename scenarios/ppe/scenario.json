@@ -55,7 +55,13 @@
     { "method": "POST", "path": "/events/delete" },
 
     { "method": "GET", "path": "/reports/summary" },
-    { "method": "GET", "path": "/snapshot" }
+    { "method": "GET", "path": "/snapshot" },
+
+    { "method": "POST", "path": "/media/upload" },
+    { "method": "GET", "path": "/media/frame" },
+    { "method": "POST", "path": "/media/analyze" },
+    { "method": "GET", "path": "/media/status" },
+    { "method": "GET", "path": "/media/result" }
   ],
   "resource_requirements": {
     "gpu": "required",

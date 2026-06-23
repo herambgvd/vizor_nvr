@@ -27,6 +27,7 @@ from routers import (
     events,
     health,
     ingest,
+    media,
     public,
     reports,
     settings as settings_router,
@@ -35,7 +36,7 @@ from routers import (
 
 app = FastAPI(title="Vizor PPE Compliance", version=config.VERSION)
 
-for module in (health, events, reports, snapshot, settings_router, public, ingest):
+for module in (health, events, reports, snapshot, settings_router, public, ingest, media):
     app.include_router(module.router)
 
 

@@ -51,6 +51,39 @@ class PpePipeline(CameraWorker, Pipeline):
     def close(self) -> None:
         return None
 
+    # ── video analysis: run pipeline at a given video timestamp + draw overlay ──
+    def process_with_overlay(self, frame, ts: float):
+        """Run the pipeline using VIDEO time `ts` (so grace/cooldown match live) and
+        return (annotated_frame, events). Draws the same corner box + status card +
+        ROI overlay the live snapshots use, onto a copy of the frame."""
+        import cv2
+        from .worker import (_draw_corner_box, _draw_status_card, _BOX_RED, _BOX_GREEN)
+
+        self._pending = []
+        self._frame_no += 1
+        self._overlay = []          # (box, color, track_id, item_colors) collected in _emit
+        try:
+            self._process(frame, ts)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("[ppe-pipeline] frame error: %s", e)
+            self._overlay = []
+        annotated = frame.copy()
+        h, w = annotated.shape[:2]
+        # ROI outline (amber) so the operator sees the evaluation zone.
+        if getattr(self, "_roi", None) is not None:
+            try:
+                roi_thick = max(2, int(round(2 * h / 720.0)))
+                cv2.polylines(annotated, [self._roi], True, (70, 200, 235), roi_thick, cv2.LINE_AA)
+            except Exception:  # noqa: BLE001
+                pass
+        for box, color, tid, item_colors in self._overlay:
+            _draw_corner_box(annotated, box, color)
+            if item_colors:
+                _draw_status_card(annotated, box, tid, item_colors)
+        out, self._pending = self._pending, []
+        self._overlay = []
+        return annotated, out
+
     # ── redirect the two emit paths to the pending list (no inline DB write) ──
     def _emit(self, person, event, ppes, evidence, present_items, frame_bgr, h, w) -> None:
         from .worker import _EVENT_TYPE, CANONICAL_TO_ITEM, _BOX_RED
@@ -64,6 +97,8 @@ class PpePipeline(CameraWorker, Pipeline):
         item_colors = self._status_colors(evidence)
         snap = self._snapshot(frame_bgr, person.box, _BOX_RED, person.track_id, item_colors)
         self._dbg_violations += 1
+        if hasattr(self, "_overlay"):
+            self._overlay.append((tuple(int(v) for v in person.box), _BOX_RED, person.track_id, item_colors))
         self._pending.append({
             "camera_id": self.camera_id, "event_type": event_type,
             "worker_track_id": person.track_id, "ppe_item": primary,
@@ -86,6 +121,8 @@ class PpePipeline(CameraWorker, Pipeline):
         conf = min(confs) if confs else None
         item_colors = self._status_colors(evidence)
         snap = self._snapshot(frame_bgr, person.box, _BOX_GREEN, person.track_id, item_colors)
+        if hasattr(self, "_overlay"):
+            self._overlay.append((tuple(int(v) for v in person.box), _BOX_GREEN, person.track_id, item_colors))
         self._pending.append({
             "camera_id": self.camera_id, "event_type": "ppe_compliant",
             "worker_track_id": person.track_id, "ppe_item": None,
