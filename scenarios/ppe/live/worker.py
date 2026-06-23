@@ -91,26 +91,62 @@ def _draw_vest_icon(frame, center, color) -> None:
     _cv2.line(frame, (cx, cy - 5), (cx, cy + 11), (245, 245, 245), 1, _cv2.LINE_AA)
 
 
-def _draw_status_card(frame, box, track_id, helmet_color, vest_color) -> None:
-    """POC status card: a translucent panel anchored at the worker's feet showing
-    the ID + a helmet and vest icon, each coloured green (worn) / red (missing)."""
+def _draw_goggles_icon(frame, center, color) -> None:
     import cv2 as _cv2
+    cx, cy = center
+    # two lenses joined by a bridge
+    _cv2.circle(frame, (cx - 6, cy), 5, color, -1, _cv2.LINE_AA)
+    _cv2.circle(frame, (cx + 6, cy), 5, color, -1, _cv2.LINE_AA)
+    _cv2.line(frame, (cx - 2, cy), (cx + 2, cy), color, 2, _cv2.LINE_AA)
+    _cv2.circle(frame, (cx - 6, cy), 2, (245, 245, 245), -1, _cv2.LINE_AA)
+    _cv2.circle(frame, (cx + 6, cy), 2, (245, 245, 245), -1, _cv2.LINE_AA)
+
+
+def _draw_boots_icon(frame, center, color) -> None:
+    import cv2 as _cv2, numpy as _np
+    cx, cy = center
+    # L-shaped boot: shaft + foot
+    pts = [(cx - 4, cy - 11), (cx + 2, cy - 11), (cx + 2, cy + 3),
+           (cx + 11, cy + 3), (cx + 11, cy + 10), (cx - 4, cy + 10)]
+    _cv2.fillPoly(frame, [_np.array(pts, dtype=_np.int32)], color, _cv2.LINE_AA)
+
+
+_ITEM_ICON = {
+    "Hardhat": _draw_helmet_icon,
+    "Safety_Vest": _draw_vest_icon,
+    "Goggles": _draw_goggles_icon,
+    "Boots": _draw_boots_icon,
+}
+# Draw order so icons sit in a stable left-to-right sequence head->feet.
+_ICON_ORDER = ["Hardhat", "Goggles", "Safety_Vest", "Boots"]
+
+
+def _draw_status_card(frame, box, track_id, item_colors: dict) -> None:
+    """Status card: a translucent panel at the worker's feet showing the ID plus
+    one icon per REQUIRED PPE item (helmet/goggles/vest/boots), each coloured green
+    (worn) / red (missing). Card widens with the number of items."""
+    import cv2 as _cv2
+    items = [k for k in _ICON_ORDER if item_colors.get(k) is not None]
     x1, y1, x2, y2 = (int(v) for v in box)
-    card_w, card_h = 146, 42
+    id_w = 52
+    icon_gap = 26
+    card_w = id_w + max(1, len(items)) * icon_gap + 8
+    card_h = 42
     foot_x = (x1 + x2) // 2
     card_x = max(0, min(foot_x - card_w // 2, frame.shape[1] - card_w - 1))
     card_y = y2 - card_h - 6 if y2 >= card_h + 8 else y2 + 4
     card_y = max(0, min(card_y, frame.shape[0] - card_h - 1))
     _translucent_panel(frame, (card_x, card_y), (card_x + card_w, card_y + card_h))
-    overall = _BOX_RED if _BOX_RED in (helmet_color, vest_color) else (
-        _BOX_GREEN if helmet_color == vest_color == _BOX_GREEN else _BOX_NEUTRAL)
+    colors = [item_colors[k] for k in items]
+    overall = _BOX_RED if _BOX_RED in colors else (
+        _BOX_GREEN if colors and all(c == _BOX_GREEN for c in colors) else _BOX_NEUTRAL)
     _cv2.rectangle(frame, (card_x, card_y), (card_x + 4, card_y + card_h), overall, -1)
-    _cv2.putText(frame, f"ID {track_id}", (card_x + 11, card_y + 25),
-                 _cv2.FONT_HERSHEY_SIMPLEX, 0.53, (240, 243, 247), 1, _cv2.LINE_AA)
-    if helmet_color is not None:
-        _draw_helmet_icon(frame, (card_x + 91, card_y + 19), helmet_color)
-    if vest_color is not None:
-        _draw_vest_icon(frame, (card_x + 127, card_y + 20), vest_color)
+    _cv2.putText(frame, f"ID {track_id}", (card_x + 9, card_y + 25),
+                 _cv2.FONT_HERSHEY_SIMPLEX, 0.48, (240, 243, 247), 1, _cv2.LINE_AA)
+    ix = card_x + id_w + icon_gap // 2
+    for k in items:
+        _ITEM_ICON[k](frame, (ix, card_y + 20), item_colors[k])
+        ix += icon_gap
 
 
 def _draw_corner_box(frame, box, color) -> None:
@@ -464,16 +500,14 @@ class CameraWorker(threading.Thread):
         return config.HARDHAT_CONF
 
     # ── emission ────────────────────────────────────────────────────────────
-    def _status_colors(self, evidence: dict):
-        """(helmet_color, vest_color) for the status card — green if the item is in
-        evidence (worn), red if it's a required item that's missing, None if the
-        item isn't required for this camera."""
+    def _status_colors(self, evidence: dict) -> dict:
+        """{canonical: color} for every REQUIRED PPE item — green if worn (in
+        evidence), red if missing. Items not required on this camera are omitted,
+        so the status card only shows the items being enforced."""
         req = set(self.required_canonical)
-        def _c(canon):
-            if canon not in req:
-                return None
-            return _BOX_GREEN if canon in evidence else _BOX_RED
-        return _c("Hardhat"), _c("Safety_Vest")
+        return {canon: (_BOX_GREEN if canon in evidence else _BOX_RED)
+                for canon in ("Hardhat", "Safety_Vest", "Goggles", "Boots")
+                if canon in req}
 
     def _emit(self, person, event, ppes, evidence, present_items, frame_bgr, h, w) -> None:
         event_type = _EVENT_TYPE.get(event, "ppe_missing")
@@ -485,8 +519,8 @@ class CameraWorker(threading.Thread):
         # Best available confidence among the fired items.
         confs = [evidence[p].confidence for p in ppes if evidence.get(p)]
         conf = max(confs) if confs else None
-        hc, vc = self._status_colors(evidence)
-        snap = self._snapshot(frame_bgr, person.box, _BOX_RED, person.track_id, hc, vc)
+        item_colors = self._status_colors(evidence)
+        snap = self._snapshot(frame_bgr, person.box, _BOX_RED, person.track_id, item_colors)
         _record_event(
             self.camera_id, event_type, person.track_id, primary,
             missing, present_items, conf, snap, utcnow(),
@@ -519,8 +553,8 @@ class CameraWorker(threading.Thread):
         # factor), NOT the person-box score (that was the bogus "34%").
         confs = [evidence[r].confidence for r in self.required_canonical if evidence.get(r)]
         conf = min(confs) if confs else None
-        hc, vc = self._status_colors(evidence)
-        snap = self._snapshot(frame_bgr, person.box, _BOX_GREEN, person.track_id, hc, vc)
+        item_colors = self._status_colors(evidence)
+        snap = self._snapshot(frame_bgr, person.box, _BOX_GREEN, person.track_id, item_colors)
         _record_event(
             self.camera_id, "ppe_compliant", person.track_id, None,
             [], present_items, conf, snap, utcnow(),
@@ -528,10 +562,10 @@ class CameraWorker(threading.Thread):
         )
 
     def _snapshot(self, frame_bgr, box, color=_BOX_RED, track_id=None,
-                  helmet_color=None, vest_color=None) -> str | None:
+                  item_colors=None) -> str | None:
         """Persist the full annotated frame (offender in a corner-bracket box +
-        POC status card showing helmet/vest icons) + a person crop. Returns the
-        snapshot key the /snapshot route serves, or None on failure."""
+        status card with one icon per required PPE item) + a person crop. Returns
+        the snapshot key the /snapshot route serves, or None on failure."""
         if cv2 is None:
             return None
         frame_id = str(uuid.uuid4())
@@ -569,8 +603,8 @@ class CameraWorker(threading.Thread):
             foot = (int((x1 + x2) / 2), int(y2))
             cv2.circle(annotated, foot, max(4, int(annotated.shape[0] / 180)), color, -1, cv2.LINE_AA)
             _draw_corner_box(annotated, (x1, y1, x2, y2), color)
-            if helmet_color is not None or vest_color is not None:
-                _draw_status_card(annotated, (x1, y1, x2, y2), track_id, helmet_color, vest_color)
+            if item_colors:
+                _draw_status_card(annotated, (x1, y1, x2, y2), track_id, item_colors)
             ok, buf = cv2.imencode(".jpg", annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
             if not ok:
                 return None
