@@ -31,7 +31,7 @@
       {"key": "vest_conf", "type": "float", "label": "Vest confidence", "group": "Quality", "default": 0.50, "min": 0.05, "max": 0.95, "step": 0.05, "help": "How sure the detector must be to count a safety vest as worn."},
       {"key": "goggles_conf", "type": "float", "label": "Goggles confidence", "group": "Quality", "default": 0.35, "min": 0.05, "max": 0.95, "step": 0.05, "help": "How sure the detector must be to count safety goggles as worn. Only used when Goggles is a required item."},
       {"key": "boots_conf", "type": "float", "label": "Boots confidence", "group": "Quality", "default": 0.35, "min": 0.05, "max": 0.95, "step": 0.05, "help": "How sure the detector must be to count safety boots/shoes as worn. Only used when Boots is a required item."},
-      {"key": "fps", "type": "int", "label": "Analyze FPS", "group": "Stream", "default": 5, "min": 1, "max": 8, "step": 1, "help": "Frames analysed per second. Keep around 5 — detection runs at 1280 (~90 ms/frame), so a higher rate makes the worker fall behind and the stream stalls."},
+      {"key": "fps", "type": "int", "label": "Analyze FPS", "group": "Stream", "default": 8, "min": 1, "max": 12, "step": 1, "help": "Frames analysed per second. With the TensorRT detector (GPU ~3.5 ms/frame) 8–10 is comfortable; raise it for snappier detection on fast-moving workers."},
       {"key": "roi", "type": "roi", "label": "Region of interest", "group": "Stream", "help": "Only workers whose feet fall inside this zone are evaluated."}
     ]
   },

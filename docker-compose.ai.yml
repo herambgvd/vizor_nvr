@@ -25,7 +25,7 @@ services:
       tritonserver
       --model-repository=/models
       --model-control-mode=explicit
-      --load-model=ppe_yolo26
+      --load-model=ppe_yolo26_trt
       --load-model=siglip_ppe
       --log-verbose=0
       --strict-model-config=false
@@ -182,7 +182,7 @@ services:
       # decodes the raw ppe_yolo26 [1,300,6] output itself.
       INFERENCE_BACKEND: ${PPE_INFERENCE_BACKEND:-triton}
       TRITON_URL: ${TRITON_URL:-triton:8000}
-      PPE_MODEL_NAME: ppe_yolo26
+      PPE_MODEL_NAME: ${PPE_MODEL_NAME:-ppe_yolo26_trt}
       # DINOv2 second-stage helmet/vest verifier (served on Triton). Empty = off.
       PPE_VIT_MODEL_NAME: ${PPE_VIT_MODEL_NAME:-dinov2_small}
       # Live per-camera compliance — pull frames from go2rtc's RTSP restream.

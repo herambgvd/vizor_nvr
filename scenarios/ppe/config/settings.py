@@ -33,7 +33,9 @@ DATA_PATH = Path(os.getenv("DATA_PATH", "/data/ppe"))
 # raw [1,300,6] ppe_yolo26 output itself; no in-process torch/ultralytics.
 INFERENCE_BACKEND = os.getenv("INFERENCE_BACKEND", "triton")
 TRITON_URL = os.getenv("TRITON_URL", "triton:8000")
-PPE_MODEL_NAME = os.getenv("PPE_MODEL_NAME", "ppe_yolo26")
+# TensorRT FP16 engine by default (~10x faster than the ONNX path, same accuracy);
+# falls back to "ppe_yolo26" (ONNX) if the .plan isn't built on this box.
+PPE_MODEL_NAME = os.getenv("PPE_MODEL_NAME", "ppe_yolo26_trt")
 PPE_MODEL_INPUT = os.getenv("PPE_MODEL_INPUT", "images")
 PPE_MODEL_OUTPUT = os.getenv("PPE_MODEL_OUTPUT", "output0")
 # 1280 matches the POC's full-frame inference size (the model is exported at
@@ -44,7 +46,11 @@ PPE_MODEL_IMGSZ = int(os.getenv("PPE_MODEL_IMGSZ", "1280"))
 # detect_ppe_in_crops). Steadies helmet/vest evidence so a person doesn't
 # oscillate compliant<->missing. One extra Triton call per person per frame —
 # fine at the analyze-fps cap. Disable to fall back to full-frame-only.
-PPE_CROP_STAGE = os.getenv("PPE_CROP_STAGE", "true").lower() in ("1", "true", "yes", "on")
+# Default OFF when the SigLIP verifier is active: SigLIP already re-validates each
+# person's PPE (per-region crop), so the extra full-detector crop pass just doubles
+# the per-frame Triton load and stalls the decode pipe at 1280. Re-enable only if
+# running without SigLIP.
+PPE_CROP_STAGE = os.getenv("PPE_CROP_STAGE", "false").lower() in ("1", "true", "yes", "on")
 
 # Optional DINOv2 head/torso verifier — Triton model name. Empty = YOLO-only
 # baseline (the POC supports this by omitting --vit-verifier). Wiring is present
