@@ -14,10 +14,18 @@ Public API:
     ScenarioEvent, make_event    — uniform event schema
 
 Optional (heavier deps, import directly to keep the surface lazy):
-    vizor_sdk.frames.FramePuller     — go2rtc/RTSP + NVDEC decode (needs cv2)
+    vizor_sdk.frames.FramePuller     — go2rtc/RTSP + NVDEC decode (needs cv2)  [legacy]
     vizor_sdk.tracker.ByteTracker    — multi-object ByteTrack/Kalman (pure numpy)
     vizor_sdk.rules                  — Zone / LineCrossCounter / DwellTracker / ZoneRuleEngine
     vizor_sdk.qdrant.QdrantStore     — vector upsert/search (needs qdrant-client)
+
+Async worker framework (the multi-camera-stable replacement for the thread-per-camera
+worker; import the submodules directly):
+    vizor_sdk.aio.supervisor.CameraSupervisor / run_supervisor_thread
+    vizor_sdk.aio.frame_source.build_frame_source  (GStreamer default, NVDEC, PyAV fallback)
+    vizor_sdk.aio.inference_gateway.InferenceGateway
+    vizor_sdk.aio.event_sink.AsyncEventWriter
+    vizor_sdk.aio.circuit_breaker.CircuitBreaker
 """
 from __future__ import annotations
 

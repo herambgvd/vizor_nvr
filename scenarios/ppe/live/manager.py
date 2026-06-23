@@ -93,6 +93,10 @@ def _loop():
 def live_status() -> dict:
     """Snapshot of worker liveness for /health: how many workers exist, how many
     are alive, and how many decoded a frame within the last 60s ("active")."""
+    if _ASYNC_SUP is not None:
+        s = _ASYNC_SUP.status()
+        return {"enabled": config.LIVE_ENABLED, "expected": s["expected"],
+                "alive": s["alive"], "active": s["active"]}
     now = time.time()
     with _LOCK:
         workers = list(_WORKERS.values())
@@ -106,6 +110,8 @@ def live_status() -> dict:
 def worker_logs(camera_id: str) -> dict:
     """Live worker diagnostics for one camera — recent log lines + current stats,
     for the operator's in-UI 'worker logs' panel."""
+    if _ASYNC_SUP is not None:
+        return _ASYNC_SUP.camera_logs(camera_id)
     now = time.time()
     with _LOCK:
         w = _WORKERS.get(camera_id)
@@ -128,10 +134,28 @@ def worker_logs(camera_id: str) -> dict:
     }
 
 
+# Async supervisor handle (set when PPE_LIVE_ASYNC is on) so live_status/worker_logs
+# read from it instead of the legacy thread workers.
+_ASYNC_SUP = None
+
+
+def _async_enabled() -> bool:
+    import os
+    return os.getenv("PPE_LIVE_ASYNC", "false").lower() in ("1", "true", "yes", "on")
+
+
 def start_live_manager():
-    """Launch the reconcile loop on a daemon thread (no-op if disabled)."""
+    """Launch the live worker. With PPE_LIVE_ASYNC the new async supervisor
+    (vizor_sdk.aio, GStreamer + one-task-per-camera + watchdog + spooled events) is
+    used; otherwise the legacy thread-per-camera manager. No-op if disabled."""
+    global _ASYNC_SUP
     if not config.LIVE_ENABLED:
         print("[ppe-live] live compliance disabled (PPE_LIVE_ENABLED=false)", flush=True)
+        return
+    if _async_enabled():
+        from .async_pipeline import build_async_manager
+        _ASYNC_SUP, _ = build_async_manager()
+        print("[ppe-live] live manager started (async)", flush=True)
         return
     threading.Thread(target=_loop, daemon=True, name="ppe-live-manager").start()
     print("[ppe-live] live manager started", flush=True)
