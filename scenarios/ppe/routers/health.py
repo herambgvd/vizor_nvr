@@ -4,7 +4,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy import func, select
 
 import config
@@ -12,7 +12,7 @@ from db import db_ready, session
 from db.models import PPEEvent
 from deps import require_service_token
 from inference import detector
-from live import live_status
+from live import live_status, worker_logs
 
 router = APIRouter(tags=["health"])
 
@@ -44,6 +44,14 @@ def health(response: Response) -> dict:
         "db_ready": db_ok, "triton_ready": detector.ready(),
         "workers": workers, "disk": disk,
     }
+
+
+@router.get("/live/logs")
+def live_logs(camera_id: str = Query(...),
+              _: None = Depends(require_service_token)) -> dict:
+    """Recent worker activity log + live stats for one camera — powers the in-UI
+    'worker logs' diagnostics panel."""
+    return worker_logs(camera_id)
 
 
 @router.post("/health/deep")

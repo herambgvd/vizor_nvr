@@ -1,2 +1,2 @@
 """Live per-camera PPE compliance — manager + worker."""
-from .manager import live_status, start_live_manager  # noqa: F401
+from .manager import live_status, start_live_manager, worker_logs  # noqa: F401

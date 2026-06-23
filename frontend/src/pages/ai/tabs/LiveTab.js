@@ -21,12 +21,13 @@ import {
   VolumeX,
   ImageOff,
   Loader2,
+  Info,
   X,
 } from "lucide-react";
 
 import { WebRTCPlayer } from "../../../components/nvr/WebRTCPlayer";
 import { getScenarioCameras, listFrsLive } from "../../../api/frs";
-import { scenarioSnapshotUrl, listScenarioPluginEvents } from "../../../api/ai";
+import { scenarioSnapshotUrl, listScenarioPluginEvents, proxyScenario } from "../../../api/ai";
 import {
   eventPersonName,
   eventTypeBadgeClass,
@@ -339,12 +340,106 @@ function LiveEventModal({ event, slug, camName, onClose }) {
   );
 }
 
+// Worker-logs diagnostics modal — polls the plugin's /live/logs for this camera
+// every 2s so an operator can watch the pipeline live (stream up/down, workers in
+// view, violations, errors) and spot a real-time issue without shell access.
+const LOG_LEVEL_COLOR = {
+  error: "#f87171",
+  warn: "#fbbf24",
+  info: "var(--console-muted)",
+};
+
+function WorkerLogsModal({ slug, cameraId, cameraName, onClose }) {
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState(null);
+  const bodyRef = useRef(null);
+
+  useEffect(() => {
+    let alive = true;
+    const tick = async () => {
+      try {
+        const d = await proxyScenario(slug, "/live/logs", {
+          params: { camera_id: cameraId },
+          timeout: 8000,
+        });
+        if (alive) { setData(d); setErr(null); }
+      } catch (e) {
+        if (alive) setErr(e?.response?.status === 404 ? "Diagnostics not available for this scenario." : "Failed to load worker logs.");
+      }
+    };
+    tick();
+    const id = setInterval(tick, 2000);
+    return () => { alive = false; clearInterval(id); };
+  }, [slug, cameraId]);
+
+  // Auto-scroll to newest line.
+  useEffect(() => {
+    if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
+  }, [data]);
+
+  const stats = data?.stats || {};
+  const running = data?.running;
+  const logs = data?.logs || [];
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.7)" }} onClick={onClose}>
+      <div className="w-full max-w-2xl max-h-[85vh] rounded-lg flex flex-col" style={{ background: "var(--console-panel)", border: "1px solid var(--console-border)" }} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 shrink-0" style={{ borderBottom: "1px solid var(--console-border)" }}>
+          <div className="flex items-center gap-2">
+            <span className="font-telemetry text-[12px] font-semibold uppercase tracking-widest" style={{ color: "var(--console-text)" }}>Worker logs</span>
+            <span className="text-[11px] font-telemetry" style={{ color: "var(--console-muted)" }}>· {cameraName}</span>
+            <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded"
+              style={{ color: running ? "#34d399" : "#f87171", background: "var(--console-raised)" }}>
+              <span className="h-1.5 w-1.5 rounded-full" style={{ background: running ? "#34d399" : "#f87171" }} />
+              {running ? "running" : "stopped"}
+            </span>
+          </div>
+          <button type="button" onClick={onClose} className="h-7 w-7 inline-flex items-center justify-center rounded hover:opacity-70" style={{ color: "var(--console-muted)" }}>
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* live stats row */}
+        <div className="grid grid-cols-4 gap-2 px-4 py-3 shrink-0" style={{ borderBottom: "1px solid var(--console-border)" }}>
+          {[
+            ["Workers in view", stats.persons_last ?? "—"],
+            ["Violations", stats.violations_total ?? "—"],
+            ["Analyze FPS", stats.fps ?? "—"],
+            ["Frames", stats.frames ?? "—"],
+          ].map(([k, v]) => (
+            <div key={k}>
+              <div className="font-telemetry text-[9px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>{k}</div>
+              <div className="font-telemetry text-[15px] font-semibold" style={{ color: "var(--console-text)" }}>{v}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* log stream */}
+        <div ref={bodyRef} className="flex-1 min-h-0 overflow-y-auto px-4 py-3 font-mono text-[11px] leading-relaxed">
+          {err && <div style={{ color: "#f87171" }}>{err}</div>}
+          {!err && logs.length === 0 && <div style={{ color: "var(--console-muted)" }}>Waiting for activity…</div>}
+          {logs.map((l, i) => (
+            <div key={i} className="flex gap-2 py-0.5">
+              <span style={{ color: "var(--console-faint, #555)" }}>{fmtFeedTime(l.ts)}</span>
+              <span style={{ color: LOG_LEVEL_COLOR[l.level] || "var(--console-muted)" }}>{l.msg}</span>
+            </div>
+          ))}
+        </div>
+        <div className="px-4 py-2 shrink-0 font-telemetry text-[10px]" style={{ borderTop: "1px solid var(--console-border)", color: "var(--console-muted)" }}>
+          Live · refreshes every 2s {stats.last_frame_secs_ago != null ? `· last frame ${stats.last_frame_secs_ago}s ago` : ""}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CameraTile({ cam, events, newEventIds, slug }) {
   // The bottom per-person recognition overlay is FRS-specific (shows enrolled
   // person names). Other scenarios (PPE/ANPR) have no per-person name to show on
   // the tile — their detections live in the Live-events feed + Events tab — so we
   // don't render the overlay (it was showing a meaningless "Unknown" badge).
   const recent = slug === "frs" ? (events || []).slice(0, MAX_OVERLAY_PER_CAM) : [];
+  const [showLogs, setShowLogs] = useState(false);
 
   return (
     <div
@@ -383,12 +478,32 @@ function CameraTile({ cam, events, newEventIds, slug }) {
         <span className="text-xs font-telemetry tracking-wider text-white/90 truncate">
           {cam.camera_name || cam.camera_id}
         </span>
-        {cam.stream_state === "error" && (
-          <span className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-rose-300">
-            <VideoOff className="h-3 w-3" /> AI down
-          </span>
-        )}
+        <div className="flex items-center gap-2 pointer-events-auto">
+          {cam.stream_state === "error" && (
+            <span className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-rose-300">
+              <VideoOff className="h-3 w-3" /> AI down
+            </span>
+          )}
+          {/* Worker-logs diagnostics — opens a live log panel for this camera. */}
+          <button
+            type="button"
+            onClick={() => setShowLogs(true)}
+            title="Worker logs"
+            className="h-6 w-6 inline-flex items-center justify-center rounded-full bg-black/40 hover:bg-black/70 text-white/85 transition-colors"
+          >
+            <Info className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
+
+      {showLogs && (
+        <WorkerLogsModal
+          slug={slug}
+          cameraId={cam.camera_id}
+          cameraName={cam.camera_name || cam.camera_id}
+          onClose={() => setShowLogs(false)}
+        />
+      )}
 
       {/* Recognition overlay — bottom, newest first */}
       {recent.length > 0 && (

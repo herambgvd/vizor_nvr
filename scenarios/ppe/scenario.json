@@ -39,6 +39,7 @@
   "proxy_routes": [
     { "method": "GET", "path": "/health" },
     { "method": "POST", "path": "/health/deep" },
+    { "method": "GET", "path": "/live/logs" },
 
     { "method": "GET", "path": "/settings" },
     { "method": "PUT", "path": "/settings" },

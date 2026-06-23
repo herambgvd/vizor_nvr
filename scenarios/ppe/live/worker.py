@@ -216,6 +216,11 @@ class CameraWorker(threading.Thread):
         self._dbg_violations = 0   # total violations emitted by this worker
         self._roi = None
         self._roi_built = False
+        # Rolling activity log for the operator's live "worker logs" panel — recent
+        # human-readable lines (stream up/down, detections, violations, errors) so a
+        # real-time issue can be diagnosed without shell access.
+        from collections import deque
+        self._logs = deque(maxlen=80)
 
         # Detector (shared Triton client).
         from inference import detector as _detector
@@ -290,6 +295,16 @@ class CameraWorker(threading.Thread):
     def cooldown(self) -> float:
         return self._cfg_num("cooldown", config.COOLDOWN, float)
 
+    def _log(self, level: str, msg: str) -> None:
+        """Append a line to the operator-facing worker log (and stdout)."""
+        try:
+            self._logs.append({"ts": utcnow().isoformat() + "Z", "level": level, "msg": msg})
+        except Exception:  # noqa: BLE001
+            pass
+
+    def logs(self) -> list:
+        return list(self._logs)
+
     @property
     def stable_id_max_age(self) -> float:
         return self._cfg_num("stable_id_max_age", config.STABLE_ID_MAX_AGE, float)
@@ -335,6 +350,8 @@ class CameraWorker(threading.Thread):
 
         def _on_state(state, detail):
             print(f"[ppe-live] {self.camera_id[:8]} stream {state}" + (f": {detail}" if detail else ""), flush=True)
+            lvl = "error" if state in ("error", "stopped") else "info"
+            self._log(lvl, f"Stream {state}" + (f": {detail}" if detail else ""))
             self.report_state(self.config_id, state, detail)
 
         try:
@@ -365,6 +382,7 @@ class CameraWorker(threading.Thread):
             # Log (rate-limited) instead of swallowing silently.
             if self._frame_no % 50 == 0:
                 print(f"[ppe-live] {self.camera_id[:8]} frame error: {exc}", flush=True)
+                self._log("error", f"Frame error: {str(exc)[:120]}")
             return
         finally:
             _INFLIGHT.release()
@@ -374,6 +392,8 @@ class CameraWorker(threading.Thread):
             print(f"[ppe-live] {self.camera_id[:8]} frames={self._frame_no} "
                   f"persons_last={self._dbg_persons} violations_total={self._dbg_violations}",
                   flush=True)
+            self._log("info", f"Analysing — {self._dbg_persons} worker(s) in view, "
+                              f"{self._dbg_violations} violation(s) so far")
 
     def _process(self, frame_bgr, now: float) -> None:
         h, w = frame_bgr.shape[:2]
@@ -526,6 +546,8 @@ class CameraWorker(threading.Thread):
             missing, present_items, conf, snap, utcnow(),
             bbox=_bbox_obj(person.box, w, h),
         )
+        self._log("warn", f"Violation: worker #{person.track_id} missing "
+                          f"{', '.join(missing) if missing else 'PPE'}")
 
     def _is_confidently_compliant(self, evidence: dict) -> bool:
         """True only when every required PPE item is present AND its detection
