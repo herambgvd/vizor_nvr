@@ -22,6 +22,7 @@ import {
   X,
 } from "lucide-react";
 import { proxyScenario } from "../../../../api/ai";
+import { useConfirm } from "../../../../components/ui/confirm";
 
 const REQUIRED_OPTIONS = ["helmet", "vest", "goggles", "boots"];
 
@@ -168,6 +169,7 @@ export default function MediaTab({ scenario }) {
   const pollRef = useRef(null);
   const videoRef = useRef(null);
   const [preview, setPreview] = useState(null);   // {src} enlarged event snapshot
+  const confirm = useConfirm();
 
   const seekTo = (ts) => {
     if (videoRef.current && ts != null) {
@@ -251,10 +253,10 @@ export default function MediaTab({ scenario }) {
   };
   useEffect(() => { loadHistory(); }, []);   // eslint-disable-line
 
-  // Delete a job completely (result + source + metadata).
+  // Delete a job completely (result + source + metadata) — shared confirm dialog.
   const deleteJob = async (jobId, e) => {
     e?.stopPropagation?.();
-    if (!window.confirm("Delete this analysis and its video completely?")) return;
+    if (!(await confirm({ title: "Delete this analysis and its video?", confirmText: "Delete", danger: true }))) return;
     try {
       await proxyScenario(slug, "/media/delete", { method: "POST", data: { job_id: jobId } });
       setHistory((h) => h.filter((j) => j.job_id !== jobId));
