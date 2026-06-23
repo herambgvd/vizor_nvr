@@ -203,13 +203,16 @@ def _run_job(job: MediaJob, video_path: str, cam_config: dict, sample_fps: int) 
     job.status = "running"
     job.pid = os.getpid()
     _persist(job)
-    # Encode H.264 directly via an ffmpeg pipe — annotated BGR frames are written to
-    # ffmpeg's stdin as they are produced, so the output is a browser-playable .mp4
-    # the moment the last frame lands. No mp4v intermediate, no slow second-pass
-    # re-encode (which used to leave the job stuck at "encoding"), no 400 MB raw file.
+    # Write annotated frames with an OpenCV VideoWriter (mp4v) — NO ffmpeg stdin pipe.
+    # The pipe deadlocked at large frame sizes (ffmpeg stopped draining stdin and our
+    # write() blocked forever, job stuck at 0/N). OpenCV writes straight to a file, so
+    # there's nothing to deadlock on. mp4v (MPEG-4) isn't reliably browser-playable, so
+    # once all frames are written we transcode the file -> H.264 in a single
+    # file->file ffmpeg pass (also no pipe). GPU NVENC when available, else libx264.
     final_out = str(_media_dir() / f"{job.job_id}.mp4")
+    raw_out = str(_media_dir() / f"{job.job_id}_raw.mp4")
     cap = None
-    enc = None
+    writer = None
     try:
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
@@ -232,7 +235,10 @@ def _run_job(job: MediaJob, video_path: str, cam_config: dict, sample_fps: int) 
         _persist(job)
         cam = {"camera_id": f"media:{job.job_id}", "config": cam_config}
         pipeline = PpePipeline(cam)
-        enc = _open_h264_pipe(final_out, W, H, out_fps)
+        writer = cv2.VideoWriter(raw_out, cv2.VideoWriter_fourcc(*"mp4v"),
+                                 max(1.0, out_fps), (W, H))
+        if not writer.isOpened():
+            raise RuntimeError("cannot open video writer")
         job.status = "running"
         _persist(job)
 
@@ -249,16 +255,23 @@ def _run_job(job: MediaJob, video_path: str, cam_config: dict, sample_fps: int) 
             for ev in events:
                 ev["video_ts"] = round(ts, 2)
                 job.events.append(_event_summary(ev))
-            enc.stdin.write(annotated.tobytes())
+            writer.write(annotated)
             job.frames_done = fno
             if job.frames_total:
                 job.progress = min(1.0, fno / job.frames_total)
             if fno % 10 == 0:
                 _persist(job)   # checkpoint so a reopened page sees live progress
         cap.release(); cap = None
-        enc.stdin.close()
-        enc.wait(timeout=120)
-        enc = None
+        writer.release(); writer = None
+
+        # Transcode mp4v -> browser-playable H.264 (file -> file, no pipe).
+        job.status = "encoding"
+        _persist(job)
+        _to_h264(raw_out, final_out)
+        try:
+            os.remove(raw_out)
+        except OSError:
+            pass
 
         job.annotated_path = f"/media/result?job_id={job.job_id}"
         job.status = "done"
@@ -270,45 +283,27 @@ def _run_job(job: MediaJob, video_path: str, cam_config: dict, sample_fps: int) 
     finally:
         if cap is not None:
             cap.release()
-        if enc is not None:
-            try:
-                enc.stdin.close()
-            except Exception:  # noqa: BLE001
-                pass
-            try:
-                enc.wait(timeout=30)
-            except Exception:  # noqa: BLE001
-                enc.kill()
+        if writer is not None:
+            writer.release()
         job.finished_at = time.time()
         _persist(job)
 
 
-def _open_h264_pipe(dst: str, w: int, h: int, fps: float) -> "subprocess.Popen":
-    """ffmpeg reading raw BGR frames on stdin, writing a faststart H.264 mp4.
-
-    stdout/stderr -> DEVNULL: under uvicorn the parent's stderr is a pipe, and if
-    ffmpeg's inherited stderr fills it ffmpeg blocks on its own log write, stops
-    draining stdin, and our stdin.write() deadlocks on the very first frame (job
-    stuck at 1/N). Discarding ffmpeg's output removes that backpressure."""
-    return subprocess.Popen(
-        ["ffmpeg", "-y", "-loglevel", "error",
-         "-f", "rawvideo", "-pix_fmt", "bgr24",
-         "-s", f"{w}x{h}", "-r", f"{max(1.0, fps):.4f}", "-i", "pipe:0",
-         "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "26",
-         "-pix_fmt", "yuv420p", "-movflags", "+faststart", dst],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-
-
 def _to_h264(src: str, dst: str) -> None:
-    subprocess.run(
-        ["ffmpeg", "-y", "-loglevel", "error", "-i", src,
-         "-c:v", "libx264", "-preset", "fast", "-crf", "26",
-         "-pix_fmt", "yuv420p", "-movflags", "+faststart", dst],
-        check=True,
-    )
+    """Transcode to browser-playable H.264, file -> file (no pipe). Prefer the GPU
+    NVENC encoder; fall back to libx264 if NVENC isn't usable on this box."""
+    base = ["ffmpeg", "-y", "-loglevel", "error", "-i", src, "-an",
+            "-pix_fmt", "yuv420p", "-movflags", "+faststart"]
+    nvenc = base[:-2] + ["-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr",
+                         "-cq", "26"] + base[-2:] + [dst]
+    try:
+        subprocess.run(nvenc, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return
+    except Exception:  # noqa: BLE001 — NVENC unavailable / busy: fall back to CPU
+        pass
+    subprocess.run(base[:-2] + ["-c:v", "libx264", "-preset", "veryfast", "-crf", "26"]
+                   + base[-2:] + [dst],
+                   check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def _event_summary(ev: dict) -> dict:
