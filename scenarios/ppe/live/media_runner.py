@@ -17,6 +17,13 @@ from .video_pipeline import MediaJob, _run_job, get_job
 
 
 def main(argv: list[str]) -> int:
+    # Debug aid: `kill -USR1 <pid>` dumps all thread stacks to stderr.
+    try:
+        import faulthandler
+        import signal
+        faulthandler.register(signal.SIGUSR1)
+    except Exception:  # noqa: BLE001
+        pass
     if len(argv) < 2:
         print("media_runner: missing job spec", file=sys.stderr)
         return 2

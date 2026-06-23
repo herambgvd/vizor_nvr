@@ -238,7 +238,7 @@ def _run_job(job: MediaJob, video_path: str, cam_config: dict, sample_fps: int) 
             job.frames_done = fno
             if job.frames_total:
                 job.progress = min(1.0, fno / job.frames_total)
-            if fno % 50 == 0:
+            if fno % 10 == 0:
                 _persist(job)   # checkpoint so a reopened page sees live progress
         cap.release(); cap = None
         enc.stdin.close()
