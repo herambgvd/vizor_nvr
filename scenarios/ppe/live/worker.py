@@ -195,9 +195,15 @@ class CameraWorker(threading.Thread):
         )
         self._stable = StableIdMapper(self.stable_id_max_age)
         self._smoother = EvidenceSmoother(config.SMOOTH_WINDOW, config.SMOOTH_MIN_HITS)
-        # Optional DINOv2 second-stage verifier (Triton). No-op when not configured.
-        from inference.vit_verifier import VitVerifier
-        self._vit = VitVerifier(self._detector)
+        # Second-stage verifier: prefer SigLIP (discriminates vest/helmet/goggles/
+        # boots); fall back to the legacy DINOv2 verifier only if SigLIP isn't
+        # configured. No-op when neither is set.
+        if config.PPE_SIGLIP_MODEL_NAME:
+            from inference.siglip_verifier import SiglipVerifier
+            self._vit = SiglipVerifier(self._detector)
+        else:
+            from inference.vit_verifier import VitVerifier
+            self._vit = VitVerifier(self._detector)
         self._engine = ComplianceEngine(
             self.required_canonical, self.missing_grace, self.min_present,
             self.cooldown, config.ALERT_INITIAL_MISSING,
@@ -400,11 +406,16 @@ class CameraWorker(threading.Thread):
                 if self._frame_no % 100 == 0:
                     print(f"[ppe-live] {self.camera_id[:8]} crop stage error: {exc}", flush=True)
 
-        # DINOv2 second-stage verifier (when enabled): confirm weak helmet positives
-        # / rescue confident missed helmet+vest, fused into `linked` before
-        # smoothing. No-op + fail-soft when the model/artifact isn't configured.
+        # Second-stage verifier (SigLIP / DINOv2): confirm weak positives + rescue
+        # missed PPE, fused into `linked` before smoothing. Only the required items
+        # are scored. No-op + fail-soft when no verifier is configured.
         if self._vit.enabled:
-            scores = self._vit.classify(frame_bgr, persons, self._frame_no)
+            try:
+                scores = self._vit.classify(frame_bgr, persons, self._frame_no,
+                                            self.required_canonical)
+            except TypeError:
+                # Legacy DINOv2 verifier classify() has no items arg.
+                scores = self._vit.classify(frame_bgr, persons, self._frame_no)
             if scores:
                 self._vit.fuse(linked, scores)
 

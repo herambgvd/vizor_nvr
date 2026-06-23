@@ -68,6 +68,37 @@ PPE_VIT_VEST_CONFIRM = float(os.getenv("PPE_VIT_VEST_CONFIRM", "0.50"))
 PPE_VIT_FUSE_VEST = os.getenv("PPE_VIT_FUSE_VEST", "false").lower() in ("1", "true", "yes", "on")
 PPE_VIT_INTERVAL = int(os.getenv("PPE_VIT_INTERVAL", "5"))         # run once / N frames
 
+# ── SigLIP second-stage verifier (replaces DINOv2) ───────────────────────────
+# SigLIP2-large image encoder on Triton + precomputed text heads (4 PPE items).
+# Empty model name = SigLIP off (falls back to YOLO-only / DINOv2 if that's set).
+PPE_SIGLIP_MODEL_NAME = os.getenv("PPE_SIGLIP_MODEL_NAME", "siglip_ppe")
+PPE_SIGLIP_ARTIFACT = os.getenv(
+    "PPE_SIGLIP_ARTIFACT",
+    str(Path(__file__).resolve().parent.parent / "models" / "siglip_ppe_heads.npz"),
+)
+PPE_SIGLIP_INTERVAL = int(os.getenv("PPE_SIGLIP_INTERVAL", "5"))   # run once / N frames
+# Per-item confirm (veto a YOLO positive below this) / rescue (add a YOLO miss
+# above this). Raw SigLIP sigmoid probs — derived from the client sample crops
+# (vest HAS med 0.28 vs NO 0.00; helmet HAS med 0.13 vs NO 0.00). Conservative so
+# the verifier only acts when clearly disagreeing with YOLO.
+
+def _f(env, default):
+    return float(os.getenv(env, str(default)))
+
+
+PPE_SIGLIP_CONFIRM = {
+    "Hardhat": _f("PPE_SIGLIP_CONFIRM_HELMET", 0.010),
+    "Safety_Vest": _f("PPE_SIGLIP_CONFIRM_VEST", 0.035),
+    "Goggles": _f("PPE_SIGLIP_CONFIRM_GOGGLES", 0.030),
+    "Boots": _f("PPE_SIGLIP_CONFIRM_BOOTS", 0.040),
+}
+PPE_SIGLIP_RESCUE = {
+    "Hardhat": _f("PPE_SIGLIP_RESCUE_HELMET", 0.120),
+    "Safety_Vest": _f("PPE_SIGLIP_RESCUE_VEST", 0.250),
+    "Goggles": _f("PPE_SIGLIP_RESCUE_GOGGLES", 0.300),
+    "Boots": _f("PPE_SIGLIP_RESCUE_BOOTS", 0.300),
+}
+
 # ── Detection / compliance thresholds (POC run_video.py defaults) ────────────
 # Decode floor — drop the NMS-baked export's low-score padding rows before any
 # per-class logic. Just under the lowest real per-class threshold.
