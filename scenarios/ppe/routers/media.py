@@ -21,7 +21,7 @@ from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Upload
 from fastapi.responses import FileResponse, Response
 
 from deps import require_service_token
-from live.video_pipeline import _media_dir, get_job, start_media_job
+from live.video_pipeline import _media_dir, get_job, list_jobs, start_media_job
 
 router = APIRouter(tags=["media"])
 
@@ -110,8 +110,15 @@ def media_analyze(
         raise HTTPException(404, "upload not found")
     cam_config = body.get("config") or {}
     sample_fps = int(body.get("sample_fps") or 0)
-    job_id = start_media_job(str(src), cam_config, sample_fps=sample_fps)
+    name = str(body.get("name") or "video")[:120]
+    job_id = start_media_job(str(src), cam_config, sample_fps=sample_fps, name=name)
     return {"job_id": job_id}
+
+
+@router.get("/media/list")
+def media_list(_: None = Depends(require_service_token)) -> dict:
+    """Media analysis history — every job (in-flight + finished), newest first."""
+    return {"jobs": list_jobs()}
 
 
 @router.get("/media/status")

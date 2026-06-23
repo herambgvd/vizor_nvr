@@ -31,7 +31,8 @@ logger = logging.getLogger(__name__)
 @dataclass
 class MediaJob:
     job_id: str
-    status: str = "queued"          # queued | running | done | error
+    name: str = ""                   # original filename, for the history list
+    status: str = "queued"          # queued | running | encoding | done | error
     progress: float = 0.0           # 0..1
     frames_total: int = 0
     frames_done: int = 0
@@ -46,24 +47,75 @@ _JOBS: dict[str, MediaJob] = {}
 _LOCK = threading.Lock()
 
 
-def get_job(job_id: str) -> Optional[MediaJob]:
-    with _LOCK:
-        return _JOBS.get(job_id)
-
-
 def _media_dir() -> Path:
     d = config.DATA_PATH / "media"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
-def start_media_job(video_path: str, cam_config: dict, *, sample_fps: int = 0) -> str:
+def _job_meta_path(job_id: str) -> Path:
+    return _media_dir() / f"{job_id}.json"
+
+
+def _persist(job: MediaJob) -> None:
+    """Write job metadata to disk so it survives a page reload / process restart and
+    can be listed in the media history."""
+    import json
+    from dataclasses import asdict
+    try:
+        _job_meta_path(job.job_id).write_text(json.dumps(asdict(job), default=str))
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def get_job(job_id: str) -> Optional[MediaJob]:
+    with _LOCK:
+        j = _JOBS.get(job_id)
+    if j is not None:
+        return j
+    # Recover a finished job from disk (e.g. after the operator navigated away).
+    import json
+    p = _job_meta_path(job_id)
+    if p.exists():
+        try:
+            d = json.loads(p.read_text())
+            return MediaJob(**d)
+        except Exception:  # noqa: BLE001
+            return None
+    return None
+
+
+def list_jobs() -> list:
+    """All media jobs (in-flight + persisted) newest first — for the history list."""
+    import json
+    out: dict[str, dict] = {}
+    for p in sorted(_media_dir().glob("*.json")):
+        try:
+            d = json.loads(p.read_text())
+            out[d["job_id"]] = d
+        except Exception:  # noqa: BLE001
+            continue
+    with _LOCK:
+        for jid, j in _JOBS.items():
+            from dataclasses import asdict
+            out[jid] = asdict(j)
+    items = list(out.values())
+    items.sort(key=lambda j: j.get("started_at", 0), reverse=True)
+    # Trim events to a count in the list view (full events via /media/status).
+    for it in items:
+        it["event_count"] = len(it.get("events") or [])
+        it.pop("events", None)
+    return items
+
+
+def start_media_job(video_path: str, cam_config: dict, *, sample_fps: int = 0, name: str = "") -> str:
     """Register + launch a background analysis of `video_path` using `cam_config`
     (required_items, roi, *_conf, etc — same schema as a camera). Returns job_id."""
     job_id = uuid.uuid4().hex[:12]
-    job = MediaJob(job_id=job_id)
+    job = MediaJob(job_id=job_id, name=name or "video")
     with _LOCK:
         _JOBS[job_id] = job
+    _persist(job)
     threading.Thread(target=_run_job, args=(job, video_path, cam_config, sample_fps),
                      name=f"ppe-media-{job_id}", daemon=True).start()
     return job_id
@@ -117,10 +169,16 @@ def _run_job(job: MediaJob, video_path: str, cam_config: dict, sample_fps: int) 
             job.frames_done = fno
             if job.frames_total:
                 job.progress = min(1.0, fno / job.frames_total)
+            if fno % 200 == 0:
+                _persist(job)   # checkpoint so a reopened page sees live progress
         cap.release(); cap = None
         writer.release(); writer = None
 
-        # Re-encode mp4v -> H.264 so browsers can play it.
+        # Re-encode mp4v -> H.264 so browsers can play it. This can take a while on a
+        # big clip, so flag the status (the UI shows "Encoding…" instead of a stuck
+        # 100%).
+        job.status = "encoding"
+        _persist(job)
         _to_h264(raw_out, final_out)
         try:
             os.remove(raw_out)
@@ -139,6 +197,7 @@ def _run_job(job: MediaJob, video_path: str, cam_config: dict, sample_fps: int) 
         if writer is not None:
             writer.release()
         job.finished_at = time.time()
+        _persist(job)
 
 
 def _to_h264(src: str, dst: str) -> None:

@@ -187,6 +187,11 @@ export default function MediaTab({ scenario }) {
     }
   };
 
+  const loadResult = async (jobId) => {
+    const blob = await proxyScenario(slug, "/media/result", { params: { job_id: jobId }, responseType: "blob" }).catch(() => null);
+    if (blob) setVideoUrl(URL.createObjectURL(blob));
+  };
+
   const poll = async (jobId) => {
     try {
       const s = await proxyScenario(slug, "/media/status", { params: { job_id: jobId } });
@@ -194,13 +199,34 @@ export default function MediaTab({ scenario }) {
       if (s.status === "done") {
         clearInterval(pollRef.current);
         setStage("done"); setBusy(false);
-        const blob = await proxyScenario(slug, "/media/result", { params: { job_id: jobId }, responseType: "blob" }).catch(() => null);
-        if (blob) setVideoUrl(URL.createObjectURL(blob));
+        await loadResult(jobId);
       } else if (s.status === "error") {
         clearInterval(pollRef.current);
         setStage("error"); setErr(s.error || "Analysis failed."); setBusy(false);
       }
     } catch (e) { /* keep polling */ }
+  };
+
+  // ── history ────────────────────────────────────────────────────────────────
+  const [history, setHistory] = useState([]);
+  const loadHistory = async () => {
+    try {
+      const r = await proxyScenario(slug, "/media/list");
+      setHistory(r?.jobs || []);
+    } catch { /* ignore */ }
+  };
+  useEffect(() => { loadHistory(); }, []);   // eslint-disable-line
+
+  // Open a previously-finished job from history.
+  const openJob = async (jobId) => {
+    setErr(null); setVideoUrl(null);
+    try {
+      const s = await proxyScenario(slug, "/media/status", { params: { job_id: jobId } });
+      setJob(s);
+      if (s.status === "done") { setStage("done"); await loadResult(jobId); }
+      else if (s.status === "error") { setStage("error"); setErr(s.error || "Analysis failed."); }
+      else { setStage("running"); pollRef.current = setInterval(() => poll(jobId), 2000); }
+    } catch (e) { setErr(errMsg(e, "Could not open job.")); }
   };
 
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
@@ -255,6 +281,32 @@ export default function MediaTab({ scenario }) {
           </div>
         )}
 
+        {/* History — past analyses (click to reopen) */}
+        {stage === "upload" && history.length > 0 && (
+          <div className="rounded-lg border" style={{ borderColor: "var(--console-border)", background: "var(--console-panel)" }}>
+            <div className="flex items-center justify-between px-4 py-2.5" style={{ borderBottom: "1px solid var(--console-border)" }}>
+              <span className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-accent)" }}>Recent analyses</span>
+              <button type="button" onClick={loadHistory} className="font-telemetry text-[10px] uppercase" style={{ color: "var(--console-muted)" }}>Refresh</button>
+            </div>
+            <div className="max-h-72 overflow-y-auto">
+              {history.map((h) => (
+                <button key={h.job_id} type="button" onClick={() => openJob(h.job_id)}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-black/5"
+                  style={{ borderBottom: "1px solid var(--console-border)" }}>
+                  <Film className="h-4 w-4 shrink-0" style={{ color: "var(--console-muted)" }} />
+                  <span className="flex-1 truncate font-telemetry text-[12px]" style={{ color: "var(--console-text)" }}>{h.name || "video"}</span>
+                  <span className="font-telemetry text-[11px]" style={{ color: "var(--console-muted)" }}>{h.event_count ?? 0} events</span>
+                  <span className="font-telemetry text-[10px] uppercase px-1.5 py-0.5 rounded"
+                    style={{
+                      color: h.status === "done" ? "#34d399" : h.status === "error" ? "#f87171" : "#fbbf24",
+                      background: "var(--console-raised)",
+                    }}>{h.status}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* STEP 2 — config (ROI + required) */}
         {stage === "config" && (
           <div className="flex flex-col gap-5">
@@ -293,7 +345,9 @@ export default function MediaTab({ scenario }) {
         {stage === "running" && (
           <div className="rounded-lg border p-8 flex flex-col items-center gap-4" style={{ borderColor: "var(--console-border)", background: "var(--console-panel)" }}>
             <Loader2 className="h-8 w-8 animate-spin" style={{ color: "var(--console-accent)" }} />
-            <p className="font-telemetry text-[13px]" style={{ color: "var(--console-text)" }}>Analysing video…</p>
+            <p className="font-telemetry text-[13px]" style={{ color: "var(--console-text)" }}>
+              {job?.status === "encoding" ? "Encoding annotated video…" : "Analysing video…"}
+            </p>
             <div className="w-full max-w-md h-2 rounded-full overflow-hidden" style={{ background: "var(--console-raised)" }}>
               <div className="h-full transition-all" style={{ width: `${Math.round((job?.progress || 0) * 100)}%`, background: "var(--console-accent)" }} />
             </div>
