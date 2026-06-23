@@ -4,6 +4,7 @@ import {
   LayoutGrid, Play, Camera, Bell, Bookmark, Settings, Search,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
+import useLicense from "../../hooks/useLicense";
 
 // Primary app navigation — horizontal, lives in the TopHeader so the whole
 // left gutter is freed for page content. (Replaces the old vertical LeftRail.)
@@ -18,9 +19,12 @@ const ITEMS = [
 ];
 
 export default function TopNav() {
+  const { hasFeature } = useLicense();
+  const items = ITEMS.filter((item) => item.to !== "/playback" || hasFeature("playback"));
+
   return (
     <nav className="flex items-center gap-1">
-      {ITEMS.map(({ to, label, icon: Icon, end }) => (
+      {items.map(({ to, label, icon: Icon, end }) => (
         <NavLink
           key={to}
           to={to}

@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Dashboard · Vizor License Generator{% endblock %}
+{% block content %}
+<section class="hero">
+  <div>
+    <p class="eyebrow">License operations</p>
+    <h1>Generate client-bound Vizor NVR licenses</h1>
+    <p class="muted">Create separate key folders per client, issue licenses, and keep a local SQLite audit trail for support handover.</p>
+  </div>
+  <a class="button" href="{{ url_for('new_client') }}">Create Client</a>
+</section>
+
+<section class="grid two">
+  <div class="card">
+    <div class="card-head">
+      <h2>Clients</h2>
+      <a href="{{ url_for('new_client') }}">New</a>
+    </div>
+    {% if clients %}
+      <div class="list">
+        {% for c in clients %}
+          <a class="row" href="{{ url_for('client_detail', client_id=c.id) }}">
+            <span>
+              <strong>{{ c.name }}</strong>
+              <small>{{ c.slug }} · {{ c.license_count }} license{{ '' if c.license_count == 1 else 's' }}</small>
+            </span>
+            <span class="chev">›</span>
+          </a>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="empty">No clients yet. Create the first client to generate keys and licenses.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Recent Licenses</h2>
+    </div>
+    {% if recent %}
+      <div class="list">
+        {% for l in recent %}
+          <a class="row" href="{{ url_for('license_detail', license_db_id=l.id) }}">
+            <span>
+              <strong>{{ l.license_id }}</strong>
+              <small>{{ l.client_name }} · {{ l.camera_limit }} cams · {{ l.created_at|dt }}</small>
+            </span>
+            <span class="chev">›</span>
+          </a>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="empty">No licenses generated yet.</p>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

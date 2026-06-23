@@ -21,7 +21,12 @@ from app.cameras.models import (
 )
 from app.cameras.service import CameraService
 from app.cameras.onvif_service import onvif_service
-from app.core.dependencies import get_current_user, require_permission, get_admin_user
+from app.core.dependencies import (
+    get_current_user,
+    require_license_feature,
+    require_permission,
+    get_admin_user,
+)
 from app.core.crypto import decrypt_value
 from app.core.permissions import get_accessible_camera_ids
 from app.core.audit_logger import write_audit, client_ip
@@ -566,6 +571,7 @@ async def get_latest_health(
 @router.post("/bulk/start", status_code=200)
 async def bulk_start_recording(
     request: Request,
+    _licensed: bool = Depends(require_license_feature("recording")),
     user: dict = Depends(require_permission("control_recording")),
     db: AsyncSession = Depends(get_db),
 ):

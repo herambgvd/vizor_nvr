@@ -823,6 +823,14 @@ class CameraMonitor:
 
     async def _start_camera_recording(self, db, camera):
         """Helper to start recording for a camera with proper setup."""
+        from app.license.service import get_license_service
+
+        if not get_license_service().has_feature("recording"):
+            logger.info("[%s] Recording auto-start skipped: feature not licensed", camera.id)
+            camera.is_recording = False
+            camera.status = "online"
+            return
+
         from app.services.ffmpeg_manager import ffmpeg_manager
         from app.services.go2rtc_manager import go2rtc_manager
         from app.storage.service import StorageService

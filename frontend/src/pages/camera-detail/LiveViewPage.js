@@ -31,6 +31,7 @@ import { WebRTCPlayer } from "../../components/nvr/WebRTCPlayer";
 import { PTZControls } from "../../components/nvr/PTZControls";
 import { Button } from "../../components/ui/button";
 import { friendlyError } from "../../lib/utils";
+import useLicense from "../../hooks/useLicense";
 
 // Icon-led, color-coded telemetry tile. `tone` accents the icon + value so
 // live state (online / recording) reads at a glance.
@@ -180,6 +181,8 @@ const TalkButton = ({ cameraId }) => {
 const LiveViewPage = () => {
   const { camera, cameraId } = useOutletContext();
   const qc = useQueryClient();
+  const { hasFeature } = useLicense();
+  const canRecord = hasFeature("recording");
   const [isMuted, setIsMuted] = useState(true);
   const [streamReady, setStreamReady] = useState(false);
   const [registering, setRegistering] = useState(false);
@@ -253,22 +256,24 @@ const LiveViewPage = () => {
           )}
           {isMuted ? "Muted" : "Audible"}
         </Button>
-        <Button
-          variant={camera.is_recording ? "destructive" : "default"}
-          size="sm"
-          onClick={handleRecordingToggle}
-          disabled={!isOnline}
-        >
-          {camera.is_recording ? (
-            <>
-              <Square className="h-4 w-4 mr-1" /> Stop Recording
-            </>
-          ) : (
-            <>
-              <Video className="h-4 w-4 mr-1" /> Start Recording
-            </>
-          )}
-        </Button>
+        {canRecord && (
+          <Button
+            variant={camera.is_recording ? "destructive" : "default"}
+            size="sm"
+            onClick={handleRecordingToggle}
+            disabled={!isOnline}
+          >
+            {camera.is_recording ? (
+              <>
+                <Square className="h-4 w-4 mr-1" /> Stop Recording
+              </>
+            ) : (
+              <>
+                <Video className="h-4 w-4 mr-1" /> Start Recording
+              </>
+            )}
+          </Button>
+        )}
         {/* Two-way audio Talk button */}
         <TalkButton cameraId={cameraId} />
         <Button

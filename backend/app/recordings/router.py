@@ -19,7 +19,7 @@ from app.recordings.models import (
 )
 from app.recordings.service import RecordingService
 from app.recordings.export_service import export_service
-from app.core.dependencies import require_permission
+from app.core.dependencies import require_license_feature, require_permission
 from app.core.permissions import get_accessible_camera_ids
 from app.core.audit_logger import write_audit, client_ip
 from app.core.security import verify_token
@@ -30,7 +30,11 @@ import subprocess
 from app.config import settings
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/recordings", tags=["Recordings"])
+router = APIRouter(
+    prefix="/recordings",
+    tags=["Recordings"],
+    dependencies=[Depends(require_license_feature("playback"))],
+)
 svc = RecordingService()
 
 

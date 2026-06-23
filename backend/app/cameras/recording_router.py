@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.cameras.service import CameraService
-from app.core.dependencies import require_permission
+from app.core.dependencies import require_license_feature, require_permission
 from app.core.audit_logger import write_audit, client_ip
 
 logger = logging.getLogger(__name__)
@@ -23,6 +23,7 @@ svc = CameraService()
 async def start_recording(
     camera_id: str,
     request: Request,
+    _licensed: bool = Depends(require_license_feature("recording")),
     user: dict = Depends(require_permission("control_recording")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -105,6 +106,7 @@ async def start_buffer_recording(
     pre_seconds: int = 30,
     post_seconds: int = 30,
     trigger_type: str = "manual",
+    _licensed: bool = Depends(require_license_feature("recording")),
     user: dict = Depends(require_permission("control_recording")),
     db: AsyncSession = Depends(get_db),
 ):

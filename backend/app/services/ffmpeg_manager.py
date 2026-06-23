@@ -148,6 +148,12 @@ class FFmpegManager:
         pos_overlay_config: Optional[dict] = None,
     ) -> Tuple[bool, str]:
         """Start FFmpeg recording for a camera. Returns (success, message)."""
+        from app.license.service import get_license_service
+
+        if not get_license_service().has_feature("recording"):
+            logger.info("[%s] Recording start blocked: feature not licensed", camera_id)
+            return False, "Recording feature is not licensed"
+
         self._stopped.discard(camera_id)
         # Operator-initiated start clears watchdog state so a previously failed
         # camera can recover after the underlying issue is fixed.

@@ -7,12 +7,16 @@ import {
 import { WebRTCPlayer } from "../nvr/WebRTCPlayer";
 import { getStreamUrls, captureSnapshot, startRecording, stopRecording } from "../../api/cameras";
 import { toast } from "sonner";
+import useLicense from "../../hooks/useLicense";
 
 export default function VideoTile({ camera, onAssign, onClear, onMaximize }) {
   const navigate = useNavigate();
   const [streamId, setStreamId] = useState(null);
   const [streamFailed, setStreamFailed] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const { hasFeature } = useLicense();
+  const canRecord = hasFeature("recording");
+  const canPlayback = hasFeature("playback");
 
   useEffect(() => {
     let alive = true;
@@ -102,8 +106,12 @@ export default function VideoTile({ camera, onAssign, onClear, onMaximize }) {
       </ContextMenuTrigger>
       <ContextMenuContent className="console-panel border-border text-zinc-200">
         <ContextMenuItem onClick={doSnapshot}><Image className="h-4 w-4 mr-2" /> Snapshot</ContextMenuItem>
-        <ContextMenuItem onClick={doRecord}><Video className="h-4 w-4 mr-2" /> {camera.is_recording ? "Stop recording" : "Start recording"}</ContextMenuItem>
-        <ContextMenuItem onClick={() => navigate(`/playback?camera=${camera.id}`)}>Open playback</ContextMenuItem>
+        {canRecord && (
+          <ContextMenuItem onClick={doRecord}><Video className="h-4 w-4 mr-2" /> {camera.is_recording ? "Stop recording" : "Start recording"}</ContextMenuItem>
+        )}
+        {canPlayback && (
+          <ContextMenuItem onClick={() => navigate(`/playback?camera=${camera.id}`)}>Open playback</ContextMenuItem>
+        )}
         <ContextMenuItem onClick={() => navigate(`/cameras/${camera.id}/settings`)}><Settings className="h-4 w-4 mr-2" /> Camera settings</ContextMenuItem>
         <ContextMenuItem onClick={() => onClear?.()}><X className="h-4 w-4 mr-2" /> Clear tile</ContextMenuItem>
       </ContextMenuContent>

@@ -82,3 +82,26 @@ def require_permission(action: str):
         return user
 
     return _check
+
+
+def require_license_feature(feature: str):
+    """
+    Gate optional commercial modules such as recording/playback by license.
+    """
+
+    async def _check() -> bool:
+        from app.license.service import get_license_service
+
+        svc = get_license_service()
+        if not svc.has_feature(feature):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "code": "license_feature_required",
+                    "feature": feature,
+                    "message": f"{feature.replace('_', ' ').title()} is not included in this license.",
+                },
+            )
+        return True
+
+    return _check

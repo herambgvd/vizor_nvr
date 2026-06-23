@@ -233,6 +233,7 @@ const CameraGridCard = ({
   toggleSelect,
   inlineToggle,
   canOperate,
+  canRecord,
   canManage,
   onContextMenu,
   onPreview,
@@ -347,7 +348,7 @@ const CameraGridCard = ({
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            {canOperate && (
+            {canRecord && (
               <DropdownMenuItem onClick={() => inlineToggle(camera)}>
                 {camera.is_recording ? (
                   <><Square className="h-4 w-4 mr-2" /> Stop Recording</>
@@ -392,7 +393,9 @@ const Cameras = () => {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { canOperate, canManage } = usePermissions();
-  const { cameraCap: licenseCap } = useLicense();
+  const { cameraCap: licenseCap, hasFeature } = useLicense();
+  const canRecord = canOperate && hasFeature("recording");
+  const canPlayback = hasFeature("playback");
   const { data: cameras = [], isLoading, isError: camerasError, refetch: refetchCameras } = useCamerasQuery();
   const mutations = useCameraMutations();
   const [prefs, setPrefs] = useUiPrefs();
@@ -815,7 +818,7 @@ const Cameras = () => {
   // ── Inline start/stop ────────────────────────────────────────────────────
   const inlineToggle = useCallback(
     (camera) => {
-      if (!canOperate) return;
+      if (!canRecord) return;
       if (camera.is_recording) {
         mutations.stop.mutate(camera.id);
       } else if (camera.status === "online") {
@@ -824,7 +827,7 @@ const Cameras = () => {
         toast.error("Camera is offline");
       }
     },
-    [canOperate, mutations],
+    [canRecord, mutations],
   );
 
   // ── Dialog helpers ───────────────────────────────────────────────────────
@@ -1020,16 +1023,20 @@ const Cameras = () => {
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                onClick={() => bulkStartMutation.mutate(Array.from(selectedIds))}
-              >
-                <Play className="h-4 w-4 mr-2" /> Start Recording
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => bulkStopMutation.mutate(Array.from(selectedIds))}
-              >
-                <Square className="h-4 w-4 mr-2" /> Stop Recording
-              </DropdownMenuItem>
+              {canRecord && (
+                <>
+                  <DropdownMenuItem
+                    onClick={() => bulkStartMutation.mutate(Array.from(selectedIds))}
+                  >
+                    <Play className="h-4 w-4 mr-2" /> Start Recording
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => bulkStopMutation.mutate(Array.from(selectedIds))}
+                  >
+                    <Square className="h-4 w-4 mr-2" /> Stop Recording
+                  </DropdownMenuItem>
+                </>
+              )}
               <DropdownMenuItem
                 onClick={() => bulkTestMutation.mutate(Array.from(selectedIds))}
               >
@@ -1217,7 +1224,7 @@ const Cameras = () => {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      {canOperate && (
+                      {canRecord && (
                         <DropdownMenuItem onClick={() => inlineToggle(camera)}>
                           {camera.is_recording ? (
                             <><Square className="h-4 w-4 mr-2" /> Stop Recording</>
@@ -1455,7 +1462,7 @@ const Cameras = () => {
                             </div>
                           </td>
                           <td className="px-2 py-2 align-middle" onClick={(e) => e.stopPropagation()}>
-                            {canOperate ? (
+                            {canRecord ? (
                               <button
                                 type="button"
                                 onClick={() => inlineToggle(camera)}
@@ -1616,6 +1623,7 @@ const Cameras = () => {
                         toggleSelect={toggleSelect}
                         inlineToggle={inlineToggle}
                         canOperate={canOperate}
+                        canRecord={canRecord}
                         canManage={canManage}
                         onContextMenu={(e) => {
                           e.preventDefault();
@@ -1725,7 +1733,7 @@ const Cameras = () => {
           }}
           onClick={(e) => e.stopPropagation()}
         >
-          {canOperate && (
+          {canRecord && (
             <button
               className="w-full text-left flex items-center gap-2 px-3 py-2 rounded hover:bg-[var(--console-hover)]"
               onClick={() => {
@@ -2243,16 +2251,18 @@ const Cameras = () => {
                   {previewCamera.resolution && (
                     <span>{previewCamera.resolution}</span>
                   )}
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      navigate(`/playback?camera=${previewCamera.id}`);
-                      setPreviewCamera(null);
-                    }}
-                  >
-                    Playback
-                  </Button>
+                  {canPlayback && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        navigate(`/playback?camera=${previewCamera.id}`);
+                        setPreviewCamera(null);
+                      }}
+                    >
+                      Playback
+                    </Button>
+                  )}
                   <Button
                     size="sm"
                     onClick={() => {

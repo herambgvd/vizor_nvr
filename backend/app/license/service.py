@@ -24,7 +24,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from .fingerprint import get_or_create_fingerprint
 from .keys import load_public_key
@@ -47,6 +47,7 @@ class LicensePayload:
     hardware_fingerprint: Optional[str] = None
     camera_limit: int = 0
     features: List[str] = field(default_factory=list)
+    feature_options: Dict[str, List[str]] = field(default_factory=dict)
     tier: str = "free"
     # AI: licensed scenario slugs + the per-AI-camera cap applied to each.
     scenarios: List[str] = field(default_factory=list)
@@ -62,6 +63,10 @@ class LicensePayload:
             hardware_fingerprint=d.get("hardware_fingerprint"),
             camera_limit=int(d.get("camera_limit", 0)),
             features=list(d.get("features", []) or []),
+            feature_options={
+                str(k): list(v or [])
+                for k, v in (d.get("feature_options") or {}).items()
+            },
             tier=d.get("tier", "free"),
             scenarios=list(d.get("scenarios", []) or []),
             ai_camera_limit=int(d.get("ai_camera_limit", 0)),
@@ -274,6 +279,43 @@ class LicenseService:
     def features(self) -> List[str]:
         return list(self._payload.features) if (self._payload and self.is_active()) else []
 
+    def has_feature(self, feature: str) -> bool:
+        """Return True when an active license includes the requested feature."""
+        wanted = (feature or "").strip().lower().replace("-", "_").replace(" ", "_")
+        if not wanted:
+            return False
+        for item in self.features():
+            normalized = str(item).strip().lower().replace("-", "_").replace(" ", "_")
+            if normalized == wanted:
+                return True
+        return False
+
+    def feature_options(self, feature: str) -> List[str]:
+        if not (self._payload and self.is_active()):
+            return []
+        wanted = (feature or "").strip().lower().replace("-", "_").replace(" ", "_")
+        for key, values in (self._payload.feature_options or {}).items():
+            normalized_key = str(key).strip().lower().replace("-", "_").replace(" ", "_")
+            if normalized_key == wanted:
+                return [
+                    str(v).strip().lower().replace("-", "_").replace(" ", "_")
+                    for v in (values or [])
+                    if str(v).strip()
+                ]
+        # Backward compatibility: older licenses may have FRS submodules as
+        # top-level features. Treat those as FRS options too.
+        if wanted == "frs":
+            legacy = []
+            for option in ("attendance", "investigation"):
+                if self.has_feature(option):
+                    legacy.append(option)
+            return legacy
+        return []
+
+    def has_feature_option(self, feature: str, option: str) -> bool:
+        wanted = (option or "").strip().lower().replace("-", "_").replace(" ", "_")
+        return bool(wanted) and wanted in self.feature_options(feature)
+
     def scenarios(self) -> List[str]:
         return list(self._payload.scenarios) if (self._payload and self.is_active()) else []
 
@@ -299,6 +341,7 @@ class LicenseService:
             "expires_at": p.expires_at if p else None,
             "camera_limit": p.camera_limit if p else 0,
             "features": list(p.features) if p else [],
+            "feature_options": dict(p.feature_options) if p else {},
             "scenarios": list(p.scenarios) if p else [],
             "ai_camera_limit": p.ai_camera_limit if p else 0,
             "usage": {

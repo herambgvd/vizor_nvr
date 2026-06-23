@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}{{ client.name }} · Vizor License Generator{% endblock %}
+{% block content %}
+<section class="hero compact">
+  <div>
+    <p class="eyebrow">Client</p>
+    <h1>{{ client.name }}</h1>
+    <p class="muted"><code>{{ client.key_dir }}</code></p>
+  </div>
+  <a class="button" href="{{ url_for('new_license', client_id=client.id) }}">Generate License</a>
+</section>
+
+<section class="grid two">
+  <div class="card">
+    <div class="card-head">
+      <h2>Keypair</h2>
+      {% if public_key %}
+        <a href="{{ url_for('download_public_key', client_id=client.id) }}">Download public.b64</a>
+      {% endif %}
+    </div>
+    {% if has_private_key %}
+      <p class="ok">Private key exists for this client.</p>
+      <p class="muted">Deploy this client's matching <code>public.b64</code> in that client's NVR build/config.</p>
+    {% else %}
+      <p class="warn">No private key found.</p>
+      <form method="post" action="{{ url_for('create_keypair', client_id=client.id) }}">
+        <button class="button" type="submit">Generate Keypair</button>
+      </form>
+    {% endif %}
+    {% if public_key %}
+      <label class="mt">
+        Public key
+        <textarea readonly rows="4">{{ public_key }}</textarea>
+      </label>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Licenses</h2>
+      <a href="{{ url_for('new_license', client_id=client.id) }}">New</a>
+    </div>
+    {% if licenses %}
+      <div class="list">
+        {% for l in licenses %}
+          <a class="row" href="{{ url_for('license_detail', license_db_id=l.id) }}">
+            <span>
+              <strong>{{ l.license_id }}</strong>
+              <small>{{ l.camera_limit }} cams · AI {{ l.ai_camera_limit }} · {{ l.created_at|dt }}</small>
+            </span>
+            <span class="chev">›</span>
+          </a>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="empty">No licenses generated for this client yet.</p>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

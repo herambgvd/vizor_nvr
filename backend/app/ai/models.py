@@ -132,6 +132,7 @@ class ScenarioResponse(BaseModel):
     proxy_routes: Optional[List[Dict[str, Any]]] = None
     resource_requirements: Optional[Dict[str, Any]] = None
     tabs: Optional[List[str]] = None
+    entitlement_options: Optional[List[str]] = None
     health: Optional[Dict[str, Any]] = None
 
     class Config:

@@ -30,6 +30,7 @@ import TwoFactorCard from "../components/auth/TwoFactorCard";
 import { KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import { friendlyError } from "../lib/utils";
+import useLicense from "../hooks/useLicense";
 
 // ── shared styles ─────────────────────────────────────────────────────────────
 
@@ -91,7 +92,15 @@ const TABS = [
 
 const Settings = () => {
   const qc = useQueryClient();
+  const { hasFeature } = useLicense();
+  const tabs = TABS.filter((item) => item.id !== "recording" || hasFeature("recording"));
   const [tab, setTab] = useState("retention");
+
+  React.useEffect(() => {
+    if (!tabs.some((item) => item.id === tab)) {
+      setTab(tabs[0]?.id || "retention");
+    }
+  }, [tab, tabs]);
 
   return (
     <div
@@ -120,7 +129,7 @@ const Settings = () => {
         className="flex items-center gap-0 border-b flex-shrink-0 overflow-x-auto"
         style={{ background: "var(--console-panel)", borderColor: "var(--console-border)" }}
       >
-        {TABS.map(({ id, label, icon: Icon }) => {
+        {tabs.map(({ id, label, icon: Icon }) => {
           const active = tab === id;
           return (
             <button
@@ -149,7 +158,7 @@ const Settings = () => {
       <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6">
         <div className="w-full">
           {tab === "retention" && <RetentionTab queryClient={qc} />}
-          {tab === "recording" && <RecordingTab queryClient={qc} />}
+          {tab === "recording" && hasFeature("recording") && <RecordingTab queryClient={qc} />}
           {tab === "general" && <GeneralTab queryClient={qc} />}
           {tab === "security" && <SecurityTab queryClient={qc} />}
           {tab === "system" && <SystemTab />}

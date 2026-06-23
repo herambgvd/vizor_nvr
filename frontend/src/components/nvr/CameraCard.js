@@ -31,6 +31,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../ui/tooltip";
+import useLicense from "../../hooks/useLicense";
 
 /**
  * Camera Card Component
@@ -64,6 +65,9 @@ export const CameraCard = ({
   const isOnline = camera.status === "online";
   const isRecording = camera.is_recording;
   const isEnabled = camera.is_enabled;
+  const { hasFeature } = useLicense();
+  const canRecord = hasFeature("recording");
+  const canPlayback = hasFeature("playback");
 
   // Get thumbnail URL from API - thumbnail_path already contains /thumbnails/camera_id/snapshot.jpg
   const API_BASE = process.env.REACT_APP_BACKEND_URL || "";
@@ -262,32 +266,34 @@ export const CameraCard = ({
               )}
 
               {/* Recording Toggle */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    data-testid={`camera-${camera.id}-recording-toggle`}
-                    size="icon"
-                    variant="ghost"
-                    className="h-10 w-10 bg-white/10 hover:bg-white/20 text-white"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      isRecording
-                        ? onStopRecording?.(camera)
-                        : onStartRecording?.(camera);
-                    }}
-                    disabled={!isOnline || isLoading}
-                  >
-                    {isRecording ? (
-                      <Square className="h-5 w-5 fill-current" />
-                    ) : (
-                      <Video className="h-5 w-5" />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {isRecording ? "Stop Recording" : "Start Recording"}
-                </TooltipContent>
-              </Tooltip>
+              {canRecord && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      data-testid={`camera-${camera.id}-recording-toggle`}
+                      size="icon"
+                      variant="ghost"
+                      className="h-10 w-10 bg-white/10 hover:bg-white/20 text-white"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        isRecording
+                          ? onStopRecording?.(camera)
+                          : onStartRecording?.(camera);
+                      }}
+                      disabled={!isOnline || isLoading}
+                    >
+                      {isRecording ? (
+                        <Square className="h-5 w-5 fill-current" />
+                      ) : (
+                        <Video className="h-5 w-5" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {isRecording ? "Stop Recording" : "Start Recording"}
+                  </TooltipContent>
+                </Tooltip>
+              )}
 
               {/* Test Connection */}
               <Tooltip>
@@ -312,7 +318,7 @@ export const CameraCard = ({
               </Tooltip>
 
               {/* Instant Playback */}
-              {isRecording && (
+              {isRecording && canPlayback && (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button

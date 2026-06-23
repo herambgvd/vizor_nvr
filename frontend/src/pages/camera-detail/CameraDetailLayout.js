@@ -29,6 +29,7 @@ import { getCamera, getLatestHealth } from "../../api/cameras";
 import { Button } from "../../components/ui/button";
 import { StatusBadge } from "../../components/nvr/StatusBadge";
 import { cn } from "../../lib/utils";
+import useLicense from "../../hooks/useLicense";
 
 const NAV = [
   { path: "live", label: "Live View", icon: Video },
@@ -65,6 +66,8 @@ const CameraDetailLayout = () => {
   const { cameraId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const { hasFeature } = useLicense();
+  const navItems = NAV.filter((item) => item.path !== "recordings" || hasFeature("playback"));
 
   const { data: camera, isLoading, isError, refetch } = useQuery({
     queryKey: ["camera", cameraId],
@@ -207,7 +210,7 @@ const CameraDetailLayout = () => {
           className="w-[200px] flex-shrink-0 border-r console-panel hidden md:flex flex-col py-2"
           style={{ borderColor: "var(--console-border)" }}
         >
-          {NAV.map((item) => {
+          {navItems.map((item) => {
             const Icon = item.icon;
             const active = isActive(item.path);
             return (
@@ -242,7 +245,7 @@ const CameraDetailLayout = () => {
           style={{ borderColor: "var(--console-border)" }}
         >
           <div className="flex gap-1 px-2 py-1.5">
-            {NAV.map((item) => {
+            {navItems.map((item) => {
               const Icon = item.icon;
               const active = isActive(item.path);
               return (

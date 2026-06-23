@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}New Client · Vizor License Generator{% endblock %}
+{% block content %}
+<section class="card narrow">
+  <h1>New Client</h1>
+  <p class="muted">Each client gets a separate folder under <code>vendor-keys/&lt;client&gt;</code>.</p>
+  <form method="post" class="form">
+    <label>
+      Client name
+      <input name="name" placeholder="GVD" required autofocus>
+    </label>
+    <label>
+      Folder slug
+      <input name="slug" placeholder="gvd">
+      <small>Leave blank to auto-create from client name.</small>
+    </label>
+    <label class="check">
+      <input type="checkbox" name="generate_key" checked>
+      <span>Generate Ed25519 keypair now</span>
+    </label>
+    <div class="actions">
+      <a class="button ghost" href="{{ url_for('index') }}">Cancel</a>
+      <button class="button" type="submit">Create Client</button>
+    </div>
+  </form>
+</section>
+{% endblock %}

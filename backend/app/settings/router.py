@@ -14,7 +14,7 @@ from app.settings.models import (
     RetentionConfig, RecordingConfig,
 )
 from app.settings.service import SettingsService
-from app.core.dependencies import get_current_user, get_admin_user
+from app.core.dependencies import get_current_user, get_admin_user, require_license_feature
 from app.core.audit_logger import write_audit, client_ip
 
 router = APIRouter(prefix="/settings", tags=["Settings"])
@@ -383,6 +383,7 @@ async def update_retention_config(
 
 @router.get("/config/recording", response_model=RecordingConfig)
 async def get_recording_config(
+    _licensed: bool = Depends(require_license_feature("recording")),
     user: dict = Depends(get_admin_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -459,6 +460,7 @@ async def tls_upload(
 async def update_recording_config(
     body: RecordingConfig,
     request: Request,
+    _licensed: bool = Depends(require_license_feature("recording")),
     user: dict = Depends(get_admin_user),
     db: AsyncSession = Depends(get_db),
 ):

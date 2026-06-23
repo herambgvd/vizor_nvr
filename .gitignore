@@ -51,6 +51,7 @@ __pycache__/
 *pyc*
 venv/
 .venv/
+.venv-*/
 
 # Development tools
 chainlit.md
@@ -66,6 +67,12 @@ agenthub/agents/youtube/db
 backend/data/
 **/*.db
 **/*.db-*
+**/*.sqlite
+**/*.sqlite3
+**/*.sqlite3-*
+scripts/license_web/*.sqlite*
+scripts/license_web/.venv/
+scripts/license_web/__pycache__/
 
 # go2rtc runtime config — seeded from go2rtc.yaml.template by scripts/seed-go2rtc-config.sh
 # The file must exist before `docker compose up` (bind-mount); run `make up` or

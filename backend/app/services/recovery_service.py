@@ -34,6 +34,7 @@ class RecoveryService:
         from app.services.go2rtc_manager import go2rtc_manager
         from app.storage.service import StorageService
         from app.services.camera_monitor import CameraMonitor
+        from app.license.service import get_license_service
         from sqlalchemy import select
         from app.cameras.models import Camera
 
@@ -55,8 +56,18 @@ class RecoveryService:
 
                 recovered = 0
                 skipped = 0
+                recording_licensed = get_license_service().has_feature("recording")
                 for camera in cameras:
                     try:
+                        if not recording_licensed:
+                            logger.info(
+                                f"Recovery: {camera.name} ({camera.id}) skipped "
+                                "(recording feature not licensed)"
+                            )
+                            camera.is_recording = False
+                            skipped += 1
+                            continue
+
                         mode = (camera.recording_mode or "continuous").lower()
 
                         # Motion and manual modes: do NOT start a persistent ffmpeg.

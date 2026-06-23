@@ -76,6 +76,8 @@ def is_proxy_route_allowed(manifest: Mapping[str, Any], method: str, path: str) 
 
 
 def _to_response(scenario, active_count: int) -> ScenarioResponse:
+    from app.license.service import get_license_service
+
     r = ScenarioResponse.model_validate(scenario)
     r.active_camera_count = active_count
     manifest = _manifest(scenario)
@@ -83,7 +85,32 @@ def _to_response(scenario, active_count: int) -> ScenarioResponse:
     r.proxy_routes = manifest.get("proxy_routes") or []
     r.resource_requirements = manifest.get("resource_requirements") or {}
     r.tabs = manifest.get("tabs") or scenario.module_tabs or []
+    r.entitlement_options = get_license_service().feature_options(scenario.slug)
     return r
+
+
+def _require_scenario_option(slug: str, path: str) -> None:
+    """Gate licensed sub-features inside a licensed scenario.
+
+    Example: FRS can be licensed while Attendance and Investigation are sold as
+    separate sub-features. UI hides those tabs, and this backend check prevents
+    direct API access through the scenario proxy.
+    """
+    if slug != "frs":
+        return
+    from app.license.service import get_license_service
+
+    p = path.strip("/")
+    required = None
+    if p == "attendance" or p.startswith("attendance/"):
+        required = "attendance"
+    elif p == "investigate" or p == "investigations" or p.startswith("investigations/"):
+        required = "investigation"
+    if required and not get_license_service().has_feature_option("frs", required):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            f"FRS {required.replace('_', ' ')} is not included in this license",
+        )
 
 
 def _require_plugin_service_token(x_vizor_service_token: str | None = Header(None)) -> None:
@@ -392,6 +419,7 @@ async def _proxy_to_scenario(
         raise HTTPException(status.HTTP_403_FORBIDDEN, "scenario not licensed")
     if not scenario.enabled:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "scenario not enabled")
+    _require_scenario_option(slug, path)
     manifest = _manifest(scenario)
     if not is_proxy_route_allowed(manifest, request.method, path):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "proxy route not allowed by scenario manifest")

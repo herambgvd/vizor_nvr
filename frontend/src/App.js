@@ -118,6 +118,13 @@ const LicenseGate = ({ children }) => {
   return children;
 };
 
+const LicensedFeatureRoute = ({ feature, children }) => {
+  const { isLoading, hasFeature } = useLicense();
+  if (isLoading) return <PageSpinner />;
+  if (!hasFeature(feature)) return <Navigate to="/" replace />;
+  return children;
+};
+
 // ---------- routes ----------
 
 const AppRoutes = () => (
@@ -177,14 +184,28 @@ const AppRoutes = () => (
         <Route path="cameras/:cameraId" element={<CameraDetailLayout />}>
           <Route index element={<Navigate to="live" replace />} />
           <Route path="live" element={<CameraDetailLive />} />
-          <Route path="recordings" element={<CameraDetailRecordings />} />
+          <Route
+            path="recordings"
+            element={
+              <LicensedFeatureRoute feature="playback">
+                <CameraDetailRecordings />
+              </LicensedFeatureRoute>
+            }
+          />
           <Route path="onvif" element={<CameraDetailOnvif />} />
           <Route path="settings" element={<CameraDetailSettings />} />
           <Route path="snapshots" element={<CameraDetailSnapshots />} />
         </Route>
         {/* Playback is now the timeline-centric PlaybackConsole. Old
             single-cam Playback retired. /playback/multi kept as alias. */}
-        <Route path="playback" element={<PlaybackConsole />} />
+        <Route
+          path="playback"
+          element={
+            <LicensedFeatureRoute feature="playback">
+              <PlaybackConsole />
+            </LicensedFeatureRoute>
+          }
+        />
         <Route path="events" element={<Events />} />
         <Route path="settings" element={<SettingsLayout />}>
           <Route index element={<Navigate to="configuration" replace />} />
@@ -207,7 +228,14 @@ const AppRoutes = () => (
             }
           />
         </Route>
-        <Route path="playback/multi" element={<PlaybackConsole />} />
+        <Route
+          path="playback/multi"
+          element={
+            <LicensedFeatureRoute feature="playback">
+              <PlaybackConsole />
+            </LicensedFeatureRoute>
+          }
+        />
         <Route path="bookmarks" element={<Bookmarks />} />
         {/* Legacy aliases */}
         <Route path="users" element={<Navigate to="/settings/users" replace />} />

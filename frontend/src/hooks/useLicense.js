@@ -22,6 +22,10 @@ export const useLicense = () => {
   const isActive = !!data?.active;
   // Backend uses days_remaining === -1 as a sentinel for a perpetual license.
   const perpetual = data?.days_remaining === -1;
+  const normalizeFeature = (feature) =>
+    String(feature || "").trim().toLowerCase().replace(/[-\s]+/g, "_");
+  const featureSet = new Set((data?.features || []).map(normalizeFeature));
+  const hasFeature = (feature) => isActive && featureSet.has(normalizeFeature(feature));
 
   return {
     data,
@@ -31,6 +35,8 @@ export const useLicense = () => {
     inGrace: !!data?.in_grace,
     daysRemaining: perpetual ? null : data?.days_remaining ?? 0,
     tier: data?.tier || null,
+    features: data?.features || [],
+    hasFeature,
     cameraCap: isActive
       ? { used: data?.usage?.cameras ?? 0, limit: data?.camera_limit ?? 0 }
       : null,

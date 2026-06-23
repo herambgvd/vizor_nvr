@@ -111,6 +111,14 @@ const SCENARIO_TABS = {
     settings: lazy(() => import("./scenarios/suspect-search/SettingsTab")),
   },
 };
+const EMPTY_TABS = {};
+
+const TAB_ENTITLEMENTS = {
+  frs: {
+    attendance: "attendance",
+    investigate: "investigation",
+  },
+};
 
 const TabSpinner = () => (
   <div className="flex items-center justify-center py-16">
@@ -134,13 +142,19 @@ const ScenarioWorkspace = () => {
 
   // Resolve this scenario's tab registry by slug. Unknown slugs fall back to an
   // empty registry so only the tabs that actually resolve are shown.
-  const registry = SCENARIO_TABS[slug] || {};
+  const registry = useMemo(() => SCENARIO_TABS[slug] || EMPTY_TABS, [slug]);
 
   // Tabs that exist both in this scenario's manifest and its registry.
   const tabs = useMemo(() => {
     const declared = scenario?.tabs || scenario?.module_tabs || [];
-    return declared.filter((t) => registry[t]);
-  }, [scenario, registry]);
+    const options = new Set((scenario?.entitlement_options || []).map((x) => String(x)));
+    const tabEntitlements = TAB_ENTITLEMENTS[slug] || {};
+    return declared.filter((t) => {
+      if (!registry[t]) return false;
+      const required = tabEntitlements[t];
+      return !required || options.has(required);
+    });
+  }, [scenario, registry, slug]);
 
   const activeTab = tabs.includes(tab) ? tab : tabs[0];
   const ScenarioIcon = SCENARIO_ICONS[scenario?.icon] || Cpu;

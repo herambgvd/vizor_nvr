@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}{{ lic.license_id }} · Vizor License Generator{% endblock %}
+{% block content %}
+<section class="hero compact">
+  <div>
+    <p class="eyebrow">Generated license</p>
+    <h1>{{ lic.license_id }}</h1>
+    <p class="muted">{{ lic.client_name }} · {{ lic.created_at|dt }}</p>
+  </div>
+  <div class="actions">
+    <a class="button" href="{{ url_for('download_license', license_db_id=lic.id) }}">Download .lic</a>
+    <a class="button ghost" href="{{ url_for('download_payload', license_db_id=lic.id) }}">Payload JSON</a>
+  </div>
+</section>
+
+<section class="grid two">
+  <div class="card">
+    <h2>Summary</h2>
+    <dl class="facts">
+      <dt>Customer</dt><dd>{{ lic.customer }}</dd>
+      <dt>Tier</dt><dd>{{ lic.tier }}</dd>
+      <dt>Cameras</dt><dd>{{ lic.camera_limit }}</dd>
+      <dt>AI cameras</dt><dd>{{ lic.ai_camera_limit }}</dd>
+      <dt>Expires</dt><dd>{{ lic.expires_at or 'Perpetual' }}</dd>
+      <dt>Fingerprint</dt><dd><code>{{ lic.hardware_fingerprint or 'Unbound' }}</code></dd>
+    </dl>
+  </div>
+  <div class="card">
+    <h2>Entitlements</h2>
+    <h3>Modules</h3>
+    <pre>{{ lic.features_json|json_pretty }}</pre>
+    <h3>AI scenarios</h3>
+    <pre>{{ lic.scenarios_json|json_pretty }}</pre>
+    <h3>Sub-features</h3>
+    <pre>{{ lic.feature_options_json|json_pretty }}</pre>
+  </div>
+</section>
+{% endblock %}

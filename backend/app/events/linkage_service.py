@@ -162,6 +162,12 @@ class LinkageEngine:
         """Start buffer recording for the camera using prebuffer + post-recording."""
         if not camera_id:
             return
+        from app.license.service import get_license_service
+
+        if not get_license_service().has_feature("recording"):
+            logger.info("Linkage recording skipped for %s: feature not licensed", camera_id)
+            return
+
         from app.services.ffmpeg_manager import ffmpeg_manager
         from app.services.prebuffer_service import prebuffer_service
 

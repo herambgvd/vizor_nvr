@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}New License · {{ client.name }}{% endblock %}
+{% block content %}
+<section class="hero compact">
+  <div>
+    <p class="eyebrow">New license</p>
+    <h1>{{ client.name }}</h1>
+    <p class="muted">Only enabled modules will appear/work in the NVR application.</p>
+  </div>
+</section>
+
+<form method="post" class="form license-form">
+  <section class="grid two">
+    <div class="card">
+      <h2>License Details</h2>
+      <label>Customer
+        <input name="customer" value="{{ form.customer }}" required>
+      </label>
+      <label>License ID
+        <input name="license_id" value="{{ form.license_id }}" required>
+      </label>
+      <label>Expiry date
+        <input type="date" name="expires" value="{{ form.expires }}">
+        <small>Leave empty for perpetual.</small>
+      </label>
+      <label>Tier
+        <select name="tier">
+          {% for tier in tiers %}
+            <option value="{{ tier }}" {% if form.tier == tier %}selected{% endif %}>{{ tier|title }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <div class="split">
+        <label>Camera limit
+          <input type="number" min="1" max="{{ max_channels }}" name="camera_limit" value="{{ form.camera_limit }}" required>
+        </label>
+        <label>AI camera limit
+          <input type="number" min="0" max="{{ max_channels }}" name="ai_camera_limit" value="{{ form.ai_camera_limit }}" required>
+        </label>
+      </div>
+      <label>Machine fingerprint
+        <input name="hardware_fingerprint" value="{{ form.hardware_fingerprint }}" placeholder="cd2827ba...">
+        <small>Blank creates an unbound license. Production should normally be bound.</small>
+      </label>
+    </div>
+
+    <div class="card">
+      <h2>Modules</h2>
+      <p class="muted">Check only the modules this license should unlock.</p>
+      <div class="modules">
+        {% for module in modules %}
+          <label class="module-card">
+            <input
+              type="checkbox"
+              name="features"
+              value="{{ module.key }}"
+              data-module="{{ module.key }}"
+              {% if module.key in form.features %}checked{% endif %}
+            >
+            <span>
+              <strong>{{ module.label }}</strong>
+              <small>{{ module.description }}</small>
+            </span>
+          </label>
+        {% endfor %}
+      </div>
+
+      <div class="subfeatures" data-subfeatures-for="frs">
+        <h3>FRS sub-features</h3>
+        <p class="muted">FRS can be sold with Attendance and Investigation independently.</p>
+        {% for opt in frs_options %}
+          <label class="check">
+            <input
+              type="checkbox"
+              name="frs_options"
+              value="{{ opt }}"
+              {% if opt in form.feature_options.get('frs', []) %}checked{% endif %}
+            >
+            <span>{{ opt.replace('_', ' ')|title }}</span>
+          </label>
+        {% endfor %}
+      </div>
+
+      <label class="check mt">
+        <input type="checkbox" name="overwrite" {% if form.overwrite %}checked{% endif %}>
+        <span>Overwrite if same License ID already exists</span>
+      </label>
+    </div>
+  </section>
+
+  <section class="actions sticky-actions">
+    <a class="button ghost" href="{{ url_for('client_detail', client_id=client.id) }}">Cancel</a>
+    <button class="button" type="submit">Generate .lic</button>
+  </section>
+</form>
+{% endblock %}
