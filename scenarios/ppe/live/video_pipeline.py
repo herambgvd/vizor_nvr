@@ -122,8 +122,23 @@ def delete_job(job_id: str) -> None:
                 src = json.loads(p.read_text()).get("src_path", "")
             except Exception:  # noqa: BLE001
                 src = ""
+    # Only remove the source video if NO OTHER job still references it — the same
+    # upload can be analysed more than once, and deleting a shared src would break the
+    # other runs (they'd fail with "cannot open uploaded video").
     if src:
-        paths.append(Path(src))
+        import json
+        shared = False
+        for jp in _media_dir().glob("*.json"):
+            if jp.name == f"{job_id}.json":
+                continue
+            try:
+                if json.loads(jp.read_text()).get("src_path") == src:
+                    shared = True
+                    break
+            except Exception:  # noqa: BLE001
+                continue
+        if not shared:
+            paths.append(Path(src))
     for p in paths:
         try:
             Path(p).unlink(missing_ok=True)
