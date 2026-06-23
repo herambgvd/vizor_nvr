@@ -21,7 +21,7 @@ from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Upload
 from fastapi.responses import FileResponse, Response
 
 from deps import require_service_token
-from live.video_pipeline import _media_dir, get_job, list_jobs, start_media_job
+from live.video_pipeline import _media_dir, delete_job, get_job, list_jobs, start_media_job
 
 router = APIRouter(tags=["media"])
 
@@ -119,6 +119,16 @@ def media_analyze(
 def media_list(_: None = Depends(require_service_token)) -> dict:
     """Media analysis history — every job (in-flight + finished), newest first."""
     return {"jobs": list_jobs()}
+
+
+@router.post("/media/delete")
+def media_delete(body: dict = Body(...), _: None = Depends(require_service_token)) -> dict:
+    """Completely remove an analysis: result mp4, metadata, and the source upload."""
+    job_id = str(body.get("job_id") or "")
+    if not job_id.isalnum():
+        raise HTTPException(400, "bad job_id")
+    delete_job(job_id)
+    return {"deleted": job_id}
 
 
 @router.get("/media/status")

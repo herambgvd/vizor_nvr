@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 class MediaJob:
     job_id: str
     name: str = ""                   # original filename, for the history list
+    src_path: str = ""               # uploaded source video, removed on delete
     status: str = "queued"          # queued | running | encoding | done | error
     progress: float = 0.0           # 0..1
     frames_total: int = 0
@@ -73,16 +74,57 @@ def get_job(job_id: str) -> Optional[MediaJob]:
         j = _JOBS.get(job_id)
     if j is not None:
         return j
-    # Recover a finished job from disk (e.g. after the operator navigated away).
+    # Recover from disk (operator navigated away, or the dev uvicorn --reload killed
+    # the worker thread mid-job).
     import json
     p = _job_meta_path(job_id)
-    if p.exists():
+    if not p.exists():
+        return None
+    try:
+        d = json.loads(p.read_text())
+        job = MediaJob(**d)
+    except Exception:  # noqa: BLE001
+        return None
+    # Orphaned in-flight job: persisted as running but no live thread owns it (the dev
+    # uvicorn --reload restarted the process). The H.264 pipe streams as it goes, so
+    # whatever encoded so far is fine, but the run can't continue — mark it failed so
+    # the UI stops showing an endless spinner. (Production has no --reload.)
+    if job.status in ("running", "encoding"):
+        final_out = _media_dir() / f"{job.job_id}.mp4"
+        if final_out.exists() and (job.progress or 0) >= 0.999:
+            job.status = "done"
+            job.annotated_path = f"/media/result?job_id={job.job_id}"
+        else:
+            job.status = "error"
+            job.error = "interrupted before completion (process reload)"
+        _persist(job)
+    return job
+
+
+def delete_job(job_id: str) -> None:
+    """Remove every artifact of a job: result mp4, metadata json, source upload, and
+    its in-memory record. Used by the UI's delete button."""
+    with _LOCK:
+        job = _JOBS.pop(job_id, None)
+    md = _media_dir()
+    paths = [md / f"{job_id}.mp4", md / f"{job_id}_raw.mp4", _job_meta_path(job_id)]
+    src = getattr(job, "src_path", "") if job else ""
+    if not src:
+        # Recover src_path from the persisted json before we delete it.
+        import json
+        p = _job_meta_path(job_id)
+        if p.exists():
+            try:
+                src = json.loads(p.read_text()).get("src_path", "")
+            except Exception:  # noqa: BLE001
+                src = ""
+    if src:
+        paths.append(Path(src))
+    for p in paths:
         try:
-            d = json.loads(p.read_text())
-            return MediaJob(**d)
+            Path(p).unlink(missing_ok=True)
         except Exception:  # noqa: BLE001
-            return None
-    return None
+            pass
 
 
 def list_jobs() -> list:
@@ -112,7 +154,7 @@ def start_media_job(video_path: str, cam_config: dict, *, sample_fps: int = 0, n
     """Register + launch a background analysis of `video_path` using `cam_config`
     (required_items, roi, *_conf, etc — same schema as a camera). Returns job_id."""
     job_id = uuid.uuid4().hex[:12]
-    job = MediaJob(job_id=job_id, name=name or "video")
+    job = MediaJob(job_id=job_id, name=name or "video", src_path=str(video_path))
     with _LOCK:
         _JOBS[job_id] = job
     _persist(job)
@@ -125,10 +167,13 @@ def _run_job(job: MediaJob, video_path: str, cam_config: dict, sample_fps: int) 
     from .async_pipeline import PpePipeline
 
     job.status = "running"
-    raw_out = str(_media_dir() / f"{job.job_id}_raw.mp4")
+    # Encode H.264 directly via an ffmpeg pipe — annotated BGR frames are written to
+    # ffmpeg's stdin as they are produced, so the output is a browser-playable .mp4
+    # the moment the last frame lands. No mp4v intermediate, no slow second-pass
+    # re-encode (which used to leave the job stuck at "encoding"), no 400 MB raw file.
     final_out = str(_media_dir() / f"{job.job_id}.mp4")
     cap = None
-    writer = None
+    enc = None
     try:
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
@@ -144,13 +189,11 @@ def _run_job(job: MediaJob, video_path: str, cam_config: dict, sample_fps: int) 
             step = max(1, int(round(src_fps / sample_fps)))
         out_fps = src_fps / step
 
-        # One pipeline instance — same per-camera state machine as live.
         cam = {"camera_id": f"media:{job.job_id}", "config": cam_config}
         pipeline = PpePipeline(cam)
+        enc = _open_h264_pipe(final_out, W, H, out_fps)
 
-        writer = cv2.VideoWriter(raw_out, cv2.VideoWriter_fourcc(*"mp4v"), out_fps, (W, H))
         fno = 0
-        analysed = 0
         while True:
             ok, frame = cap.read()
             if not ok:
@@ -158,32 +201,22 @@ def _run_job(job: MediaJob, video_path: str, cam_config: dict, sample_fps: int) 
             fno += 1
             if (fno - 1) % step != 0:
                 continue
-            # Advance pipeline time by VIDEO time so grace/cooldown match live.
-            ts = (fno - 1) / src_fps
+            ts = (fno - 1) / src_fps   # video time so grace/cooldown match live
             annotated, events = pipeline.process_with_overlay(frame, ts)
             for ev in events:
                 ev["video_ts"] = round(ts, 2)
                 job.events.append(_event_summary(ev))
-            writer.write(annotated)
-            analysed += 1
+            enc.stdin.write(annotated.tobytes())
             job.frames_done = fno
             if job.frames_total:
                 job.progress = min(1.0, fno / job.frames_total)
             if fno % 200 == 0:
                 _persist(job)   # checkpoint so a reopened page sees live progress
         cap.release(); cap = None
-        writer.release(); writer = None
+        enc.stdin.close()
+        enc.wait(timeout=120)
+        enc = None
 
-        # Re-encode mp4v -> H.264 so browsers can play it. This can take a while on a
-        # big clip, so flag the status (the UI shows "Encoding…" instead of a stuck
-        # 100%).
-        job.status = "encoding"
-        _persist(job)
-        _to_h264(raw_out, final_out)
-        try:
-            os.remove(raw_out)
-        except OSError:
-            pass
         job.annotated_path = f"/media/result?job_id={job.job_id}"
         job.status = "done"
         job.progress = 1.0
@@ -194,10 +227,29 @@ def _run_job(job: MediaJob, video_path: str, cam_config: dict, sample_fps: int) 
     finally:
         if cap is not None:
             cap.release()
-        if writer is not None:
-            writer.release()
+        if enc is not None:
+            try:
+                enc.stdin.close()
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                enc.wait(timeout=30)
+            except Exception:  # noqa: BLE001
+                enc.kill()
         job.finished_at = time.time()
         _persist(job)
+
+
+def _open_h264_pipe(dst: str, w: int, h: int, fps: float) -> "subprocess.Popen":
+    """ffmpeg reading raw BGR frames on stdin, writing a faststart H.264 mp4."""
+    return subprocess.Popen(
+        ["ffmpeg", "-y", "-loglevel", "error",
+         "-f", "rawvideo", "-pix_fmt", "bgr24",
+         "-s", f"{w}x{h}", "-r", f"{max(1.0, fps):.4f}", "-i", "pipe:0",
+         "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "26",
+         "-pix_fmt", "yuv420p", "-movflags", "+faststart", dst],
+        stdin=subprocess.PIPE,
+    )
 
 
 def _to_h264(src: str, dst: str) -> None:

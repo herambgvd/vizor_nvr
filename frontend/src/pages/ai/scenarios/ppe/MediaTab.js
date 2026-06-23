@@ -18,6 +18,8 @@ import {
   RotateCcw,
   Film,
   ShieldAlert,
+  Trash2,
+  X,
 } from "lucide-react";
 import { proxyScenario } from "../../../../api/ai";
 
@@ -34,7 +36,7 @@ function errMsg(e, fallback) {
 }
 
 // ── ROI editor (click to add · drag corner to resize · drag inside to move) ──
-function RoiEditor({ imgUrl, points, onChange }) {
+function RoiEditor({ imgUrl, points, onChange, aspect = 16 / 9 }) {
   const wrapRef = useRef(null);
   const drag = useRef(null);
   const [dragging, setDragging] = useState(false);
@@ -93,7 +95,7 @@ function RoiEditor({ imgUrl, points, onChange }) {
       </div>
       <div ref={wrapRef} onClick={addPoint}
         className="relative w-full rounded border overflow-hidden"
-        style={{ borderColor: "var(--console-border)", background: "#000", aspectRatio: "16 / 9", cursor: dragging ? "grabbing" : "crosshair" }}>
+        style={{ borderColor: "var(--console-border)", background: "#000", aspectRatio: String(aspect), cursor: dragging ? "grabbing" : "crosshair" }}>
         {imgUrl && <img src={imgUrl} alt="" className="absolute inset-0 w-full h-full object-contain pointer-events-none" />}
         <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
           {points.length > 1 && (
@@ -128,6 +130,29 @@ const fmtTs = (s) => {
   return `${m}:${String(sec).padStart(2, "0")}`;
 };
 
+// Event crop thumbnail — fetches the stored snapshot JPEG through the auth proxy.
+// snapshot_path is "/snapshot?key=live:<id>"; we request the cropped variant.
+function EventThumb({ slug, snapshotPath, onPreview }) {
+  const [src, setSrc] = useState(null);
+  useEffect(() => {
+    let url = null, dead = false;
+    if (!snapshotPath) return undefined;
+    const key = (snapshotPath.split("key=")[1] || "").split("&")[0];
+    if (!key) return undefined;
+    proxyScenario(slug, "/snapshot", { params: { key, crop: true }, responseType: "blob" })
+      .then((b) => { if (!dead && b) { url = URL.createObjectURL(b); setSrc(url); } })
+      .catch(() => {});
+    return () => { dead = true; if (url) URL.revokeObjectURL(url); };
+  }, [slug, snapshotPath]);
+  return (
+    <div onClick={(e) => { e.stopPropagation(); if (src) onPreview?.(src); }}
+      className="h-14 w-14 shrink-0 rounded overflow-hidden cursor-zoom-in"
+      style={{ background: "#000", border: "1px solid var(--console-border)" }} title="View snapshot">
+      {src && <img src={src} alt="" className="h-full w-full object-cover" />}
+    </div>
+  );
+}
+
 export default function MediaTab({ scenario }) {
   const slug = scenario?.slug || "ppe";
   const [stage, setStage] = useState("upload");   // upload | config | running | done | error
@@ -141,6 +166,15 @@ export default function MediaTab({ scenario }) {
   const [videoUrl, setVideoUrl] = useState(null);
   const fileRef = useRef(null);
   const pollRef = useRef(null);
+  const videoRef = useRef(null);
+  const [preview, setPreview] = useState(null);   // {src} enlarged event snapshot
+
+  const seekTo = (ts) => {
+    if (videoRef.current && ts != null) {
+      videoRef.current.currentTime = ts;
+      videoRef.current.play?.().catch(() => {});
+    }
+  };
 
   const reset = () => {
     if (pollRef.current) clearInterval(pollRef.current);
@@ -217,6 +251,17 @@ export default function MediaTab({ scenario }) {
   };
   useEffect(() => { loadHistory(); }, []);   // eslint-disable-line
 
+  // Delete a job completely (result + source + metadata).
+  const deleteJob = async (jobId, e) => {
+    e?.stopPropagation?.();
+    if (!window.confirm("Delete this analysis and its video completely?")) return;
+    try {
+      await proxyScenario(slug, "/media/delete", { method: "POST", data: { job_id: jobId } });
+      setHistory((h) => h.filter((j) => j.job_id !== jobId));
+      if (job?.job_id === jobId) reset();
+    } catch (err) { setErr(errMsg(err, "Delete failed.")); }
+  };
+
   // Open a previously-finished job from history.
   const openJob = async (jobId) => {
     setErr(null); setVideoUrl(null);
@@ -237,7 +282,7 @@ export default function MediaTab({ scenario }) {
   // ── render ────────────────────────────────────────────────────────────────
   return (
     <div className="h-full overflow-y-auto p-6">
-      <div className="max-w-4xl mx-auto flex flex-col gap-5">
+      <div className="w-full max-w-[1600px] mx-auto flex flex-col gap-5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Film className="h-5 w-5" style={{ color: "var(--console-accent)" }} />
@@ -290,8 +335,8 @@ export default function MediaTab({ scenario }) {
             </div>
             <div className="max-h-72 overflow-y-auto">
               {history.map((h) => (
-                <button key={h.job_id} type="button" onClick={() => openJob(h.job_id)}
-                  className="w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-black/5"
+                <div key={h.job_id} onClick={() => openJob(h.job_id)}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-black/5 cursor-pointer"
                   style={{ borderBottom: "1px solid var(--console-border)" }}>
                   <Film className="h-4 w-4 shrink-0" style={{ color: "var(--console-muted)" }} />
                   <span className="flex-1 truncate font-telemetry text-[12px]" style={{ color: "var(--console-text)" }}>{h.name || "video"}</span>
@@ -301,7 +346,11 @@ export default function MediaTab({ scenario }) {
                       color: h.status === "done" ? "#34d399" : h.status === "error" ? "#f87171" : "#fbbf24",
                       background: "var(--console-raised)",
                     }}>{h.status}</span>
-                </button>
+                  <button type="button" onClick={(e) => deleteJob(h.job_id, e)} title="Delete"
+                    className="shrink-0 p-1 rounded hover:bg-black/10" style={{ color: "var(--console-rec)" }}>
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               ))}
             </div>
           </div>
@@ -311,7 +360,8 @@ export default function MediaTab({ scenario }) {
         {stage === "config" && (
           <div className="flex flex-col gap-5">
             <div className="rounded-lg border p-4" style={{ borderColor: "var(--console-border)", background: "var(--console-panel)" }}>
-              <RoiEditor imgUrl={frameUrl} points={roi} onChange={setRoi} />
+              <RoiEditor imgUrl={frameUrl} points={roi} onChange={setRoi}
+                aspect={upload?.width && upload?.height ? upload.width / upload.height : 16 / 9} />
             </div>
             <div className="rounded-lg border p-4 flex flex-col gap-3" style={{ borderColor: "var(--console-border)", background: "var(--console-panel)" }}>
               <span className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>Required PPE</span>
@@ -357,39 +407,80 @@ export default function MediaTab({ scenario }) {
           </div>
         )}
 
-        {/* STEP 4 — done */}
+        {/* STEP 4 — done: annotated video (left) + events with crop image (right) */}
         {stage === "done" && (
-          <div className="flex flex-col gap-5">
-            <div className="flex items-center gap-2 text-[12px]" style={{ color: "#34d399" }}>
-              <CheckCircle2 className="h-4 w-4" /> Analysis complete · {job?.event_count || 0} events
-            </div>
-            {videoUrl && (
-              <video src={videoUrl} controls className="w-full rounded-lg border" style={{ borderColor: "var(--console-border)", background: "#000" }} />
-            )}
-            <div className="rounded-lg border" style={{ borderColor: "var(--console-border)", background: "var(--console-panel)" }}>
-              <div className="px-4 py-2.5 font-telemetry text-[10px] uppercase tracking-widest" style={{ borderBottom: "1px solid var(--console-border)", color: "var(--console-accent)" }}>
-                Detected events ({job?.events?.length || 0})
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-[12px]" style={{ color: "#34d399" }}>
+                <CheckCircle2 className="h-4 w-4" /> Analysis complete · {job?.event_count ?? job?.events?.length ?? 0} events
               </div>
-              <div className="max-h-80 overflow-y-auto">
-                {(job?.events || []).length === 0 ? (
-                  <div className="px-4 py-6 text-center font-telemetry text-[11px]" style={{ color: "var(--console-muted)" }}>No violations detected.</div>
+              {job?.job_id && (
+                <button type="button" onClick={(e) => deleteJob(job.job_id, e)}
+                  className="inline-flex items-center gap-1.5 font-telemetry text-[11px] uppercase tracking-wide px-2.5 py-1 rounded border"
+                  style={{ borderColor: "var(--console-border)", color: "var(--console-rec)", background: "var(--console-raised)" }}>
+                  <Trash2 className="h-3.5 w-3.5" /> Delete
+                </button>
+              )}
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+              {/* annotated video */}
+              <div className="lg:col-span-3">
+                {videoUrl ? (
+                  <video ref={videoRef} src={videoUrl} controls
+                    className="w-full rounded-lg border" style={{ borderColor: "var(--console-border)", background: "#000" }} />
                 ) : (
-                  (job?.events || []).map((e, i) => (
-                    <div key={i} className="flex items-center gap-3 px-4 py-2.5 text-[12px]" style={{ borderBottom: i < job.events.length - 1 ? "1px solid var(--console-border)" : "none" }}>
-                      <ShieldAlert className="h-4 w-4 shrink-0" style={{ color: e.event_type === "ppe_compliant" ? "#34d399" : "#f87171" }} />
-                      <span className="flex-1" style={{ color: "var(--console-text)" }}>
-                        {e.event_type === "ppe_compliant" ? "Compliant" : `No ${(e.missing_items || []).join(", ") || "PPE"}`}
-                        <span style={{ color: "var(--console-muted)" }}> · worker #{e.worker_track_id}</span>
-                      </span>
-                      <span className="font-mono" style={{ color: "var(--console-muted)" }}>{fmtTs(e.video_ts)}</span>
-                    </div>
-                  ))
+                  <div className="w-full rounded-lg border flex items-center justify-center"
+                    style={{ borderColor: "var(--console-border)", background: "#000", aspectRatio: "16/9", color: "var(--console-muted)" }}>
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  </div>
                 )}
+              </div>
+              {/* events list */}
+              <div className="lg:col-span-2 rounded-lg border flex flex-col" style={{ borderColor: "var(--console-border)", background: "var(--console-panel)" }}>
+                <div className="px-4 py-2.5 font-telemetry text-[10px] uppercase tracking-widest shrink-0" style={{ borderBottom: "1px solid var(--console-border)", color: "var(--console-accent)" }}>
+                  Detected events ({job?.events?.length || 0})
+                </div>
+                <div className="overflow-y-auto" style={{ maxHeight: "60vh" }}>
+                  {(job?.events || []).length === 0 ? (
+                    <div className="px-4 py-6 text-center font-telemetry text-[11px]" style={{ color: "var(--console-muted)" }}>No violations detected.</div>
+                  ) : (
+                    (job?.events || []).map((e, i) => (
+                      <button key={i} type="button" onClick={() => seekTo(e.video_ts)}
+                        className="w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-black/5"
+                        style={{ borderBottom: i < job.events.length - 1 ? "1px solid var(--console-border)" : "none" }}>
+                        <EventThumb slug={slug} snapshotPath={e.snapshot_path} onPreview={(s) => setPreview({ src: s })} />
+                        <span className="flex-1 min-w-0">
+                          <span className="flex items-center gap-1.5 text-[12px]" style={{ color: "var(--console-text)" }}>
+                            <ShieldAlert className="h-3.5 w-3.5 shrink-0" style={{ color: e.event_type === "ppe_compliant" ? "#34d399" : "#f87171" }} />
+                            {e.event_type === "ppe_compliant" ? "Compliant" : `No ${(e.missing_items || []).join(", ") || "PPE"}`}
+                          </span>
+                          <span className="block font-telemetry text-[10px] mt-0.5" style={{ color: "var(--console-muted)" }}>
+                            worker #{e.worker_track_id} · {fmtTs(e.video_ts)}
+                          </span>
+                        </span>
+                      </button>
+                    ))
+                  )}
+                </div>
               </div>
             </div>
           </div>
         )}
       </div>
+
+      {/* Snapshot preview overlay */}
+      {preview && (
+        <div onClick={() => setPreview(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center p-8"
+          style={{ background: "rgba(0,0,0,0.8)" }}>
+          <button type="button" onClick={() => setPreview(null)}
+            className="absolute top-4 right-4 p-2 rounded" style={{ color: "#fff", background: "rgba(255,255,255,0.1)" }}>
+            <X className="h-5 w-5" />
+          </button>
+          <img src={preview.src} alt="" className="max-h-full max-w-full rounded-lg"
+            style={{ border: "1px solid var(--console-border)" }} onClick={(e) => e.stopPropagation()} />
+        </div>
+      )}
     </div>
   );
 }

@@ -274,6 +274,10 @@
     {
       "method": "GET",
       "path": "/media/list"
+    },
+    {
+      "method": "POST",
+      "path": "/media/delete"
     }
   ],
   "resource_requirements": {

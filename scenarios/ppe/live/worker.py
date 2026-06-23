@@ -237,14 +237,10 @@ class CameraWorker(threading.Thread):
         self._stable = StableIdMapper(self.stable_id_max_age)
         self._smoother = EvidenceSmoother(config.SMOOTH_WINDOW, config.SMOOTH_MIN_HITS)
         # Second-stage verifier: prefer SigLIP (discriminates vest/helmet/goggles/
-        # boots); fall back to the legacy DINOv2 verifier only if SigLIP isn't
-        # configured. No-op when neither is set.
-        if config.PPE_SIGLIP_MODEL_NAME:
-            from inference.siglip_verifier import SiglipVerifier
-            self._vit = SiglipVerifier(self._detector)
-        else:
-            from inference.vit_verifier import VitVerifier
-            self._vit = VitVerifier(self._detector)
+        # boots). The legacy DINOv2 verifier is retired; SigLIP is the only
+        # second-stage. No-op when PPE_SIGLIP_MODEL_NAME is empty.
+        from inference.siglip_verifier import SiglipVerifier
+        self._vit = SiglipVerifier(self._detector)
         self._engine = ComplianceEngine(
             self.required_canonical, self.missing_grace, self.min_present,
             self.cooldown, config.ALERT_INITIAL_MISSING,
@@ -502,6 +498,11 @@ class CameraWorker(threading.Thread):
             if self.emit_compliant and not fired and self._is_confidently_compliant(evidence):
                 self._maybe_emit_compliant(person, evidence, present_items, frame_bgr, h, w, now)
 
+            # Per-frame overlay hook — every tracked worker, every frame (not just on
+            # an event). The media pipeline overrides this to draw a continuous box;
+            # the live worker's default is a no-op.
+            self._on_person(person, evidence)
+
         self._smoother.purge(active_ids)
         self._engine.purge(now)
 
@@ -520,6 +521,10 @@ class CameraWorker(threading.Thread):
         return config.HARDHAT_CONF
 
     # ── emission ────────────────────────────────────────────────────────────
+    def _on_person(self, person, evidence) -> None:
+        """Per-frame, per-worker hook. No-op for the live worker; the media pipeline
+        overrides it to draw a box on every frame."""
+
     def _status_colors(self, evidence: dict) -> dict:
         """{canonical: color} for every REQUIRED PPE item — green if worn (in
         evidence), red if missing. Items not required on this camera are omitted,
