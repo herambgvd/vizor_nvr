@@ -45,7 +45,7 @@ export const getScenarioHealth = async (slug) => {
 export const proxyScenario = async (
   slug,
   path,
-  { method = "GET", data = undefined, params = undefined, headers = undefined, timeout = 120000 } = {},
+  { method = "GET", data = undefined, params = undefined, headers = undefined, timeout = 120000, responseType = undefined } = {},
 ) => {
   const clean = String(path || "").replace(/^\/+/, "");
   const r = await apiClient.request({
@@ -55,6 +55,7 @@ export const proxyScenario = async (
     params,
     headers,
     timeout,
+    responseType,
   });
   return r.data;
 };
