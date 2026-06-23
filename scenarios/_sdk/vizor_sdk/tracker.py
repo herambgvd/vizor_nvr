@@ -128,10 +128,12 @@ class ByteTracker:
             rem_boxes = predicted_boxes[unmatched_track_idxs]
             rem_ids = [track_ids[ti] for ti in unmatched_track_idxs]
             iou = _iou_matrix(rem_boxes, det_boxes[low_idxs])
-            a2, mt2_local, md2 = _greedy_match(iou, rem_ids, low_idxs, self._iou_threshold)
+            a2, mt2, md2 = _greedy_match(iou, rem_ids, low_idxs, self._iou_threshold)
             assignments.extend(a2)
-            for local_ti in mt2_local:
-                matched_tracks.add(unmatched_track_idxs[local_ti])
+            # _greedy_match returns matched TRACK IDS (from its 2nd arg, rem_ids),
+            # not local indices — add them straight in. (The old code indexed
+            # unmatched_track_idxs with a track id → IndexError on busy frames.)
+            matched_tracks.update(mt2)
             matched_dets.update(md2)
 
         result: list[tuple[int, np.ndarray]] = []
