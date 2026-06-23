@@ -18,15 +18,19 @@ services:
     container_name: gvd_ai_triton
     restart: unless-stopped
     # Explicit model control: load ONLY the models listed below, so the GPU isn't
-    # filled by every scenario's weights. Add --load-model lines as scenarios are
-    # tested. (Switch back to --model-control-mode=poll to auto-load the whole
-    # repo.) PPE testing needs just the detector + the SigLIP verifier.
+    # filled by every scenario's weights. All scenario detectors run on TensorRT
+    # FP16 engines (*_trt) for ~2-3x faster inference; the matching .plan files must
+    # be built first (triton/build_trt_engines.sh). Switch to
+    # --model-control-mode=poll to auto-load the whole repo.
     command: >
       tritonserver
       --model-repository=/models
       --model-control-mode=explicit
       --load-model=ppe_yolo26_trt
       --load-model=siglip_ppe
+      --load-model=anpr_plate_trt
+      --load-model=ppocr_v6_trt
+      --load-model=yolo26_trt
       --log-verbose=0
       --strict-model-config=false
     networks:
@@ -183,8 +187,10 @@ services:
       INFERENCE_BACKEND: ${PPE_INFERENCE_BACKEND:-triton}
       TRITON_URL: ${TRITON_URL:-triton:8000}
       PPE_MODEL_NAME: ${PPE_MODEL_NAME:-ppe_yolo26_trt}
-      # DINOv2 second-stage helmet/vest verifier (served on Triton). Empty = off.
-      PPE_VIT_MODEL_NAME: ${PPE_VIT_MODEL_NAME:-dinov2_small}
+      # Second-stage verifier = SigLIP (siglip_ppe). The old DINOv2 verifier is
+      # retired (its vest head was untrained); PPE_VIT_MODEL_NAME left empty = off.
+      PPE_VIT_MODEL_NAME: ${PPE_VIT_MODEL_NAME:-}
+      PPE_SIGLIP_MODEL_NAME: ${PPE_SIGLIP_MODEL_NAME:-siglip_ppe}
       # Live per-camera compliance — pull frames from go2rtc's RTSP restream.
       PPE_LIVE_ENABLED: "true"
       GO2RTC_RTSP_HOST: go2rtc
@@ -252,9 +258,12 @@ services:
       # dict_v6.txt charset ships in the image for the client-side CTC decode.
       INFERENCE_BACKEND: ${ANPR_INFERENCE_BACKEND:-triton}
       TRITON_URL: ${TRITON_URL:-triton:8000}
-      ANPR_PLATE_MODEL_NAME: anpr_plate
-      ANPR_OCR_MODEL_NAME: ppocr_v6
-      ANPR_VEHICLE_MODEL_NAME: yolo26
+      # TensorRT FP16 engines (anpr_plate 1.85ms / ppocr_v6 1.18ms / yolo26 1.05ms).
+      # Override back to the ONNX names (anpr_plate / ppocr_v6 / yolo26) if a .plan
+      # isn't built on this box. Same [1,300,6] / charset output shapes as the ONNX.
+      ANPR_PLATE_MODEL_NAME: ${ANPR_PLATE_MODEL_NAME:-anpr_plate_trt}
+      ANPR_OCR_MODEL_NAME: ${ANPR_OCR_MODEL_NAME:-ppocr_v6_trt}
+      ANPR_VEHICLE_MODEL_NAME: ${ANPR_VEHICLE_MODEL_NAME:-yolo26_trt}
       # Live per-camera ANPR — pull frames from go2rtc's RTSP restream.
       ANPR_LIVE_ENABLED: "true"
       GO2RTC_RTSP_HOST: go2rtc
