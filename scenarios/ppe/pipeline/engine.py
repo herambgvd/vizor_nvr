@@ -25,27 +25,43 @@ from dataclasses import dataclass
 # Body-zone rules: where (vertically, as a fraction of person height) a PPE item's
 # centre must fall to belong to that person. Kept verbatim from the POC — the wide
 # vest zone (0.10..0.95) was tuned to stop close/turned workers losing their vest.
+# Body-zone rules: where (vertically, as a fraction of person height) a PPE item's
+# centre must fall to belong to that person. Helmet/goggles sit on the head, vest on
+# the torso, boots at the feet.
 DEFAULT_RULES: dict[str, tuple[float, float]] = {
     "Hardhat": (0.00, 0.42),
     "NO_Hardhat": (0.00, 0.42),
     "Safety_Vest": (0.10, 0.95),
+    "Goggles": (0.00, 0.35),       # eyes/upper-head band
+    "NO_Goggles": (0.00, 0.35),
+    "Boots": (0.78, 1.00),         # feet band
+    "NO_Boots": (0.78, 1.00),
 }
 
 # UI / config item name (lowercase) → canonical detector label used internally.
-# The camera_config_schema multiselect speaks "helmet"/"vest"; the POC engine
-# speaks "Hardhat"/"Safety_Vest".
+# The camera_config_schema multiselect speaks "helmet"/"vest"/"goggles"/"boots";
+# the engine speaks the canonical "Hardhat"/"Safety_Vest"/"Goggles"/"Boots".
 ITEM_TO_CANONICAL: dict[str, str] = {
     "helmet": "Hardhat",
     "hardhat": "Hardhat",
     "vest": "Safety_Vest",
     "safety_vest": "Safety_Vest",
+    "goggles": "Goggles",
+    "goggle": "Goggles",
+    "boots": "Boots",
+    "boot": "Boots",
+    "shoes": "Boots",
 }
 # Inverse, for operator-facing event payloads (report "helmet", not "Hardhat").
 CANONICAL_TO_ITEM: dict[str, str] = {
     "Hardhat": "helmet",
     "Safety_Vest": "vest",
+    "Goggles": "goggles",
+    "Boots": "boots",
     "NO_Hardhat": "no_helmet",
     "NO_Safety_Vest": "no_vest",
+    "NO_Goggles": "no_goggles",
+    "NO_Boots": "no_boots",
 }
 
 
@@ -57,10 +73,18 @@ def canonical_label(label: str) -> str:
         "hardhat": "Hardhat",
         "vest": "Safety_Vest",
         "safety_vest": "Safety_Vest",
+        "goggles": "Goggles",
+        "goggle": "Goggles",
+        "boots": "Boots",
+        "boot": "Boots",
         "no_helmet": "NO_Hardhat",
         "no_hardhat": "NO_Hardhat",
         "no_vest": "NO_Safety_Vest",
         "no_safety_vest": "NO_Safety_Vest",
+        "no_goggle": "NO_Goggles",
+        "no_goggles": "NO_Goggles",
+        "no_boots": "NO_Boots",
+        "no_boot": "NO_Boots",
     }.get(normalized, label)
 
 
@@ -335,15 +359,30 @@ def eligible_people(
     return accepted
 
 
+# Positive PPE classes and the explicit-negative class that vetoes each (when the
+# model emits one). Helmet has a no_helmet class; vest/goggles/boots may too.
+_POSITIVE_ITEMS = ("Hardhat", "Safety_Vest", "Goggles", "Boots")
+_NEGATIVE_OF = {
+    "Hardhat": "NO_Hardhat",
+    "Safety_Vest": "NO_Safety_Vest",
+    "Goggles": "NO_Goggles",
+    "Boots": "NO_Boots",
+}
+
+
 def positive_evidence(
     observations: dict[str, Detection], no_hardhat_conf: float, negative_margin: float
 ) -> dict[str, Detection]:
-    """Resolve positive/explicit-negative helmet evidence for compliance state."""
-    resolved = {label: detection for label, detection in observations.items() if label in {"Hardhat", "Safety_Vest"}}
-    positive = resolved.get("Hardhat")
-    negative = observations.get("NO_Hardhat")
-    if negative and negative.confidence >= no_hardhat_conf and (
-        positive is None or negative.confidence > positive.confidence * negative_margin
-    ):
-        resolved.pop("Hardhat", None)
+    """Resolve positive PPE evidence, vetoing any item the model explicitly negates
+    (a NO_* detection that beats the positive by `negative_margin`). Covers all four
+    items (helmet/vest/goggles/boots); items without a negative class just pass
+    their positive detection through."""
+    resolved = {label: det for label, det in observations.items() if label in _POSITIVE_ITEMS}
+    for pos_label, neg_label in _NEGATIVE_OF.items():
+        positive = resolved.get(pos_label)
+        negative = observations.get(neg_label)
+        if negative and negative.confidence >= no_hardhat_conf and (
+            positive is None or negative.confidence > positive.confidence * negative_margin
+        ):
+            resolved.pop(pos_label, None)
     return resolved

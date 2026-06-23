@@ -446,6 +446,10 @@ class CameraWorker(threading.Thread):
             return self._cfg_num("hardhat_conf", config.HARDHAT_CONF, float)
         if label == "Safety_Vest":
             return self._cfg_num("vest_conf", config.VEST_CONF, float)
+        if label == "Goggles":
+            return self._cfg_num("goggles_conf", config.GOGGLES_CONF, float)
+        if label == "Boots":
+            return self._cfg_num("boots_conf", config.BOOTS_CONF, float)
         return config.HARDHAT_CONF
 
     # ── emission ────────────────────────────────────────────────────────────

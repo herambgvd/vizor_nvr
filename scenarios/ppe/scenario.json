@@ -20,7 +20,7 @@
   "camera_config_schema": {
     "fields": [
       {"key": "compliance_enabled", "type": "bool", "label": "PPE compliance", "group": "Compliance", "default": true, "help": "Run per-worker PPE compliance on this camera."},
-      {"key": "required_items", "type": "multiselect", "label": "Required PPE", "group": "Compliance", "default": ["helmet", "vest"], "options": ["helmet", "vest"], "help": "PPE a worker must wear in this zone. A worker missing any required item raises a violation."},
+      {"key": "required_items", "type": "multiselect", "label": "Required PPE", "group": "Compliance", "default": ["helmet", "vest"], "options": ["helmet", "vest", "goggles", "boots"], "help": "PPE a worker must wear in this zone. Only the items selected here are detected and alerted on — a worker missing any selected item raises a violation. Leave an item unchecked to ignore it on this camera."},
       {"key": "emit_compliant", "type": "bool", "label": "Compliant events", "group": "Compliance", "default": false, "help": "Also record a positive event when a worker is confirmed wearing all required PPE."},
       {"key": "missing_grace", "type": "float", "label": "Missing grace (s)", "group": "Timing", "default": 1.0, "min": 0.0, "max": 10.0, "step": 0.5, "help": "Seconds a required item must stay absent before a violation fires (absorbs brief occlusion)."},
       {"key": "min_present", "type": "float", "label": "Stable present (s)", "group": "Timing", "default": 3.0, "min": 0.0, "max": 15.0, "step": 0.5, "help": "Seconds PPE must be steadily worn before its later absence counts as 'removed' (vs 'missing')."},
@@ -29,6 +29,8 @@
       {"key": "min_person_frac", "type": "float", "label": "Min person size", "group": "Quality", "default": 0.22, "min": 0.0, "max": 0.6, "step": 0.02, "help": "Ignore far/small people whose height is below this fraction of the frame — they are too low-res for reliable PPE and cause false alerts. Raise it to evaluate only nearby workers."},
       {"key": "hardhat_conf", "type": "float", "label": "Helmet confidence", "group": "Quality", "default": 0.10, "min": 0.05, "max": 0.95, "step": 0.05, "help": "How sure the detector must be to count a helmet as worn. Raise it if plain-clothes people are wrongly marked compliant."},
       {"key": "vest_conf", "type": "float", "label": "Vest confidence", "group": "Quality", "default": 0.50, "min": 0.05, "max": 0.95, "step": 0.05, "help": "How sure the detector must be to count a safety vest as worn."},
+      {"key": "goggles_conf", "type": "float", "label": "Goggles confidence", "group": "Quality", "default": 0.35, "min": 0.05, "max": 0.95, "step": 0.05, "help": "How sure the detector must be to count safety goggles as worn. Only used when Goggles is a required item."},
+      {"key": "boots_conf", "type": "float", "label": "Boots confidence", "group": "Quality", "default": 0.35, "min": 0.05, "max": 0.95, "step": 0.05, "help": "How sure the detector must be to count safety boots/shoes as worn. Only used when Boots is a required item."},
       {"key": "fps", "type": "int", "label": "Analyze FPS", "group": "Stream", "default": 5, "min": 1, "max": 8, "step": 1, "help": "Frames analysed per second. Keep around 5 — detection runs at 1280 (~90 ms/frame), so a higher rate makes the worker fall behind and the stream stalls."},
       {"key": "roi", "type": "roi", "label": "Region of interest", "group": "Stream", "help": "Only workers whose feet fall inside this zone are evaluated."}
     ]
