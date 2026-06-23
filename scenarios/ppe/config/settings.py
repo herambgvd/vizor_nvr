@@ -92,11 +92,18 @@ def _f(env, default):
     return float(os.getenv(env, str(default)))
 
 
+# CONFIRM = veto floor: a YOLO positive scoring below this is removed. Default 0
+# (NO veto) — on a top-down office cam a seated/head-down worker's helmet crop
+# scores low even when the helmet is clearly worn, so vetoing made the helmet
+# FLICKER (detected one frame, vetoed the next → false "no helmet" flood). YOLO +
+# the evidence smoother already handle positives well; SigLIP is used only to
+# RESCUE misses (below). Raise a specific item's confirm only if YOLO is producing
+# real false positives for it that SigLIP can reliably reject.
 PPE_SIGLIP_CONFIRM = {
-    "Hardhat": _f("PPE_SIGLIP_CONFIRM_HELMET", 0.010),
-    "Safety_Vest": _f("PPE_SIGLIP_CONFIRM_VEST", 0.035),
-    "Goggles": _f("PPE_SIGLIP_CONFIRM_GOGGLES", 0.030),
-    "Boots": _f("PPE_SIGLIP_CONFIRM_BOOTS", 0.040),
+    "Hardhat": _f("PPE_SIGLIP_CONFIRM_HELMET", 0.0),
+    "Safety_Vest": _f("PPE_SIGLIP_CONFIRM_VEST", 0.0),
+    "Goggles": _f("PPE_SIGLIP_CONFIRM_GOGGLES", 0.0),
+    "Boots": _f("PPE_SIGLIP_CONFIRM_BOOTS", 0.0),
 }
 PPE_SIGLIP_RESCUE = {
     "Hardhat": _f("PPE_SIGLIP_RESCUE_HELMET", 0.120),
@@ -131,8 +138,10 @@ ALERT_INITIAL_MISSING = os.getenv("PPE_ALERT_INITIAL_MISSING", "true").lower() i
 # Temporal smoothing window (frames) — flicker rejection. A wider window + higher
 # min-hits steadies a noisy detector so a person doesn't flip missing<->compliant
 # frame to frame.
-SMOOTH_WINDOW = int(os.getenv("PPE_SMOOTH_WINDOW", "15"))
-SMOOTH_MIN_HITS = int(os.getenv("PPE_SMOOTH_MIN_HITS", "6"))
+# Wider window so a brief detection gap (helmet hidden for a few frames while a
+# seated worker looks down) doesn't collapse the evidence and flicker a violation.
+SMOOTH_WINDOW = int(os.getenv("PPE_SMOOTH_WINDOW", "24"))
+SMOOTH_MIN_HITS = int(os.getenv("PPE_SMOOTH_MIN_HITS", "5"))
 # Relink window — how long a worker's stable id survives while detection drops
 # out. Raised so an intermittently-detected person keeps ONE id (and thus one
 # cooldown) instead of churning into a new id + a fresh alert every few seconds.
