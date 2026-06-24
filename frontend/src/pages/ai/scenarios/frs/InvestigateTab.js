@@ -95,9 +95,10 @@ function HitThumb({ snapshotPath }) {
   return <img src={url} alt="match" loading="lazy" className="w-full aspect-square object-cover" />;
 }
 
-const HitCard = ({ hit }) => (
+const HitCard = ({ hit, onClick }) => (
   <div
-    className="rounded overflow-hidden flex flex-col transition-all hover:-translate-y-0.5"
+    onClick={onClick}
+    className="rounded overflow-hidden flex flex-col transition-all hover:-translate-y-0.5 cursor-pointer"
     style={{
       background: "var(--console-panel)",
       border: "1px solid var(--console-border)",
@@ -130,6 +131,56 @@ const HitCard = ({ hit }) => (
     </div>
   </div>
 );
+
+// ── Hit detail modal (click a result → full snapshot + metadata) ────────────
+function HitDetailModal({ hit, onClose }) {
+  const [url, setUrl] = useState(null);
+  useEffect(() => {
+    let obj = null, dead = false;
+    scenarioSnapshotUrl("frs", hit.snapshot_path).then((u) => {
+      if (!dead && u) { obj = u; setUrl(u); }
+    });
+    return () => { dead = true; if (obj) URL.revokeObjectURL(obj); };
+  }, [hit.snapshot_path]);
+  const name = hit.person_name || (hit.person_id ? `Person ${String(hit.person_id).slice(0, 8)}` : "Unknown");
+  const rows = [
+    ["Person", name],
+    ["Similarity", fmtScore(hit.score)],
+    ["Time", fmtTime(hit.timestamp || hit.created_at)],
+    ["Camera", hit.camera_name || hit.camera_id || "—"],
+    ["Event", hit.event_type || "—"],
+    ["Liveness", hit.liveness_score != null ? `${Math.round(hit.liveness_score * 100)}%` : null],
+    ["Age", hit.age || hit.age_range || null],
+    ["Gender", hit.gender || null],
+  ].filter(([, v]) => v != null && v !== "");
+  return (
+    <div onClick={onClose} className="fixed inset-0 z-[80] flex items-center justify-center p-6" style={{ background: "rgba(0,0,0,0.75)" }}>
+      <div onClick={(e) => e.stopPropagation()} className="w-full max-w-3xl rounded-lg overflow-hidden flex flex-col"
+        style={{ background: "var(--console-panel)", border: "1px solid var(--console-border)" }}>
+        <div className="flex items-center justify-between px-4 py-2.5" style={{ borderBottom: "1px solid var(--console-border)" }}>
+          <span className="font-telemetry text-[12px] uppercase tracking-widest" style={{ color: "var(--console-accent)" }}>Match detail</span>
+          <button type="button" onClick={onClose} className="h-7 w-7 inline-flex items-center justify-center rounded hover:opacity-70" style={{ color: "var(--console-muted)" }}>
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 p-4">
+          <div className="md:col-span-3 rounded border overflow-hidden flex items-center justify-center" style={{ borderColor: "var(--console-border)", background: "#000", minHeight: 260 }}>
+            {url ? <img src={url} alt="match" className="w-full h-full object-contain" /> :
+              <span className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>Loading…</span>}
+          </div>
+          <div className="md:col-span-2 flex flex-col gap-2.5">
+            {rows.map(([k, v]) => (
+              <div key={k}>
+                <div className="font-telemetry text-[9px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>{k}</div>
+                <div className="font-telemetry text-[13px]" style={{ color: k === "Similarity" ? scoreColor(hit.score) : "var(--console-text)" }}>{v}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ── Right-side history drawer ───────────────────────────────────────────────
 function HistoryDrawer({ open, onClose, onSelect }) {
@@ -229,6 +280,7 @@ const InvestigateTab = () => {
   const [maxResults, setMaxResults] = useState(DEFAULT_MAX_RESULTS);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [loadedJob, setLoadedJob] = useState(null); // job loaded from history
+  const [selected, setSelected] = useState(null);   // hit opened in the detail modal
 
   // Preview object URL lifecycle.
   useEffect(() => {
@@ -512,7 +564,8 @@ const InvestigateTab = () => {
             ) : hasResults ? (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
                 {hits.map((h, i) => (
-                  <HitCard key={h.id || h.photo_id || `${h.snapshot_path}-${i}`} hit={h} />
+                  <HitCard key={h.id || h.photo_id || `${h.snapshot_path}-${i}`} hit={h}
+                    onClick={() => setSelected(h)} />
                 ))}
               </div>
             ) : (
@@ -532,6 +585,7 @@ const InvestigateTab = () => {
         onClose={() => setHistoryOpen(false)}
         onSelect={loadHistory}
       />
+      {selected && <HitDetailModal hit={selected} onClose={() => setSelected(null)} />}
     </div>
   );
 };
