@@ -24,6 +24,20 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+def _has_element(name: str) -> bool:
+    """True if a GStreamer element factory is available (e.g. cudadownload only
+    exists when the CUDA plugin is present)."""
+    try:
+        import gi
+        gi.require_version("Gst", "1.0")
+        from gi.repository import Gst
+        if not Gst.is_initialized():
+            Gst.init(None)
+        return Gst.ElementFactory.find(name) is not None
+    except Exception:  # noqa: BLE001
+        return False
+
+
 class FrameSource(ABC):
     """Abstract async frame producer. Subclasses implement frames(); the rest is
     lifecycle + introspection. Cancellation is cooperative."""
@@ -121,10 +135,16 @@ class GStreamerFrameSource(FrameSource):
                 f"protocols={protocols} ! rtph264depay ! h264parse ! {explicit} ! {appsink}"
             )
         else:
-            # decodebin auto-negotiates H.264/H.265 + best decoder; videoconvert -> BGR.
+            # decodebin auto-negotiates the codec (H.264 AND H.265) AND the best decoder.
+            # With the NVDEC decoders' rank boosted (GST_PLUGIN_FEATURE_RANK) it picks
+            # nvh264dec / nvh265dec on the GPU; those output CUDA memory, so we insert
+            # cudadownload (a no-op passthrough for software-decoded system memory) before
+            # videoconvert -> BGR. This keeps ONE pipeline that works for both GPU NVDEC
+            # and software decode, and for mixed H.264/H.265 camera fleets.
+            convert = "cudadownload ! videoconvert" if _has_element("cudadownload") else "videoconvert"
             pipeline_str = (
                 f"rtspsrc location={self.rtsp_url} latency={self.latency_ms} "
-                f"protocols={protocols} ! decodebin ! videoconvert ! {appsink}"
+                f"protocols={protocols} ! decodebin ! {convert} ! {appsink}"
             )
         logger.info("[gst] launch: %s", pipeline_str)
         try:
