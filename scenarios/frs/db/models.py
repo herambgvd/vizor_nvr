@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    JSON, Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, String, Text,
+    JSON, Boolean, Column, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text,
     UniqueConstraint,
 )
 from sqlalchemy.orm import declarative_base
@@ -44,11 +44,28 @@ class FRSPerson(Base):
     enrolled_photo_count = Column(Integer, nullable=False, default=0)
     thumbnail_key = Column(String(500), nullable=True)
     attributes = Column(JSON, nullable=True)
+    # ── Extended profile (operator-entered during add/update) ────────────────
+    department = Column(String(120), nullable=True)
+    designation = Column(String(120), nullable=True)        # "Profile" = role/designation
+    contact_number = Column(String(40), nullable=True)
+    date_of_joining = Column(Date, nullable=True)
+    # Government / company ID. id_file_key points at the uploaded image/PDF in the
+    # object store (rustfs); served via a presigned URL.
+    id_type = Column(String(60), nullable=True)
+    id_number = Column(String(120), nullable=True)
+    id_file_key = Column(String(500), nullable=True)
+    # Validity window (max 6 months, enforced in the schema). When auto_remove is set,
+    # the retention sweeper fully deletes the person after validity_end.
+    validity_start = Column(Date, nullable=True)
+    validity_end = Column(Date, nullable=True)
+    auto_remove = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, default=_utcnow)
     updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
     __table_args__ = (
         Index("ix_frs_persons_group", "group_id"),
         Index("ix_frs_persons_category", "category"),
+        # Sweeper queries auto_remove + validity_end together.
+        Index("ix_frs_persons_validity", "auto_remove", "validity_end"),
     )
 
 

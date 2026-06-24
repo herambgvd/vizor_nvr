@@ -26,6 +26,11 @@ def iso(dt: Optional[datetime]) -> Optional[str]:
     return dt.isoformat()
 
 
+def day(d) -> Optional[str]:
+    """ISO date string for a date/datetime column, or None."""
+    return d.isoformat() if d is not None else None
+
+
 def naive(dt: Optional[datetime]) -> Optional[datetime]:
     """Normalise a (possibly aware) datetime to naive-UTC for DB comparison."""
     if dt is None:
@@ -51,6 +56,12 @@ def person_dict(p: FRSPerson) -> dict[str, Any]:
         "enrollment_status": p.enrollment_status, "photo_count": p.photo_count,
         "enrolled_photo_count": p.enrolled_photo_count, "thumbnail_key": p.thumbnail_key,
         "attributes": p.attributes,
+        "department": p.department, "designation": p.designation,
+        "contact_number": p.contact_number, "date_of_joining": day(p.date_of_joining),
+        "id_type": p.id_type, "id_number": p.id_number,
+        "id_file_key": p.id_file_key, "has_id_document": bool(p.id_file_key),
+        "validity_start": day(p.validity_start), "validity_end": day(p.validity_end),
+        "auto_remove": bool(p.auto_remove),
         "created_at": iso(p.created_at), "updated_at": iso(p.updated_at),
     }
 

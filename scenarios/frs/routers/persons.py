@@ -50,6 +50,11 @@ def create_person(body: PersonCreate, _: None = Depends(require_service_token)) 
             full_name=body.full_name, external_id=body.external_id,
             group_id=body.group_id, category=body.category,
             priority=body.priority, attributes=body.attributes,
+            department=body.department, designation=body.designation,
+            contact_number=body.contact_number, date_of_joining=body.date_of_joining,
+            id_type=body.id_type, id_number=body.id_number,
+            validity_start=body.validity_start, validity_end=body.validity_end,
+            auto_remove=bool(body.auto_remove),
         )
         s.add(p); s.commit(); s.refresh(p)
         return person_dict(p)
