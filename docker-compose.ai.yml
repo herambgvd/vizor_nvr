@@ -212,6 +212,8 @@ services:
       # the legacy ffmpeg thread workers. Default on for scenario consistency with FRS.
       PPE_LIVE_ASYNC: ${PPE_LIVE_ASYNC:-1}
       VIZOR_DECODER: ${VIZOR_DECODER:-gstreamer}
+      # GPU NVDEC decode (see FRS). Override to "decodebin ! videoconvert" for software.
+      GST_DECODER_BIN: ${GST_DECODER_BIN:-nvh264dec ! videoconvert}
       # Inference via the shared Triton server (no in-process GPU). The plugin
       # decodes the raw ppe_yolo26 [1,300,6] output itself.
       INFERENCE_BACKEND: ${PPE_INFERENCE_BACKEND:-triton}
@@ -236,9 +238,15 @@ services:
     deploy:
       resources:
         limits:
-          # Thin Triton client — no GPU, modest CPU for decode/orchestrate.
           memory: ${PPE_MEM_LIMIT:-4g}
           cpus: "${PPE_CPU_LIMIT:-4}"
+        reservations:
+          # GPU for NVDEC video decode (the 'video' capability exposes the decode
+          # engine). Inference is still on Triton; this is only for decode.
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, video]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8092/health').read()"]
       interval: 30s
@@ -370,11 +378,13 @@ services:
       # Live worker decoder: async supervisor + GStreamer (NVDEC-capable) instead of
       # the legacy ffmpeg thread workers. Default on for scenario consistency with PPE.
       FRS_LIVE_ASYNC: ${FRS_LIVE_ASYNC:-1}
-      # GStreamer decoder element. Software decodebin by default; set to nvh264dec
-      # (needs an NVDEC-capable base image + plugin) for GPU decode at many-camera scale.
       VIZOR_DECODER: ${VIZOR_DECODER:-gstreamer}
-      # Inference via the shared Triton server (no in-process GPU). The model
-      # *_PATH vars now only flag which models exist for the status endpoint.
+      # GPU NVDEC decode (nvh264dec) instead of a CPU core per camera. Needs the CUDA
+      # base image + the GPU passed through with the 'video' capability (see deploy
+      # below). Override to "decodebin ! videoconvert" for a software/no-GPU fallback.
+      GST_DECODER_BIN: ${GST_DECODER_BIN:-nvh264dec ! videoconvert}
+      # Inference via the shared Triton server. The model *_PATH vars now only flag
+      # which models exist for the status endpoint.
       INFERENCE_BACKEND: ${FRS_INFERENCE_BACKEND:-triton}
       TRITON_URL: ${TRITON_URL:-triton:8000}
       DETECTOR_MODEL_PATH: /models/scrfd_10g.onnx
@@ -396,9 +406,15 @@ services:
     deploy:
       resources:
         limits:
-          # Thin Triton client — no GPU, modest CPU for decode/orchestrate.
           memory: ${FRS_MEM_LIMIT:-4g}
           cpus: "${FRS_CPU_LIMIT:-4}"
+        reservations:
+          # GPU for NVDEC video decode (the 'video' capability exposes the decode
+          # engine). Inference is still on Triton; this is only for decode.
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, video]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8093/health').read()"]
       interval: 30s

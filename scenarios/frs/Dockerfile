@@ -2,36 +2,48 @@
 #   docker build -f frs/Dockerfile scenarios/
 # Compose sets context: ./scenarios + dockerfile: frs/Dockerfile.
 #
-# Slim base — the plugin is a thin Triton CLIENT (no in-process GPU inference),
-# so it needs no CUDA libs. Inference runs on the shared Triton server.
-# onnxruntime (CPU) stays only as a dev fallback when INFERENCE_BACKEND != triton.
-FROM python:3.11-slim
+# CUDA runtime base (parity with vizor-gpu) so the GStreamer live decoder can use
+# NVDEC (nvh264dec) on the GPU instead of burning a CPU core per camera on software
+# decode. Inference still runs on the shared Triton server (this stays a thin client);
+# the CUDA runtime here is only for the GPU video decode path.
+FROM nvidia/cuda:12.5.1-runtime-ubuntu22.04
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# ffmpeg/libgl for the legacy FramePuller + cv2; GStreamer runtime + GI typelibs for
-# the async worker's production decoder. plugins-base/good cover rtspsrc + decodebin +
-# videoconvert (software H.264/H.265); plugins-bad adds depayloaders; libav is the
-# ffmpeg bridge. gir1.2-* provide the Gst/GstApp GObject-introspection typelibs.
 WORKDIR /app
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        ffmpeg libgl1 libglib2.0-0 \
-        libgirepository-1.0-1 libcairo2 \
-        gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 \
-        gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
-        gstreamer1.0-libav \
-    && rm -rf /var/lib/apt/lists/*
 
-# PyGObject into the image's interpreter. Pin 3.50.0 — newer releases require
-# girepository-2.0 (gobject-introspection >=1.80), but the bookworm-slim base ships
-# 1.74 (girepository-1.0). Build deps are purged afterwards to keep the image small.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        libgirepository1.0-dev libcairo2-dev pkg-config gcc python3-dev \
+# Python 3.11 + ffmpeg/libgl (cv2) + the full GStreamer stack. plugins-bad ships the
+# nvcodec elements (nvh264dec) which light up because the CUDA runtime is present and
+# the GPU is passed through at run time. python3-gst-1.0 + gir typelibs give the Python
+# bindings; no PyGObject pip build needed (system python3-gi matches this 3.10 base...
+# we install 3.11 + its own gi below).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        software-properties-common ca-certificates gnupg wget curl \
+    && add-apt-repository -y ppa:deadsnakes/ppa \
+    && apt-get update && apt-get install -y --no-install-recommends \
+        python3.11 python3.11-dev python3.11-distutils \
+        ffmpeg libgl1 libglib2.0-0 libsm6 libxext6 \
+        libgirepository-1.0-1 libcairo2 \
+        gstreamer1.0-tools \
+        gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+        gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
+        gstreamer1.0-libav gstreamer1.0-nice \
+        libgstreamer1.0-0 libgstreamer-plugins-base1.0-0 \
+        gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 \
+    && rm -rf /var/lib/apt/lists/* \
+    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 \
+    && update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1 \
+    && curl -fsSL https://bootstrap.pypa.io/get-pip.py | python3.11 -
+
+# PyGObject into 3.11. Pin 3.50.0 — newer needs girepository-2.0 (gi >=1.80); ubuntu
+# 22.04 ships 1.72 (girepository-1.0). Build deps purged after.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libgirepository1.0-dev libcairo2-dev pkg-config gcc \
     && pip install --no-cache-dir "PyGObject==3.50.0" \
-    && apt-get purge -y libgirepository1.0-dev libcairo2-dev pkg-config gcc python3-dev \
+    && apt-get purge -y libgirepository1.0-dev libcairo2-dev pkg-config gcc \
     && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 
 # Shared Vizor Scenario SDK (own layer — caches well).

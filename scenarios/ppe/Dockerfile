@@ -2,36 +2,45 @@
 #   docker build -f ppe/Dockerfile scenarios/
 # Compose sets context: ./scenarios + dockerfile: ppe/Dockerfile.
 #
-# Slim base — the plugin is a thin Triton CLIENT (no in-process GPU inference),
-# so it needs no CUDA libs. Inference runs on the shared Triton server. ffmpeg +
-# libgl/libglib are for go2rtc frame decode + opencv.
-FROM python:3.11-slim
+# CUDA runtime base (parity with FRS + vizor-gpu) so the GStreamer live decoder can
+# use NVDEC (nvh264dec) on the GPU instead of a CPU core per camera. Inference still
+# runs on the shared Triton server; the CUDA runtime here is only for GPU video decode.
+FROM nvidia/cuda:12.5.1-runtime-ubuntu22.04
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# ffmpeg/libgl for the legacy FramePuller + cv2; GStreamer runtime + GI typelibs for
-# the async worker's production decoder (PPE_LIVE_ASYNC). plugins-base/good cover
-# rtspsrc + decodebin + videoconvert (software H.264/H.265); plugins-bad adds
-# depayloaders; libav is the ffmpeg bridge. gir1.2-* are the Gst/GstApp typelibs.
 WORKDIR /app
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        ffmpeg libgl1 libglib2.0-0 \
-        libgirepository-1.0-1 libcairo2 \
-        gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 \
-        gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
-        gstreamer1.0-libav \
-    && rm -rf /var/lib/apt/lists/*
 
-# PyGObject into the image's interpreter. Pin 3.50.0 — newer releases require
-# girepository-2.0 (gobject-introspection >=1.80), but the bookworm-slim base ships
-# 1.74 (girepository-1.0). Build deps purged afterwards to keep the image small.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        libgirepository1.0-dev libcairo2-dev pkg-config gcc python3-dev \
+# Python 3.11 + ffmpeg/libgl (cv2) + the full GStreamer stack. plugins-bad ships the
+# nvcodec elements (nvh264dec) which light up because the CUDA runtime is present and
+# the GPU is passed through at run time.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        software-properties-common ca-certificates gnupg wget curl \
+    && add-apt-repository -y ppa:deadsnakes/ppa \
+    && apt-get update && apt-get install -y --no-install-recommends \
+        python3.11 python3.11-dev python3.11-distutils \
+        ffmpeg libgl1 libglib2.0-0 libsm6 libxext6 \
+        libgirepository-1.0-1 libcairo2 \
+        gstreamer1.0-tools \
+        gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+        gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
+        gstreamer1.0-libav gstreamer1.0-nice \
+        libgstreamer1.0-0 libgstreamer-plugins-base1.0-0 \
+        gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 \
+    && rm -rf /var/lib/apt/lists/* \
+    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 \
+    && update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1 \
+    && curl -fsSL https://bootstrap.pypa.io/get-pip.py | python3.11 -
+
+# PyGObject into 3.11. Pin 3.50.0 — newer needs girepository-2.0; ubuntu 22.04 ships
+# girepository-1.0. Build deps purged after.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libgirepository1.0-dev libcairo2-dev pkg-config gcc \
     && pip install --no-cache-dir "PyGObject==3.50.0" \
-    && apt-get purge -y libgirepository1.0-dev libcairo2-dev pkg-config gcc python3-dev \
+    && apt-get purge -y libgirepository1.0-dev libcairo2-dev pkg-config gcc \
     && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 
 # Shared Vizor Scenario SDK (own layer — caches well). [app] = fastapi/pydantic,
