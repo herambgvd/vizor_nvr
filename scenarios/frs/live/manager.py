@@ -20,6 +20,15 @@ from .worker import CameraWorker
 _WORKERS: dict[str, CameraWorker] = {}   # camera_id -> worker
 _LOCK = threading.Lock()
 
+# Async supervisor handle (set when FRS_LIVE_ASYNC is on) so live_status / worker_logs
+# read from it instead of the legacy thread workers.
+_ASYNC_SUP = None
+
+
+def _async_enabled() -> bool:
+    import os
+    return os.getenv("FRS_LIVE_ASYNC", "false").lower() in ("1", "true", "yes", "on")
+
 
 def _cfg_sig(cfg) -> str:
     """Order-stable signature of a config dict for change detection."""
@@ -100,6 +109,10 @@ def _loop():
 def live_status() -> dict:
     """Snapshot of worker liveness for /health: how many workers exist, how many
     are alive, and how many decoded a frame within the last 60s ("active")."""
+    if _ASYNC_SUP is not None:
+        s = _ASYNC_SUP.status()
+        s.setdefault("enabled", config.LIVE_ENABLED)
+        return s
     now = time.time()
     with _LOCK:
         workers = list(_WORKERS.values())
@@ -113,6 +126,8 @@ def live_status() -> dict:
 def worker_logs(camera_id: str) -> dict:
     """Live worker diagnostics for one camera — recent log lines + current stats,
     for the operator's in-UI 'worker logs' panel."""
+    if _ASYNC_SUP is not None:
+        return _ASYNC_SUP.camera_logs(camera_id)
     now = time.time()
     with _LOCK:
         w = _WORKERS.get(camera_id)
@@ -136,9 +151,17 @@ def worker_logs(camera_id: str) -> dict:
 
 
 def start_live_manager():
-    """Launch the reconcile loop on a daemon thread (no-op if disabled)."""
+    """Launch the reconcile loop on a daemon thread (no-op if disabled). With
+    FRS_LIVE_ASYNC the GStreamer async supervisor runs instead of the legacy ffmpeg
+    thread workers."""
     if not config.LIVE_ENABLED:
         print("[frs-live] live recognition disabled (FRS_LIVE_ENABLED=false)", flush=True)
+        return
+    if _async_enabled():
+        global _ASYNC_SUP
+        from .async_pipeline import build_async_manager
+        _ASYNC_SUP, _ = build_async_manager()
+        print("[frs-live] live manager started (async / GStreamer)", flush=True)
         return
     threading.Thread(target=_loop, daemon=True, name="frs-live-manager").start()
     print("[frs-live] live manager started", flush=True)

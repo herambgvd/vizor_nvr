@@ -359,6 +359,12 @@ services:
       RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-rustfsadmin}
       RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-rustfsadmin}
       RUSTFS_BUCKET: ${RUSTFS_BUCKET:-vizor-ai}
+      # Live worker decoder: async supervisor + GStreamer (NVDEC-capable) instead of
+      # the legacy ffmpeg thread workers. Default on for scenario consistency with PPE.
+      FRS_LIVE_ASYNC: ${FRS_LIVE_ASYNC:-1}
+      # GStreamer decoder element. Software decodebin by default; set to nvh264dec
+      # (needs an NVDEC-capable base image + plugin) for GPU decode at many-camera scale.
+      VIZOR_DECODER: ${VIZOR_DECODER:-gstreamer}
       # Inference via the shared Triton server (no in-process GPU). The model
       # *_PATH vars now only flag which models exist for the status endpoint.
       INFERENCE_BACKEND: ${FRS_INFERENCE_BACKEND:-triton}
