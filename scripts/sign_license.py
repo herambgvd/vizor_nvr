@@ -122,7 +122,37 @@ def _csv(s: str) -> List[str]:
     return [x.strip() for x in (s or "").split(",") if x.strip()]
 
 
+def _apply_request_blob(args: argparse.Namespace) -> None:
+    """Fold a client license-request blob into the sign args. The blob carries the
+    machine fingerprint + the requested scenario slug, so vendor ops can mint a
+    scenario-scoped, fingerprint-bound license without re-typing either by hand.
+    Explicit CLI flags take precedence over the blob."""
+    blob = getattr(args, "from_request", None)
+    if not blob:
+        return
+    try:
+        data = json.loads(base64.b64decode(blob.strip()).decode("utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        raise SystemExit(f"--from-request: cannot decode request blob ({exc})")
+    if data.get("kind") != "license_request":
+        raise SystemExit("--from-request: not a license_request blob")
+
+    fp = (data.get("fingerprint") or "").strip()
+    if fp and not args.hardware_fingerprint:
+        args.hardware_fingerprint = fp
+
+    slug = (data.get("scenario") or "").strip()
+    if slug:
+        existing = _csv(args.scenarios)
+        if slug not in existing:
+            existing.append(slug)
+        args.scenarios = ",".join(existing)
+    print(f"Applied request: scenario={slug or '?'} fingerprint={fp[:12] or '?'}…",
+          file=sys.stderr)
+
+
 def _build_payload(args: argparse.Namespace) -> dict:
+    _apply_request_blob(args)
     now = dt.datetime.now(dt.timezone.utc)
     # Blank --expires => perpetual license (expires_at left empty; the
     # platform treats an empty expires_at as never-expiring).
@@ -359,6 +389,11 @@ def main() -> int:
     sg.add_argument("--feature-options", default="",
                     help='JSON map for scenario sub-features, e.g. {"frs":["attendance","investigation"]}')
     sg.add_argument("--hardware-fingerprint", default=None)
+    sg.add_argument("--from-request", default=None,
+                    help="base64 license-request blob from the client "
+                         "(POST /api/license/request). Auto-fills "
+                         "--hardware-fingerprint and adds the requested scenario "
+                         "to --scenarios; explicit flags still win.")
     sg.add_argument("--out", required=True)
 
     wz = sub.add_parser("wizard", help="interactive client license workflow")

@@ -6,11 +6,12 @@
 // (features[]); operators can only enable a scenario the license unlocks.
 // =============================================================================
 
-import React from "react";
+import React, { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ScanFace, HardHat, Cpu, Lock, Check } from "lucide-react";
+import { ScanFace, HardHat, Cpu, Lock, Check, KeyRound, Copy, X } from "lucide-react";
 import { toast } from "sonner";
 import { getScenarios, toggleScenario } from "../../api/ai";
+import { requestScenarioLicense } from "../../api/license";
 import { friendlyError } from "../../lib/utils";
 
 const ICONS = { "scan-face": ScanFace, "hard-hat": HardHat };
@@ -32,7 +33,7 @@ const Toggle = ({ checked, disabled, onChange }) => (
   </button>
 );
 
-const ScenarioCard = ({ scenario, onToggle, pending }) => {
+const ScenarioCard = ({ scenario, onToggle, onRequestLicense, pending }) => {
   const Icon = ICONS[scenario.icon] || Cpu;
   const cap = scenario.camera_limit || 0;
   const used = scenario.active_camera_count || 0;
@@ -103,6 +104,21 @@ const ScenarioCard = ({ scenario, onToggle, pending }) => {
         {scenario.description}
       </p>
 
+      {!scenario.licensed && (
+        <button
+          type="button"
+          onClick={() => onRequestLicense(scenario)}
+          className="inline-flex items-center gap-1.5 self-start font-telemetry text-[10px] uppercase tracking-wide px-2 py-1 rounded border transition-colors"
+          style={{
+            background: "var(--console-raised)",
+            borderColor: "var(--console-border)",
+            color: "var(--console-accent)",
+          }}
+        >
+          <KeyRound className="h-3 w-3" /> Request License
+        </button>
+      )}
+
       <div
         className="flex items-center justify-between mt-auto pt-2"
         style={{ borderTop: "1px solid var(--console-border)" }}
@@ -121,12 +137,125 @@ const ScenarioCard = ({ scenario, onToggle, pending }) => {
   );
 };
 
+// Modal: shows the portable license-request blob for one scenario. The operator
+// copies it and emails it to the vendor, who signs a fingerprint-bound .lic.
+const RequestLicenseModal = ({ scenario, data, loading, onClose }) => {
+  const copy = async (text, label) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(`${label} copied`);
+    } catch {
+      toast.error("Copy failed — select and copy manually");
+    }
+  };
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.6)" }}
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-lg rounded p-5 flex flex-col gap-4"
+        style={{ background: "var(--console-panel)", border: "1px solid var(--console-border)" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between">
+          <div>
+            <div className="font-telemetry text-[13px] font-semibold uppercase tracking-wide" style={{ color: "var(--console-text)" }}>
+              Request License — {scenario.name}
+            </div>
+            <div className="font-telemetry text-[10px] uppercase tracking-widest mt-0.5" style={{ color: "var(--console-muted)" }}>
+              Send this request to your provider to unlock {scenario.slug}
+            </div>
+          </div>
+          <button type="button" onClick={onClose} style={{ color: "var(--console-muted)" }}>
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {loading ? (
+          <p className="font-telemetry text-[11px]" style={{ color: "var(--console-muted)" }}>
+            Generating request…
+          </p>
+        ) : data ? (
+          <>
+            <div className="flex flex-col gap-1.5">
+              <span className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
+                Machine fingerprint
+              </span>
+              <code className="font-telemetry text-[11px] break-all p-2 rounded" style={{ background: "var(--console-raised)", color: "var(--console-text)" }}>
+                {data.fingerprint}
+              </code>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <span className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
+                License request blob
+              </span>
+              <textarea
+                readOnly
+                value={data.request}
+                rows={4}
+                className="font-telemetry text-[11px] break-all p-2 rounded resize-none"
+                style={{ background: "var(--console-raised)", color: "var(--console-text)", border: "1px solid var(--console-border)" }}
+                onFocus={(e) => e.target.select()}
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => copy(data.request, "Request")}
+                className="inline-flex items-center gap-1.5 font-telemetry text-[10px] uppercase tracking-wide px-3 py-1.5 rounded"
+                style={{ background: "var(--console-accent)", color: "#000" }}
+              >
+                <Copy className="h-3 w-3" /> Copy request
+              </button>
+              <button
+                type="button"
+                onClick={() => copy(data.fingerprint, "Fingerprint")}
+                className="inline-flex items-center gap-1.5 font-telemetry text-[10px] uppercase tracking-wide px-3 py-1.5 rounded border"
+                style={{ background: "var(--console-raised)", borderColor: "var(--console-border)", color: "var(--console-text)" }}
+              >
+                <Copy className="h-3 w-3" /> Copy fingerprint
+              </button>
+            </div>
+            <p className="font-telemetry text-[10px] leading-relaxed" style={{ color: "var(--console-muted)" }}>
+              Your provider returns a signed <code>.lic</code> file. Upload it under
+              Settings · License to activate {scenario.name}.
+            </p>
+          </>
+        ) : (
+          <p className="font-telemetry text-[11px]" style={{ color: "var(--console-rec)" }}>
+            Couldn't generate the request. Try again.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const AIScenariosSection = () => {
   const qc = useQueryClient();
+  const [reqScenario, setReqScenario] = useState(null);
+  const [reqData, setReqData] = useState(null);
   const { data: scenarios = [], isLoading } = useQuery({
     queryKey: ["ai-scenarios"],
     queryFn: getScenarios,
   });
+
+  const reqMut = useMutation({
+    mutationFn: (slug) => requestScenarioLicense(slug),
+    onSuccess: (data) => setReqData(data),
+    onError: (e) => {
+      toast.error(friendlyError(e, "Couldn't generate the license request."));
+      setReqScenario(null);
+    },
+  });
+
+  const onRequestLicense = (scenario) => {
+    setReqScenario(scenario);
+    setReqData(null);
+    reqMut.mutate(scenario.slug);
+  };
 
   const mut = useMutation({
     mutationFn: ({ id, enabled }) => toggleScenario(id, enabled),
@@ -206,9 +335,21 @@ const AIScenariosSection = () => {
             scenario={s}
             pending={mut.isPending}
             onToggle={onToggle}
+            onRequestLicense={onRequestLicense}
           />
         ))}
       </div>
+      {reqScenario && (
+        <RequestLicenseModal
+          scenario={reqScenario}
+          data={reqData}
+          loading={reqMut.isPending}
+          onClose={() => {
+            setReqScenario(null);
+            setReqData(null);
+          }}
+        />
+      )}
     </div>
   );
 };
