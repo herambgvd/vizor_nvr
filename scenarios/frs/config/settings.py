@@ -79,7 +79,7 @@ LIVE_ENABLED = os.getenv("FRS_LIVE_ENABLED", "true").lower() in ("1", "true", "y
 GO2RTC_RTSP_HOST = os.getenv("GO2RTC_RTSP_HOST", "go2rtc")
 GO2RTC_RTSP_PORT = int(os.getenv("GO2RTC_RTSP_PORT", "8554"))
 LIVE_POLL_SECONDS = int(os.getenv("FRS_LIVE_POLL_SECONDS", "15"))   # camera catalogue refresh
-LIVE_DEFAULT_FPS = float(os.getenv("FRS_LIVE_FPS", "5"))            # analysed frames/sec (vizor-gpu default)
+LIVE_DEFAULT_FPS = float(os.getenv("FRS_LIVE_FPS", "10"))            # analysed frames/sec (vizor-gpu default)
 LIVE_ALERT_COOLDOWN = int(os.getenv("FRS_LIVE_ALERT_COOLDOWN", "300"))  # per-person event gap (s)
 # Pull the MAIN stream for analysis by default — sub-streams are too low-res for
 # reliable face detection/recognition. Flip to true only for constrained setups.

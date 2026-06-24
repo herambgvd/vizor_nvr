@@ -176,10 +176,11 @@
         "type": "int",
         "label": "Analyze FPS",
         "group": "Stream",
-        "default": 5,
+        "default": 10,
         "min": 1,
         "max": 15,
-        "step": 1
+        "step": 1,
+        "help": "Frames analysed per second. 10+ recommended \u2014 more frames = faster events + steadier recognition (more votes per face). With NVDEC GPU decode the cost is low."
       },
       {
         "key": "roi",

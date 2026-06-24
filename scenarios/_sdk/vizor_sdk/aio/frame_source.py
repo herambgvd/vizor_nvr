@@ -25,8 +25,8 @@ logger = logging.getLogger(__name__)
 
 
 def _has_element(name: str) -> bool:
-    """True if a GStreamer element factory is available (e.g. cudadownload only
-    exists when the CUDA plugin is present)."""
+    """True if a GStreamer element factory is available (cudadownload only exists when
+    the CUDA plugin is present — absent on a CPU-only build)."""
     try:
         import gi
         gi.require_version("Gst", "1.0")
@@ -137,10 +137,11 @@ class GStreamerFrameSource(FrameSource):
         else:
             # decodebin auto-negotiates the codec (H.264 AND H.265) AND the best decoder.
             # With the NVDEC decoders' rank boosted (GST_PLUGIN_FEATURE_RANK) it picks
-            # nvh264dec / nvh265dec on the GPU; those output CUDA memory, so we insert
-            # cudadownload (a no-op passthrough for software-decoded system memory) before
-            # videoconvert -> BGR. This keeps ONE pipeline that works for both GPU NVDEC
-            # and software decode, and for mixed H.264/H.265 camera fleets.
+            # nvh264dec / nvh265dec on the GPU — BOTH output CUDAMemory (NV12), so
+            # cudadownload copies it to system memory and videoconvert -> BGR for the
+            # appsink. One pipeline, both codecs, on the GPU. (On a no-GPU box decodebin
+            # falls back to software decode whose system-memory output passes cudadownload
+            # through unchanged.)
             convert = "cudadownload ! videoconvert" if _has_element("cudadownload") else "videoconvert"
             pipeline_str = (
                 f"rtspsrc location={self.rtsp_url} latency={self.latency_ms} "
