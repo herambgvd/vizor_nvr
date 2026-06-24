@@ -204,6 +204,10 @@ services:
       VIZOR_SERVICE_TOKEN: ${AI_PLUGIN_SERVICE_TOKEN:-dev-XNrW79MQknM38BVGRkDZWrUQhJsJ2HUBbYfTOkWAZY0}
       PPE_DATABASE_URL: postgresql+psycopg2://ppe:${AI_PPE_DB_PASSWORD:-ppe}@ppe-db:5432/ppe
       DATA_PATH: /data/ppe
+      # Live worker decoder: async supervisor + GStreamer (NVDEC-capable) instead of
+      # the legacy ffmpeg thread workers. Default on for scenario consistency with FRS.
+      PPE_LIVE_ASYNC: ${PPE_LIVE_ASYNC:-1}
+      VIZOR_DECODER: ${VIZOR_DECODER:-gstreamer}
       # Inference via the shared Triton server (no in-process GPU). The plugin
       # decodes the raw ppe_yolo26 [1,300,6] output itself.
       INFERENCE_BACKEND: ${PPE_INFERENCE_BACKEND:-triton}

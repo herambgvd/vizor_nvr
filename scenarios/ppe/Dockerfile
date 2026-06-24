@@ -10,14 +10,29 @@ FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
+# ffmpeg/libgl for the legacy FramePuller + cv2; GStreamer runtime + GI typelibs for
+# the async worker's production decoder (PPE_LIVE_ASYNC). plugins-base/good cover
+# rtspsrc + decodebin + videoconvert (software H.264/H.265); plugins-bad adds
+# depayloaders; libav is the ffmpeg bridge. gir1.2-* are the Gst/GstApp typelibs.
 WORKDIR /app
-# ffmpeg/libgl for the FramePuller (live decode) + cv2. (The async GStreamer decoder
-# + PyGObject are NOT installed here — that path isn't enabled yet; re-add the
-# GStreamer apt block + PyGObject when PPE_LIVE_ASYNC's gstreamer_frame_source ships.)
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ffmpeg libgl1 libglib2.0-0 \
+        libgirepository-1.0-1 libcairo2 \
+        gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 \
+        gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
+        gstreamer1.0-libav \
     && rm -rf /var/lib/apt/lists/*
+
+# PyGObject into the image's interpreter. Pin 3.50.0 — newer releases require
+# girepository-2.0 (gobject-introspection >=1.80), but the bookworm-slim base ships
+# 1.74 (girepository-1.0). Build deps purged afterwards to keep the image small.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libgirepository1.0-dev libcairo2-dev pkg-config gcc python3-dev \
+    && pip install --no-cache-dir "PyGObject==3.50.0" \
+    && apt-get purge -y libgirepository1.0-dev libcairo2-dev pkg-config gcc python3-dev \
+    && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 
 # Shared Vizor Scenario SDK (own layer — caches well). [app] = fastapi/pydantic,
 # [triton] = tritonclient[http]. NO ultralytics/torch — inference is on Triton.
