@@ -20,6 +20,7 @@ import {
   ImageOff,
   Loader2,
   Users,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -177,10 +178,90 @@ function ViewToggle({ view, setView }) {
   );
 }
 
+// Attendance detail modal — full record: person, day, check-in/out time + camera,
+// duration, and the captured check-in / check-out snapshots at a readable size.
+function AttendanceDetailModal({ record: a, camMap, slug, onClose }) {
+  const personLabel = a.person_name || a.person_id || "Unknown";
+  const dur = (() => {
+    if (!a.check_in_at || !a.check_out_at) return "—";
+    const secs = Math.floor((new Date(a.check_out_at).getTime() - new Date(a.check_in_at).getTime()) / 1000);
+    if (secs < 0) return "—";
+    const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60);
+    return h ? `${h}h ${m}m` : `${m}m`;
+  })();
+  const BigSnap = ({ snapshot, label, time, cam }) => (
+    <div className="flex flex-col gap-1.5">
+      <span className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
+        {label}
+      </span>
+      <div
+        className="w-full aspect-video rounded flex items-center justify-center overflow-hidden"
+        style={{ background: "var(--console-raised)", border: "1px solid var(--console-border)" }}
+      >
+        {snapshot && slug ? (
+          <AuthImage
+            fetcher={() => scenarioSnapshotUrl(slug, snapshot)}
+            deps={[slug, snapshot]}
+            className="w-full h-full"
+            fallback={<ImageOff className="h-6 w-6 text-zinc-600" />}
+          />
+        ) : (
+          <ImageOff className="h-6 w-6 text-zinc-600" />
+        )}
+      </div>
+      <span className="font-telemetry text-[11px]" style={{ color: "var(--console-text)" }}>
+        {time || "—"}{cam ? ` · ${cam}` : ""}
+      </span>
+    </div>
+  );
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.6)" }}
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-2xl rounded p-5 flex flex-col gap-4"
+        style={{ background: "var(--console-panel)", border: "1px solid var(--console-border)" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between">
+          <div>
+            <div className="font-telemetry text-[13px] font-semibold uppercase tracking-wide" style={{ color: "var(--console-text)" }}>
+              {personLabel}
+            </div>
+            <div className="font-telemetry text-[10px] uppercase tracking-widest mt-0.5" style={{ color: "var(--console-muted)" }}>
+              {a.day_key} · duration {dur}
+            </div>
+          </div>
+          <button type="button" onClick={onClose} style={{ color: "var(--console-muted)" }}>
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <BigSnap
+            snapshot={a.check_in_snapshot}
+            label="Check-in"
+            time={fmtClock(a.check_in_at)}
+            cam={camMap[a.check_in_camera_id || a.camera_id] || a.check_in_camera_id || a.camera_id}
+          />
+          <BigSnap
+            snapshot={a.check_out_snapshot}
+            label="Check-out"
+            time={fmtClock(a.check_out_at)}
+            cam={camMap[a.check_out_camera_id] || a.check_out_camera_id}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Log view ────────────────────────────────────────────────────────────────
 
 function LogView({ since, until, camMap, slug }) {
   const [page, setPage] = useState(0);
+  const [detail, setDetail] = useState(null);
 
   const params = useMemo(() => {
     const p = { limit: PAGE_SIZE, offset: page * PAGE_SIZE };
@@ -280,7 +361,8 @@ function LogView({ since, until, camMap, slug }) {
               items.map((a) => (
                 <tr
                   key={a.id}
-                  className="border-t hover:bg-white/[0.02] transition-colors"
+                  onClick={() => setDetail(a)}
+                  className="border-t hover:bg-white/[0.02] transition-colors cursor-pointer"
                   style={{ borderColor: "var(--console-border)" }}
                 >
                   <td className="px-3 py-2 text-xs text-zinc-200">
@@ -335,6 +417,15 @@ function LogView({ since, until, camMap, slug }) {
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
+      )}
+
+      {detail && (
+        <AttendanceDetailModal
+          record={detail}
+          camMap={camMap}
+          slug={slug}
+          onClose={() => setDetail(null)}
+        />
       )}
     </>
   );
