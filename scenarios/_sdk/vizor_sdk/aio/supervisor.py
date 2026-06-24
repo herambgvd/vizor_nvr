@@ -26,6 +26,7 @@ import logging
 import os
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Optional
 
 from .event_sink import AsyncEventWriter, EventSink
@@ -50,6 +51,29 @@ def _env_float(name: str, default: float) -> float:
 _WATCHDOG_STALE_S = _env_float("VIZOR_WATCHDOG_STALE_S", 90.0)
 _WATCHDOG_PERIOD_S = _env_float("VIZOR_WATCHDOG_PERIOD_S", 15.0)
 _GC_EVERY_N = 300
+# Per-frame recognition budget. A frame that can't get a pool thread + finish
+# within this is skipped (camera stays live). Generous default for GPU inference.
+_PROCESS_TIMEOUT_S = _env_float("VIZOR_PROCESS_TIMEOUT_SECS", 8.0)
+
+
+def _process_workers() -> int:
+    """Size of the shared recognition thread pool — machine-adaptive so the same
+    build runs well on a laptop and a 64-channel server without tuning.
+
+    The real inference concurrency is bounded by Triton (one shared GPU server that
+    dynamic-batches), so this pool only needs enough threads to keep Triton fed +
+    overlap the CPU pre/post-processing. We scale with CPU cores but clamp to a sane
+    band: too few and cameras serialise; too many (e.g. one-per-channel at 64) just
+    thrash the GIL + GPU. Default = cores, clamped [4, 16]. Override with
+    VIZOR_PROCESS_WORKERS for unusual hosts."""
+    env = os.environ.get("VIZOR_PROCESS_WORKERS")
+    if env:
+        try:
+            return max(1, int(env))
+        except ValueError:
+            pass
+    cores = os.cpu_count() or 4
+    return max(4, min(16, cores))
 
 
 class Pipeline:
@@ -88,6 +112,24 @@ class CameraSupervisor:
         self._states: dict[str, str] = {}                # running/stopped/error
         self._logs: dict[str, list] = {}                 # camera_id -> recent lines
         self._pipelines: dict[str, Pipeline] = {}
+        # ONE shared, BOUNDED executor for every camera's heavy blocking pipeline
+        # .process (SCRFD + ArcFace + Triton). This is the 64-channel design:
+        #   * It must NOT be asyncio.to_thread's default pool — that pool also runs
+        #     reconcile fetches + all other to_thread, so heavy recognition starved
+        #     it and cameras ping-pong-stalled (one cam's frames couldn't get a
+        #     worker thread → stale → watchdog restart → the other cam stalls).
+        #   * It must NOT be one-thread-per-camera either — at 64 channels that's 64
+        #     threads thundering-herding the GPU + 64× context-switch overhead.
+        #   * Bounded shared pool (default 8, VIZOR_PROCESS_WORKERS) = at most N
+        #     inferences in flight regardless of channel count; Triton dynamic-
+        #     batches them. The drop-oldest frame queue + per-frame _INFLIGHT slot in
+        #     the scenario already shed load when all workers are busy, so 64 cameras
+        #     degrade to lower effective fps instead of stalling. Mirrors vizor-gpu's
+        #     shared TRITON_INFER_WORKERS pool.
+        self._executor = ThreadPoolExecutor(
+            max_workers=_process_workers(),
+            thread_name_prefix=f"{name}-proc",
+        )
         self._lock = asyncio.Lock()
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._watchdog: Optional[asyncio.Task] = None
@@ -161,6 +203,7 @@ class CameraSupervisor:
         fps = int((cam.get("config") or {}).get("fps", 5))
         rtsp = self._rtsp_url_for(cid)
         pipeline = self._pipelines[cid]
+        loop = asyncio.get_running_loop()
         source = build_frame_source(rtsp, fps=fps)
         self._set_state(cid, "running")
         self._log(cid, "info", f"Stream running ({source.backend}, fps={fps})")
@@ -171,7 +214,19 @@ class CameraSupervisor:
                 self._frames[cid] = frame_no
                 self._last_frame_at[cid] = time.monotonic()
                 try:
-                    events = await asyncio.to_thread(pipeline.process, frame)
+                    # Bound how long one frame may wait for the shared pool +
+                    # recognition. On timeout we move on to the next frame (the
+                    # camera stays live) rather than blocking the task forever on a
+                    # slow Triton; the in-flight call still finishes and frees its
+                    # pool thread. Tune via VIZOR_PROCESS_TIMEOUT_SECS.
+                    events = await asyncio.wait_for(
+                        loop.run_in_executor(self._executor, pipeline.process, frame),
+                        timeout=_PROCESS_TIMEOUT_S,
+                    )
+                except asyncio.TimeoutError:
+                    if frame_no % 50 == 0:
+                        self._log(cid, "warn", "Recognition slow — frame skipped (pool busy)")
+                    events = None
                 except Exception as e:  # noqa: BLE001 — one bad frame must not kill the cam
                     if frame_no % 50 == 0:
                         self._log(cid, "error", f"Frame error: {str(e)[:120]}")
@@ -264,6 +319,7 @@ class CameraSupervisor:
                 await self._stop_locked(cid)
         if self._watchdog:
             self._watchdog.cancel()
+        self._executor.shutdown(wait=False, cancel_futures=True)
 
 
 def _cfg_sig(config: Any) -> str:

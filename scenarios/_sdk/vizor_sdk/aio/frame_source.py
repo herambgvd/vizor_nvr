@@ -133,34 +133,39 @@ class GStreamerFrameSource(FrameSource):
             "video/x-raw,format=BGR ! appsink name=sink "
             "max-buffers=2 drop=true sync=false emit-signals=true"
         )
+        # Drop to the analyze fps INSIDE the pipeline, BEFORE the CPU colour convert.
+        # The camera sends ~25 fps; we only analyse `fps` (e.g. 10). Without this we
+        # ran cudadownload + videoconvert (NV12->BGR, the main CPU cost) on all 25
+        # frames and threw 15 away in frames(). videorate drops them first, so the
+        # CPU convert only touches frames we keep — ~60% less per-frame CPU at 10/25.
+        # drop-only=true never duplicates frames (a stalled source must not get
+        # padded); the appsink/queue throttle stays as a backstop.
+        rate = f"videorate drop-only=true ! video/x-raw,framerate={self.fps}/1 ! "
         protocols = os.environ.get("GST_RTSP_PROTOCOLS", "tcp")
         explicit = os.environ.get("GST_DECODER_BIN")
+        src = (
+            f"rtspsrc location={self.rtsp_url} latency={self.latency_ms} "
+            f"tcp-timeout=5000000 protocols={protocols} "
+        )
         if explicit:
-            pipeline_str = (
-                f"rtspsrc location={self.rtsp_url} latency={self.latency_ms} "
-                f"tcp-timeout=5000000 protocols={protocols} "
-                f"! rtph264depay ! h264parse ! {explicit} ! {appsink}"
-            )
+            # Operator pinned a decoder (e.g. NVDEC). rtph264depay takes only the
+            # video RTP pad, so audio is dropped at the source.
+            pipeline_str = f"{src}! rtph264depay ! h264parse ! {explicit} ! {rate}{appsink}"
         else:
-            # decodebin auto-negotiates the codec (H.264 AND H.265) AND the best decoder.
-            # With the NVDEC decoders' rank boosted (GST_PLUGIN_FEATURE_RANK) it picks
-            # nvh264dec / nvh265dec on the GPU — BOTH output CUDAMemory (NV12), so
-            # cudadownload copies it to system memory and videoconvert -> BGR for the
-            # appsink. One pipeline, both codecs, on the GPU. (On a no-GPU box decodebin
-            # falls back to software decode whose system-memory output passes cudadownload
-            # through unchanged.)
-            #
-            # The `application/x-rtp,media=video` caps filter selects ONLY the video RTP
-            # pad. We don't want audio — and a stream that advertises an audio track
-            # (go2rtc re-publishes the camera's audio even when it's muted) would make
-            # decodebin plug an audio branch with no sink, which wedges the whole
-            # pipeline ("Internal data stream error") and starves recognition. Dropping
-            # audio at the source keeps it video-only and codec-agnostic.
-            convert = "cudadownload ! videoconvert" if _has_element("cudadownload") else "videoconvert"
+            # decodebin auto-negotiates codec (H.264 AND H.265) + the best decoder.
+            # With NVDEC ranks boosted it picks nvh264dec/nvh265dec on the GPU; both
+            # output CUDAMemory (NV12), so cudadownload copies to system memory and
+            # videoconvert -> BGR. The `application/x-rtp,media=video` caps filter
+            # selects ONLY the video pad — a stream that advertises an audio track
+            # (go2rtc re-publishes camera audio even when muted) would otherwise make
+            # decodebin plug a sink-less audio branch and wedge the pipeline
+            # ("Internal data stream error"). One pipeline, both codecs, video-only.
+            # Order matters: cudadownload (cheap GPU->sysmem copy) -> videorate (drop
+            # to target fps) -> videoconvert (the expensive NV12->BGR). So the costly
+            # convert only runs on kept frames.
+            dl = "cudadownload ! " if _has_element("cudadownload") else ""
             pipeline_str = (
-                f"rtspsrc location={self.rtsp_url} latency={self.latency_ms} "
-                f"tcp-timeout=5000000 protocols={protocols} "
-                f"! application/x-rtp,media=video ! decodebin ! {convert} ! {appsink}"
+                f"{src}! application/x-rtp,media=video ! decodebin ! {dl}{rate}videoconvert ! {appsink}"
             )
         logger.info("[gst] launch: %s", pipeline_str)
         try:
