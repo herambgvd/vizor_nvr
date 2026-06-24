@@ -93,7 +93,7 @@ class GStreamerFrameSource(FrameSource):
 
     backend = "gstreamer"
 
-    def __init__(self, rtsp_url: str, *, fps: int = 5, latency_ms: int = 200, **_: Any) -> None:
+    def __init__(self, rtsp_url: str, *, fps: int = 5, latency_ms: int | None = None, **_: Any) -> None:
         if not _GST_AVAILABLE:
             raise ImportError(
                 f"GStreamer python bindings unavailable: {_GST_IMPORT_ERR}. "
@@ -102,6 +102,12 @@ class GStreamerFrameSource(FrameSource):
         _ensure_gst_init()
         self.rtsp_url = rtsp_url
         self.fps = max(1, int(fps))
+        # rtspsrc jitter-buffer latency. 200ms is too tight for high-bitrate 1080p
+        # streams behind go2rtc — the buffer underruns and rtspsrc throws "Internal
+        # data stream error", killing the pipeline. 500ms absorbs the jitter; tune
+        # via GST_RTSP_LATENCY_MS.
+        if latency_ms is None:
+            latency_ms = int(os.environ.get("GST_RTSP_LATENCY_MS", "500"))
         self.latency_ms = int(latency_ms)
         self._queue: asyncio.Queue = asyncio.Queue(maxsize=2)
         self._closed = False
@@ -132,7 +138,8 @@ class GStreamerFrameSource(FrameSource):
         if explicit:
             pipeline_str = (
                 f"rtspsrc location={self.rtsp_url} latency={self.latency_ms} "
-                f"protocols={protocols} ! rtph264depay ! h264parse ! {explicit} ! {appsink}"
+                f"tcp-timeout=5000000 protocols={protocols} "
+                f"! rtph264depay ! h264parse ! {explicit} ! {appsink}"
             )
         else:
             # decodebin auto-negotiates the codec (H.264 AND H.265) AND the best decoder.
@@ -145,7 +152,8 @@ class GStreamerFrameSource(FrameSource):
             convert = "cudadownload ! videoconvert" if _has_element("cudadownload") else "videoconvert"
             pipeline_str = (
                 f"rtspsrc location={self.rtsp_url} latency={self.latency_ms} "
-                f"protocols={protocols} ! decodebin ! {convert} ! {appsink}"
+                f"tcp-timeout=5000000 protocols={protocols} "
+                f"! decodebin ! {convert} ! {appsink}"
             )
         logger.info("[gst] launch: %s", pipeline_str)
         try:

@@ -78,13 +78,13 @@ def build_async_manager():
     def _rtsp_url(camera_id: str) -> str:
         host = getattr(config, "GO2RTC_RTSP_HOST", "go2rtc")
         port = getattr(config, "GO2RTC_RTSP_PORT", 8554)
-        # Pull the camera's SUB stream for AI analysis, not the full-res main feed.
-        # The main stream is high-bitrate/high-res for recording; decoding it per
-        # frame wedges go2rtc + NVDEC on high-bitrate cameras (observed: a lobby cam
-        # thrashing "Internal data stream error" + watchdog restarts → laggy events).
-        # The sub stream (go2rtc serves "<id>_sub") is low-bitrate and plenty for
-        # face recognition. Set FRS_LIVE_USE_SUBSTREAM=0 to fall back to the main feed.
-        use_sub = os.getenv("FRS_LIVE_USE_SUBSTREAM", "1") not in ("0", "false", "no")
+        # Default to the MAIN stream. The camera SUB stream is lower-bitrate (nicer
+        # for the decoder) and ideal for AI, BUT some cameras' sub channel is flaky
+        # through go2rtc here ("Internal data stream error" on pull), so it's opt-in:
+        # set FRS_LIVE_USE_SUBSTREAM=1 on deployments whose sub streams are reliable.
+        # High-bitrate main-stream decode is kept stable by the supervisor watchdog
+        # no longer fighting the frame source's own reconnect backoff.
+        use_sub = os.getenv("FRS_LIVE_USE_SUBSTREAM", "0") not in ("0", "false", "no")
         stream_id = f"{camera_id}_sub" if use_sub else camera_id
         return f"rtsp://{host}:{port}/{stream_id}"
 

@@ -139,10 +139,9 @@ def build_async_manager():
     def _rtsp_url(camera_id: str) -> str:
         host = getattr(config, "GO2RTC_RTSP_HOST", "go2rtc")
         port = getattr(config, "GO2RTC_RTSP_PORT", 8554)
-        # Pull the SUB stream (low-bitrate) for AI, not the full-res main feed —
-        # high-bitrate main streams wedge the decoder/go2rtc. go2rtc serves
-        # "<id>_sub". Set PPE_LIVE_USE_SUBSTREAM=0 to use the main feed.
-        use_sub = os.getenv("PPE_LIVE_USE_SUBSTREAM", "1") not in ("0", "false", "no")
+        # Default to MAIN stream; SUB ("<id>_sub", lower-bitrate) is opt-in via
+        # PPE_LIVE_USE_SUBSTREAM=1 (some cameras' sub channel is flaky through go2rtc).
+        use_sub = os.getenv("PPE_LIVE_USE_SUBSTREAM", "0") not in ("0", "false", "no")
         stream_id = f"{camera_id}_sub" if use_sub else camera_id
         return f"rtsp://{host}:{port}/{stream_id}"
 
