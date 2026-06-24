@@ -149,11 +149,18 @@ class GStreamerFrameSource(FrameSource):
             # appsink. One pipeline, both codecs, on the GPU. (On a no-GPU box decodebin
             # falls back to software decode whose system-memory output passes cudadownload
             # through unchanged.)
+            #
+            # The `application/x-rtp,media=video` caps filter selects ONLY the video RTP
+            # pad. We don't want audio — and a stream that advertises an audio track
+            # (go2rtc re-publishes the camera's audio even when it's muted) would make
+            # decodebin plug an audio branch with no sink, which wedges the whole
+            # pipeline ("Internal data stream error") and starves recognition. Dropping
+            # audio at the source keeps it video-only and codec-agnostic.
             convert = "cudadownload ! videoconvert" if _has_element("cudadownload") else "videoconvert"
             pipeline_str = (
                 f"rtspsrc location={self.rtsp_url} latency={self.latency_ms} "
                 f"tcp-timeout=5000000 protocols={protocols} "
-                f"! decodebin ! {convert} ! {appsink}"
+                f"! application/x-rtp,media=video ! decodebin ! {convert} ! {appsink}"
             )
         logger.info("[gst] launch: %s", pipeline_str)
         try:
