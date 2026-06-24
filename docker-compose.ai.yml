@@ -74,6 +74,28 @@ services:
       timeout: 5s
       retries: 5
 
+  rustfs:
+    # S3-compatible object storage for AI-scenario media (FRS ID documents now;
+    # snapshots/clips later). Pin a concrete tag before prod — :latest can change.
+    # Creds default to rustfsadmin for local dev; override in .env for prod.
+    image: rustfs/rustfs:latest
+    container_name: gvd_ai_rustfs
+    restart: unless-stopped
+    networks:
+      - internal
+    environment:
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-rustfsadmin}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-rustfsadmin}
+      RUSTFS_DEFAULT_BUCKET: ${RUSTFS_BUCKET:-vizor-ai}
+      RUSTFS_VOLUMES: /data
+    volumes:
+      - rustfs_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9000/health || curl -fsS http://localhost:9000/minio/health/live || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
   suspect-search-db:
     image: postgres:16-alpine
     container_name: gvd_ai_suspect_search_db
@@ -321,6 +343,8 @@ services:
         condition: service_healthy
       triton:
         condition: service_started
+      rustfs:
+        condition: service_started
     environment:
       SCENARIO_SLUG: frs
       VIZOR_BASE_URL: http://backend:8000/api
@@ -330,6 +354,11 @@ services:
       QDRANT_URL: http://qdrant:6333
       QDRANT_COLLECTION: vizor_frs_faces
       DATA_PATH: /data/frs
+      # Object storage (rustfs) for ID documents + future media.
+      RUSTFS_ENDPOINT: ${RUSTFS_ENDPOINT:-http://rustfs:9000}
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-rustfsadmin}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-rustfsadmin}
+      RUSTFS_BUCKET: ${RUSTFS_BUCKET:-vizor-ai}
       # Inference via the shared Triton server (no in-process GPU). The model
       # *_PATH vars now only flag which models exist for the status endpoint.
       INFERENCE_BACKEND: ${FRS_INFERENCE_BACKEND:-triton}
@@ -364,6 +393,7 @@ services:
 
 volumes:
   qdrant_data:
+  rustfs_data:
   suspect_search_db_data:
   suspect_search_data:
   frs_db_data:
