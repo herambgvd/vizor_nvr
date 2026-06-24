@@ -243,7 +243,10 @@ const InvestigateTab = () => {
 
   const mut = useMutation({
     mutationFn: () =>
-      createInvestigation(file, { top_k: Number(maxResults) || DEFAULT_MAX_RESULTS }),
+      createInvestigation(file, {
+        top_k: Number(maxResults) || DEFAULT_MAX_RESULTS,
+        min_score: Number(threshold),
+      }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["frs-investigations"] }),
     onError: (e) => toast.error(friendlyError(e, "Investigation failed")),
   });

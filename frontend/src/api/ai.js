@@ -48,12 +48,18 @@ export const proxyScenario = async (
   { method = "GET", data = undefined, params = undefined, headers = undefined, timeout = 120000 } = {},
 ) => {
   const clean = String(path || "").replace(/^\/+/, "");
+  // For a FormData body the browser MUST set Content-Type itself so it can include
+  // the multipart boundary. An explicit "multipart/form-data" header (no boundary)
+  // makes the upload arrive unparseable — the file decodes to nothing server-side
+  // (e.g. investigate's "no usable face"). Strip it so axios/the browser do it right.
+  const isForm = typeof FormData !== "undefined" && data instanceof FormData;
+  const hdrs = isForm ? { ...(headers || {}), "Content-Type": undefined } : headers;
   const r = await apiClient.request({
     url: `/ai/scenarios/${slug}/proxy/${clean}`,
     method,
     data,
     params,
-    headers,
+    headers: hdrs,
     timeout,
   });
   return r.data;
@@ -341,14 +347,14 @@ export const submitFrsFeedback = async (body) =>
 // ---------- FRS — investigate (forensic snapshot search by query face) ----------
 // Upload a query face image + top_k; the FRS scenario ranks matching snapshots.
 
-export const createInvestigation = async (file, { top_k = 50 } = {}) => {
+export const createInvestigation = async (file, { top_k = 50, min_score } = {}) => {
   const form = new FormData();
   form.append("file", file);
   form.append("top_k", String(top_k));
+  if (min_score != null) form.append("min_score", String(min_score));
   return proxyScenario(FRS_SLUG, "/investigate", {
     method: "POST",
     data: form,
-    headers: { "Content-Type": "multipart/form-data" },
     timeout: 120000,
   }); // { job_id, hits: [...], total }
 };
