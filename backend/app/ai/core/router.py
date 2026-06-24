@@ -443,7 +443,13 @@ async def _proxy_to_scenario(
     enabled_camera_ids = await _enabled_camera_ids_for_scenario(db, scenario.id)
     assigned_camera_ids = await _assigned_camera_ids_for_scenario(db, scenario.id)
     path_clean = path.strip("/")
-    is_search = path_clean in ("search", "jobs/search") or (path_clean.startswith("results/") and path_clean.endswith("/search-similar"))
+    # Forensic / similarity search over HISTORICAL sightings — like GET history, these
+    # must span every ASSIGNED camera (a camera the operator turned off still has past
+    # snapshots worth searching), not just the currently-enabled set.
+    is_search = (
+        path_clean in ("search", "jobs/search", "investigate")
+        or (path_clean.startswith("results/") and path_clean.endswith("/search-similar"))
+    )
     if request.method == "POST" and path_clean == "jobs/index" and not enabled_camera_ids:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
