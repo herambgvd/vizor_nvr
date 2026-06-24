@@ -63,10 +63,15 @@ class CameraSupervisor:
 
     def __init__(self, *, name: str, make_pipeline: Callable[[dict], Pipeline],
                  sink: EventSink, rtsp_url_for: Callable[[str], str],
-                 spool_dir: str) -> None:
+                 spool_dir: str,
+                 on_state: Optional[Callable[[dict, str, Optional[str]], None]] = None) -> None:
         self.name = name
         self._make_pipeline = make_pipeline
         self._rtsp_url_for = rtsp_url_for
+        # Optional state-report hook: on_state(cam_dict, state, error). The scenario
+        # uses it to push stream_state (starting/running/stopped/error) back to the NVR
+        # so the Cameras tab shows the real worker status.
+        self._on_state = on_state
         self._writer = AsyncEventWriter(name, sink, spool_dir=spool_dir)
         self._tasks: dict[str, asyncio.Task] = {}
         self._cams: dict[str, dict] = {}                 # camera_id -> config dict
@@ -80,6 +85,18 @@ class CameraSupervisor:
         self._lock = asyncio.Lock()
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._watchdog: Optional[asyncio.Task] = None
+
+    def _set_state(self, cid: str, state: str, error: Optional[str] = None) -> None:
+        """Record a camera's state and fire the optional NVR report hook (off the
+        loop, so a slow HTTP report never blocks decode)."""
+        self._states[cid] = state
+        if self._on_state is not None:
+            cam = self._cams.get(cid)
+            if cam is not None:
+                try:
+                    self._on_state(cam, state, error)
+                except Exception:  # noqa: BLE001 — reporting must never break the worker
+                    pass
 
     # ── lifecycle (called from the reconcile loop, ON the supervisor loop) ────
     async def start(self) -> None:
@@ -110,7 +127,7 @@ class CameraSupervisor:
         self._frames.setdefault(cid, 0)
         self._violations.setdefault(cid, 0)
         self._last_frame_at[cid] = time.monotonic()
-        self._states[cid] = "starting"
+        self._set_state(cid, "starting")
         self._log(cid, "info", "Starting worker")
         self._pipelines[cid] = self._make_pipeline(cam)
         self._tasks[cid] = asyncio.create_task(self._camera_task(cid), name=f"{self.name}-cam-{cid[:8]}")
@@ -129,7 +146,7 @@ class CameraSupervisor:
                 p.close()
             except Exception:  # noqa: BLE001
                 pass
-        self._states[cid] = "stopped"
+        self._set_state(cid, "stopped")
         self._log(cid, "info", "Stopped worker")
 
     # ── per-camera task ───────────────────────────────────────────────────────
@@ -139,7 +156,7 @@ class CameraSupervisor:
         rtsp = self._rtsp_url_for(cid)
         pipeline = self._pipelines[cid]
         source = build_frame_source(rtsp, fps=fps)
-        self._states[cid] = "running"
+        self._set_state(cid, "running")
         self._log(cid, "info", f"Stream running ({source.backend}, fps={fps})")
         frame_no = 0
         try:
@@ -167,7 +184,7 @@ class CameraSupervisor:
         except asyncio.CancelledError:
             raise
         except Exception as e:  # noqa: BLE001
-            self._states[cid] = "error"
+            self._set_state(cid, "error", str(e)[:200])
             self._log(cid, "error", f"Camera task crashed: {str(e)[:160]}")
             logger.exception("[%s] camera %s crashed", self.name, cid)
         finally:

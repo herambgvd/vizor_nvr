@@ -125,12 +125,15 @@ def build_async_manager():
     """Start the async supervisor on its own loop thread, driven by the HTTP camera
     reconcile. Returns the thread. Mirrors the legacy manager's camera source +
     rtsp url. No-op unless PPE_LIVE_ASYNC is set."""
-    from .manager import _fetch_cameras  # reuse the existing HTTP reconcile fetch
+    from .manager import _fetch_cameras, _report_state  # reuse existing HTTP helpers
 
     def _rtsp_url(camera_id: str) -> str:
         host = getattr(config, "GO2RTC_RTSP_HOST", "go2rtc")
         port = getattr(config, "GO2RTC_RTSP_PORT", 8554)
         return f"rtsp://{host}:{port}/{camera_id}"
+
+    def _on_state(cam: dict, state: str, error) -> None:
+        _report_state(cam.get("config_id"), state, error)
 
     sup = CameraSupervisor(
         name="ppe",
@@ -138,6 +141,7 @@ def build_async_manager():
         sink=_ppe_event_sink,
         rtsp_url_for=_rtsp_url,
         spool_dir=str(config.DATA_PATH / "spool"),
+        on_state=_on_state,
     )
     th = run_supervisor_thread(sup, fetch_cameras=_fetch_cameras,
                                poll_secs=getattr(config, "LIVE_POLL_SECONDS", 5.0))

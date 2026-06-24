@@ -25,9 +25,9 @@ def snapshot(key: str = Query(...), _: None = Depends(require_service_token)):
     for prefix in ("live:", "ingest:"):
         if key.startswith(prefix):
             name = key[len(prefix):]
-            # UUID chars only (hex + hyphens) — never let the key escape the dir.
-            # (Live frame ids are str(uuid4), which contains hyphens.)
-            if not all(c.isalnum() or c == "-" for c in name) or "/" in name or ".." in name:
+            # UUID chars + the "_face" crop suffix only — never let the key escape the
+            # dir. (Live frame ids are str(uuid4) with hyphens; the face crop adds _face.)
+            if not all(c.isalnum() or c in "-_" for c in name) or "/" in name or ".." in name:
                 raise HTTPException(404, "snapshot not found")
             path = DATA_PATH / "snapshots" / f"{name}.jpg"
             if not path.exists():
