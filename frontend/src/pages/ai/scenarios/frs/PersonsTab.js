@@ -103,7 +103,7 @@ const Field = ({ label, children }) => (
 const Modal = ({ title, onClose, children }) => (
   <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.7)" }}>
     <div
-      className="w-full max-w-md rounded p-5 flex flex-col gap-4"
+      className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded p-5 flex flex-col gap-4"
       style={{ background: "var(--console-panel)", border: "1px solid var(--console-border)" }}
     >
       <div className="flex items-center justify-between">
