@@ -52,6 +52,13 @@ class FrsPipeline(CameraWorker, Pipeline):
             logger.debug("[frs-pipeline] frame error: %s", e)
         return []
 
+    def stats(self) -> dict:
+        """FRS counters for the worker-logs panel."""
+        return {
+            "faces_last": getattr(self, "_dbg_faces", 0),
+            "recognized_total": getattr(self, "_dbg_recognized", 0),
+        }
+
     def close(self) -> None:
         return None
 

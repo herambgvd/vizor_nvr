@@ -48,6 +48,13 @@ class PpePipeline(CameraWorker, Pipeline):
         out, self._pending = self._pending, []
         return out
 
+    def stats(self) -> dict:
+        """PPE counters for the worker-logs panel."""
+        return {
+            "persons_last": getattr(self, "_dbg_persons", 0),
+            "violations_total": getattr(self, "_dbg_violations", 0),
+        }
+
     def close(self) -> None:
         return None
 

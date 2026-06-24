@@ -230,16 +230,25 @@ class CameraSupervisor:
         now = time.monotonic()
         running = cid in self._tasks and not self._tasks[cid].done()
         last = self._last_frame_at.get(cid, 0)
+        stats = {
+            "frames": self._frames.get(cid, 0),
+            "persons_last": None,
+            "violations_total": self._violations.get(cid, 0),
+            "fps": (self._cams.get(cid, {}).get("config") or {}).get("fps"),
+            "last_frame_secs_ago": round(now - last, 1) if last else None,
+        }
+        # Let the scenario pipeline contribute its own counters (e.g. FRS faces /
+        # recognized) so the worker-logs panel shows meaningful numbers.
+        p = self._pipelines.get(cid)
+        if p is not None and hasattr(p, "stats"):
+            try:
+                stats.update(p.stats() or {})
+            except Exception:  # noqa: BLE001
+                pass
         return {
             "camera_id": cid, "running": running,
             "active": running and (now - last) < 60.0,
-            "stats": {
-                "frames": self._frames.get(cid, 0),
-                "persons_last": None,
-                "violations_total": self._violations.get(cid, 0),
-                "fps": (self._cams.get(cid, {}).get("config") or {}).get("fps"),
-                "last_frame_secs_ago": round(now - last, 1) if last else None,
-            },
+            "stats": stats,
             "logs": list(self._logs.get(cid, [])),
         }
 
