@@ -518,12 +518,22 @@ class CameraWorker(threading.Thread):
         try:
             base = config.DATA_PATH / "snapshots"
             base.mkdir(parents=True, exist_ok=True)
-            (base / f"{frame_id}.jpg").write_bytes(jpeg)
+            # `jpeg` may be JPEG bytes (legacy ffmpeg path) OR a BGR ndarray (the live
+            # GStreamer worker, which no longer re-encodes every frame). Get both the
+            # bytes to persist and the BGR array for the crop, encoding only here.
+            if np is not None and isinstance(jpeg, np.ndarray):
+                arr = jpeg
+                ok, buf = cv2.imencode(".jpg", arr, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+                jpeg_bytes = buf.tobytes() if ok else b""
+            else:
+                jpeg_bytes = jpeg
+                arr = cv2.imdecode(np.frombuffer(jpeg, dtype=np.uint8), cv2.IMREAD_COLOR) \
+                    if (cv2 is not None and np is not None) else None
+            (base / f"{frame_id}.jpg").write_bytes(jpeg_bytes)
             full = f"/snapshot?key=live:{frame_id}"
             # Face crop — vizor-app parity: 0.6 margin (head + context), normalise
             # to 384px long edge, JPEG q92. Produces clean, consistent face shots.
             if bbox_px and cv2 is not None and np is not None:
-                arr = cv2.imdecode(np.frombuffer(jpeg, dtype=np.uint8), cv2.IMREAD_COLOR)
                 if arr is not None:
                     h, w = arr.shape[:2]
                     x1, y1, x2, y2 = bbox_px

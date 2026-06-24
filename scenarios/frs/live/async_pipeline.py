@@ -40,14 +40,13 @@ class FrsPipeline(CameraWorker, Pipeline):
 
     # ── Pipeline contract ────────────────────────────────────────────────────
     def process(self, frame) -> list[dict]:
-        """Run the proven recognition pipeline on a BGR frame. Encodes it to JPEG (the
-        recognition path expects JPEG bytes) and drives _process_frame, which writes
-        any FRS events + attendance inline. Returns [] (events already persisted)."""
+        """Run the proven recognition pipeline on a BGR frame straight from the GStreamer
+        decoder — NO per-frame JPEG re-encode. analyze_frame + _snapshots both accept a
+        BGR ndarray now, so we skip the BGR->JPEG->BGR round trip that burned CPU every
+        frame; a JPEG is only encoded when a snapshot is actually saved (on an event).
+        _process_frame writes events + attendance inline. Returns [] (already persisted)."""
         try:
-            ok, buf = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
-            if not ok:
-                return []
-            self._process_frame(buf.tobytes())
+            self._process_frame(frame)
         except Exception as e:  # noqa: BLE001 — one bad frame must not kill the camera
             logger.debug("[frs-pipeline] frame error: %s", e)
         return []

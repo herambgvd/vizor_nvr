@@ -169,18 +169,22 @@ def analyze_frame(data: bytes, min_conf: float | None = None, roi=None,
     g_min_sharp = config.LIVE_MIN_SHARPNESS if min_sharpness is None else float(min_sharpness)
     g_max_pose = config.LIVE_MAX_POSE_DEG if max_pose_deg is None else float(max_pose_deg)
     eng = engine()
-    image = Image.open(io.BytesIO(data)).convert("RGB")
-    w, h = image.size
+    # `data` may be JPEG bytes (ingest/upload paths) OR an already-decoded BGR ndarray
+    # (the live GStreamer worker — avoids a wasteful BGR->JPEG->BGR round trip per frame).
+    if np is not None and isinstance(data, np.ndarray):
+        frame = data
+        h, w = frame.shape[:2]
+    else:
+        frame = _bgr_from_bytes(data)
+        if frame is None:
+            return {"faces": [], "width": 0, "height": 0, "engine": "arcface"}
+        h, w = frame.shape[:2]
 
     if not (eng and eng.ready):
         # No real face engine → DO NOT fabricate a histogram "face". Enterprise
         # accuracy demands real ArcFace; emitting histogram pseudo-matches would
         # silently enroll/recognize garbage. Return no faces + a clear flag.
         return {"faces": [], "width": w, "height": h, "engine": "unavailable"}
-
-    frame = _bgr_from_bytes(data)
-    if frame is None:
-        return {"faces": [], "width": w, "height": h, "engine": "arcface"}
     conf = (config.LIVE_DET_CONF if det_conf is None else float(det_conf)) if gate_quality else config.DET_CONF_THRESHOLD
     dets = eng.detect_faces(frame, conf_thresh=conf)
     faces = []
