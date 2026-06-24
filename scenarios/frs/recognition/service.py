@@ -32,7 +32,7 @@ except Exception:  # noqa: BLE001
 try:
     from recognition.inference.engine import OnnxEngine
     from recognition.inference.triton_engine import TritonEngine
-    from recognition.inference.align import align_face, denoise_face
+    from recognition.inference.align import align_face, denoise_face, _landmarks_sane
     from recognition.inference.augment import generate_photometric_variants
     from recognition.inference.quality import (
         crop_face,
@@ -244,7 +244,14 @@ def analyze_frame(data: bytes, min_conf: float | None = None, roi=None,
             if face_sharpness(crop_q) < g_min_sharp:
                 continue
             lms_g = d.get("landmarks")
-            if lms_g is not None and np is not None and float(np.asarray(lms_g).sum()) != 0.0:
+            # Only pose-gate on TRUSTWORTHY landmarks. On steep top-down faces SCRFD
+            # collapses its 5 points (see align._landmarks_sane), which makes the pose
+            # estimate garbage — that would wrongly reject a perfectly recognisable
+            # face. If the landmarks are degenerate we skip the pose gate and let
+            # align_face's YuNet fallback recover proper geometry downstream.
+            if (lms_g is not None and np is not None
+                    and float(np.asarray(lms_g).sum()) != 0.0
+                    and _landmarks_sane(np.asarray(lms_g), d["bbox"])):
                 yaw_g, pitch_g, roll_g = estimate_pose_from_landmarks(lms_g)
                 if max(abs(yaw_g), abs(pitch_g), abs(roll_g)) > g_max_pose:
                     continue
