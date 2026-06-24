@@ -450,10 +450,15 @@ class CameraWorker(threading.Thread):
                 self._dbg_recognized += 1
                 self._log("info", f"{event_type}: {cname or 'unknown'}"
                                   + (f" ({cscore:.2f})" if cscore else ""))
+                # Only attach the matched gallery photo when the consensus actually
+                # RECOGNISED the person (cpid set). A below-threshold frame-level match
+                # must not leak onto an "Unknown" event — that showed a matched POI on
+                # an Unknown row, which is contradictory.
+                matched_photo = m.get("photo_id") if cpid else None
                 ev_id = _record_event(self.camera_id, cpid, cname, cscore,
                                       snap, event_type, ts,
                                       bbox=_bbox_obj(f.get("bbox")),
-                                      attributes={"face_snapshot": fc, "matched_photo_id": m.get("photo_id"),
+                                      attributes={"face_snapshot": fc, "matched_photo_id": matched_photo,
                                                   "liveness_score": live, **self._demo_attr(f)},
                                       direction=self.direction)
                 # Index this sighting's embedding into the SNAPSHOTS collection so
