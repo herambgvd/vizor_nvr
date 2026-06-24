@@ -16,7 +16,7 @@
 // Camera ids are NVR camera ids (the bridge maps cameras↔streams by id).
 // =============================================================================
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import {
   useMutation,
   useQuery,
@@ -34,6 +34,7 @@ import {
   PowerOff,
   ListChecks,
   Clock,
+  ImageOff,
 } from "lucide-react";
 import { toast } from "sonner";
 import { friendlyError } from "../../../../lib/utils";
@@ -45,9 +46,12 @@ import {
   updateTransitRule,
   deleteTransitRule,
   listTransitSessions,
+  scenarioSnapshotUrl,
 } from "../../../../api/ai";
 import { useConfirm } from "../../../../components/ui/confirm";
 import { getAllCameras } from "../../../../api/cameras";
+
+const FRS_SLUG = "frs";
 
 const inputStyle = {
   background: "var(--console-raised)",
@@ -95,6 +99,85 @@ function fmtDuration(startedAt, endedAt) {
   if (m) return `${m}m ${s}s`;
   return `${s}s`;
 }
+
+// Authenticated snapshot thumbnail — <img src> can't send the bearer token, so
+// fetch the bytes via scenarioSnapshotUrl and render an object URL (revoked on
+// unmount). Mirrors the Investigate tab's HitThumb.
+function AuthImg({ snapshotKey, label }) {
+  const [url, setUrl] = useState(null);
+  useEffect(() => {
+    if (!snapshotKey) { setUrl(null); return undefined; }
+    let active = true;
+    let obj = null;
+    scenarioSnapshotUrl(FRS_SLUG, snapshotKey).then((u) => {
+      if (!active) { if (u) URL.revokeObjectURL(u); return; }
+      obj = u;
+      setUrl(u);
+    });
+    return () => { active = false; if (obj) URL.revokeObjectURL(obj); };
+  }, [snapshotKey]);
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
+        {label}
+      </span>
+      <div
+        className="w-full aspect-video rounded flex items-center justify-center overflow-hidden"
+        style={{ background: "var(--console-raised)", border: "1px solid var(--console-border)" }}
+      >
+        {url ? (
+          <img src={url} alt={label} className="w-full h-full object-cover" />
+        ) : (
+          <ImageOff className="h-6 w-6" style={{ color: "var(--console-muted)" }} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Session detail modal — who, the rule, entry/exit time + camera, duration, and
+// the entry/exit snapshots. Mirrors vizor-app's SessionDetailModal.
+const SessionDetailModal = ({ session: s, ruleName, camName, onClose }) => {
+  const personLabel =
+    s.person_name || (s.person_id ? `Person ${String(s.person_id).slice(0, 8)}` : "—");
+  const dur = s.duration_seconds != null
+    ? fmtDuration(s.started_at, s.ended_at || (s.started_at && new Date(new Date(s.started_at).getTime() + s.duration_seconds * 1000).toISOString()))
+    : fmtDuration(s.started_at, s.ended_at);
+  const Row = ({ label, value, mono }) => (
+    <div className="flex items-center justify-between gap-3">
+      <span className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
+        {label}
+      </span>
+      <span
+        className={`font-telemetry text-[12px] truncate ${mono ? "tabular-nums" : ""}`}
+        style={{ color: "var(--console-text)" }}
+      >
+        {value}
+      </span>
+    </div>
+  );
+  return (
+    <Modal title="Transit session" onClose={onClose}>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <div className="flex flex-col gap-2.5">
+          <Row label="Person" value={personLabel} />
+          <Row label="Person ID" value={s.person_id || "—"} mono />
+          <Row label="Rule" value={ruleName(s.rule_id) || s.rule_name || "—"} />
+          <Row label="Status" value={<StatusBadge status={s.status} />} />
+          <Row label="Duration" value={dur} />
+          <Row label="Entry camera" value={camName ? camName(s.entry_camera) : (s.entry_camera || "—")} />
+          <Row label="Entry time" value={fmtTime(s.started_at)} />
+          <Row label="Exit camera" value={s.exit_camera ? (camName ? camName(s.exit_camera) : s.exit_camera) : "— (no exit)"} />
+          <Row label="Exit time" value={fmtTime(s.ended_at)} />
+        </div>
+        <div className="flex flex-col gap-3">
+          <AuthImg snapshotKey={s.entry_snapshot} label="Entry snapshot" />
+          <AuthImg snapshotKey={s.exit_snapshot} label="Exit snapshot" />
+        </div>
+      </div>
+    </Modal>
+  );
+};
 
 // ---------------------------------------------------------------------------
 // shared primitives
@@ -436,6 +519,7 @@ const RulesPanel = ({ rules, rulesLoading, cameras, camName, qc }) => {
 
 const SessionsPanel = ({ ruleName }) => {
   const [statusFilter, setStatusFilter] = useState("");
+  const [detail, setDetail] = useState(null);
 
   const sessionParams = useMemo(() => {
     const p = { limit: 200, offset: 0 };
@@ -557,9 +641,15 @@ const SessionsPanel = ({ ruleName }) => {
               </tr>
             ) : (
               sessions.map((s) => (
-                <tr key={s.id} className="border-t hover:bg-white/[0.02] transition-colors" style={{ borderColor: "var(--console-border)" }}>
+                <tr
+                  key={s.id}
+                  onClick={() => setDetail(s)}
+                  className="border-t hover:bg-white/[0.02] transition-colors cursor-pointer"
+                  style={{ borderColor: "var(--console-border)" }}
+                >
                   <td className="px-3 py-2 font-telemetry text-[12px] truncate max-w-[160px]" style={{ color: "var(--console-text)" }}>
-                    {s.attributes?.person_name
+                    {s.person_name
+                      || s.attributes?.person_name
                       || (s.person_id ? `Person ${String(s.person_id).slice(0, 8)}` : "—")}
                   </td>
                   <td className="px-3 py-2 font-telemetry text-[12px] truncate max-w-[160px]" style={{ color: "var(--console-text)" }}>
@@ -583,6 +673,14 @@ const SessionsPanel = ({ ruleName }) => {
           </tbody>
         </table>
       </div>
+
+      {detail && (
+        <SessionDetailModal
+          session={detail}
+          ruleName={ruleName}
+          onClose={() => setDetail(null)}
+        />
+      )}
     </div>
   );
 };

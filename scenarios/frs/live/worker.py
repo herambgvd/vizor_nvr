@@ -470,7 +470,8 @@ class CameraWorker(threading.Thread):
                 if cpid:
                     try:
                         from live.transit_engine import on_recognition
-                        on_recognition(cpid, self.camera_id, ts, person_name=cname)
+                        on_recognition(cpid, self.camera_id, ts, person_name=cname,
+                                       snapshot_key=fc or snap)
                     except Exception:  # noqa: BLE001
                         pass
         except Exception:  # noqa: BLE001 - never let one bad frame kill the worker

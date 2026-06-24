@@ -70,7 +70,34 @@ def list_transit_sessions(status: Optional[str] = None, since: Optional[str] = N
             q = q.where(TransitSession.started_at <= naive(parse_dt(until)))
         total = int(s.scalar(select(func.count()).select_from(q.subquery())) or 0)
         rows = s.execute(q.order_by(TransitSession.created_at.desc()).limit(limit).offset(offset)).scalars().all()
-        sessions = [{"id": x.id, "rule_id": x.rule_id, "person_id": x.person_id,
-                     "status": x.status, "started_at": iso(x.started_at),
-                     "ended_at": iso(x.ended_at), "attributes": x.attributes} for x in rows]
+
+        # Resolve names: prefer the name stored on the session at sighting time;
+        # fall back to a lookup in the persons table (covers older sessions that
+        # only stored a person_id, so the UI never has to show "Person <id>").
+        rule_names = {r.id: r.name for r in s.execute(select(TransitRule)).scalars()}
+        from db.models import FRSPerson
+        need = {x.person_id for x in rows
+                if x.person_id and not (x.attributes or {}).get("person_name")}
+        name_by_id = {}
+        if need:
+            for p in s.execute(select(FRSPerson).where(FRSPerson.id.in_(need))).scalars():
+                name_by_id[p.id] = p.full_name
+
+        sessions = []
+        for x in rows:
+            attrs = x.attributes or {}
+            sessions.append({
+                "id": x.id, "rule_id": x.rule_id, "rule_name": rule_names.get(x.rule_id),
+                "person_id": x.person_id,
+                "person_name": attrs.get("person_name") or name_by_id.get(x.person_id),
+                "status": x.status, "started_at": iso(x.started_at),
+                "ended_at": iso(x.ended_at),
+                "entry_camera": attrs.get("entry_camera"),
+                "exit_camera": attrs.get("exit_camera"),
+                "entry_snapshot": attrs.get("entry_snapshot"),
+                "exit_snapshot": attrs.get("exit_snapshot"),
+                "deadline": attrs.get("deadline"),
+                "duration_seconds": attrs.get("duration_seconds"),
+                "attributes": attrs,
+            })
     return {"sessions": sessions, "total": total}

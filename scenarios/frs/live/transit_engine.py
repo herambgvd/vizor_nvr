@@ -28,9 +28,10 @@ def _rules_for_exit(s, camera_id: str):
 
 
 def on_recognition(person_id: str | None, camera_id: str | None, ts: datetime,
-                   person_name: str | None = None) -> None:
+                   person_name: str | None = None, snapshot_key: str | None = None) -> None:
     """Drive transit state from a recognised-person sighting. `person_name` is
-    stored on the session so the UI shows the name instead of a raw person id."""
+    stored on the session so the UI shows the name; `snapshot_key` is stored as the
+    entry/exit thumbnail so the session detail modal can show who/where."""
     if not person_id or not camera_id:
         return
     with db_session() as s:
@@ -46,8 +47,11 @@ def on_recognition(person_id: str | None, camera_id: str | None, ts: datetime,
                 open_sess.ended_at = ts
                 attrs = dict(open_sess.attributes or {})
                 attrs["exit_camera"] = camera_id
+                attrs["exit_ts"] = ts.isoformat()
                 attrs["duration_seconds"] = int(
                     (ts - open_sess.started_at).total_seconds()) if open_sess.started_at else None
+                if snapshot_key:
+                    attrs["exit_snapshot"] = snapshot_key
                 open_sess.attributes = attrs
                 s.commit()
                 return  # one sighting closes at most one session
@@ -63,9 +67,12 @@ def on_recognition(person_id: str | None, camera_id: str | None, ts: datetime,
             if existing:
                 continue
             attrs = {"entry_camera": camera_id,
+                     "entry_ts": ts.isoformat(),
                      "deadline": (ts + timedelta(minutes=window)).isoformat()}
             if person_name:
                 attrs["person_name"] = person_name
+            if snapshot_key:
+                attrs["entry_snapshot"] = snapshot_key
             s.add(TransitSession(
                 rule_id=rule.id, person_id=person_id, status="open",
                 started_at=ts, attributes=attrs,
