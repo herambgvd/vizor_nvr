@@ -41,8 +41,14 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
-_WATCHDOG_STALE_S = _env_float("VIZOR_WATCHDOG_STALE_S", 30.0)
-_WATCHDOG_PERIOD_S = _env_float("VIZOR_WATCHDOG_PERIOD_S", 10.0)
+# Coarse safety net only. The GStreamer frame source self-heals on stream errors
+# with its OWN exponential backoff (1→2→…→30s). If this watchdog fired sooner it
+# would tear down the source mid-backoff and reset it — the two restart paths
+# thrash, which on a high-bitrate camera looks like a permanent restart loop. Keep
+# the watchdog window comfortably above the in-pipeline max backoff (30s) so it
+# only intervenes when the source is truly wedged, not merely reconnecting.
+_WATCHDOG_STALE_S = _env_float("VIZOR_WATCHDOG_STALE_S", 90.0)
+_WATCHDOG_PERIOD_S = _env_float("VIZOR_WATCHDOG_PERIOD_S", 15.0)
 _GC_EVERY_N = 300
 
 

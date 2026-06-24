@@ -73,10 +73,20 @@ def build_async_manager():
     reconcile, decoding via GStreamer. No-op unless FRS_LIVE_ASYNC is set."""
     from .manager import _fetch_cameras, _report_state  # reuse existing HTTP helpers
 
+    import os
+
     def _rtsp_url(camera_id: str) -> str:
         host = getattr(config, "GO2RTC_RTSP_HOST", "go2rtc")
         port = getattr(config, "GO2RTC_RTSP_PORT", 8554)
-        return f"rtsp://{host}:{port}/{camera_id}"
+        # Pull the camera's SUB stream for AI analysis, not the full-res main feed.
+        # The main stream is high-bitrate/high-res for recording; decoding it per
+        # frame wedges go2rtc + NVDEC on high-bitrate cameras (observed: a lobby cam
+        # thrashing "Internal data stream error" + watchdog restarts → laggy events).
+        # The sub stream (go2rtc serves "<id>_sub") is low-bitrate and plenty for
+        # face recognition. Set FRS_LIVE_USE_SUBSTREAM=0 to fall back to the main feed.
+        use_sub = os.getenv("FRS_LIVE_USE_SUBSTREAM", "1") not in ("0", "false", "no")
+        stream_id = f"{camera_id}_sub" if use_sub else camera_id
+        return f"rtsp://{host}:{port}/{stream_id}"
 
     def _on_state(cam: dict, state: str, error) -> None:
         # Push the worker's stream_state back to the NVR so the Cameras tab shows

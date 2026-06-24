@@ -134,10 +134,17 @@ def build_async_manager():
     rtsp url. No-op unless PPE_LIVE_ASYNC is set."""
     from .manager import _fetch_cameras, _report_state  # reuse existing HTTP helpers
 
+    import os
+
     def _rtsp_url(camera_id: str) -> str:
         host = getattr(config, "GO2RTC_RTSP_HOST", "go2rtc")
         port = getattr(config, "GO2RTC_RTSP_PORT", 8554)
-        return f"rtsp://{host}:{port}/{camera_id}"
+        # Pull the SUB stream (low-bitrate) for AI, not the full-res main feed —
+        # high-bitrate main streams wedge the decoder/go2rtc. go2rtc serves
+        # "<id>_sub". Set PPE_LIVE_USE_SUBSTREAM=0 to use the main feed.
+        use_sub = os.getenv("PPE_LIVE_USE_SUBSTREAM", "1") not in ("0", "false", "no")
+        stream_id = f"{camera_id}_sub" if use_sub else camera_id
+        return f"rtsp://{host}:{port}/{stream_id}"
 
     def _on_state(cam: dict, state: str, error) -> None:
         _report_state(cam.get("config_id"), state, error)
