@@ -10,6 +10,12 @@
 #   bin/nvr.sh migrate     — run alembic upgrade head
 #   bin/nvr.sh ps          — show container status
 #   bin/nvr.sh restart     — restart all services
+#
+# AI plugins (marketplace): set AI_PLUGINS to the scenarios to run, e.g.
+#   AI_PLUGINS="frs ppe" bin/nvr.sh up
+# Each plugin is its own compose overlay (docker-compose.<slug>.yml). When
+# AI_PLUGINS is set, the shared AI infra overlay (ai-base: triton/qdrant/rustfs)
+# is included automatically. Unset/empty = NVR core only (no AI).
 # =============================================================================
 
 set -euo pipefail
@@ -17,6 +23,23 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 COMPOSE="docker compose -f $REPO_ROOT/docker-compose.yml"
+
+# Compose the AI overlay set from AI_PLUGINS (space/comma separated scenario
+# slugs). One overlay file per plugin keeps install/uninstall granular: a plugin
+# the operator hasn't licensed simply isn't in the list, so its containers never
+# start. ai-base is added once, only when at least one plugin is requested.
+AI_PLUGINS="${AI_PLUGINS:-}"
+if [[ -n "${AI_PLUGINS// /}" ]]; then
+  COMPOSE="$COMPOSE -f $REPO_ROOT/docker-compose.ai-base.yml"
+  for _p in ${AI_PLUGINS//,/ }; do
+    _f="$REPO_ROOT/docker-compose.${_p}.yml"
+    if [[ -f "$_f" ]]; then
+      COMPOSE="$COMPOSE -f $_f"
+    else
+      echo "warn: AI plugin '$_p' has no overlay ($_f) — skipping" >&2
+    fi
+  done
+fi
 
 cmd="${1:-help}"
 shift || true

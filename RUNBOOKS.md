@@ -16,11 +16,16 @@ cp .env.example .env
 #    Required: JWT_SECRET_KEY, DB_PASSWORD, RUSTFS_ACCESS_KEY, RUSTFS_SECRET_KEY,
 #    AI_PLUGIN_SERVICE_TOKEN  (generate with: openssl rand -hex 24)
 
-# 2. Build + start everything (base + AI; rebuild bakes current source):
-docker compose -f docker-compose.yml -f docker-compose.ai.yml up -d --build
+# 2. Build + start everything (base + AI plugins; rebuild bakes current source).
+#    Each AI scenario is its own compose overlay; ai-base is the shared infra
+#    (triton/qdrant/rustfs). Pick the plugins to run via AI_PLUGINS:
+AI_PLUGINS="frs ppe" bin/nvr.sh up
+#    (equivalent explicit form:)
+#    docker compose -f docker-compose.yml -f docker-compose.ai-base.yml \
+#      -f docker-compose.frs.yml -f docker-compose.ppe.yml up -d --build
 
 # 3. Verify health:
-docker compose -f docker-compose.yml -f docker-compose.ai.yml ps
+docker compose -f docker-compose.yml -f docker-compose.ai-base.yml -f docker-compose.frs.yml -f docker-compose.ppe.yml ps
 ```
 
 After any code change in prod mode you MUST rebuild that service's image

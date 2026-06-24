@@ -85,7 +85,7 @@ done
 echo
 if [[ $rc -eq 0 ]]; then
   echo "[fetch-frs-models] done. Restart the FRS plugin to pick up the models:"
-  echo "  docker compose -f docker-compose.yml -f docker-compose.ai.yml up -d frs"
+  echo "  docker compose -f docker-compose.yml -f docker-compose.ai-base.yml -f docker-compose.frs.yml up -d frs"
 else
   echo "[fetch-frs-models] required model(s) missing — see errors above." >&2
 fi

@@ -135,7 +135,7 @@ overlay points the backend at the live source; without it the backend reverts to
 the prod image and routes 404):
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.ai.yml -f docker-compose.dev.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.ai-base.yml -f docker-compose.frs.yml -f docker-compose.ppe.yml -f docker-compose.dev.yml up -d
 ```
 
 Validate before restarting:

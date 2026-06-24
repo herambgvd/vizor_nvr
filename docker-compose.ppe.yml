@@ -1,0 +1,101 @@
+# =============================================================================
+# Vizor NVR — PPE Plugin (PPE Compliance)
+# =============================================================================
+# Requires ai-base. docker compose -f docker-compose.yml -f docker-compose.ai-base.yml -f docker-compose.ppe.yml up -d
+# The `internal` network is created by the NVR core (docker-compose.yml); these
+# plugin overlays attach to it as an external network.
+# =============================================================================
+
+services:
+  ppe-db:
+    image: postgres:16-alpine
+    container_name: gvd_ai_ppe_db
+    restart: unless-stopped
+    networks:
+      - internal
+    environment:
+      POSTGRES_USER: ppe
+      POSTGRES_PASSWORD: ${AI_PPE_DB_PASSWORD:-ppe}
+      POSTGRES_DB: ppe
+    volumes:
+      - ppe_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ppe -d ppe"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  ppe:
+    build:
+      context: ./scenarios
+      dockerfile: ppe/Dockerfile
+    container_name: gvd_ai_ppe
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+      ppe-db:
+        condition: service_healthy
+      triton:
+        condition: service_started
+    environment:
+      SCENARIO_SLUG: ppe
+      VIZOR_BASE_URL: http://backend:8000/api
+      VIZOR_API_KEY: ${AI_PLUGIN_API_KEY:-}
+      VIZOR_SERVICE_TOKEN: ${AI_PLUGIN_SERVICE_TOKEN:-dev-XNrW79MQknM38BVGRkDZWrUQhJsJ2HUBbYfTOkWAZY0}
+      PPE_DATABASE_URL: postgresql+psycopg2://ppe:${AI_PPE_DB_PASSWORD:-ppe}@ppe-db:5432/ppe
+      DATA_PATH: /data/ppe
+      # Live worker decoder: async supervisor + GStreamer (NVDEC-capable) instead of
+      # the legacy ffmpeg thread workers. Default on for scenario consistency with FRS.
+      PPE_LIVE_ASYNC: ${PPE_LIVE_ASYNC:-1}
+      VIZOR_DECODER: ${VIZOR_DECODER:-gstreamer}
+      # GPU NVDEC via decodebin + NVDEC rank-boost (codec-agnostic H.264/H.265); see FRS.
+      GST_PLUGIN_FEATURE_RANK: ${GST_PLUGIN_FEATURE_RANK:-nvh264dec:512,nvh265dec:512,nvh264sldec:512,nvh265sldec:512}
+      # Inference via the shared Triton server (no in-process GPU). The plugin
+      # decodes the raw ppe_yolo26 [1,300,6] output itself.
+      INFERENCE_BACKEND: ${PPE_INFERENCE_BACKEND:-triton}
+      TRITON_URL: ${TRITON_URL:-triton:8000}
+      PPE_MODEL_NAME: ${PPE_MODEL_NAME:-ppe_yolo26_trt}
+      # Second-stage verifier = SigLIP (siglip_ppe). The old DINOv2 verifier is
+      # retired (its vest head was untrained); PPE_VIT_MODEL_NAME left empty = off.
+      PPE_VIT_MODEL_NAME: ${PPE_VIT_MODEL_NAME:-}
+      PPE_SIGLIP_MODEL_NAME: ${PPE_SIGLIP_MODEL_NAME:-siglip_ppe}
+      # Live per-camera compliance — pull frames from go2rtc's RTSP restream.
+      PPE_LIVE_ENABLED: "true"
+      GO2RTC_RTSP_HOST: go2rtc
+      GO2RTC_RTSP_PORT: "8554"
+      PPE_RETENTION_EVENT_DAYS: ${PPE_RETENTION_EVENT_DAYS:-90}
+      PORT: 8092
+    networks:
+      - internal
+    volumes:
+      - recordings:/data/recordings:ro
+      - ppe_snapshots:/data/ppe
+      - ./models:/models:ro
+    deploy:
+      resources:
+        limits:
+          memory: ${PPE_MEM_LIMIT:-4g}
+          cpus: "${PPE_CPU_LIMIT:-4}"
+        reservations:
+          # GPU for NVDEC video decode (the 'video' capability exposes the decode
+          # engine). Inference is still on Triton; this is only for decode.
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, video]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8092/health').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+
+networks:
+  internal:
+    external: true
+    name: ${COMPOSE_PROJECT_NAME:-vizor_nvr}_internal
+
+volumes:
+  ppe_db_data:
+  ppe_snapshots:

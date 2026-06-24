@@ -1,0 +1,116 @@
+# =============================================================================
+# Vizor NVR — FRS Plugin (Face Recognition)
+# =============================================================================
+# Requires ai-base. docker compose -f docker-compose.yml -f docker-compose.ai-base.yml -f docker-compose.frs.yml up -d
+# The `internal` network is created by the NVR core (docker-compose.yml); these
+# plugin overlays attach to it as an external network.
+# =============================================================================
+
+services:
+  frs-db:
+    image: postgres:16-alpine
+    container_name: gvd_ai_frs_db
+    restart: unless-stopped
+    networks:
+      - internal
+    environment:
+      POSTGRES_USER: frs
+      POSTGRES_PASSWORD: ${AI_FRS_DB_PASSWORD:-frs}
+      POSTGRES_DB: frs
+    volumes:
+      - frs_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U frs -d frs"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  frs:
+    build:
+      context: ./scenarios
+      dockerfile: frs/Dockerfile
+    container_name: gvd_ai_frs
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      frs-db:
+        condition: service_healthy
+      triton:
+        condition: service_started
+      rustfs:
+        condition: service_started
+    environment:
+      SCENARIO_SLUG: frs
+      VIZOR_BASE_URL: http://backend:8000/api
+      VIZOR_API_KEY: ${AI_PLUGIN_API_KEY:-}
+      VIZOR_SERVICE_TOKEN: ${AI_PLUGIN_SERVICE_TOKEN:-dev-XNrW79MQknM38BVGRkDZWrUQhJsJ2HUBbYfTOkWAZY0}
+      FRS_DATABASE_URL: postgresql+psycopg2://frs:${AI_FRS_DB_PASSWORD:-frs}@frs-db:5432/frs
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_COLLECTION: vizor_frs_faces
+      DATA_PATH: /data/frs
+      # Object storage (rustfs) for ID documents + future media.
+      RUSTFS_ENDPOINT: ${RUSTFS_ENDPOINT:-http://rustfs:9000}
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-rustfsadmin}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-rustfsadmin}
+      RUSTFS_BUCKET: ${RUSTFS_BUCKET:-vizor-ai}
+      # Live worker decoder: async supervisor + GStreamer (NVDEC-capable) instead of
+      # the legacy ffmpeg thread workers. Default on for scenario consistency with PPE.
+      FRS_LIVE_ASYNC: ${FRS_LIVE_ASYNC:-1}
+      VIZOR_DECODER: ${VIZOR_DECODER:-gstreamer}
+      # GPU NVDEC decode. We DON'T pin nvh264dec (that's H.264 only and breaks on H.265
+      # cameras with "Internal data stream error"). Instead leave GST_DECODER_BIN empty
+      # so the SDK uses decodebin (codec-agnostic), and boost the NVDEC decoders' rank
+      # so decodebin picks nvh264dec / nvh265dec on the GPU per the stream's codec.
+      # Set GST_DECODER_BIN="decodebin ! videoconvert" + drop the rank to fall back to
+      # software CPU decode on a no-GPU box.
+      GST_PLUGIN_FEATURE_RANK: ${GST_PLUGIN_FEATURE_RANK:-nvh264dec:512,nvh265dec:512,nvh264sldec:512,nvh265sldec:512}
+      # Inference via the shared Triton server. The model *_PATH vars now only flag
+      # which models exist for the status endpoint.
+      INFERENCE_BACKEND: ${FRS_INFERENCE_BACKEND:-triton}
+      TRITON_URL: ${TRITON_URL:-triton:8000}
+      DETECTOR_MODEL_PATH: /models/scrfd_10g.onnx
+      EMBED_MODEL_PATH: /models/arcface_r50.onnx
+      ANTISPOOF_MODEL_PATH: /models/antispoofing.onnx
+      FAIRFACE_MODEL_PATH: /models/fairface.onnx
+      # Live per-camera recognition — pull frames from go2rtc's RTSP restream.
+      FRS_LIVE_ENABLED: "true"
+      GO2RTC_RTSP_HOST: go2rtc
+      GO2RTC_RTSP_PORT: "8554"
+      FRS_RECORDINGS_ROOT: /data/recordings
+      FRS_RETENTION_EVENT_DAYS: ${FRS_RETENTION_EVENT_DAYS:-90}
+      PORT: 8093
+    networks:
+      - internal
+    volumes:
+      - recordings:/data/recordings:ro
+      - frs_photos:/data/frs
+    deploy:
+      resources:
+        limits:
+          memory: ${FRS_MEM_LIMIT:-4g}
+          cpus: "${FRS_CPU_LIMIT:-4}"
+        reservations:
+          # GPU for NVDEC video decode (the 'video' capability exposes the decode
+          # engine). Inference is still on Triton; this is only for decode.
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, video]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8093/health').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+
+networks:
+  internal:
+    external: true
+    name: ${COMPOSE_PROJECT_NAME:-vizor_nvr}_internal
+
+volumes:
+  frs_db_data:
+  frs_photos:
