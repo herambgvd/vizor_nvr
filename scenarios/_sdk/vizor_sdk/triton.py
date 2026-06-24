@@ -35,6 +35,11 @@ class TritonClient:
         self.timeout = timeout
         self._client = None
         self.load_errors: dict[str, str] = {}
+        # Per-model infer-failure throttle. A Triton outage at live FPS would log
+        # every frame (10×/s) — log once, then ≤ every 30s while it persists, and
+        # one recovery line when inference returns. Keeps an outage visible without
+        # drowning the log.
+        self._infer_fail: dict[str, dict] = {}
 
     # ── connection ──────────────────────────────────────────────────────────
     def _conn(self):
@@ -92,11 +97,33 @@ class TritonClient:
                 outputs=outs,
                 timeout=int(timeout if timeout is not None else self.timeout),
             )
-            return {n: res.as_numpy(n) for n in out_names}
+            result = {n: res.as_numpy(n) for n in out_names}
+            self._note_infer_ok(model)
+            return result
         except Exception as exc:  # noqa: BLE001
             self.load_errors[model] = str(exc)
-            logger.warning("triton infer '%s' failed: %s", model, exc)
+            self._note_infer_fail(model, exc)
             return None
+
+    def _note_infer_fail(self, model: str, exc: Exception) -> None:
+        import time
+        st = self._infer_fail.setdefault(
+            model, {"failing": False, "last_log": 0.0, "count": 0})
+        st["count"] += 1
+        now = time.monotonic()
+        if not st["failing"] or (now - st["last_log"]) > 30.0:
+            logger.warning("triton infer '%s' failing (x%d): %s",
+                           model, st["count"], exc)
+            st["last_log"] = now
+        st["failing"] = True
+
+    def _note_infer_ok(self, model: str) -> None:
+        st = self._infer_fail.get(model)
+        if st and st["failing"]:
+            logger.info("triton infer '%s' recovered after %d failures",
+                        model, st["count"])
+            st["failing"] = False
+            st["count"] = 0
 
     def infer_one(
         self,
