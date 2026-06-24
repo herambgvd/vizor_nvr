@@ -31,6 +31,10 @@ services:
       --load-model=anpr_plate_trt
       --load-model=ppocr_v6_trt
       --load-model=yolo26_trt
+      --load-model=scrfd_10g
+      --load-model=arcface_r50
+      --load-model=antispoofing
+      --load-model=fairface
       --log-verbose=0
       --strict-model-config=false
     networks:

@@ -51,6 +51,8 @@ export function eventPersonName(ev) {
   if (!ev) return "Unknown";
   const attrName = ev.attributes?.person_name || ev.attributes?.name;
   if (attrName) return attrName;
+  // The recorded event title is the person's name for a recognised face.
+  if (ev.event_type === "face_recognized" && ev.title) return ev.title;
   if (ev.event_type === "face_unknown") return "Unknown";
   if (ev.event_type === "spoof_detected") return "Spoof attempt";
   if (ev.person_id) return `Person ${String(ev.person_id).slice(0, 8)}`;
