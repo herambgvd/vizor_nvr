@@ -23,7 +23,7 @@ COPY frs/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Application — thin entrypoint + one package per concern.
-COPY frs/scenario.json frs/app.py ./
+COPY frs/scenario.json frs/app.py frs/alembic.ini ./
 COPY frs/config ./config
 COPY frs/db ./db
 COPY frs/schemas ./schemas
