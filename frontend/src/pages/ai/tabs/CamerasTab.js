@@ -154,6 +154,27 @@ const StringField = ({ field, value, onChange }) => {
   );
 };
 
+const SelectField = ({ field, value, onChange }) => {
+  const v = value ?? field.default ?? "";
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
+        {field.label}
+      </label>
+      <select value={v} onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded px-2 py-1 font-telemetry text-[11px] border"
+        style={{ background: "var(--console-raised)", borderColor: "var(--console-border)", color: "var(--console-text)" }}>
+        {(field.options || []).map((opt) => (
+          <option key={opt} value={opt}>{opt}</option>
+        ))}
+      </select>
+      {field.help && (
+        <span className="font-telemetry text-[9px]" style={{ color: "var(--console-muted)" }}>{field.help}</span>
+      )}
+    </div>
+  );
+};
+
 const MultiSelectField = ({ field, value, onChange }) => {
   const selected = value ?? field.default ?? [];
   const toggle = (opt) =>
@@ -386,6 +407,7 @@ const FieldRenderer = ({ field, value, onChange, cameraId }) => {
     case "int": return <IntField field={field} value={value} onChange={onChange} />;
     case "bool": return <BoolField field={field} value={value} onChange={onChange} />;
     case "string": return <StringField field={field} value={value} onChange={onChange} />;
+    case "select": return <SelectField field={field} value={value} onChange={onChange} />;
     case "multiselect": return <MultiSelectField field={field} value={value} onChange={onChange} />;
     case "roi": return <RoiField field={field} value={value} onChange={onChange} cameraId={cameraId} />;
     case "line": return <LineField field={field} value={value} onChange={onChange} cameraId={cameraId} />;

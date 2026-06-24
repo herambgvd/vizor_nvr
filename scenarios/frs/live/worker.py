@@ -84,6 +84,11 @@ class CameraWorker(threading.Thread):
 
     # ── config helpers ────────────────────────────────────────────────────
     @property
+    def direction(self) -> str:
+        """Attendance role of this camera: 'entry' / 'exit' / 'both' (default)."""
+        return str(self.config.get("direction") or "both").lower()
+
+    @property
     def fps(self) -> float:
         try:
             return float(self.config.get("fps") or config.LIVE_DEFAULT_FPS)
@@ -431,7 +436,8 @@ class CameraWorker(threading.Thread):
                                       snap, event_type, ts,
                                       bbox=_bbox_obj(f.get("bbox")),
                                       attributes={"face_snapshot": fc, "matched_photo_id": m.get("photo_id"),
-                                                  "liveness_score": live, **self._demo_attr(f)})
+                                                  "liveness_score": live, **self._demo_attr(f)},
+                                      direction=self.direction)
                 # Index this sighting's embedding into the SNAPSHOTS collection so
                 # the Investigate (forensic) tab can search "where/when seen" —
                 # mirrors vizor-app's frs_snapshots. Distinct from the gallery.

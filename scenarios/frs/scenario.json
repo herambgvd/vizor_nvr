@@ -76,6 +76,19 @@
         "help": "Emit face-detected events without identifying."
       },
       {
+        "key": "direction",
+        "type": "select",
+        "label": "Attendance direction",
+        "group": "Recognition",
+        "default": "both",
+        "options": [
+          "both",
+          "entry",
+          "exit"
+        ],
+        "help": "Entry camera marks check-in, exit camera marks check-out. 'both' (default) = first-seen/last-seen on a single door."
+      },
+      {
         "key": "liveness_enabled",
         "type": "bool",
         "label": "Anti-spoof",

@@ -67,6 +67,7 @@ def record_event(
     ts,
     bbox: Optional[dict] = None,
     attributes: Optional[dict] = None,
+    direction: Optional[str] = None,   # "entry" | "exit" | "both"/None (per-camera)
 ) -> str:
     """Insert an FRS event; for recognised persons also upsert daily attendance.
     Returns the new event id. Notifies the realtime bus."""
@@ -88,13 +89,33 @@ def record_event(
             day_key = (ts or utcnow()).date().isoformat()
             existing = s.scalar(select(FRSAttendance).where(
                 FRSAttendance.person_id == person_id, FRSAttendance.day_key == day_key))
+            when = naive(ts)
+            dir_ = (direction or "").lower()
             if existing:
-                existing.check_out_at = naive(ts)
-                existing.check_out_snapshot = face_snap
+                # Entry camera: only fills check-in (keeps the first/earliest). Exit
+                # camera: updates check-out (keeps the latest exit). Both/unset: the
+                # legacy first-seen / last-seen behaviour.
+                if dir_ == "entry":
+                    if existing.check_in_at is None or (when and when < existing.check_in_at):
+                        existing.check_in_at = when
+                        existing.check_in_snapshot = face_snap
+                elif dir_ == "exit":
+                    existing.check_out_at = when
+                    existing.check_out_snapshot = face_snap
+                else:
+                    existing.check_out_at = when
+                    existing.check_out_snapshot = face_snap
             else:
-                s.add(FRSAttendance(person_id=person_id, camera_id=camera_id, day_key=day_key,
-                                    check_in_at=naive(ts), check_in_snapshot=face_snap,
-                                    sighting_type="seen", event_id=ev.id))
+                # First sighting of the day. On an exit camera record it as a check-out
+                # (no entry seen yet); otherwise it's the check-in.
+                if dir_ == "exit":
+                    s.add(FRSAttendance(person_id=person_id, camera_id=camera_id, day_key=day_key,
+                                        check_out_at=when, check_out_snapshot=face_snap,
+                                        sighting_type="seen", event_id=ev.id))
+                else:
+                    s.add(FRSAttendance(person_id=person_id, camera_id=camera_id, day_key=day_key,
+                                        check_in_at=when, check_in_snapshot=face_snap,
+                                        sighting_type="seen", event_id=ev.id))
         s.commit()
         new_id = ev.id
 
