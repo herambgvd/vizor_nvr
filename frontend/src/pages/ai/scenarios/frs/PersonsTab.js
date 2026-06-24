@@ -163,6 +163,15 @@ const PersonForm = ({ initial, groups, onClose, qc }) => {
     priority: initial?.priority ?? 0,
     gender: initial?.attributes?.gender || "",
     age: initial?.attributes?.age || "",
+    department: initial?.department || "",
+    designation: initial?.designation || "",
+    contact_number: initial?.contact_number || "",
+    date_of_joining: initial?.date_of_joining || "",
+    id_type: initial?.id_type || "",
+    id_number: initial?.id_number || "",
+    validity_start: initial?.validity_start || "",
+    validity_end: initial?.validity_end || "",
+    auto_remove: initial?.auto_remove || false,
   });
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -178,6 +187,15 @@ const PersonForm = ({ initial, groups, onClose, qc }) => {
         category: form.category,
         priority: Number(form.priority) || 0,
         attributes,
+        department: form.department.trim() || null,
+        designation: form.designation.trim() || null,
+        contact_number: form.contact_number.trim() || null,
+        date_of_joining: form.date_of_joining || null,
+        id_type: form.id_type.trim() || null,
+        id_number: form.id_number.trim() || null,
+        validity_start: form.validity_start || null,
+        validity_end: form.validity_end || null,
+        auto_remove: !!form.auto_remove,
       };
       return editing ? updatePerson(initial.id, payload) : createPerson(payload);
     },
@@ -190,9 +208,31 @@ const PersonForm = ({ initial, groups, onClose, qc }) => {
     onError: (e) => toast.error(friendlyError(e, "Failed to save person")),
   });
 
+  // validity_end may be at most 6 months after validity_start.
+  const maxEnd = (() => {
+    if (!form.validity_start) return "";
+    const d = new Date(form.validity_start);
+    d.setMonth(d.getMonth() + 6);
+    return d.toISOString().slice(0, 10);
+  })();
+
   const submit = () => {
     if (!form.full_name.trim()) {
       toast.error("Full name is required");
+      return;
+    }
+    if (form.validity_start && form.validity_end) {
+      if (form.validity_end < form.validity_start) {
+        toast.error("Validity end must be on or after the start date");
+        return;
+      }
+      if (maxEnd && form.validity_end > maxEnd) {
+        toast.error("Validity window cannot exceed 6 months");
+        return;
+      }
+    }
+    if (form.auto_remove && !form.validity_end) {
+      toast.error("Auto-remove needs a validity end date");
       return;
     }
     mut.mutate();
@@ -241,6 +281,49 @@ const PersonForm = ({ initial, groups, onClose, qc }) => {
         <Field label="Age">
           <input type="number" min={0} max={120} className={inputCls} style={inputStyle} value={form.age} onChange={(e) => set("age", e.target.value)} placeholder="optional" />
         </Field>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Department">
+          <input className={inputCls} style={inputStyle} value={form.department} onChange={(e) => set("department", e.target.value)} placeholder="e.g. Security" />
+        </Field>
+        <Field label="Profile / Designation">
+          <input className={inputCls} style={inputStyle} value={form.designation} onChange={(e) => set("designation", e.target.value)} placeholder="e.g. Guard, Manager" />
+        </Field>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Contact number">
+          <input className={inputCls} style={inputStyle} value={form.contact_number} onChange={(e) => set("contact_number", e.target.value)} placeholder="+91…" />
+        </Field>
+        <Field label="Date of joining">
+          <input type="date" className={inputCls} style={inputStyle} value={form.date_of_joining || ""} onChange={(e) => set("date_of_joining", e.target.value)} />
+        </Field>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="ID type">
+          <input className={inputCls} style={inputStyle} value={form.id_type} onChange={(e) => set("id_type", e.target.value)} placeholder="Aadhaar, PAN, Company ID…" />
+        </Field>
+        <Field label="ID number">
+          <input className={inputCls} style={inputStyle} value={form.id_number} onChange={(e) => set("id_number", e.target.value)} placeholder="ID number" />
+        </Field>
+      </div>
+
+      <div className="rounded border p-3 flex flex-col gap-3" style={{ borderColor: "var(--console-border)", background: "var(--console-raised)" }}>
+        <span className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>Validity (max 6 months)</span>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Start">
+            <input type="date" className={inputCls} style={inputStyle} value={form.validity_start || ""} onChange={(e) => set("validity_start", e.target.value)} />
+          </Field>
+          <Field label="End">
+            <input type="date" className={inputCls} style={inputStyle} value={form.validity_end || ""} min={form.validity_start || undefined} max={maxEnd || undefined} onChange={(e) => set("validity_end", e.target.value)} />
+          </Field>
+        </div>
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" checked={!!form.auto_remove} onChange={(e) => set("auto_remove", e.target.checked)} />
+          <span className="font-telemetry text-[11px]" style={{ color: "var(--console-text)" }}>
+            Auto-remove this person after the validity ends
+          </span>
+        </label>
       </div>
 
       <div className="flex justify-end gap-2 pt-1">
@@ -442,7 +525,39 @@ const PersonDrawer = ({ person, groups, onClose, qc }) => {
           <span className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
             {person.enrolled_photo_count}/{person.photo_count} enrolled
           </span>
+          {person.validity_end && (() => {
+            const expired = person.validity_end < new Date().toISOString().slice(0, 10);
+            return (
+              <span className="font-telemetry text-[10px] uppercase tracking-widest px-1.5 py-0.5 rounded border"
+                style={{
+                  borderColor: expired ? "var(--console-rec)" : "var(--console-border)",
+                  color: expired ? "var(--console-rec)" : "var(--console-muted)",
+                  background: "var(--console-raised)",
+                }}>
+                {expired ? "expired" : "valid"} → {person.validity_end}{person.auto_remove ? " · auto-remove" : ""}
+              </span>
+            );
+          })()}
         </div>
+
+        {/* profile details */}
+        {(person.department || person.designation || person.contact_number ||
+          person.date_of_joining || person.id_type) && (
+          <div className="px-5 py-3 grid grid-cols-2 gap-x-4 gap-y-2" style={{ borderBottom: "1px solid var(--console-border)" }}>
+            {[
+              ["Department", person.department],
+              ["Profile", person.designation],
+              ["Contact", person.contact_number],
+              ["Joined", person.date_of_joining],
+              ["ID", person.id_type && person.id_number ? `${person.id_type}: ${person.id_number}` : person.id_type],
+            ].filter(([, v]) => v).map(([k, v]) => (
+              <div key={k} className="min-w-0">
+                <div className="font-telemetry text-[9px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>{k}</div>
+                <div className="font-telemetry text-[12px] truncate" style={{ color: "var(--console-text)" }}>{v}</div>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* actions */}
         <div className="px-5 py-3 flex items-center gap-2" style={{ borderBottom: "1px solid var(--console-border)" }}>
