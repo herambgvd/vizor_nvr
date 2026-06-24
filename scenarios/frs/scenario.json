@@ -338,6 +338,18 @@
     {
       "method": "GET",
       "path": "/feedback"
+    },
+    {
+      "method": "POST",
+      "path": "/persons/{person_id}/id-document"
+    },
+    {
+      "method": "GET",
+      "path": "/persons/{person_id}/id-document"
+    },
+    {
+      "method": "DELETE",
+      "path": "/persons/{person_id}/id-document"
     }
   ],
   "resource_requirements": {

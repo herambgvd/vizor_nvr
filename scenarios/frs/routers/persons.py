@@ -3,9 +3,10 @@ from __future__ import annotations
 
 import os
 import shutil
+import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 from sqlalchemy import func, or_, select
 
@@ -89,14 +90,107 @@ def delete_person(person_id: str, _: None = Depends(require_service_token)):
     """Right-to-erasure: purge ALL biometric traces of this person — gallery
     vectors, live-sighting vectors, snapshot files, events, attendance, photos,
     and the on-disk photo directory — in one transaction (GDPR/BIPA)."""
+    id_key = None
     with session() as s:
         p = s.get(FRSPerson, person_id)
         if not p:
             raise HTTPException(404, "person not found")
+        id_key = p.id_file_key
         purge_person_biometrics(s, person_id)   # events + attendance + photos + vectors + snapshot files
         s.delete(p)
         s.commit()
     photo_dir = DATA_PATH / "persons" / person_id
     if photo_dir.exists():
         shutil.rmtree(photo_dir, ignore_errors=True)
+    if id_key:
+        _delete_id_object(id_key)
+    return Response(status_code=204)
+
+
+# ── ID document (image/PDF in the object store) ──────────────────────────────
+_ID_MAX_BYTES = 15 * 1024 * 1024
+_ID_TYPES = {
+    "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp",
+    "application/pdf": "pdf",
+}
+
+
+def _delete_id_object(key: str) -> None:
+    try:
+        from vizor_sdk.objectstore import default_store
+        default_store().delete(key)
+    except Exception:  # noqa: BLE001 — best-effort
+        pass
+
+
+@router.post("/persons/{person_id}/id-document")
+async def upload_id_document(
+    person_id: str,
+    file: UploadFile = File(...),
+    _: None = Depends(require_service_token),
+) -> dict:
+    """Store a person's government/company ID (image or PDF) in the object store and
+    record its key. Replaces any previous document."""
+    ct = (file.content_type or "").split(";")[0].strip()
+    ext = _ID_TYPES.get(ct)
+    if not ext:
+        raise HTTPException(415, "ID document must be JPG, PNG, WEBP or PDF")
+    data = await file.read()
+    if not data:
+        raise HTTPException(400, "empty upload")
+    if len(data) > _ID_MAX_BYTES:
+        raise HTTPException(413, "ID document exceeds the 15 MB limit")
+    from vizor_sdk.objectstore import default_store
+    store = default_store()
+    key = f"frs/ids/{person_id}/{uuid.uuid4().hex}.{ext}"
+    with session() as s:
+        p = s.get(FRSPerson, person_id)
+        if not p:
+            raise HTTPException(404, "person not found")
+        old = p.id_file_key
+        store.put(key, data, ct)
+        p.id_file_key = key
+        s.commit()
+        s.refresh(p)
+        result = person_dict(p)
+    if old and old != key:
+        _delete_id_object(old)
+    return result
+
+
+@router.get("/persons/{person_id}/id-document")
+def get_id_document(person_id: str, _: None = Depends(require_service_token)):
+    """Serve the stored ID document bytes (proxied — the object store isn't
+    browser-reachable)."""
+    with session() as s:
+        p = s.get(FRSPerson, person_id)
+        if not p:
+            raise HTTPException(404, "person not found")
+        key = p.id_file_key
+    if not key:
+        raise HTTPException(404, "no ID document")
+    from vizor_sdk.objectstore import default_store
+    try:
+        data = default_store().get(key)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(404, "ID document not found") from exc
+    media = "application/pdf" if key.endswith(".pdf") else "image/jpeg"
+    if key.endswith(".png"):
+        media = "image/png"
+    elif key.endswith(".webp"):
+        media = "image/webp"
+    return Response(content=data, media_type=media)
+
+
+@router.delete("/persons/{person_id}/id-document", status_code=204)
+def delete_id_document(person_id: str, _: None = Depends(require_service_token)):
+    with session() as s:
+        p = s.get(FRSPerson, person_id)
+        if not p:
+            raise HTTPException(404, "person not found")
+        key = p.id_file_key
+        p.id_file_key = None
+        s.commit()
+    if key:
+        _delete_id_object(key)
     return Response(status_code=204)

@@ -44,6 +44,9 @@ import {
   createPerson,
   updatePerson,
   deletePerson,
+  uploadIdDocument,
+  deleteIdDocument,
+  idDocumentUrl,
   listGroups,
   listPhotos,
   uploadPhoto,
@@ -174,9 +177,10 @@ const PersonForm = ({ initial, groups, onClose, qc }) => {
     auto_remove: initial?.auto_remove || false,
   });
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  const [idFile, setIdFile] = useState(null);   // pending ID document to upload
 
   const mut = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       const attributes = { ...(initial?.attributes || {}) };
       if (form.gender) attributes.gender = form.gender; else delete attributes.gender;
       if (form.age !== "" && form.age != null) attributes.age = Number(form.age); else delete attributes.age;
@@ -197,7 +201,12 @@ const PersonForm = ({ initial, groups, onClose, qc }) => {
         validity_end: form.validity_end || null,
         auto_remove: !!form.auto_remove,
       };
-      return editing ? updatePerson(initial.id, payload) : createPerson(payload);
+      const saved = editing ? await updatePerson(initial.id, payload) : await createPerson(payload);
+      // Upload the ID document (if a new one was picked) against the saved person.
+      if (idFile && saved?.id) {
+        await uploadIdDocument(saved.id, idFile);
+      }
+      return saved;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["frs-persons"] });
@@ -307,6 +316,17 @@ const PersonForm = ({ initial, groups, onClose, qc }) => {
           <input className={inputCls} style={inputStyle} value={form.id_number} onChange={(e) => set("id_number", e.target.value)} placeholder="ID number" />
         </Field>
       </div>
+      <Field label="ID document (image / PDF)">
+        <div className="flex items-center gap-2">
+          <input type="file" accept="image/jpeg,image/png,image/webp,application/pdf"
+            className="font-telemetry text-[11px]" style={{ color: "var(--console-muted)" }}
+            onChange={(e) => setIdFile(e.target.files?.[0] || null)} />
+          {idFile && <span className="font-telemetry text-[10px] truncate" style={{ color: "var(--console-accent)" }}>{idFile.name}</span>}
+          {!idFile && initial?.has_id_document && (
+            <span className="font-telemetry text-[10px]" style={{ color: "var(--console-muted)" }}>document on file</span>
+          )}
+        </div>
+      </Field>
 
       <div className="rounded border p-3 flex flex-col gap-3" style={{ borderColor: "var(--console-border)", background: "var(--console-raised)" }}>
         <span className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>Validity (max 6 months)</span>
@@ -556,6 +576,20 @@ const PersonDrawer = ({ person, groups, onClose, qc }) => {
                 <div className="font-telemetry text-[12px] truncate" style={{ color: "var(--console-text)" }}>{v}</div>
               </div>
             ))}
+            {person.has_id_document && (
+              <div className="col-span-2">
+                <button type="button"
+                  onClick={async () => {
+                    const r = await idDocumentUrl(person.id);
+                    if (r?.url) { window.open(r.url, "_blank", "noopener"); }
+                    else { toast.error("Could not open ID document"); }
+                  }}
+                  className="font-telemetry text-[10px] uppercase tracking-widest px-2 py-1 rounded border"
+                  style={{ borderColor: "var(--console-border)", color: "var(--console-accent)", background: "var(--console-raised)" }}>
+                  View ID document
+                </button>
+              </div>
+            )}
           </div>
         )}
 

@@ -207,6 +207,35 @@ export const updatePerson = async (id, patch) =>
 export const deletePerson = async (id) =>
   proxyScenario(FRS_SLUG, `/persons/${id}`, { method: "DELETE" });
 
+// ID document (image/PDF) stored in the object store, served through the proxy.
+export const uploadIdDocument = async (id, file) => {
+  const form = new FormData();
+  form.append("file", file);
+  return proxyScenario(FRS_SLUG, `/persons/${id}/id-document`, {
+    method: "POST", data: form,
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+};
+
+export const deleteIdDocument = async (id) =>
+  proxyScenario(FRS_SLUG, `/persons/${id}/id-document`, { method: "DELETE" });
+
+// Auth blob URL for the ID document (caller revokes on unmount). Returns {url, type}.
+export const idDocumentUrl = async (id) => {
+  const token = getAccessToken();
+  let resp;
+  try {
+    resp = await fetch(`${BACKEND_URL}/api/ai/scenarios/${FRS_SLUG}/proxy/persons/${id}/id-document`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+  } catch (_e) {
+    return null;
+  }
+  if (!resp.ok) return null;
+  const blob = await resp.blob();
+  return { url: URL.createObjectURL(blob), type: blob.type };
+};
+
 // ---------- FRS — photos ----------
 
 export const uploadPhoto = async (personId, file) => {
