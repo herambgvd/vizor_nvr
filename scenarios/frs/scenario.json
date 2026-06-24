@@ -53,11 +53,11 @@
         "type": "float",
         "label": "Match threshold",
         "group": "Recognition",
-        "default": 0.45,
+        "default": 0.5,
         "min": 0.3,
         "max": 0.99,
         "step": 0.01,
-        "help": "Minimum cosine similarity to call a face a known person. Lower for small/angled faces."
+        "help": "Minimum face-match similarity (cosine) to call a recognition. Lower catches tilted/far faces but risks false matches; raise toward 0.6 for stricter security. 0.5 balanced."
       },
       {
         "key": "recognition_enabled",
@@ -154,11 +154,11 @@
         "type": "int",
         "label": "Dwell frames",
         "group": "Quality",
-        "default": 1,
+        "default": 3,
         "min": 1,
         "max": 30,
         "step": 1,
-        "help": "Frames a track must persist before an event fires."
+        "help": "Consecutive frames a face must agree before an event fires. Higher = fewer false positives / jitter, slight delay. 3 recommended."
       },
       {
         "key": "alert_suppress_seconds",

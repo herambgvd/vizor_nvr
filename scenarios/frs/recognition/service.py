@@ -48,6 +48,35 @@ except Exception as _exc:  # noqa: BLE001
 
 _ENGINE = None  # lazily-built inference-engine singleton
 
+import logging as _logging
+import time as _time
+
+_logger = _logging.getLogger("frs.recognition")
+
+# Throttled inference-error visibility. A Triton outage must not spam the log every
+# frame, but must NOT be silent either — log once, then at most every 30s while it
+# persists, and log a clear recovery line when inference comes back.
+_eng_err_state = {"failing": False, "last_log": 0.0, "count": 0}
+
+
+def _note_engine_error(exc: Exception) -> None:
+    st = _eng_err_state
+    st["count"] += 1
+    now = _time.monotonic()
+    if not st["failing"] or (now - st["last_log"]) > 30.0:
+        _logger.warning("[frs] inference backend error (x%d): %s",
+                        st["count"], str(exc)[:200])
+        st["last_log"] = now
+    st["failing"] = True
+
+
+def _note_engine_ok() -> None:
+    st = _eng_err_state
+    if st["failing"]:
+        _logger.info("[frs] inference backend recovered after %d errors", st["count"])
+        st["failing"] = False
+        st["count"] = 0
+
 
 def engine():
     """Lazy inference-engine singleton. Backend chosen by INFERENCE_BACKEND:
@@ -186,7 +215,18 @@ def analyze_frame(data: bytes, min_conf: float | None = None, roi=None,
         # silently enroll/recognize garbage. Return no faces + a clear flag.
         return {"faces": [], "width": w, "height": h, "engine": "unavailable"}
     conf = (config.LIVE_DET_CONF if det_conf is None else float(det_conf)) if gate_quality else config.DET_CONF_THRESHOLD
-    dets = eng.detect_faces(frame, conf_thresh=conf)
+    try:
+        dets = eng.detect_faces(frame, conf_thresh=conf)
+    except Exception as exc:  # noqa: BLE001
+        # Inference backend (Triton) hiccup — surface it instead of letting the
+        # caller's broad except swallow it into a silent "no faces". A throttled
+        # WARN + an `engine: "error"` flag makes a Triton outage visible (the
+        # worker-logs panel / stream state) rather than looking like an empty
+        # scene for hours.
+        _note_engine_error(exc)
+        return {"faces": [], "width": w, "height": h, "engine": "error",
+                "error": str(exc)[:200]}
+    _note_engine_ok()
     faces = []
     for d in dets:
         bbox_px = list(map(float, d["bbox"]))
