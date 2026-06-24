@@ -46,6 +46,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get purge -y libgirepository1.0-dev libcairo2-dev pkg-config gcc \
     && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 
+# YuNet landmark model (232 KB, CPU ONNX) — robust 5-point fallback when SCRFD's
+# landmarks are degenerate (collapsed eyes on steep top-down / profile faces), which
+# would otherwise warp to a garbage ArcFace crop and break recognition. Same model
+# vizor-gpu ships. Override path with FRS_YUNET_MODEL.
+RUN mkdir -p /models \
+    && curl -fsSL -o /models/yunet.onnx \
+       https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx \
+    || echo "WARN: YuNet download failed — alignment falls back to center-crop"
+
 # Shared Vizor Scenario SDK (own layer — caches well).
 COPY _sdk /sdk
 RUN pip install --no-cache-dir "/sdk[app,triton,vectors]"

@@ -27,6 +27,40 @@ AF_SRC_LANDMARKS = np.array(
 )
 
 
+def _landmarks_sane(lms: np.ndarray, bbox: np.ndarray) -> bool:
+    """Reject geometrically-degenerate SCRFD landmark sets BEFORE we warp with them.
+
+    On hard angles (steep top-down, partial profile) SCRFD sometimes collapses the
+    five points — e.g. the two eyes land on nearly the same pixel. estimateAffine
+    on near-coincident points yields a wildly wrong similarity transform, so the
+    aligned 112x112 crop is rotated/skewed garbage and ArcFace returns a near-random
+    embedding (the live "recognised in room A, Unknown in room B" symptom). A face
+    that fails this check is handed to the YuNet fallback, which re-detects landmarks
+    robustly, instead of being aligned from the bad SCRFD points.
+
+    Checks, all normalised to the face box so they're scale-independent:
+      * eyes far enough apart (a real frontal/3-quarter face has the eyes ~0.3 of
+        the box width apart; collapsed eyes are the dominant failure here),
+      * eyes above the mouth (vertical ordering sane),
+      * all five points actually inside the (slightly padded) box.
+    """
+    if lms is None or np.asarray(lms).shape != (5, 2):
+        return False
+    x1, y1, x2, y2 = map(float, bbox)
+    bw, bh = max(x2 - x1, 1.0), max(y2 - y1, 1.0)
+    n = (np.asarray(lms, dtype=np.float32) - [x1, y1]) / [bw, bh]
+    eye_dist = float(np.linalg.norm(n[0] - n[1]))
+    if eye_dist < 0.20:                       # eyes collapsed → degenerate warp
+        return False
+    eyes_y = (n[0][1] + n[1][1]) / 2.0
+    mouth_y = (n[3][1] + n[4][1]) / 2.0
+    if eyes_y >= mouth_y:                      # eyes must sit above the mouth
+        return False
+    if (n < -0.25).any() or (n > 1.25).any():  # points wildly outside the box
+        return False
+    return True
+
+
 def align_face(
     frame: np.ndarray,
     bbox: np.ndarray,
@@ -35,17 +69,19 @@ def align_face(
     fh: int,
 ) -> np.ndarray:
     """Return 112x112 aligned face crop via affine warp to the ArcFace template."""
-    if landmarks is not None and not np.all(landmarks == 0):
+    if landmarks is not None and not np.all(landmarks == 0) and _landmarks_sane(landmarks, bbox):
         M, _ = cv2.estimateAffinePartial2D(
             landmarks.astype(np.float32), AF_SRC_LANDMARKS, method=cv2.LMEDS,
         )
         if M is not None:
             return cv2.warpAffine(frame, M, AF_SIZE, borderValue=0)
 
-    # No usable SCRFD landmarks → try YuNet to recover 5-point landmarks so we
-    # still get a geometrically-aligned crop (profile / partial / low-light).
+    # SCRFD landmarks missing / zero / geometrically degenerate → re-detect with
+    # YuNet so we still get a geometrically-aligned crop (profile / partial /
+    # low-light / steep top-down). YuNet's landmarks are independent of SCRFD's, so
+    # this recovers the cases where SCRFD's collapsed points would warp to garbage.
     yunet_lms = extract_landmarks_yunet(frame, bbox, fw, fh)
-    if yunet_lms is not None:
+    if yunet_lms is not None and _landmarks_sane(yunet_lms, bbox):
         M, _ = cv2.estimateAffinePartial2D(
             yunet_lms.astype(np.float32), AF_SRC_LANDMARKS, method=cv2.LMEDS,
         )
