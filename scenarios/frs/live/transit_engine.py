@@ -27,8 +27,10 @@ def _rules_for_exit(s, camera_id: str):
     return [r for r in rules if camera_id in ((r.config or {}).get("exit_cameras") or [])]
 
 
-def on_recognition(person_id: str | None, camera_id: str | None, ts: datetime) -> None:
-    """Drive transit state from a recognised-person sighting."""
+def on_recognition(person_id: str | None, camera_id: str | None, ts: datetime,
+                   person_name: str | None = None) -> None:
+    """Drive transit state from a recognised-person sighting. `person_name` is
+    stored on the session so the UI shows the name instead of a raw person id."""
     if not person_id or not camera_id:
         return
     with db_session() as s:
@@ -44,6 +46,8 @@ def on_recognition(person_id: str | None, camera_id: str | None, ts: datetime) -
                 open_sess.ended_at = ts
                 attrs = dict(open_sess.attributes or {})
                 attrs["exit_camera"] = camera_id
+                attrs["duration_seconds"] = int(
+                    (ts - open_sess.started_at).total_seconds()) if open_sess.started_at else None
                 open_sess.attributes = attrs
                 s.commit()
                 return  # one sighting closes at most one session
@@ -58,11 +62,13 @@ def on_recognition(person_id: str | None, camera_id: str | None, ts: datetime) -
             )))
             if existing:
                 continue
+            attrs = {"entry_camera": camera_id,
+                     "deadline": (ts + timedelta(minutes=window)).isoformat()}
+            if person_name:
+                attrs["person_name"] = person_name
             s.add(TransitSession(
                 rule_id=rule.id, person_id=person_id, status="open",
-                started_at=ts,
-                attributes={"entry_camera": camera_id,
-                            "deadline": (ts + timedelta(minutes=window)).isoformat()},
+                started_at=ts, attributes=attrs,
             ))
             s.commit()
 

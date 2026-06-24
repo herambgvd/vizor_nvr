@@ -559,7 +559,8 @@ const SessionsPanel = ({ ruleName }) => {
               sessions.map((s) => (
                 <tr key={s.id} className="border-t hover:bg-white/[0.02] transition-colors" style={{ borderColor: "var(--console-border)" }}>
                   <td className="px-3 py-2 font-telemetry text-[12px] truncate max-w-[160px]" style={{ color: "var(--console-text)" }}>
-                    {s.person_id ? `Person ${String(s.person_id).slice(0, 8)}` : "—"}
+                    {s.attributes?.person_name
+                      || (s.person_id ? `Person ${String(s.person_id).slice(0, 8)}` : "—")}
                   </td>
                   <td className="px-3 py-2 font-telemetry text-[12px] truncate max-w-[160px]" style={{ color: "var(--console-text)" }}>
                     {ruleName(s.rule_id)}

@@ -91,6 +91,18 @@ def _reconcile():
             print(f"[frs-live] started worker for {cam_id}", flush=True)
 
 
+def _sweep_loop():
+    """Periodic transit overdue sweep — flips open sessions past their deadline to
+    overdue. Used by the async path (the legacy path folds this into _loop)."""
+    while True:
+        try:
+            from live.transit_engine import sweep_overdue
+            sweep_overdue()
+        except Exception as exc:  # noqa: BLE001
+            print(f"[frs-live] transit sweep failed: {exc}", flush=True)
+        time.sleep(config.LIVE_POLL_SECONDS)
+
+
 def _loop():
     while True:
         try:
@@ -161,7 +173,13 @@ def start_live_manager():
         global _ASYNC_SUP
         from .async_pipeline import build_async_manager
         _ASYNC_SUP, _ = build_async_manager()
-        print("[frs-live] live manager started (async / GStreamer)", flush=True)
+        # The async supervisor owns camera decode, but the transit overdue sweep
+        # lived in the legacy reconcile loop — under async it would never run, so
+        # past-deadline sessions stayed "open" forever. Run the sweep on its own
+        # lightweight thread here.
+        threading.Thread(target=_sweep_loop, daemon=True,
+                         name="frs-transit-sweep").start()
+        print("[frs-live] live manager started (async / GStreamer) + transit sweep", flush=True)
         return
     threading.Thread(target=_loop, daemon=True, name="frs-live-manager").start()
     print("[frs-live] live manager started", flush=True)
