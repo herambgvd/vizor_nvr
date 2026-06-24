@@ -110,6 +110,31 @@ def live_status() -> dict:
             "alive": alive, "active": active}
 
 
+def worker_logs(camera_id: str) -> dict:
+    """Live worker diagnostics for one camera — recent log lines + current stats,
+    for the operator's in-UI 'worker logs' panel."""
+    now = time.time()
+    with _LOCK:
+        w = _WORKERS.get(camera_id)
+    if w is None:
+        return {"camera_id": camera_id, "running": False, "active": False,
+                "logs": [], "stats": {}, "detail": "no worker for this camera"}
+    last = getattr(w, "last_frame_ts", 0.0)
+    return {
+        "camera_id": camera_id,
+        "running": w.is_alive(),
+        "active": w.is_alive() and (now - last) < 60.0,
+        "stats": {
+            "frames": getattr(w, "_frame_no", 0),
+            "faces_last": getattr(w, "_dbg_faces", 0),
+            "recognized_total": getattr(w, "_dbg_recognized", 0),
+            "fps": w.config.get("fps") if getattr(w, "config", None) else None,
+            "last_frame_secs_ago": round(now - last, 1) if last else None,
+        },
+        "logs": w.logs() if hasattr(w, "logs") else [],
+    }
+
+
 def start_live_manager():
     """Launch the reconcile loop on a daemon thread (no-op if disabled)."""
     if not config.LIVE_ENABLED:

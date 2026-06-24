@@ -363,6 +363,10 @@
     {
       "method": "DELETE",
       "path": "/persons/{person_id}/id-document"
+    },
+    {
+      "method": "GET",
+      "path": "/live/logs"
     }
   ],
   "resource_requirements": {

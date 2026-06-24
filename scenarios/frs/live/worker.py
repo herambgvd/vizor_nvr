@@ -78,6 +78,19 @@ class CameraWorker(threading.Thread):
         # (no GPU / ffmpeg without cuvid) so a camera never silently goes dark.
         self._hw_failed = False
         self._used_hw = False
+        # Diagnostics (for the /live/logs worker-logs panel).
+        self._frame_no = 0
+        self._dbg_faces = 0           # faces seen in the last processed frame
+        self._dbg_recognized = 0      # cumulative recognised sightings
+        from collections import deque
+        self._log_buf: deque = deque(maxlen=80)
+
+    def _log(self, level: str, msg: str) -> None:
+        import time
+        self._log_buf.append({"ts": time.time(), "level": level, "msg": msg})
+
+    def logs(self) -> list:
+        return list(self._log_buf)
 
     def stop(self):
         self._stop.set()
@@ -309,6 +322,7 @@ class CameraWorker(threading.Thread):
     def _process_frame(self, jpeg: bytes):
         now = time.time()
         self.last_frame_ts = now                   # heartbeat for /health liveness
+        self._frame_no += 1
         if now - getattr(self, "_last_prune", 0) > 60:
             self._prune_state(now)
             self._last_prune = now
@@ -329,6 +343,7 @@ class CameraWorker(threading.Thread):
                 max_pose_deg=self.max_pose_deg,
             )
             faces = result.get("faces", [])
+            self._dbg_faces = len(faces)
             if not faces:
                 return
             # Assign track ids via ByteTrack so votes accumulate per face across
@@ -432,6 +447,9 @@ class CameraWorker(threading.Thread):
                     continue
                 self._last_seen[key] = now
                 snap, fc = self._snapshots(jpeg, bbox_px)
+                self._dbg_recognized += 1
+                self._log("info", f"{event_type}: {cname or 'unknown'}"
+                                  + (f" ({cscore:.2f})" if cscore else ""))
                 ev_id = _record_event(self.camera_id, cpid, cname, cscore,
                                       snap, event_type, ts,
                                       bbox=_bbox_obj(f.get("bbox")),

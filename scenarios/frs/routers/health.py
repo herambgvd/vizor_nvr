@@ -4,18 +4,26 @@ from __future__ import annotations
 import shutil
 import subprocess
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy import func, select
 
 import config
 from qdrant import store as qdrant_store
 import recognition
-from live import live_status
+from live import live_status, worker_logs
 from db import db_ready, session
 from deps import require_service_token
 from db.models import FRSPerson
 
 router = APIRouter(tags=["health"])
+
+
+@router.get("/live/logs")
+def live_logs(camera_id: str = Query(...),
+              _: None = Depends(require_service_token)) -> dict:
+    """Recent worker activity log + live stats for one camera — powers the in-UI
+    'worker logs' diagnostics panel."""
+    return worker_logs(camera_id)
 
 
 def _disk() -> dict:
