@@ -309,48 +309,6 @@ export const frsReportsSummary = async (params = {}) =>
 export const submitFrsFeedback = async (body) =>
   proxyScenario(FRS_SLUG, "/feedback", { method: "POST", data: body });
 
-// ---------- FRS — recognition (image + video) ----------
-// One-shot IMAGE recognition (synchronous) and async VIDEO-file jobs, served by
-// the FRS scenario microservice through the scenario proxy. Image returns the
-// result immediately; video submits a job and the caller polls status, then
-// fetches results when state === "JOB_COMPLETED".
-
-export const recognizeImage = async (file) => {
-  const form = new FormData();
-  form.append("file", file);
-  return proxyScenario(FRS_SLUG, "/recognize-image", {
-    method: "POST",
-    data: form,
-    headers: { "Content-Type": "multipart/form-data" },
-  });
-};
-
-export const detectFaces = async (file) => {
-  const form = new FormData();
-  form.append("file", file);
-  return proxyScenario(FRS_SLUG, "/detect-faces", {
-    method: "POST",
-    data: form,
-    headers: { "Content-Type": "multipart/form-data" },
-  });
-};
-
-export const submitVideoJob = async (file) => {
-  const form = new FormData();
-  form.append("file", file);
-  return proxyScenario(FRS_SLUG, "/video-jobs", {
-    method: "POST",
-    data: form,
-    headers: { "Content-Type": "multipart/form-data" },
-  }); // { job_id, state }
-};
-
-export const videoJobStatus = async (jobId) =>
-  proxyScenario(FRS_SLUG, `/video-jobs/${jobId}`);
-
-export const videoJobResults = async (jobId) =>
-  proxyScenario(FRS_SLUG, `/video-jobs/${jobId}/results`);
-
 // ---------- FRS — investigate (forensic snapshot search by query face) ----------
 // Upload a query face image + top_k; the FRS scenario ranks matching snapshots.
 

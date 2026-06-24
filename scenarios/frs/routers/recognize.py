@@ -1,41 +1,19 @@
-"""Synchronous image recognition + face detection + snapshot serving."""
+"""Snapshot serving — returns enrolled-photo / live-worker / ingested face JPEGs.
+
+(The on-demand image-recognition + face-detection endpoints, and the video-job
+recognition feature, were removed — FRS is live-camera only, no media uploads.)
+"""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import FileResponse
 
-import recognition
 from config import DATA_PATH
 from db import session
 from deps import require_service_token
 from db.models import FRSPhoto
 
-router = APIRouter(tags=["recognize"])
-
-
-@router.post("/recognize-image")
-async def recognize_image(file: UploadFile = File(...), _: None = Depends(require_service_token)) -> JSONResponse:
-    data = await file.read()
-    if not data:
-        raise HTTPException(400, "empty upload")
-    return JSONResponse(recognition.recognize(data))
-
-
-@router.post("/detect-faces")
-async def detect_faces(file: UploadFile = File(...), _: None = Depends(require_service_token)) -> JSONResponse:
-    data = await file.read()
-    if not data:
-        raise HTTPException(400, "empty upload")
-    dets, w, h = recognition.detect_faces(data)
-    if dets:
-        faces = [{
-            "bbox": [float(d["bbox"][0] / w), float(d["bbox"][1] / h),
-                     float(d["bbox"][2] / w), float(d["bbox"][3] / h)],
-            "confidence": round(d["confidence"], 4),
-        } for d in dets]
-        return JSONResponse({"faces": faces, "width": w, "height": h})
-    # Fallback when models absent: single full-frame box.
-    return JSONResponse({"faces": [{"bbox": [0.1, 0.1, 0.9, 0.9], "confidence": 0.9}], "width": w, "height": h})
+router = APIRouter(tags=["snapshot"])
 
 
 @router.get("/snapshot")
