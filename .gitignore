@@ -133,3 +133,6 @@ triton/model_repository/**/*.onnx.data
 triton/model_repository/**/*.engine
 triton/model_repository/**/*.plan
 triton/model_repository/**/*.bin
+
+# Allow the template (no secrets)
+!.env.example

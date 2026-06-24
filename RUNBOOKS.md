@@ -4,6 +4,30 @@ Quick-reference incident response for the GVD NVR stack. Each section
 starts with **Symptoms**, then **Diagnose**, then **Fix**, then
 **Verify**. Optimized for on-call paging at 3 AM.
 
+## Production deploy (no dev overlay)
+
+Production runs the base + AI compose files only — baked images, no source
+bind-mounts, no hot-reload. The dev overlay (`docker-compose.dev.yml`) is for
+local development ONLY and must not be used on a client box.
+
+```bash
+# 1. Copy the template and fill in real secrets (NEVER commit .env):
+cp .env.example .env
+#    Required: JWT_SECRET_KEY, DB_PASSWORD, RUSTFS_ACCESS_KEY, RUSTFS_SECRET_KEY,
+#    AI_PLUGIN_SERVICE_TOKEN  (generate with: openssl rand -hex 24)
+
+# 2. Build + start everything (base + AI; rebuild bakes current source):
+docker compose -f docker-compose.yml -f docker-compose.ai.yml up -d --build
+
+# 3. Verify health:
+docker compose -f docker-compose.yml -f docker-compose.ai.yml ps
+```
+
+After any code change in prod mode you MUST rebuild that service's image
+(`... up -d --build <service>`) — there is no hot-reload. RustFS object storage
+(`gvd_ai_rustfs`) holds AI media (FRS ID documents); its creds in `.env` must match
+what the plugins sign with, or you get silent 403s.
+
 Service map:
 
 | Service | Container | Critical? |
