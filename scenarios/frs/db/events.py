@@ -71,10 +71,41 @@ def record_event(
 ) -> str:
     """Insert an FRS event; for recognised persons also upsert daily attendance.
     Returns the new event id. Notifies the realtime bus."""
-    from db.models import FRSAttendance, FRSEvent  # local import (avoid cycle)
+    from db.models import FRSAttendance, FRSEvent, FRSGroup, FRSPerson  # local (avoid cycle)
     from sqlalchemy import select
 
+    attributes = dict(attributes or {})
+    authorized: Optional[bool] = None
+    auth_reason: Optional[str] = None
+    group_name: Optional[str] = None
+
     with session() as s:
+        # Authorization for a recognised person: must be within its validity window.
+        # Surfaced in the event attributes so the UI can announce authorized /
+        # not-authorized / unregistered.
+        if person_id and event_type == "face_recognized":
+            p = s.get(FRSPerson, person_id)
+            if p is not None:
+                if p.group_id:
+                    g = s.get(FRSGroup, p.group_id)
+                    group_name = g.name if g else None
+                today = (ts or utcnow()).date()
+                if p.validity_start and today < p.validity_start:
+                    authorized, auth_reason = False, "validity not started"
+                elif p.validity_end and today > p.validity_end:
+                    authorized, auth_reason = False, "validity expired"
+                else:
+                    authorized, auth_reason = True, None
+            else:
+                authorized, auth_reason = False, "person not found"
+        elif event_type in ("face_unknown", "face_detected"):
+            authorized = False
+            auth_reason = "unregistered"
+        attributes.update({
+            "authorized": authorized, "auth_reason": auth_reason,
+            "group_name": group_name,
+        })
+
         ev = FRSEvent(
             camera_id=camera_id, event_type=event_type, severity="info",
             title=person_name or ("Face detected" if event_type == "face_detected" else "Unknown face"),
@@ -126,6 +157,9 @@ def record_event(
         "camera_id": camera_id,
         "person_name": person_name,
         "confidence": confidence,
+        "authorized": authorized,
+        "auth_reason": auth_reason,
+        "group_name": group_name,
         "triggered_at": _iso_utc(ts or utcnow()),
     })
     return new_id

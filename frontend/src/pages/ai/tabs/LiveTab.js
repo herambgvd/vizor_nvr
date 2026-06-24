@@ -160,6 +160,33 @@ function violationPhrase(ev, slug) {
   return "Alert";
 }
 
+// FRS spoken announcement per the client's three cases:
+//   recognized + within validity      -> "Authorized <name>, <group>"
+//   recognized but expired / inactive  -> "Not Authorized. <reason>"
+//   unknown / unregistered             -> "Unregistered person detected at <camera>"
+function frsAnnouncePhrase(ev, cameraName) {
+  const attrs = ev?.attributes || {};
+  const authorized = ev?.authorized ?? attrs.authorized;
+  const reason = ev?.auth_reason ?? attrs.auth_reason;
+  const group = ev?.group_name ?? attrs.group_name;
+  const cam = cameraName || ev?.camera_id || "camera";
+  if (ev?.event_type === "spoof_detected") return "Spoof detected";
+  if (ev?.event_type === "face_recognized") {
+    const name = ev?.person_name || "person";
+    if (authorized) {
+      return group ? `Authorized ${name}, ${group}` : `Authorized ${name}`;
+    }
+    return reason ? `Not Authorized. ${reason}` : "Not Authorized";
+  }
+  // face_unknown / face_detected
+  return `Unregistered person detected at ${cam}`;
+}
+
+// FRS speaks on EVERY fresh recognition (authorized + not), not only violations.
+function isFrsAnnounceEvent(ev) {
+  return ["face_recognized", "face_unknown", "spoof_detected"].includes(ev?.event_type);
+}
+
 // Does this fresh event warrant the loud alarm? Violation-ish across scenarios:
 // PPE missing PPE, FRS unknown/spoof, ANPR blacklist hit. Anything else is a
 // routine detection → soft chirp.
@@ -189,6 +216,25 @@ function OverlayIcon({ type }) {
 
 // Per-scenario display label for a live-event row. FRS keeps its proven
 // person-name resolution; other scenarios surface their own primary field.
+// Small authorized / not-authorized / unregistered chip for the FRS live feed.
+function FrsAuthBadge({ ev }) {
+  const attrs = ev?.attributes || {};
+  const authorized = ev?.authorized ?? attrs.authorized;
+  let text = "unregistered", color = "#fbbf24";
+  if (ev?.event_type === "face_recognized") {
+    if (authorized) { text = "authorized"; color = "#34d399"; }
+    else { text = "not authorized"; color = "#f87171"; }
+  } else if (ev?.event_type === "spoof_detected") {
+    text = "spoof"; color = "#f87171";
+  }
+  return (
+    <span className="font-telemetry text-[8px] uppercase tracking-widest px-1 py-0.5 rounded shrink-0"
+      style={{ color, border: `1px solid ${color}55`, background: `${color}14` }}>
+      {text}
+    </span>
+  );
+}
+
 function liveEventLabel(ev, slug) {
   if (!ev) return "Detection";
   if (slug === "frs") return eventPersonName(ev);
@@ -646,17 +692,29 @@ export default function LiveTab({ scenario }) {
     // synthesis isn't available. Throttled to once per 1.5s so a burst doesn't
     // talk over itself. Routine detections → soft chirp.
     if (!mutedRef.current) {
-      const violation = fresh.find(isViolationEvent);
-      if (violation) {
-        const spoke = speakPhrase(violationPhrase(violation, slug));
-        if (!spoke) playAlertBeepThrottled();
+      if (isFrs) {
+        // FRS announces every fresh recognition (authorized / not-authorized /
+        // unregistered) with a spoken phrase; soft chirp if nothing announceable.
+        const ann = fresh.find(isFrsAnnounceEvent);
+        if (ann) {
+          const spoke = speakPhrase(frsAnnouncePhrase(ann, camNameById[ann.camera_id]));
+          if (!spoke) playAlertBeepThrottled();
+        } else {
+          playSoftBeep();
+        }
       } else {
-        playSoftBeep();
+        const violation = fresh.find(isViolationEvent);
+        if (violation) {
+          const spoke = speakPhrase(violationPhrase(violation, slug));
+          if (!spoke) playAlertBeepThrottled();
+        } else {
+          playSoftBeep();
+        }
       }
     }
 
     return () => clearTimeout(timer);
-  }, [live, isFrs, slug]);
+  }, [live, isFrs, slug, camNameById]);
 
   if (camsLoading) {
     return (
@@ -788,9 +846,10 @@ export default function LiveTab({ scenario }) {
                         <span className="font-telemetry text-[12px] truncate" style={{ color: "var(--console-text)" }}>
                           {liveEventLabel(ev, slug)}
                         </span>
+                        {isFrs && <FrsAuthBadge ev={ev} />}
                       </div>
                       <div className="font-telemetry text-[9px] uppercase tracking-widest truncate" style={{ color: "var(--console-muted)" }}>
-                        {fmtFeedTime(ev.triggered_at)}
+                        {(camNameById[ev.camera_id] || ev.camera_id || "—")} · {fmtFeedTime(ev.triggered_at)}
                       </div>
                     </div>
                     <span className={cn("rounded border px-1 text-[10px] font-telemetry shrink-0", confidenceBadgeClass(ev.confidence))}>
