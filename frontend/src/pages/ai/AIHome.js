@@ -8,7 +8,7 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ScanFace, HardHat, Cpu, ChevronRight, Search } from "lucide-react";
+import { ScanFace, HardHat, Cpu, ChevronRight, Search, Store } from "lucide-react";
 import { getScenarios } from "../../api/ai";
 
 const ICONS = { "scan-face": ScanFace, "hard-hat": HardHat, search: Search };
@@ -108,19 +108,29 @@ const AIHome = () => {
 
   return (
     <div className="p-6 w-full">
-      <div className="mb-6">
-        <h1
-          className="font-telemetry text-[16px] font-semibold uppercase tracking-wide"
-          style={{ color: "var(--console-text)" }}
+      <div className="mb-6 flex items-start justify-between">
+        <div>
+          <h1
+            className="font-telemetry text-[16px] font-semibold uppercase tracking-wide"
+            style={{ color: "var(--console-text)" }}
+          >
+            AI Scenarios
+          </h1>
+          <p
+            className="font-telemetry text-[11px] uppercase tracking-widest mt-1"
+            style={{ color: "var(--console-muted)" }}
+          >
+            Plugin-based intelligence scenarios
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => navigate("/ai/marketplace")}
+          className="inline-flex items-center gap-1.5 font-telemetry text-[11px] uppercase tracking-wide px-3 py-1.5 rounded border transition-colors"
+          style={{ background: "var(--console-raised)", borderColor: "var(--console-border)", color: "var(--console-accent)" }}
         >
-          AI Scenarios
-        </h1>
-        <p
-          className="font-telemetry text-[11px] uppercase tracking-widest mt-1"
-          style={{ color: "var(--console-muted)" }}
-        >
-          Plugin-based intelligence scenarios
-        </p>
+          <Store className="h-3.5 w-3.5" /> Marketplace
+        </button>
       </div>
 
       {isLoading ? (
@@ -160,8 +170,16 @@ const AIHome = () => {
             className="font-telemetry text-[11px]"
             style={{ color: "var(--console-muted)" }}
           >
-            Start a scenario container or register a scenario manifest.
+            License and enable a plugin in the Marketplace to get started.
           </p>
+          <button
+            type="button"
+            onClick={() => navigate("/ai/marketplace")}
+            className="inline-flex items-center gap-1.5 font-telemetry text-[11px] uppercase tracking-wide px-3 py-1.5 rounded mt-1"
+            style={{ background: "var(--console-accent)", color: "#000" }}
+          >
+            <Store className="h-3.5 w-3.5" /> Open Marketplace
+          </button>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

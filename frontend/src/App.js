@@ -64,6 +64,7 @@ const Bookmarks = lazy(() => import("./pages/Bookmarks"));
 const PlaybackConsole = lazy(() => import("./pages/PlaybackConsole"));
 const LicenseRequired = lazy(() => import("./pages/LicenseRequired"));
 const AIHome = lazy(() => import("./pages/ai/AIHome"));
+const Marketplace = lazy(() => import("./pages/ai/Marketplace"));
 const ScenarioWorkspace = lazy(() => import("./pages/ai/ScenarioWorkspace"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const PublicScenarioDashboard = lazy(() => import("./pages/PublicScenarioDashboard"));
@@ -246,6 +247,7 @@ const AppRoutes = () => (
         <Route path="monitoring/audit" element={<Navigate to="/settings/audit" replace />} />
         <Route path="audit" element={<Navigate to="/settings/audit" replace />} />
         <Route path="ai" element={<AIHome />} />
+        <Route path="ai/marketplace" element={<Marketplace />} />
         <Route path="ai/:slug" element={<ScenarioWorkspace />} />
         <Route path="ai/:slug/:tab" element={<ScenarioWorkspace />} />
       </Route>
