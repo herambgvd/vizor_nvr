@@ -480,11 +480,8 @@ function WorkerLogsModal({ slug, cameraId, cameraName, onClose }) {
 }
 
 function CameraTile({ cam, events, newEventIds, slug }) {
-  // The bottom per-person recognition overlay is FRS-specific (shows enrolled
-  // person names). Other scenarios (PPE/ANPR) have no per-person name to show on
-  // the tile — their detections live in the Live-events feed + Events tab — so we
-  // don't render the overlay (it was showing a meaningless "Unknown" badge).
-  const recent = slug === "frs" ? (events || []).slice(0, MAX_OVERLAY_PER_CAM) : [];
+  // (The per-person name/confidence badges that used to overlay the video are gone —
+  // detections live in the right-hand Live-events feed + the Events tab.)
   const [showLogs, setShowLogs] = useState(false);
 
   return (
@@ -552,32 +549,6 @@ function CameraTile({ cam, events, newEventIds, slug }) {
       )}
 
       {/* Recognition overlay — bottom, newest first */}
-      {recent.length > 0 && (
-        <div className="absolute bottom-0 left-0 right-0 flex flex-col gap-1 p-2 bg-gradient-to-t from-black/80 to-transparent pointer-events-none z-30">
-          {recent.map((ev) => (
-            <div
-              key={ev.id}
-              className={cn(
-                "flex items-center gap-1.5 self-start max-w-full rounded-md border px-2 py-0.5 text-[11px] font-medium backdrop-blur-sm",
-                eventTypeBadgeClass(ev.event_type),
-                newEventIds?.has(ev.id) &&
-                  "ring-1 ring-[var(--console-accent)] animate-[liveBadgeIn_300ms_ease-out]",
-              )}
-            >
-              <OverlayIcon type={ev.event_type} />
-              <span className="truncate">{eventPersonName(ev)}</span>
-              <span
-                className={cn(
-                  "ml-auto rounded border px-1 text-[10px] font-telemetry",
-                  confidenceBadgeClass(ev.confidence),
-                )}
-              >
-                {fmtConfidence(ev.confidence)}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
