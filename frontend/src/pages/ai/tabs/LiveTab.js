@@ -120,6 +120,24 @@ function playAlertBeepThrottled() {
 // "helmet not detected" instead of a plain beep). Uses the browser's built-in
 // SpeechSynthesis — no audio files to manage, and the phrase is event-specific.
 // Throttled with the same gate as the beep so a burst doesn't talk over itself.
+// Unlock the browser's SpeechSynthesis under a user gesture. Autoplay policy mutes
+// speech (and audio) until the user interacts with the page; speaking a silent
+// utterance during a click "warms" the engine so later auto-announcements play.
+let _audioPrimed = false;
+function primeAudio() {
+  try {
+    const synth = window.speechSynthesis;
+    if (synth && !_audioPrimed) {
+      const u = new SpeechSynthesisUtterance(" ");
+      u.volume = 0;
+      synth.speak(u);
+      _audioPrimed = true;
+    }
+  } catch {
+    /* speech unavailable — beep fallback still works */
+  }
+}
+
 let _lastSpeakAt = 0;
 function speakPhrase(phrase) {
   if (!phrase) return;
@@ -626,6 +644,23 @@ export default function LiveTab({ scenario }) {
     mutedRef.current = muted;
   }, [muted]);
 
+  // Prime speech on the operator's FIRST interaction anywhere on the page, so the
+  // very first recognition announces out loud without them having to find + click
+  // the Alerts button. One-shot: detaches after the first gesture.
+  useEffect(() => {
+    const onGesture = () => {
+      primeAudio();
+      window.removeEventListener("pointerdown", onGesture);
+      window.removeEventListener("keydown", onGesture);
+    };
+    window.addEventListener("pointerdown", onGesture);
+    window.addEventListener("keydown", onGesture);
+    return () => {
+      window.removeEventListener("pointerdown", onGesture);
+      window.removeEventListener("keydown", onGesture);
+    };
+  }, []);
+
   useEffect(() => {
     const items = live?.items || [];
     const currentIds = new Set(items.map((ev) => ev.id));
@@ -740,7 +775,15 @@ export default function LiveTab({ scenario }) {
       <div className="flex items-center justify-end mb-3">
           <button
             type="button"
-            onClick={() => setMuted((m) => !m)}
+            onClick={() => {
+              // Browsers block SpeechSynthesis/audio until a user gesture. Clicking
+              // this button IS that gesture — prime the voice with a silent
+              // utterance so the first real announcement actually speaks (otherwise
+              // events show but stay silent until the user happens to click the
+              // page). Re-priming on every toggle is harmless.
+              primeAudio();
+              setMuted((m) => !m);
+            }}
             aria-pressed={muted}
             title={muted ? "Unmute detection alerts" : "Mute detection alerts"}
             className="flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-telemetry tracking-wider uppercase transition-colors"
