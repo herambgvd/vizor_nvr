@@ -126,12 +126,16 @@ function playAlertBeepThrottled() {
 // utterance during a click "warms" the engine so later auto-announcements play.
 let _audioPrimed = false;
 function primeAudio() {
+  // ALWAYS resume the AudioContext on every gesture — it can be created suspended
+  // and a stale _audioPrimed flag (React strict-mode double mount) previously made
+  // us skip the resume, leaving the context suspended so neither beep nor (in some
+  // browsers) speech played. resume() is idempotent + cheap.
+  try {
+    const ctx = _getAudioCtx();
+    if (ctx && ctx.state === "suspended") ctx.resume().catch(() => {});
+  } catch { /* no webaudio */ }
   if (_audioPrimed) return;
   _audioPrimed = true;
-  // Unlock the WebAudio beep too — it's the reliable fallback when the browser has
-  // no TTS voice installed (common on Linux/Chromium), so resume the AudioContext
-  // under this gesture or alerts stay silent even though speech "succeeded".
-  try { _getAudioCtx(); } catch { /* no webaudio */ }
   _warmVoices();
   try {
     const synth = window.speechSynthesis;
