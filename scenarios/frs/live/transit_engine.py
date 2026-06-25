@@ -81,9 +81,12 @@ def on_recognition(person_id: str | None, camera_id: str | None, ts: datetime,
 
 
 def sweep_overdue(now: datetime | None = None) -> int:
-    """Mark open sessions past their deadline as overdue. Returns count flipped."""
+    """Mark open sessions past their deadline as overdue + emit a `transit_overdue`
+    event per flip so the operator actually sees the alert (it shows in the Events
+    list + live SSE, not just a status change buried in the Transit tab). Returns
+    the count flipped."""
     now = now or utcnow()
-    flipped = 0
+    flipped: list[dict] = []
     with db_session() as s:
         opens = s.execute(select(TransitSession).where(TransitSession.status == "open")).scalars().all()
         for sess in opens:
@@ -96,7 +99,65 @@ def sweep_overdue(now: datetime | None = None) -> int:
                 continue
             if now > deadline:
                 sess.status = "overdue"
-                flipped += 1
+                attrs = dict(sess.attributes or {})
+                # Carry session context onto the event so the operator sees who,
+                # which rule, how long open, and where they entered.
+                flipped.append({
+                    "session_id": sess.id,
+                    "rule_id": sess.rule_id,
+                    "person_id": sess.person_id,
+                    "person_name": attrs.get("person_name"),
+                    "entry_camera": attrs.get("entry_camera"),
+                    "entry_snapshot": attrs.get("entry_snapshot"),
+                    "entry_ts": attrs.get("entry_ts"),
+                    "deadline": dl,
+                    "overdue_seconds": int((now - deadline).total_seconds()),
+                })
         if flipped:
             s.commit()
-    return flipped
+
+    # Emit events AFTER the commit so a failed insert never blocks the status flip.
+    for f in flipped:
+        try:
+            _emit_overdue_event(f, now)
+        except Exception:  # noqa: BLE001 — alerting must never break the sweep
+            pass
+    return len(flipped)
+
+
+def _emit_overdue_event(f: dict, now: datetime) -> None:
+    """Write a `transit_overdue` FRS event for one flipped session so it surfaces in
+    the Events list + live feed like any other recognition alert."""
+    from db.events import record_event
+    from db import session as _evt_session  # ensure record_event's session is ready
+
+    rule_name = None
+    try:
+        with db_session() as s:
+            r = s.get(TransitRule, f["rule_id"])
+            rule_name = r.name if r else None
+    except Exception:  # noqa: BLE001
+        pass
+
+    name = f.get("person_name") or (f"Person {str(f.get('person_id'))[:8]}"
+                                    if f.get("person_id") else "Unknown")
+    record_event(
+        camera_id=f.get("entry_camera"),
+        person_id=f.get("person_id"),
+        person_name=f.get("person_name"),
+        confidence=None,
+        snapshot_path=f.get("entry_snapshot"),
+        event_type="transit_overdue",
+        ts=now,
+        attributes={
+            "rule_id": f.get("rule_id"),
+            "rule_name": rule_name,
+            "session_id": f.get("session_id"),
+            "entry_camera": f.get("entry_camera"),
+            "entry_ts": f.get("entry_ts"),
+            "deadline": f.get("deadline"),
+            "overdue_seconds": f.get("overdue_seconds"),
+            "title": f"Transit overdue — {name}"
+                     + (f" ({rule_name})" if rule_name else ""),
+        },
+    )

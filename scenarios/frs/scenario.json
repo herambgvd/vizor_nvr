@@ -194,7 +194,8 @@
     "face_recognized",
     "face_unknown",
     "spoof_detected",
-    "face_detected"
+    "face_detected",
+    "transit_overdue"
   ],
   "proxy_routes": [
     {

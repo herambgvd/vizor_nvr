@@ -106,16 +106,26 @@ def record_event(
             "group_name": group_name,
         })
 
+        # transit_overdue is an alert, not a face sighting — surface it loudly with
+        # its own title + severity so the operator notices.
+        _is_overdue = event_type == "transit_overdue"
+        _title = (attributes or {}).get("title") if _is_overdue else (
+            person_name or ("Face detected" if event_type == "face_detected" else "Unknown face"))
         ev = FRSEvent(
-            camera_id=camera_id, event_type=event_type, severity="info",
-            title=person_name or ("Face detected" if event_type == "face_detected" else "Unknown face"),
-            detection_type="face", person_id=person_id,
+            camera_id=camera_id, event_type=event_type,
+            severity="warning" if _is_overdue else "info",
+            title=_title or "Transit overdue",
+            detection_type="transit" if _is_overdue else "face", person_id=person_id,
             confidence=round(float(confidence), 4) if confidence is not None else None,
             bbox=bbox, attributes=attributes,
             snapshot_path=snapshot_path, triggered_at=naive(ts) or ts,
         )
         s.add(ev)
-        if person_id:
+        # Attendance is driven by actual face SIGHTINGS only. Synthetic alerts like
+        # transit_overdue carry a person_id for context but are not a sighting — they
+        # must not punch the clock.
+        _SIGHTING_TYPES = {"face_recognized", "face_unknown", "face_detected"}
+        if person_id and event_type in _SIGHTING_TYPES:
             face_snap = (attributes or {}).get("face_snapshot") or snapshot_path
             day_key = (ts or utcnow()).date().isoformat()
             existing = s.scalar(select(FRSAttendance).where(

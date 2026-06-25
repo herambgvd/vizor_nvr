@@ -23,6 +23,7 @@ import {
   Loader2,
   Info,
   X,
+  Clock3,
 } from "lucide-react";
 
 import { WebRTCPlayer } from "../../../components/nvr/WebRTCPlayer";
@@ -189,6 +190,11 @@ function frsAnnouncePhrase(ev, cameraName) {
   const group = ev?.group_name ?? attrs.group_name;
   const cam = cameraName || ev?.camera_id || "camera";
   if (ev?.event_type === "spoof_detected") return "Spoof detected";
+  if (ev?.event_type === "transit_overdue") {
+    const name = ev?.person_name || attrs.person_name || "Person";
+    const rule = attrs.rule_name ? ` on ${attrs.rule_name}` : "";
+    return `Transit overdue. ${name}${rule} has not exited`;
+  }
   if (ev?.event_type === "face_recognized") {
     const name = ev?.person_name || "person";
     if (authorized) {
@@ -200,9 +206,9 @@ function frsAnnouncePhrase(ev, cameraName) {
   return `Unregistered person detected at ${cam}`;
 }
 
-// FRS speaks on EVERY fresh recognition (authorized + not), not only violations.
+// FRS speaks on EVERY fresh recognition (authorized + not) and on a transit overdue.
 function isFrsAnnounceEvent(ev) {
-  return ["face_recognized", "face_unknown", "spoof_detected"].includes(ev?.event_type);
+  return ["face_recognized", "face_unknown", "spoof_detected", "transit_overdue"].includes(ev?.event_type);
 }
 
 // Does this fresh event warrant the loud alarm? Violation-ish across scenarios:
@@ -214,7 +220,8 @@ function isViolationEvent(ev) {
     t === "ppe_missing" ||
     t === "face_unknown" ||
     t === "spoof_detected" ||
-    t === "blacklist_hit"
+    t === "blacklist_hit" ||
+    t === "transit_overdue"
   );
 }
 
@@ -226,6 +233,7 @@ function friendlyEventType(type) {
 
 function OverlayIcon({ type }) {
   if (type === "spoof_detected") return <ShieldAlert className="h-3 w-3" />;
+  if (type === "transit_overdue") return <Clock3 className="h-3 w-3" />;
   if (type === "face_unknown") return <UserX className="h-3 w-3" />;
   if (type === "face_recognized") return <UserCheck className="h-3 w-3" />;
   // Unknown / non-FRS event types — neutral dot so any scenario renders cleanly.

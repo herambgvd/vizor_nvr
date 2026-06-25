@@ -11,6 +11,7 @@ export const FRS_EVENT_TYPES = [
   { value: "face_unknown", label: "Unknown" },
   { value: "spoof_detected", label: "Spoof" },
   { value: "face_detected", label: "Detected" },
+  { value: "transit_overdue", label: "Transit Overdue" },
 ];
 
 export const FRS_EVENT_LABEL = FRS_EVENT_TYPES.reduce((acc, t) => {
