@@ -233,7 +233,11 @@ function frsAnnouncePhrase(ev, cameraName) {
     return `Transit overdue. ${name}${rule} has not exited`;
   }
   if (ev?.event_type === "face_recognized") {
-    const name = ev?.person_name || "person";
+    // The recognised person's name lives in different places depending on path:
+    // top-level person_name, attributes.person_name, or (the recorded-event case)
+    // the event title. Match the badge's resolution so speech says the real name.
+    const name = ev?.person_name || attrs.person_name
+      || (ev?.title && ev.title !== "Unknown face" ? ev.title : null) || "person";
     if (authorized) {
       return group ? `Authorized ${name}, ${group}` : `Authorized ${name}`;
     }
