@@ -252,6 +252,10 @@ function FrsAuthBadge({ ev }) {
     else { text = "not authorized"; color = "#f87171"; }
   } else if (ev?.event_type === "spoof_detected") {
     text = "spoof"; color = "#f87171";
+  } else if (ev?.event_type === "transit_overdue") {
+    // Not a face-auth event — it's a dwell-time alert. Show its own chip so the
+    // operator doesn't read it as an unregistered person.
+    text = "transit overdue"; color = "#fb923c";
   }
   return (
     <span className="font-telemetry text-[8px] uppercase tracking-widest px-1 py-0.5 rounded shrink-0"

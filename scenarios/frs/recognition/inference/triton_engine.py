@@ -28,6 +28,11 @@ from .preprocess import (
 
 # Triton model names (match the model_repository dir names) + their IO tensor
 # names (from the ONNX exports — see config.pbtxt).
+import os as _os
+# How long a positive Triton model-readiness is trusted before re-checking, so the
+# /health probe doesn't network-ping Triton on every request.
+_READY_TTL_S = float(_os.getenv("FRS_MODEL_READY_TTL_S", "30"))
+
 _DET_MODEL = "scrfd_10g"
 _EMB_MODEL = "arcface_r50"
 _FF_MODEL = "fairface"
@@ -49,6 +54,7 @@ class TritonEngine:
         self._timeout = timeout
         self._client = None
         self._load_errors: dict[str, str] = {}
+        self._ready_cache: dict[str, tuple[bool, float]] = {}  # name -> (ok, monotonic_ts)
 
     # ── client ────────────────────────────────────────────────────────────
     def _conn(self):
@@ -62,13 +68,30 @@ class TritonEngine:
         return self._client
 
     def _model_ready(self, name: str) -> bool:
+        # Cache a positive readiness for a while. is_model_ready() is a network
+        # round-trip to Triton; the /health probe (and ready/status) called it on
+        # every request, so when Triton was busy serving inference the probe blocked
+        # for seconds and the orchestrator flapped the container "unhealthy" — which
+        # looked like events "holding". Models don't unload mid-run, so once ready
+        # we trust it for _READY_TTL_S and only re-check after that or on a miss.
+        import time as _t
+        now = _t.monotonic()
+        cached = self._ready_cache.get(name)
+        if cached and cached[0] and (now - cached[1]) < _READY_TTL_S:
+            return True
         c = self._conn()
         if c is None:
             return False
         try:
-            return bool(c.is_model_ready(name))
+            ok = bool(c.is_model_ready(name))
+            self._ready_cache[name] = (ok, now)
+            return ok
         except Exception as exc:  # noqa: BLE001
             self._load_errors[name] = str(exc)
+            # On a transient error, fall back to the last known-good within TTL so a
+            # blip doesn't mark a working engine unready.
+            if cached and cached[0] and (now - cached[1]) < _READY_TTL_S:
+                return True
             return False
 
     def _infer(self, model: str, inp_name: str, tensor: np.ndarray,
