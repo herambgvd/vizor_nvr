@@ -144,13 +144,27 @@ def _async_enabled() -> bool:
     return os.getenv("PPE_LIVE_ASYNC", "false").lower() in ("1", "true", "yes", "on")
 
 
+def _worker_v2_enabled() -> bool:
+    import os
+    return os.getenv("PPE_WORKER_V2", "false").lower() in ("1", "true", "yes", "on")
+
+
 def start_live_manager():
     """Launch the live worker. With PPE_LIVE_ASYNC the new async supervisor
     (vizor_sdk.aio, GStreamer + one-task-per-camera + watchdog + spooled events) is
-    used; otherwise the legacy thread-per-camera manager. No-op if disabled."""
+    used; otherwise the legacy thread-per-camera manager. With PPE_WORKER_V2 the
+    in-process supervisor is replaced by the out-of-process Redis worker — the app
+    only runs the control shim + events bridge. No-op if disabled."""
     global _ASYNC_SUP
     if not config.LIVE_ENABLED:
         print("[ppe-live] live compliance disabled (PPE_LIVE_ENABLED=false)", flush=True)
+        return
+    if _worker_v2_enabled():
+        from .events_bridge import start_events_bridge
+        from .control_shim import start_control_shim
+        start_events_bridge()
+        start_control_shim()
+        print("[ppe-live] live manager started (worker-v2: bridge + shim)", flush=True)
         return
     if _async_enabled():
         from .async_pipeline import build_async_manager

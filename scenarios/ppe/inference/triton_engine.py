@@ -70,7 +70,15 @@ class PPEDetector:
     def __init__(self) -> None:
         from vizor_sdk import TritonClient
 
-        self.client = TritonClient(config.TRITON_URL)
+        # Prefer gRPC (hard per-call timeout, no HTTP _post hang) when a gRPC URL is
+        # configured — set by the worker-v2 path via TRITON_GRPC_URL + VIZOR_TRITON_GRPC.
+        # Falls back to the HTTP URL + client for the legacy in-app path.
+        import os
+        grpc_url = os.environ.get("TRITON_GRPC_URL")
+        if os.environ.get("VIZOR_TRITON_GRPC", "0").lower() in ("1", "true", "yes", "on") and grpc_url:
+            self.client = TritonClient(grpc_url, grpc=True)
+        else:
+            self.client = TritonClient(config.TRITON_URL)
         self.model = config.PPE_MODEL_NAME
         self.input = config.PPE_MODEL_INPUT
         self.output = config.PPE_MODEL_OUTPUT

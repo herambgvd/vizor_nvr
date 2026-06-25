@@ -92,6 +92,54 @@ services:
       timeout: 5s
       retries: 3
 
+  # ── PPE worker (architecture v2) ─────────────────────────────────────────
+  # Out-of-process PPE compliance worker on the ported framework: gRPC Triton
+  # (hard timeout), per-camera asyncio + watchdog, Redis control plane. Reuses the
+  # ppe image, runs the worker entrypoint. Opt-in via `--profile worker-v2`; the
+  # app must also have PPE_WORKER_V2=1 so it runs the bridge+shim.
+  ppe-worker:
+    image: vizor_nvr-ppe
+    container_name: gvd_ai_ppe_worker
+    restart: unless-stopped
+    profiles: ["worker-v2"]
+    command: ["python", "-m", "live.redis_worker"]
+    depends_on:
+      ai-redis:
+        condition: service_healthy
+      triton:
+        condition: service_started
+      ppe-db:
+        condition: service_healthy
+    environment:
+      SCENARIO_SLUG: ppe
+      VIZOR_SERVICE_TOKEN: ${AI_PLUGIN_SERVICE_TOKEN:-dev-XNrW79MQknM38BVGRkDZWrUQhJsJ2HUBbYfTOkWAZY0}
+      INFERENCE_BACKEND: ${PPE_INFERENCE_BACKEND:-triton}
+      TRITON_URL: ${TRITON_URL:-triton:8000}
+      TRITON_GRPC_URL: ${TRITON_GRPC_URL:-triton:8001}
+      VIZOR_TRITON_GRPC: "1"
+      AI_REDIS_URL: ${AI_REDIS_URL:-redis://ai-redis:6379/0}
+      PPE_MODEL_NAME: ${PPE_MODEL_NAME:-ppe_yolo26_trt}
+      PPE_LIVE_ENABLED: "true"
+      GO2RTC_RTSP_HOST: go2rtc
+      GO2RTC_RTSP_PORT: "8554"
+      WORKER_METRICS_PORT: "9102"
+      PORT: 8092
+    networks:
+      - internal
+    volumes:
+      - recordings:/data/recordings:ro
+      - ppe_snapshots:/data/ppe
+      - ./models:/models:ro
+    deploy:
+      resources:
+        limits:
+          memory: ${PPE_WORKER_MEM_LIMIT:-4g}
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, video]
+
 
 networks:
   internal:

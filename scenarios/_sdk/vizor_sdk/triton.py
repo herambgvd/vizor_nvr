@@ -20,18 +20,33 @@ try:
 except Exception:  # noqa: BLE001 — tritonclient[http] is an optional extra
     triton_http = None
 
+try:
+    import tritonclient.grpc as triton_grpc
+except Exception:  # noqa: BLE001 — tritonclient[grpc] is an optional extra
+    triton_grpc = None
+
 logger = logging.getLogger(__name__)
 
 
 class TritonClient:
     """Generic shared-Triton client. Lazy-connects, fails soft (returns None /
     False rather than raising) so a plugin degrades instead of crashing when
-    Triton is briefly unavailable."""
+    Triton is briefly unavailable.
 
-    def __init__(self, url: str, timeout: float = 30.0):
-        # Accept "http://triton:8000" or "triton:8000" — the http client wants
-        # the bare host:port.
-        self.url = url.replace("http://", "").replace("https://", "")
+    Transport: HTTP by default. Pass ``grpc=True`` (or set the env
+    ``VIZOR_TRITON_GRPC=1``) to use gRPC, which — unlike the HTTP client whose
+    ``_post`` had no socket timeout and could hang a worker thread forever when
+    Triton stalled — enforces a hard per-call ``client_timeout``. Pass a gRPC URL
+    (``triton:8001``) when using gRPC.
+    """
+
+    def __init__(self, url: str, timeout: float = 30.0, *, grpc: bool | None = None):
+        if grpc is None:
+            import os
+            grpc = os.environ.get("VIZOR_TRITON_GRPC", "0").lower() in ("1", "true", "yes", "on")
+        self.grpc = bool(grpc and triton_grpc is not None)
+        # Accept "http://triton:8000" / "grpc://triton:8001" / bare host:port.
+        self.url = url.replace("http://", "").replace("https://", "").replace("grpc://", "")
         self.timeout = timeout
         self._client = None
         self.load_errors: dict[str, str] = {}
@@ -41,12 +56,17 @@ class TritonClient:
         # drowning the log.
         self._infer_fail: dict[str, dict] = {}
 
+    @property
+    def _lib(self):
+        return triton_grpc if self.grpc else triton_http
+
     # ── connection ──────────────────────────────────────────────────────────
     def _conn(self):
-        if self._client is not None or triton_http is None:
+        lib = self._lib
+        if self._client is not None or lib is None:
             return self._client
         try:
-            self._client = triton_http.InferenceServerClient(url=self.url, verbose=False)
+            self._client = lib.InferenceServerClient(url=self.url, verbose=False)
         except Exception as exc:  # noqa: BLE001
             self.load_errors["client"] = str(exc)
             self._client = None
@@ -55,7 +75,7 @@ class TritonClient:
     @property
     def available(self) -> bool:
         """True if the tritonclient lib is installed and a connection opened."""
-        return triton_http is not None and self._conn() is not None
+        return self._lib is not None and self._conn() is not None
 
     def model_ready(self, name: str) -> bool:
         c = self._conn()
@@ -81,22 +101,24 @@ class TritonClient:
         """Run one inference. `inputs` maps tensor name -> fp32 ndarray (any number
         of inputs). Returns {out_name: ndarray}, or None on any failure."""
         c = self._conn()
-        if c is None or triton_http is None:
+        lib = self._lib
+        if c is None or lib is None:
             return None
         try:
             tin = []
             for name, arr in inputs.items():
                 a = np.ascontiguousarray(arr.astype(np.float32))
-                t = triton_http.InferInput(name, list(a.shape), "FP32")
+                t = lib.InferInput(name, list(a.shape), "FP32")
                 t.set_data_from_numpy(a)
                 tin.append(t)
-            outs = [triton_http.InferRequestedOutput(n) for n in out_names]
-            res = c.infer(
-                model_name=model,
-                inputs=tin,
-                outputs=outs,
-                timeout=int(timeout if timeout is not None else self.timeout),
-            )
+            outs = [lib.InferRequestedOutput(n) for n in out_names]
+            to = float(timeout if timeout is not None else self.timeout)
+            if self.grpc:
+                # gRPC enforces a HARD client-side deadline (seconds) — a stalled
+                # Triton raises instead of hanging the calling thread forever.
+                res = c.infer(model_name=model, inputs=tin, outputs=outs, client_timeout=to)
+            else:
+                res = c.infer(model_name=model, inputs=tin, outputs=outs, timeout=int(to))
             result = {n: res.as_numpy(n) for n in out_names}
             self._note_infer_ok(model)
             return result
