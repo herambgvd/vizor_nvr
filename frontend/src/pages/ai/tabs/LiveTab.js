@@ -691,6 +691,10 @@ export default function LiveTab({ scenario }) {
     refetchIntervalInBackground: false,
   });
 
+  // Wall-clock when this Live view mounted — declared BEFORE the memo that uses it
+  // (a later declaration tripped a temporal-dead-zone "before initialization" crash).
+  const mountAtRef = useRef(Date.now());
+
   // Real-time only: drop anything that happened before the view was opened so the
   // panel starts empty and fills live. /live still returns a backlog; we filter it.
   const liveItems = useMemo(() => {
@@ -719,10 +723,6 @@ export default function LiveTab({ scenario }) {
   const [newEventIds, setNewEventIds] = useState(() => new Set());
   // Ids seen in the previous poll — anything not here is genuinely new.
   const seenIdsRef = useRef(null);
-  // Wall-clock when this Live view mounted — the panel shows ONLY events that
-  // arrive AFTER it's opened (true real-time), not today's backlog the /live poll
-  // returns. Also kills the snapshot-500 flood from old events whose crops are gone.
-  const mountAtRef = useRef(Date.now());
   const mutedRef = useRef(muted);
   useEffect(() => {
     mutedRef.current = muted;
