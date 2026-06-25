@@ -146,7 +146,11 @@ class FrsWorker(BaseWorker):
         # next_frame() never got a slot and the camera loop stalled after 1 frame
         # (vizor-gpu sidesteps this with a fully-async pipeline; we isolate the pool).
         from concurrent.futures import ThreadPoolExecutor
-        n = max(2, min(8, (os.cpu_count() or 4)))
+        try:
+            n = int(os.getenv("FRS_RECO_POOL_WORKERS", "3"))
+        except ValueError:
+            n = 3
+        n = max(1, min(8, n))
         self._reco_pool = ThreadPoolExecutor(max_workers=n, thread_name_prefix="frs-reco")
 
     async def on_warmup(self) -> None:

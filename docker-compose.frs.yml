@@ -144,6 +144,13 @@ services:
       GO2RTC_RTSP_HOST: go2rtc
       GO2RTC_RTSP_PORT: "8554"
       WORKER_METRICS_PORT: "9101"
+      # CPU tuning. The aligned-crop NLM denoise is ~27ms/face — biggest per-frame CPU
+      # cost for marginal accuracy gain; off by default in the worker. Cap the
+      # recognition thread pool so N cameras don't spin every core on cv2 work.
+      FRS_DENOISE_ALIGNED: ${FRS_DENOISE_ALIGNED:-false}
+      FRS_RECO_POOL_WORKERS: ${FRS_RECO_POOL_WORKERS:-3}
+      OMP_NUM_THREADS: ${FRS_OMP_THREADS:-2}
+      OPENCV_NUM_THREADS: ${FRS_OPENCV_THREADS:-2}
       # Decoder: cpp native NVDEC (h264_cuvid). The worker pipeline is now fully
       # async (recognition awaits every Triton/qdrant call), so the event loop never
       # blocks and the native decoder no longer stalls — GPU decode, lowest CPU.
