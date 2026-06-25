@@ -289,6 +289,25 @@ export const photoImageUrl = async (id) => {
 // snapshot_path as a plugin-relative path ("/snapshot?key=..."). Fetch the bytes
 // through the proxy with the bearer token and return an object URL (caller must
 // URL.revokeObjectURL on unmount).
+// Server-side TTS: fetch the espeak-ng WAV (auth blob, like a snapshot) and return
+// an object URL the caller can play via <audio>. Browser-voice independent.
+export const ttsAudioUrl = async (slug, text) => {
+  if (!text) return null;
+  const token = getAccessToken();
+  let resp;
+  try {
+    resp = await fetch(
+      `${BACKEND_URL}/api/ai/scenarios/${slug}/proxy/tts?text=${encodeURIComponent(text)}`,
+      { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  } catch (_e) {
+    return null;
+  }
+  if (!resp.ok) return null;
+  const blob = await resp.blob();
+  if (!blob || blob.size === 0) return null;
+  return URL.createObjectURL(blob);
+};
+
 export const scenarioSnapshotUrl = async (slug, snapshotPath) => {
   if (!snapshotPath) return null;
   const token = getAccessToken();

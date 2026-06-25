@@ -28,7 +28,7 @@ import {
 
 import { WebRTCPlayer } from "../../../components/nvr/WebRTCPlayer";
 import { getScenarioCameras, listFrsLive } from "../../../api/frs";
-import { scenarioSnapshotUrl, listScenarioPluginEvents, proxyScenario } from "../../../api/ai";
+import { scenarioSnapshotUrl, listScenarioPluginEvents, proxyScenario, ttsAudioUrl } from "../../../api/ai";
 import {
   eventPersonName,
   eventTypeBadgeClass,
@@ -168,22 +168,40 @@ function _warmVoices() {
 }
 
 let _lastSpeakAt = 0;
-function speakPhrase(phrase) {
+let _ttsAudio = null;        // current server-TTS <audio>, so we don't overlap
+let _serverTtsOk = true;     // flips false if the /tts endpoint isn't available
+
+// Play a server-synthesised WAV (espeak-ng on the FRS service) — browser-voice
+// independent, so it works on every kiosk regardless of installed OS voices. Fetches
+// the WAV as an authed blob, then plays it. Returns true if it took ownership of the
+// announcement; false → caller falls back to browser speech / beep.
+function speakServer(phrase, slug) {
+  if (!_serverTtsOk || slug !== "frs") return false;
+  if (_ttsAudio && !_ttsAudio.ended && !_ttsAudio.paused) return true; // let it finish
+  ttsAudioUrl(slug, phrase)
+    .then((url) => {
+      if (!url) { _serverTtsOk = false; return; }
+      const a = new Audio(url);
+      a.onended = () => { try { URL.revokeObjectURL(url); } catch { /* noop */ } };
+      a.play().catch(() => { _serverTtsOk = false; });
+      _ttsAudio = a;
+    })
+    .catch(() => { _serverTtsOk = false; });
+  return true;  // attempted; don't also beep
+}
+
+function speakPhrase(phrase, slug) {
   if (!phrase) return false;
-  const synth = window.speechSynthesis;
-  const voices = (() => { try { return synth ? (synth.getVoices() || []) : []; } catch { return []; } })();
-  // Expose for quick diagnosis: window.__ttsVoices in the browser console tells us
-  // whether the OS has any TTS voice at all.
-  try { window.__ttsVoices = voices.length; } catch { /* ssr */ }
-  // No engine OR no installed OS voice → speak() would be silent, so the caller
-  // must beep instead. (Linux/Chromium kiosks often ship zero voices.)
-  if (!synth || voices.length === 0) return false;
   const now = Date.now();
   if (now - _lastSpeakAt < ALARM_THROTTLE_MS) return true;
-  // Let an in-flight statement finish — worker-v2 fires many recognitions/sec and
-  // cancel()-ing each one killed every utterance mid-word.
-  if (synth.speaking || synth.pending) return true;
   _lastSpeakAt = now;
+  // 1) Server-side TTS (preferred — deterministic across browsers).
+  if (speakServer(phrase, slug)) return true;
+  // 2) Browser SpeechSynthesis fallback.
+  const synth = window.speechSynthesis;
+  const voices = (() => { try { return synth ? (synth.getVoices() || []) : []; } catch { return []; } })();
+  if (!synth || voices.length === 0) return false;  // → caller beeps
+  if (synth.speaking || synth.pending) return true;
   try {
     const u = new SpeechSynthesisUtterance(phrase);
     u.rate = 1.0; u.pitch = 1.0; u.volume = 1.0;
@@ -673,14 +691,25 @@ export default function LiveTab({ scenario }) {
     refetchIntervalInBackground: false,
   });
 
+  // Real-time only: drop anything that happened before the view was opened so the
+  // panel starts empty and fills live. /live still returns a backlog; we filter it.
+  const liveItems = useMemo(() => {
+    const all = live?.items || [];
+    const mountAt = mountAtRef.current;
+    return all.filter((ev) => {
+      const t = ev.triggered_at ? Date.parse(ev.triggered_at) : NaN;
+      return Number.isNaN(t) ? false : t >= mountAt;
+    });
+  }, [live]);
+
   const eventsByCamera = useMemo(() => {
     const map = {};
-    (live?.items || []).forEach((ev) => {
+    liveItems.forEach((ev) => {
       if (!ev.camera_id) return;
       (map[ev.camera_id] = map[ev.camera_id] || []).push(ev);
     });
     return map;
-  }, [live]);
+  }, [liveItems]);
 
   // --- Engagement: new-event detection (pulse + audio cue) -----------------
   // Mute toggle for the audio cue (defaults on for FRS). Persisted lightly so
@@ -690,6 +719,10 @@ export default function LiveTab({ scenario }) {
   const [newEventIds, setNewEventIds] = useState(() => new Set());
   // Ids seen in the previous poll — anything not here is genuinely new.
   const seenIdsRef = useRef(null);
+  // Wall-clock when this Live view mounted — the panel shows ONLY events that
+  // arrive AFTER it's opened (true real-time), not today's backlog the /live poll
+  // returns. Also kills the snapshot-500 flood from old events whose crops are gone.
+  const mountAtRef = useRef(Date.now());
   const mutedRef = useRef(muted);
   useEffect(() => {
     mutedRef.current = muted;
@@ -713,7 +746,7 @@ export default function LiveTab({ scenario }) {
   }, []);
 
   useEffect(() => {
-    const items = live?.items || [];
+    const items = liveItems;
     const currentIds = new Set(items.map((ev) => ev.id));
 
     // First successful poll just seeds the baseline — nothing is "new" yet,
@@ -754,7 +787,7 @@ export default function LiveTab({ scenario }) {
         // unregistered) with a spoken phrase; soft chirp if nothing announceable.
         const ann = fresh.find(isFrsAnnounceEvent);
         if (ann) {
-          const spoke = speakPhrase(frsAnnouncePhrase(ann, camNameById[ann.camera_id]));
+          const spoke = speakPhrase(frsAnnouncePhrase(ann, camNameById[ann.camera_id]), slug);
           if (!spoke) playAlertBeepThrottled();
         } else {
           playSoftBeep();
@@ -762,7 +795,7 @@ export default function LiveTab({ scenario }) {
       } else {
         const violation = fresh.find(isViolationEvent);
         if (violation) {
-          const spoke = speakPhrase(violationPhrase(violation, slug));
+          const spoke = speakPhrase(violationPhrase(violation, slug), slug);
           if (!spoke) playAlertBeepThrottled();
         } else {
           playSoftBeep();
@@ -771,7 +804,7 @@ export default function LiveTab({ scenario }) {
     }
 
     return () => clearTimeout(timer);
-  }, [live, isFrs, slug, camNameById]);
+  }, [liveItems, isFrs, slug, camNameById]);
 
   if (camsLoading) {
     return (
@@ -878,11 +911,11 @@ export default function LiveTab({ scenario }) {
                 <ScanFace className="h-3.5 w-3.5" style={{ color: "var(--console-accent)" }} /> Live events
               </span>
               <span className="font-telemetry text-[10px]" style={{ color: "var(--console-muted)" }}>
-                {(live?.items || []).length}
+                {liveItems.length}
               </span>
             </div>
             <div className="flex-1 overflow-y-auto">
-              {(live?.items || []).length === 0 ? (
+              {liveItems.length === 0 ? (
                 <div className="flex flex-col items-center justify-center gap-2 py-12 px-4 text-center">
                   <ScanFace className="h-6 w-6" style={{ color: "var(--console-muted)" }} />
                   <span className="font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
@@ -890,7 +923,7 @@ export default function LiveTab({ scenario }) {
                   </span>
                 </div>
               ) : (
-                (live.items || []).map((ev) => (
+                liveItems.map((ev) => (
                   <button
                     key={ev.id}
                     type="button"

@@ -351,6 +351,10 @@
       "path": "/live"
     },
     {
+      "method": "GET",
+      "path": "/tts"
+    },
+    {
       "method": "POST",
       "path": "/feedback"
     },

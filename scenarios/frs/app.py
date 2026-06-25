@@ -34,12 +34,13 @@ from routers import (
     reports,
     settings as settings_router,
     transit,
+    tts,
 )
 
 app = FastAPI(title="Vizor Face Recognition", version=config.VERSION)
 
 for module in (health, groups, persons, photos, recognize, investigate,
-               transit, reports, ingest, public, settings_router):
+               transit, reports, ingest, public, settings_router, tts):
     app.include_router(module.router)
 
 

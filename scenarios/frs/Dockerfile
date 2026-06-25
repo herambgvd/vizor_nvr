@@ -61,7 +61,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && add-apt-repository -y ppa:deadsnakes/ppa \
     && apt-get update && apt-get install -y --no-install-recommends \
         python3.11 python3.11-dev python3.11-distutils \
-        ffmpeg libgl1 libglib2.0-0 libsm6 libxext6 \
+        ffmpeg libgl1 libglib2.0-0 libsm6 libxext6 espeak-ng \
         libgirepository-1.0-1 libcairo2 \
         gstreamer1.0-tools \
         gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
