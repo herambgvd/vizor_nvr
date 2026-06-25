@@ -109,6 +109,54 @@ services:
       timeout: 5s
       retries: 3
 
+  # ── FRS worker (architecture v2) ─────────────────────────────────────────
+  # Out-of-process recognition worker on the ported vizor-gpu framework: gRPC
+  # Triton (hard-timeout, no _post hang), per-camera asyncio + watchdog, Redis
+  # control plane. Reuses the frs image but runs the worker entrypoint instead of
+  # the FastAPI app. Opt-in via `--profile worker-v2`; the app side must also have
+  # FRS_WORKER_V2=1 so it runs the bridge+shim instead of the in-process supervisor.
+  frs-worker:
+    image: vizor_nvr-frs
+    container_name: gvd_ai_frs_worker
+    restart: unless-stopped
+    profiles: ["worker-v2"]
+    command: ["python", "-m", "live.redis_worker"]
+    depends_on:
+      ai-redis:
+        condition: service_healthy
+      triton:
+        condition: service_started
+      frs-db:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    environment:
+      SCENARIO_SLUG: frs
+      VIZOR_SERVICE_TOKEN: ${AI_PLUGIN_SERVICE_TOKEN:-dev-XNrW79MQknM38BVGRkDZWrUQhJsJ2HUBbYfTOkWAZY0}
+      INFERENCE_BACKEND: ${FRS_INFERENCE_BACKEND:-triton}
+      TRITON_URL: ${TRITON_URL:-triton:8000}
+      TRITON_GRPC_URL: ${TRITON_GRPC_URL:-triton:8001}
+      AI_REDIS_URL: ${AI_REDIS_URL:-redis://ai-redis:6379/0}
+      FRS_LIVE_ENABLED: "true"
+      GO2RTC_RTSP_HOST: go2rtc
+      GO2RTC_RTSP_PORT: "8554"
+      WORKER_METRICS_PORT: "9101"
+      PORT: 8093
+    networks:
+      - internal
+    volumes:
+      - recordings:/data/recordings:ro
+      - frs_photos:/data/frs
+    deploy:
+      resources:
+        limits:
+          memory: ${FRS_WORKER_MEM_LIMIT:-4g}
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, video]
+
 
 networks:
   internal:

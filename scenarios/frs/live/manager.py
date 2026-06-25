@@ -9,6 +9,7 @@ to the NVR so the Cameras tab shows running / stopped / error instead of a stati
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 
@@ -162,12 +163,30 @@ def worker_logs(camera_id: str) -> dict:
     }
 
 
+def _worker_v2_enabled() -> bool:
+    return os.getenv("FRS_WORKER_V2", "false").lower() in ("1", "true", "yes", "on")
+
+
 def start_live_manager():
     """Launch the reconcile loop on a daemon thread (no-op if disabled). With
     FRS_LIVE_ASYNC the GStreamer async supervisor runs instead of the legacy ffmpeg
-    thread workers."""
+    thread workers. With FRS_WORKER_V2 the in-process supervisor is REPLACED by the
+    out-of-process Redis worker: the app only runs the control shim (HTTP cameras ->
+    Redis Commands), the events bridge (ai:events -> Postgres), and the transit
+    sweep."""
     if not config.LIVE_ENABLED:
         print("[frs-live] live recognition disabled (FRS_LIVE_ENABLED=false)", flush=True)
+        return
+    if _worker_v2_enabled():
+        # New architecture: recognition runs in the separate FRS worker process
+        # (gRPC Triton, watchdog, Redis control). The app side only bridges.
+        from .events_bridge import start_events_bridge
+        from .control_shim import start_control_shim
+        start_events_bridge()
+        start_control_shim()
+        threading.Thread(target=_sweep_loop, daemon=True,
+                         name="frs-transit-sweep").start()
+        print("[frs-live] live manager started (worker-v2: bridge + shim + sweep)", flush=True)
         return
     if _async_enabled():
         global _ASYNC_SUP
