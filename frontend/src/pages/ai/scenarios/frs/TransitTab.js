@@ -52,6 +52,17 @@ import {
 import { verifyPassword } from "../../../../api/auth";
 import { useConfirm } from "../../../../components/ui/confirm";
 import { getAllCameras } from "../../../../api/cameras";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../../../../components/ui/alert-dialog";
+import { Input } from "../../../../components/ui/input";
 
 const FRS_SLUG = "frs";
 
@@ -519,23 +530,24 @@ const RulesPanel = ({ rules, rulesLoading, cameras, camName, qc }) => {
 // SESSIONS sub-tab
 // ---------------------------------------------------------------------------
 
-// Password-confirmed delete. Deleting a transit session is destructive, so we
-// re-verify the operator's platform password (POST /auth/me/verify-password)
-// before the delete fires — a misclick or an unattended console can't wipe a
-// session without the password.
+// Password-confirmed delete — uses the same AlertDialog as the Cameras "Delete
+// Camera" dialog so destructive confirmations look identical across the platform.
+// Re-verifies the operator's account password (POST /auth/me/verify-password)
+// before the delete fires.
 const DeleteSessionModal = ({ session: s, onClose, onDeleted }) => {
   const [pw, setPw] = useState("");
+  const [pwError, setPwError] = useState("");
   const [busy, setBusy] = useState(false);
   const personLabel =
-    s.person_name || (s.person_id ? `Person ${String(s.person_id).slice(0, 8)}` : "session");
+    s.person_name || (s.person_id ? `Person ${String(s.person_id).slice(0, 8)}` : "this");
   const submit = async () => {
-    if (!pw) return;
+    if (!pw) { setPwError("Password is required"); return; }
     setBusy(true);
     try {
       await verifyPassword(pw);
     } catch {
       setBusy(false);
-      toast.error("Incorrect password");
+      setPwError("Incorrect password");
       return;
     }
     try {
@@ -550,59 +562,41 @@ const DeleteSessionModal = ({ session: s, onClose, onDeleted }) => {
     }
   };
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: "rgba(0,0,0,0.6)" }}
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-sm rounded p-5 flex flex-col gap-4"
-        style={{ background: "var(--console-panel)", border: "1px solid var(--console-border)" }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-start justify-between">
-          <div className="font-telemetry text-[13px] font-semibold uppercase tracking-wide" style={{ color: "var(--console-rec)" }}>
-            Delete transit session
-          </div>
-          <button type="button" onClick={onClose} style={{ color: "var(--console-muted)" }}>
-            <X className="h-4 w-4" />
-          </button>
+    <AlertDialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete Transit Session</AlertDialogTitle>
+          <AlertDialogDescription>
+            Are you sure you want to delete the {personLabel} transit session? This
+            action cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <div className="space-y-1.5">
+          <label className="text-xs text-muted-foreground">
+            Confirm with your account password
+          </label>
+          <Input
+            type="password"
+            autoComplete="current-password"
+            placeholder="Account password"
+            value={pw}
+            onChange={(e) => { setPw(e.target.value); if (pwError) setPwError(""); }}
+            onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+          />
+          {pwError && <p className="text-xs text-rose-400">{pwError}</p>}
         </div>
-        <p className="font-telemetry text-[11px] leading-relaxed" style={{ color: "var(--console-muted)" }}>
-          Permanently delete the <span style={{ color: "var(--console-text)" }}>{personLabel}</span> session.
-          Enter your platform password to confirm.
-        </p>
-        <input
-          type="password"
-          autoFocus
-          value={pw}
-          onChange={(e) => setPw(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && submit()}
-          placeholder="Platform password"
-          className="font-telemetry text-[12px] px-3 py-2 rounded"
-          style={{ background: "var(--console-raised)", color: "var(--console-text)", border: "1px solid var(--console-border)" }}
-        />
-        <div className="flex items-center justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="font-telemetry text-[10px] uppercase tracking-wide px-3 py-1.5 rounded border"
-            style={{ background: "var(--console-raised)", borderColor: "var(--console-border)", color: "var(--console-text)" }}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={submit}
-            disabled={busy || !pw}
-            className="font-telemetry text-[10px] uppercase tracking-wide px-3 py-1.5 rounded disabled:opacity-40"
-            style={{ background: "var(--console-rec)", color: "#fff" }}
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={(e) => { e.preventDefault(); submit(); }}
+            className="bg-destructive hover:bg-destructive/90"
+            disabled={busy}
           >
             {busy ? "Deleting…" : "Delete"}
-          </button>
-        </div>
-      </div>
-    </div>
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 };
 

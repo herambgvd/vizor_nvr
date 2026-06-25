@@ -319,6 +319,10 @@
       "path": "/transit/sessions"
     },
     {
+      "method": "DELETE",
+      "path": "/transit/sessions/{session_id}"
+    },
+    {
       "method": "GET",
       "path": "/events"
     },
