@@ -56,7 +56,9 @@ class EventsBridge:
     # ── main loop ──────────────────────────────────────────────────────────
     def _run(self) -> None:
         import redis  # sync client — the bridge does blocking DB work anyway
-        r = redis.from_url(_redis_url(), decode_responses=True)
+        # socket_timeout must exceed the XREADGROUP block (5s) or every idle read
+        # raises "Timeout reading from socket".
+        r = redis.from_url(_redis_url(), decode_responses=True, socket_timeout=10)
         # Create the consumer group (idempotent). id="$" so we only consume NEW
         # events from worker start; switch to "0" to replay backlog if needed.
         try:

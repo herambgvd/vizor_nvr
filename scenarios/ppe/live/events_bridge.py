@@ -41,7 +41,8 @@ class EventsBridge:
 
     def _run(self) -> None:
         import redis
-        r = redis.from_url(_redis_url(), decode_responses=True)
+        # socket_timeout must exceed the XREADGROUP block (5s) or every idle read raises.
+        r = redis.from_url(_redis_url(), decode_responses=True, socket_timeout=10)
         try:
             r.xgroup_create(EVENTS_STREAM, GROUP, id="$", mkstream=True)
         except Exception as e:  # noqa: BLE001

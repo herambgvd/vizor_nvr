@@ -144,6 +144,10 @@ services:
       GO2RTC_RTSP_HOST: go2rtc
       GO2RTC_RTSP_PORT: "8554"
       WORKER_METRICS_PORT: "9101"
+      # High-bitrate 4MP main-stream RTSP can take >30s to connect + deliver the
+      # first I-frame; the default 30s watchdog would false-restart it into a loop.
+      # Match the old supervisor's 90s stale window.
+      WORKER_WATCHDOG_STALE_S: ${FRS_WATCHDOG_STALE_S:-90}
       PORT: 8093
     networks:
       - internal
