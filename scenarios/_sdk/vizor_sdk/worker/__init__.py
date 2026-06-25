@@ -16,6 +16,10 @@ bucket / stream names, matching how nvr already stores data.
 from __future__ import annotations
 
 from .protocol import Command, Event, EventMedia, Status, ScenarioManifest, SubFeature
+from .worker import BaseWorker, control_stream, status_stream, dlq_stream, EVENTS_STREAM
+from .triton_client import TritonClient, default_grpc_url
+from .circuit_breaker import CircuitBreaker, CircuitOpenError
+from .inference_gateway import InferenceGateway
 
 __all__ = [
     "Command",
@@ -24,4 +28,14 @@ __all__ = [
     "Status",
     "ScenarioManifest",
     "SubFeature",
+    "BaseWorker",
+    "control_stream",
+    "status_stream",
+    "dlq_stream",
+    "EVENTS_STREAM",
+    "TritonClient",
+    "default_grpc_url",
+    "CircuitBreaker",
+    "CircuitOpenError",
+    "InferenceGateway",
 ]
