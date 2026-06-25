@@ -119,9 +119,37 @@ def _loop():
         time.sleep(config.LIVE_POLL_SECONDS)
 
 
+def _worker_v2_status() -> dict | None:
+    """Read the out-of-process worker's liveness from its Redis heartbeat
+    (ai:frs:status) so the UI/health reflects the worker-v2 process, not the (off)
+    in-app supervisor. Returns None if not in v2 mode or the heartbeat is missing."""
+    if not _worker_v2_enabled():
+        return None
+    try:
+        import json as _json
+        import redis as _redis
+        r = _redis.from_url(os.environ.get("AI_REDIS_URL", "redis://ai-redis:6379/0"),
+                            decode_responses=True, socket_timeout=2)
+        entries = r.xrevrange("ai:frs:status", count=1)
+        if not entries:
+            return {"enabled": config.LIVE_ENABLED, "expected": 0, "alive": 0, "active": 0}
+        _id, fields = entries[0]
+        st = _json.loads(fields.get("data") or "{}")
+        cams = st.get("active_cameras") or []
+        healthy = bool(st.get("healthy"))
+        return {"enabled": config.LIVE_ENABLED, "expected": len(cams),
+                "alive": len(cams), "active": len(cams) if healthy else 0,
+                "phase": st.get("phase"), "worker_v2": True}
+    except Exception:  # noqa: BLE001
+        return {"enabled": config.LIVE_ENABLED, "expected": 0, "alive": 0, "active": 0}
+
+
 def live_status() -> dict:
     """Snapshot of worker liveness for /health: how many workers exist, how many
     are alive, and how many decoded a frame within the last 60s ("active")."""
+    v2 = _worker_v2_status()
+    if v2 is not None:
+        return v2
     if _ASYNC_SUP is not None:
         s = _ASYNC_SUP.status()
         s.setdefault("enabled", config.LIVE_ENABLED)
@@ -136,9 +164,39 @@ def live_status() -> dict:
             "alive": alive, "active": active}
 
 
+def _worker_v2_logs(camera_id: str) -> dict | None:
+    """Per-camera diagnostics from the worker-v2 process (its /health + /metrics)."""
+    if not _worker_v2_enabled():
+        return None
+    try:
+        import json as _json
+        import urllib.request as _u
+        host = os.environ.get("FRS_WORKER_HOST", "frs-worker")
+        port = os.environ.get("FRS_WORKER_METRICS_PORT", "9101")
+        base = f"http://{host}:{port}"
+        h = _json.loads(_u.urlopen(f"{base}/health", timeout=2).read())
+        pl = (h.get("pipelines") or {}).get(camera_id)
+        running = pl is not None and not pl.get("task_done", True)
+        age = pl.get("last_frame_age_s") if pl else None
+        return {
+            "camera_id": camera_id,
+            "running": bool(running),
+            "active": bool(running and age is not None and age < 60.0),
+            "stats": {"last_frame_secs_ago": age},
+            "logs": [],
+            "detail": "worker-v2 (out-of-process)" if pl else "no worker pipeline for this camera",
+        }
+    except Exception as e:  # noqa: BLE001
+        return {"camera_id": camera_id, "running": False, "active": False,
+                "logs": [], "stats": {}, "detail": f"worker-v2 unreachable: {e}"}
+
+
 def worker_logs(camera_id: str) -> dict:
     """Live worker diagnostics for one camera — recent log lines + current stats,
     for the operator's in-UI 'worker logs' panel."""
+    v2 = _worker_v2_logs(camera_id)
+    if v2 is not None:
+        return v2
     if _ASYNC_SUP is not None:
         return _ASYNC_SUP.camera_logs(camera_id)
     now = time.time()
