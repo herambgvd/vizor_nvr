@@ -132,6 +132,7 @@ function primeAudio() {
   // no TTS voice installed (common on Linux/Chromium), so resume the AudioContext
   // under this gesture or alerts stay silent even though speech "succeeded".
   try { _getAudioCtx(); } catch { /* no webaudio */ }
+  _warmVoices();
   try {
     const synth = window.speechSynthesis;
     if (synth) {
@@ -144,26 +145,29 @@ function primeAudio() {
   }
 }
 
-// True only when SpeechSynthesis can actually produce sound (engine present AND at
-// least one voice). On boxes with no installed TTS voice, speak() silently no-ops,
-// so callers must fall back to the beep instead of assuming it spoke.
-function speechUsable() {
+// SpeechSynthesis voices load ASYNCHRONOUSLY — getVoices() is often empty on the
+// first calls until the engine fires `voiceschanged`. We warm it up here and cache
+// the result; speakPhrase tries to speak whenever the engine exists (the client
+// wants the spoken statement, e.g. "Authorized Heramb Mishra"), and only falls back
+// to the beep when there's no SpeechSynthesis engine at all.
+let _voicesReady = false;
+function _warmVoices() {
   try {
     const synth = window.speechSynthesis;
-    if (!synth) return false;
-    const voices = synth.getVoices ? synth.getVoices() : [];
-    return Array.isArray(voices) && voices.length > 0;
-  } catch {
-    return false;
-  }
+    if (!synth) return;
+    const have = (synth.getVoices() || []).length > 0;
+    if (have) { _voicesReady = true; return; }
+    synth.onvoiceschanged = () => {
+      if ((synth.getVoices() || []).length > 0) _voicesReady = true;
+    };
+  } catch { /* no speech */ }
 }
 
 let _lastSpeakAt = 0;
 function speakPhrase(phrase) {
   if (!phrase) return false;
   const synth = window.speechSynthesis;
-  // No engine OR no installed voice → tell the caller it didn't speak so it beeps.
-  if (!synth || !speechUsable()) return false;
+  if (!synth) return false;  // no engine at all → caller beeps
   const now = Date.now();
   if (now - _lastSpeakAt < ALARM_THROTTLE_MS) return true;
   _lastSpeakAt = now;
@@ -173,7 +177,20 @@ function speakPhrase(phrase) {
     u.rate = 1.0;
     u.pitch = 1.0;
     u.volume = 1.0;
+    // Pick a loaded voice explicitly if one is available (some engines stay silent
+    // with a null voice until one is assigned).
+    try {
+      const vs = synth.getVoices() || [];
+      if (vs.length) {
+        u.voice = vs.find((v) => /en[-_]/i.test(v.lang)) || vs[0];
+      }
+    } catch { /* getVoices unavailable */ }
+    let spoke = true;
+    u.onerror = () => { spoke = false; playAlertBeep(); };  // voice failed → beep
     synth.speak(u);
+    // If nothing actually started speaking shortly after (no voice installed),
+    // fall back to the beep so the operator still gets an audible cue.
+    setTimeout(() => { if (!synth.speaking && spoke) playAlertBeep(); }, 250);
     return true;
   } catch {
     return false;
