@@ -387,6 +387,9 @@ export const deleteTransitRule = async (id) =>
 export const listTransitSessions = async (params = {}) =>
   proxyScenario(FRS_SLUG, "/transit/sessions", { params }); // { sessions: [...], total }
 
+export const deleteTransitSession = async (id) =>
+  proxyScenario(FRS_SLUG, `/transit/sessions/${id}`, { method: "DELETE" });
+
 // ---------- generic scenario events / plates (plugin-owned) ----------
 // Plugin scenarios (PPE, ANPR) own their event store and expose a unified
 // {items,total,limit,offset} envelope. Read endpoint differs by scenario:

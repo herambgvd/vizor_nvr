@@ -56,6 +56,18 @@ def delete_transit_rule(rule_id: str, _: None = Depends(require_service_token)) 
     return {"ok": True, "id": rule_id}
 
 
+@router.delete("/transit/sessions/{session_id}")
+def delete_transit_session(session_id: str, _: None = Depends(require_service_token)) -> dict:
+    """Delete one transit session. The NVR backend has already re-verified the
+    operator's platform password before proxying this (destructive action)."""
+    with session() as s:
+        sess = s.get(TransitSession, session_id)
+        if not sess:
+            raise HTTPException(404, "session not found")
+        s.delete(sess); s.commit()
+    return {"ok": True, "id": session_id}
+
+
 @router.get("/transit/sessions")
 def list_transit_sessions(status: Optional[str] = None, since: Optional[str] = None,
                           until: Optional[str] = None, limit: int = 100, offset: int = 0,

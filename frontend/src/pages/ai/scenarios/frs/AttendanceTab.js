@@ -143,6 +143,49 @@ function FaceThumb({ snapshot, slug }) {
   );
 }
 
+// Theme-aware date field. The native date input's calendar icon is drawn by the
+// browser using `color-scheme`; without it the icon is invisible on a dark panel
+// (and our previous hardcoded zinc text was invisible on the light theme). We read
+// the live --console-text colour to decide light vs dark and set color-scheme so
+// the picker icon + popup match the active theme.
+function DateField({ label, value, onChange }) {
+  const [scheme, setScheme] = useState("dark");
+  useEffect(() => {
+    try {
+      const c = getComputedStyle(document.documentElement)
+        .getPropertyValue("--console-text").trim();
+      // --console-text is light on dark themes, dark on light themes.
+      const m = c.match(/\d+/g);
+      if (m && m.length >= 3) {
+        const lum = (parseInt(m[0]) * 0.299 + parseInt(m[1]) * 0.587 + parseInt(m[2]) * 0.114);
+        setScheme(lum > 140 ? "dark" : "light"); // light text → dark UI
+      }
+    } catch { /* default dark */ }
+  }, []);
+  return (
+    <div>
+      <label
+        className="block text-[9px] uppercase tracking-wider font-telemetry mb-0.5"
+        style={{ color: "var(--console-muted)" }}
+      >
+        {label}
+      </label>
+      <input
+        type="date"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="h-8 text-xs rounded px-2 outline-none"
+        style={{
+          background: "var(--console-raised)",
+          border: "1px solid var(--console-border)",
+          color: "var(--console-text)",
+          colorScheme: scheme,
+        }}
+      />
+    </div>
+  );
+}
+
 function ViewToggle({ view, setView }) {
   const tabs = [
     { id: "log", label: "Log", icon: CalendarDays },
@@ -163,12 +206,12 @@ function ViewToggle({ view, setView }) {
           <button
             key={t.id}
             onClick={() => setView(t.id)}
-            className={cn(
-              "flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition-colors",
-              active
-                ? "bg-blue-500/20 text-blue-200 border border-blue-500/30"
-                : "text-zinc-400 hover:text-zinc-200 border border-transparent",
-            )}
+            className="flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition-colors border"
+            style={{
+              background: active ? "var(--console-accent)" : "transparent",
+              color: active ? "#000" : "var(--console-muted)",
+              borderColor: active ? "var(--console-accent)" : "transparent",
+            }}
           >
             <Icon className="h-3.5 w-3.5" /> {t.label}
           </button>
@@ -601,28 +644,8 @@ export default function AttendanceTab({ scenario }) {
         }}
       >
         <ViewToggle view={view} setView={setView} />
-        <div>
-          <label className="block text-[9px] uppercase tracking-wider text-zinc-500 font-telemetry mb-0.5">
-            From
-          </label>
-          <Input
-            type="date"
-            className="h-8 text-xs"
-            value={since}
-            onChange={(e) => setSince(e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="block text-[9px] uppercase tracking-wider text-zinc-500 font-telemetry mb-0.5">
-            To
-          </label>
-          <Input
-            type="date"
-            className="h-8 text-xs"
-            value={until}
-            onChange={(e) => setUntil(e.target.value)}
-          />
-        </div>
+        <DateField label="From" value={since} onChange={setSince} />
+        <DateField label="To" value={until} onChange={setUntil} />
       </div>
 
       {view === "log" ? (

@@ -46,8 +46,10 @@ import {
   updateTransitRule,
   deleteTransitRule,
   listTransitSessions,
+  deleteTransitSession,
   scenarioSnapshotUrl,
 } from "../../../../api/ai";
+import { verifyPassword } from "../../../../api/auth";
 import { useConfirm } from "../../../../components/ui/confirm";
 import { getAllCameras } from "../../../../api/cameras";
 
@@ -517,9 +519,98 @@ const RulesPanel = ({ rules, rulesLoading, cameras, camName, qc }) => {
 // SESSIONS sub-tab
 // ---------------------------------------------------------------------------
 
+// Password-confirmed delete. Deleting a transit session is destructive, so we
+// re-verify the operator's platform password (POST /auth/me/verify-password)
+// before the delete fires — a misclick or an unattended console can't wipe a
+// session without the password.
+const DeleteSessionModal = ({ session: s, onClose, onDeleted }) => {
+  const [pw, setPw] = useState("");
+  const [busy, setBusy] = useState(false);
+  const personLabel =
+    s.person_name || (s.person_id ? `Person ${String(s.person_id).slice(0, 8)}` : "session");
+  const submit = async () => {
+    if (!pw) return;
+    setBusy(true);
+    try {
+      await verifyPassword(pw);
+    } catch {
+      setBusy(false);
+      toast.error("Incorrect password");
+      return;
+    }
+    try {
+      await deleteTransitSession(s.id);
+      toast.success("Session deleted");
+      onDeleted();
+      onClose();
+    } catch (e) {
+      toast.error(friendlyError(e, "Couldn't delete the session."));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.6)" }}
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-sm rounded p-5 flex flex-col gap-4"
+        style={{ background: "var(--console-panel)", border: "1px solid var(--console-border)" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between">
+          <div className="font-telemetry text-[13px] font-semibold uppercase tracking-wide" style={{ color: "var(--console-rec)" }}>
+            Delete transit session
+          </div>
+          <button type="button" onClick={onClose} style={{ color: "var(--console-muted)" }}>
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <p className="font-telemetry text-[11px] leading-relaxed" style={{ color: "var(--console-muted)" }}>
+          Permanently delete the <span style={{ color: "var(--console-text)" }}>{personLabel}</span> session.
+          Enter your platform password to confirm.
+        </p>
+        <input
+          type="password"
+          autoFocus
+          value={pw}
+          onChange={(e) => setPw(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()}
+          placeholder="Platform password"
+          className="font-telemetry text-[12px] px-3 py-2 rounded"
+          style={{ background: "var(--console-raised)", color: "var(--console-text)", border: "1px solid var(--console-border)" }}
+        />
+        <div className="flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="font-telemetry text-[10px] uppercase tracking-wide px-3 py-1.5 rounded border"
+            style={{ background: "var(--console-raised)", borderColor: "var(--console-border)", color: "var(--console-text)" }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={submit}
+            disabled={busy || !pw}
+            className="font-telemetry text-[10px] uppercase tracking-wide px-3 py-1.5 rounded disabled:opacity-40"
+            style={{ background: "var(--console-rec)", color: "#fff" }}
+          >
+            {busy ? "Deleting…" : "Delete"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const SessionsPanel = ({ ruleName }) => {
+  const qc = useQueryClient();
   const [statusFilter, setStatusFilter] = useState("");
   const [detail, setDetail] = useState(null);
+  const [deleting, setDeleting] = useState(null);
 
   const sessionParams = useMemo(() => {
     const p = { limit: 200, offset: 0 };
@@ -616,20 +707,21 @@ const SessionsPanel = ({ ruleName }) => {
               <th className="px-3 py-2 font-medium">Opened</th>
               <th className="px-3 py-2 font-medium">Closed</th>
               <th className="px-3 py-2 font-medium">Duration</th>
+              <th className="px-3 py-2 font-medium text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
             {sessionsLoading ? (
               Array.from({ length: 6 }).map((_, i) => (
                 <tr key={i} className="border-t" style={{ borderColor: "var(--console-border)" }}>
-                  <td colSpan={6} className="px-3 py-3">
+                  <td colSpan={7} className="px-3 py-3">
                     <div className="h-5 rounded animate-pulse bg-zinc-800/60" />
                   </td>
                 </tr>
               ))
             ) : sessions.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-3 py-12 text-center">
+                <td colSpan={7} className="px-3 py-12 text-center">
                   <ListChecks className="h-8 w-8 mx-auto mb-2" style={{ color: "var(--console-muted)" }} />
                   <p className="font-telemetry text-[11px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
                     No transit sessions
@@ -667,6 +759,17 @@ const SessionsPanel = ({ ruleName }) => {
                   <td className="px-3 py-2 font-telemetry text-[11px] whitespace-nowrap" style={{ color: "var(--console-muted)" }}>
                     {fmtDuration(s.started_at, s.ended_at)}
                   </td>
+                  <td className="px-3 py-2 text-right">
+                    <button
+                      type="button"
+                      title="Delete session"
+                      onClick={(e) => { e.stopPropagation(); setDeleting(s); }}
+                      className="h-7 w-7 inline-flex items-center justify-center rounded border transition-colors"
+                      style={{ background: "var(--console-raised)", borderColor: "var(--console-border)", color: "var(--console-rec)" }}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </td>
                 </tr>
               ))
             )}
@@ -679,6 +782,13 @@ const SessionsPanel = ({ ruleName }) => {
           session={detail}
           ruleName={ruleName}
           onClose={() => setDetail(null)}
+        />
+      )}
+      {deleting && (
+        <DeleteSessionModal
+          session={deleting}
+          onClose={() => setDeleting(null)}
+          onDeleted={() => qc.invalidateQueries({ queryKey: ["frs-transit-sessions"] })}
         />
       )}
     </div>
