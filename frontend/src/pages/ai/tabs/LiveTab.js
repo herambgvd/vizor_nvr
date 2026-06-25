@@ -126,24 +126,44 @@ function playAlertBeepThrottled() {
 // utterance during a click "warms" the engine so later auto-announcements play.
 let _audioPrimed = false;
 function primeAudio() {
+  if (_audioPrimed) return;
+  _audioPrimed = true;
+  // Unlock the WebAudio beep too — it's the reliable fallback when the browser has
+  // no TTS voice installed (common on Linux/Chromium), so resume the AudioContext
+  // under this gesture or alerts stay silent even though speech "succeeded".
+  try { _getAudioCtx(); } catch { /* no webaudio */ }
   try {
     const synth = window.speechSynthesis;
-    if (synth && !_audioPrimed) {
+    if (synth) {
       const u = new SpeechSynthesisUtterance(" ");
       u.volume = 0;
       synth.speak(u);
-      _audioPrimed = true;
     }
   } catch {
     /* speech unavailable — beep fallback still works */
   }
 }
 
+// True only when SpeechSynthesis can actually produce sound (engine present AND at
+// least one voice). On boxes with no installed TTS voice, speak() silently no-ops,
+// so callers must fall back to the beep instead of assuming it spoke.
+function speechUsable() {
+  try {
+    const synth = window.speechSynthesis;
+    if (!synth) return false;
+    const voices = synth.getVoices ? synth.getVoices() : [];
+    return Array.isArray(voices) && voices.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 let _lastSpeakAt = 0;
 function speakPhrase(phrase) {
-  if (!phrase) return;
+  if (!phrase) return false;
   const synth = window.speechSynthesis;
-  if (!synth) return false;
+  // No engine OR no installed voice → tell the caller it didn't speak so it beeps.
+  if (!synth || !speechUsable()) return false;
   const now = Date.now();
   if (now - _lastSpeakAt < ALARM_THROTTLE_MS) return true;
   _lastSpeakAt = now;
