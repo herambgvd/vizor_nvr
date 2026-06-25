@@ -170,27 +170,24 @@ function speakPhrase(phrase) {
   if (!synth) return false;  // no engine at all → caller beeps
   const now = Date.now();
   if (now - _lastSpeakAt < ALARM_THROTTLE_MS) return true;
+  // Don't cut off an utterance that's still being spoken — worker-v2 fires many
+  // recognitions per second, and cancel()-ing on every one killed each statement
+  // mid-word so nothing was ever heard. Let the current phrase finish.
+  if (synth.speaking || synth.pending) return true;
   _lastSpeakAt = now;
   try {
-    synth.cancel(); // drop any queued utterance so we stay current
     const u = new SpeechSynthesisUtterance(phrase);
     u.rate = 1.0;
     u.pitch = 1.0;
     u.volume = 1.0;
-    // Pick a loaded voice explicitly if one is available (some engines stay silent
-    // with a null voice until one is assigned).
+    // Assign an explicit en-* voice when the list is loaded — Chromium can stay
+    // silent on a null voice. Don't gate on it: if the list hasn't loaded yet we
+    // still speak (the engine falls back to its default).
     try {
       const vs = synth.getVoices() || [];
-      if (vs.length) {
-        u.voice = vs.find((v) => /en[-_]/i.test(v.lang)) || vs[0];
-      }
+      if (vs.length) u.voice = vs.find((v) => /^en/i.test(v.lang)) || vs[0];
     } catch { /* getVoices unavailable */ }
-    let spoke = true;
-    u.onerror = () => { spoke = false; playAlertBeep(); };  // voice failed → beep
     synth.speak(u);
-    // If nothing actually started speaking shortly after (no voice installed),
-    // fall back to the beep so the operator still gets an audible cue.
-    setTimeout(() => { if (!synth.speaking && spoke) playAlertBeep(); }, 250);
     return true;
   } catch {
     return false;
