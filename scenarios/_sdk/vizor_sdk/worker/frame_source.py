@@ -1,14 +1,15 @@
-"""FrameSource for the worker framework — reuses nvr's existing GStreamer source.
+"""FrameSource factory for the worker framework.
 
-vizor-gpu shipped its own GStreamer/ffmpeg/cpp/pyav decoders. nvr ALREADY has a
-battle-tuned async GStreamer source at `vizor_sdk.aio.frame_source` (audio-drop via
-`application/x-rtp,media=video`, videorate pre-convert to analyze fps, rtspsrc
-latency + tcp-timeout, cudadownload, and a JOIN-on-close that fixed a GLib thread
-leak). Rather than port a second decoder, the worker framework reuses that one and
-just re-exports it under the `FrameSource` ABC the BaseWorker expects.
+Decoder order (GStreamer is DROPPED for the worker — it threw a std::runtime
+"Unable to read configuration" crash in the worker process, distinct from the app):
 
-`build_frame_source(rtsp_url, fps=...)` matches vizor-gpu's factory signature so the
-BaseWorker calls it identically.
+  1. cpp   — native vizor_decode NVDEC (h264_cuvid). Lowest CPU; the canonical
+             worker decoder. Needs the compiled .so on PYTHONPATH.
+  2. ffmpeg— PyAV software decode. CPU fallback when the cpp .so is missing.
+  3. pyav  — nvr's existing PyAV source (last resort).
+
+Pick via VIZOR_DECODER=cpp|ffmpeg|pyav (default cpp). Every fallback logs a WARNING
+so a silent drop to software decode is visible.
 """
 from __future__ import annotations
 
@@ -16,12 +17,8 @@ import logging
 import os
 from typing import Any
 
-# Reuse nvr's tuned async sources + ABC verbatim.
-from ..aio.frame_source import (  # noqa: F401
-    FrameSource,
-    GStreamerFrameSource,
-    PyAvFrameSource,
-)
+# Reuse nvr's ABC + the pure-software PyAV source as the final fallback.
+from ..aio.frame_source import FrameSource, PyAvFrameSource  # noqa: F401
 
 logger = logging.getLogger("vizor.worker.frame_source")
 
@@ -33,20 +30,33 @@ def build_frame_source(
     backend: str | None = None,
     **kwargs: Any,
 ) -> FrameSource:
-    """Pick a FrameSource. Default + canonical is GStreamer (nvr's tuned impl);
-    `VIZOR_DECODER=pyav` forces the pure-software fallback. Any GStreamer build
-    failure falls back to PyAV with a WARNING so a silent CPU-decode drop is visible.
-    """
-    requested = (backend or os.environ.get("VIZOR_DECODER", "gstreamer")).strip().lower()
-    if requested != "pyav":
+    requested = (backend or os.environ.get("VIZOR_DECODER", "cpp")).strip().lower()
+    chosen = requested
+
+    def _fallback(frm: str, to: str, exc: Exception) -> None:
+        logger.warning(
+            "decoder fallback: '%s' unavailable (%s: %s) — falling back to '%s'. "
+            "On a GPU box this likely means software CPU decode.",
+            frm, type(exc).__name__, exc, to)
+
+    if chosen == "cpp":
         try:
-            src = GStreamerFrameSource(rtsp_url, fps=fps, **kwargs)
-            logger.info("decoder: gstreamer engaged for %s", rtsp_url)
+            from .cpp_frame_source import CppFrameSource
+            src = CppFrameSource(rtsp_url, fps=fps, **kwargs)
+            logger.info("decoder: cpp (NVDEC) engaged for %s", rtsp_url)
             return src
         except Exception as e:  # noqa: BLE001
-            logger.warning(
-                "decoder fallback: gstreamer unavailable (%s: %s) — using PyAV "
-                "software decode for %s; CPU-bound, expect drops under load.",
-                type(e).__name__, e, rtsp_url,
-            )
+            _fallback("cpp", "ffmpeg", e)
+            chosen = "ffmpeg"
+    if chosen == "ffmpeg":
+        try:
+            from .ffmpeg_frame_source import FFmpegFrameSource
+            src = FFmpegFrameSource(rtsp_url, fps=fps, **kwargs)
+            logger.info("decoder: ffmpeg (PyAV) engaged for %s", rtsp_url)
+            return src
+        except Exception as e:  # noqa: BLE001
+            _fallback("ffmpeg", "pyav", e)
+            chosen = "pyav"
+    logger.warning("decoder: using PyAV software decode for %s (requested '%s')",
+                   rtsp_url, requested)
     return PyAvFrameSource(rtsp_url, fps=fps, **kwargs)

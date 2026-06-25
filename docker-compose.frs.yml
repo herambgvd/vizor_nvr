@@ -144,6 +144,9 @@ services:
       GO2RTC_RTSP_HOST: go2rtc
       GO2RTC_RTSP_PORT: "8554"
       WORKER_METRICS_PORT: "9101"
+      # Native NVDEC decode (GStreamer crashed in the worker process). Falls back to
+      # ffmpeg (PyAV software) then pyav if the .so is missing.
+      VIZOR_DECODER: ${FRS_DECODER:-cpp}
       # High-bitrate 4MP main-stream RTSP can take >30s to connect + deliver the
       # first I-frame; the default 30s watchdog would false-restart it into a loop.
       # Match the old supervisor's 90s stale window.
