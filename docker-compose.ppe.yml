@@ -48,6 +48,8 @@ services:
       # Live worker decoder: async supervisor + GStreamer (NVDEC-capable) instead of
       # the legacy ffmpeg thread workers. Default on for scenario consistency with FRS.
       PPE_LIVE_ASYNC: ${PPE_LIVE_ASYNC:-1}
+      # Architecture v2: app runs bridge + shim; recognition moves to gvd_ai_ppe_worker.
+      PPE_WORKER_V2: ${PPE_WORKER_V2:-0}
       VIZOR_DECODER: ${VIZOR_DECODER:-gstreamer}
       # GPU NVDEC via decodebin + NVDEC rank-boost (codec-agnostic H.264/H.265); see FRS.
       GST_PLUGIN_FEATURE_RANK: ${GST_PLUGIN_FEATURE_RANK:-nvh264dec:512,nvh265dec:512,nvh264sldec:512,nvh265sldec:512}

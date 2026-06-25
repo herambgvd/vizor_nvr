@@ -59,6 +59,9 @@ services:
       # Live worker decoder: async supervisor + GStreamer (NVDEC-capable) instead of
       # the legacy ffmpeg thread workers. Default on for scenario consistency with PPE.
       FRS_LIVE_ASYNC: ${FRS_LIVE_ASYNC:-1}
+      # Architecture v2: app runs the events bridge + control shim instead of the
+      # in-process supervisor (recognition moves to the gvd_ai_frs_worker process).
+      FRS_WORKER_V2: ${FRS_WORKER_V2:-0}
       VIZOR_DECODER: ${VIZOR_DECODER:-gstreamer}
       # GPU NVDEC decode. We DON'T pin nvh264dec (that's H.264 only and breaks on H.265
       # cameras with "Internal data stream error"). Instead leave GST_DECODER_BIN empty
