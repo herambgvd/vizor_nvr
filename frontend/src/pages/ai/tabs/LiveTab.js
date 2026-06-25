@@ -167,26 +167,23 @@ let _lastSpeakAt = 0;
 function speakPhrase(phrase) {
   if (!phrase) return false;
   const synth = window.speechSynthesis;
-  if (!synth) return false;  // no engine at all → caller beeps
+  const voices = (() => { try { return synth ? (synth.getVoices() || []) : []; } catch { return []; } })();
+  // Expose for quick diagnosis: window.__ttsVoices in the browser console tells us
+  // whether the OS has any TTS voice at all.
+  try { window.__ttsVoices = voices.length; } catch { /* ssr */ }
+  // No engine OR no installed OS voice → speak() would be silent, so the caller
+  // must beep instead. (Linux/Chromium kiosks often ship zero voices.)
+  if (!synth || voices.length === 0) return false;
   const now = Date.now();
   if (now - _lastSpeakAt < ALARM_THROTTLE_MS) return true;
-  // Don't cut off an utterance that's still being spoken — worker-v2 fires many
-  // recognitions per second, and cancel()-ing on every one killed each statement
-  // mid-word so nothing was ever heard. Let the current phrase finish.
+  // Let an in-flight statement finish — worker-v2 fires many recognitions/sec and
+  // cancel()-ing each one killed every utterance mid-word.
   if (synth.speaking || synth.pending) return true;
   _lastSpeakAt = now;
   try {
     const u = new SpeechSynthesisUtterance(phrase);
-    u.rate = 1.0;
-    u.pitch = 1.0;
-    u.volume = 1.0;
-    // Assign an explicit en-* voice when the list is loaded — Chromium can stay
-    // silent on a null voice. Don't gate on it: if the list hasn't loaded yet we
-    // still speak (the engine falls back to its default).
-    try {
-      const vs = synth.getVoices() || [];
-      if (vs.length) u.voice = vs.find((v) => /^en/i.test(v.lang)) || vs[0];
-    } catch { /* getVoices unavailable */ }
+    u.rate = 1.0; u.pitch = 1.0; u.volume = 1.0;
+    u.voice = voices.find((v) => /^en/i.test(v.lang)) || voices[0];
     synth.speak(u);
     return true;
   } catch {
