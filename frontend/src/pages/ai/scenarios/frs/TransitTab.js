@@ -534,29 +534,39 @@ const RulesPanel = ({ rules, rulesLoading, cameras, camName, qc }) => {
 // Camera" dialog so destructive confirmations look identical across the platform.
 // Re-verifies the operator's account password (POST /auth/me/verify-password)
 // before the delete fires.
-const DeleteSessionModal = ({ session: s, onClose, onDeleted }) => {
+const DeleteSessionModal = ({ sessions, onClose, onDeleted }) => {
+  const list = Array.isArray(sessions) ? sessions : [sessions];
   const [pw, setPw] = useState("");
   const [pwError, setPwError] = useState("");
   const [busy, setBusy] = useState(false);
-  const personLabel =
-    s.person_name || (s.person_id ? `Person ${String(s.person_id).slice(0, 8)}` : "this");
+  const single = list.length === 1;
+  const personLabel = single
+    ? (list[0].person_name || (list[0].person_id ? `Person ${String(list[0].person_id).slice(0, 8)}` : "this"))
+    : `${list.length} selected`;
   const submit = async () => {
     if (!pw) { setPwError("Password is required"); return; }
     setBusy(true);
+    // Verify the password ONCE, then delete every selected session — avoids
+    // hitting the auth rate limit with one verify per row.
     try {
       await verifyPassword(pw);
-    } catch {
+    } catch (e) {
       setBusy(false);
-      setPwError("Incorrect password");
+      setPwError(e?.response?.status === 429
+        ? "Too many attempts — wait a minute and try again"
+        : "Incorrect password");
       return;
     }
     try {
-      await deleteTransitSession(s.id);
-      toast.success("Session deleted");
+      const results = await Promise.allSettled(list.map((s) => deleteTransitSession(s.id)));
+      const ok = results.filter((r) => r.status === "fulfilled").length;
+      const failed = results.length - ok;
+      if (ok) toast.success(`${ok} session${ok > 1 ? "s" : ""} deleted`);
+      if (failed) toast.error(`${failed} couldn't be deleted`);
       onDeleted();
       onClose();
     } catch (e) {
-      toast.error(friendlyError(e, "Couldn't delete the session."));
+      toast.error(friendlyError(e, "Couldn't delete the sessions."));
     } finally {
       setBusy(false);
     }
@@ -565,10 +575,13 @@ const DeleteSessionModal = ({ session: s, onClose, onDeleted }) => {
     <AlertDialog open onOpenChange={(open) => { if (!open) onClose(); }}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete Transit Session</AlertDialogTitle>
+          <AlertDialogTitle>
+            Delete Transit Session{single ? "" : "s"}
+          </AlertDialogTitle>
           <AlertDialogDescription>
-            Are you sure you want to delete the {personLabel} transit session? This
-            action cannot be undone.
+            {single
+              ? `Are you sure you want to delete the ${personLabel} transit session? This action cannot be undone.`
+              : `Are you sure you want to delete ${list.length} transit sessions? This action cannot be undone.`}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="space-y-1.5">
@@ -604,7 +617,14 @@ const SessionsPanel = ({ ruleName }) => {
   const qc = useQueryClient();
   const [statusFilter, setStatusFilter] = useState("");
   const [detail, setDetail] = useState(null);
-  const [deleting, setDeleting] = useState(null);
+  const [deleting, setDeleting] = useState(null);   // session | session[] | null
+  const [selected, setSelected] = useState(() => new Set());
+
+  const toggleSelect = (id) => setSelected((prev) => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
 
   const sessionParams = useMemo(() => {
     const p = { limit: 200, offset: 0 };
@@ -687,6 +707,34 @@ const SessionsPanel = ({ ruleName }) => {
         </span>
       </div>
 
+      {/* Bulk action bar — appears when rows are selected */}
+      {selected.size > 0 && (
+        <div
+          className="flex items-center gap-3 rounded px-3 py-2"
+          style={{ background: "var(--console-raised)", border: "1px solid var(--console-border)" }}
+        >
+          <span className="font-telemetry text-[11px]" style={{ color: "var(--console-text)" }}>
+            {selected.size} selected
+          </span>
+          <button
+            type="button"
+            onClick={() => setDeleting(sessions.filter((s) => selected.has(s.id)))}
+            className="inline-flex items-center gap-1.5 font-telemetry text-[10px] uppercase tracking-wide px-2.5 py-1 rounded"
+            style={{ background: "var(--console-rec)", color: "#fff" }}
+          >
+            <Trash2 className="h-3.5 w-3.5" /> Delete selected
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelected(new Set())}
+            className="ml-auto font-telemetry text-[10px] uppercase tracking-wide px-2.5 py-1 rounded border"
+            style={{ background: "var(--console-panel)", borderColor: "var(--console-border)", color: "var(--console-muted)" }}
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
       {/* Sessions table */}
       <div className="rounded overflow-hidden" style={{ border: "1px solid var(--console-border)" }}>
         <table className="w-full text-left">
@@ -695,6 +743,15 @@ const SessionsPanel = ({ ruleName }) => {
               className="font-telemetry text-[10px] uppercase tracking-wider"
               style={{ background: "var(--console-raised)", color: "var(--console-muted)" }}
             >
+              <th className="px-3 py-2 font-medium w-8">
+                <input
+                  type="checkbox"
+                  aria-label="Select all"
+                  checked={sessions.length > 0 && selected.size === sessions.length}
+                  ref={(el) => { if (el) el.indeterminate = selected.size > 0 && selected.size < sessions.length; }}
+                  onChange={(e) => setSelected(e.target.checked ? new Set(sessions.map((s) => s.id)) : new Set())}
+                />
+              </th>
               <th className="px-3 py-2 font-medium">Person</th>
               <th className="px-3 py-2 font-medium">Rule</th>
               <th className="px-3 py-2 font-medium">Status</th>
@@ -708,14 +765,14 @@ const SessionsPanel = ({ ruleName }) => {
             {sessionsLoading ? (
               Array.from({ length: 6 }).map((_, i) => (
                 <tr key={i} className="border-t" style={{ borderColor: "var(--console-border)" }}>
-                  <td colSpan={7} className="px-3 py-3">
+                  <td colSpan={8} className="px-3 py-3">
                     <div className="h-5 rounded animate-pulse bg-zinc-800/60" />
                   </td>
                 </tr>
               ))
             ) : sessions.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-3 py-12 text-center">
+                <td colSpan={8} className="px-3 py-12 text-center">
                   <ListChecks className="h-8 w-8 mx-auto mb-2" style={{ color: "var(--console-muted)" }} />
                   <p className="font-telemetry text-[11px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
                     No transit sessions
@@ -733,6 +790,14 @@ const SessionsPanel = ({ ruleName }) => {
                   className="border-t hover:bg-white/[0.02] transition-colors cursor-pointer"
                   style={{ borderColor: "var(--console-border)" }}
                 >
+                  <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      aria-label="Select session"
+                      checked={selected.has(s.id)}
+                      onChange={() => toggleSelect(s.id)}
+                    />
+                  </td>
                   <td className="px-3 py-2 font-telemetry text-[12px] truncate max-w-[160px]" style={{ color: "var(--console-text)" }}>
                     {s.person_name
                       || s.attributes?.person_name
@@ -780,9 +845,12 @@ const SessionsPanel = ({ ruleName }) => {
       )}
       {deleting && (
         <DeleteSessionModal
-          session={deleting}
+          sessions={deleting}
           onClose={() => setDeleting(null)}
-          onDeleted={() => qc.invalidateQueries({ queryKey: ["frs-transit-sessions"] })}
+          onDeleted={() => {
+            setSelected(new Set());
+            qc.invalidateQueries({ queryKey: ["frs-transit-sessions"] });
+          }}
         />
       )}
     </div>

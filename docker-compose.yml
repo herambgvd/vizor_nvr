@@ -101,6 +101,9 @@ services:
         condition: service_completed_successfully
     environment:
       ENV: ${ENV:-production}
+      # Sensitive-action rate limit (verify-password, etc). 3/min is harsh for an
+      # operator confirming a few deletes; 10/min still blocks brute force.
+      STRICT_RATE_LIMIT: ${STRICT_RATE_LIMIT:-10}
       # Dev/test signing tree (vendor-keys/). Override per-env in prod.
       LICENSE_PUBLIC_KEY: ${LICENSE_PUBLIC_KEY:-MCowBQYDK2VwAyEADRkzsd1Xaxj2/zmTvrN2EFgj5tkbgIVBb5Rujvrcx4k=}
       # FRS image/video recognition proxies to the bridge HTTP API. Bridge runs
