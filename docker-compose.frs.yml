@@ -62,6 +62,10 @@ services:
       # Architecture v2: app runs the events bridge + control shim instead of the
       # in-process supervisor (recognition moves to the gvd_ai_frs_worker process).
       FRS_WORKER_V2: ${FRS_WORKER_V2:-0}
+      # Use the camera 720p sub-stream for AI (4x fewer pixels than the 4MP main →
+      # much lower decode + colour-convert + per-frame CPU). The control shim builds
+      # the {camera}_sub go2rtc URL. cpp NVDEC handles the sub stream cleanly.
+      FRS_LIVE_USE_SUBSTREAM: ${FRS_LIVE_USE_SUBSTREAM:-1}
       VIZOR_DECODER: ${VIZOR_DECODER:-gstreamer}
       # GPU NVDEC decode. We DON'T pin nvh264dec (that's H.264 only and breaks on H.265
       # cameras with "Internal data stream error"). Instead leave GST_DECODER_BIN empty
@@ -140,6 +144,13 @@ services:
       TRITON_URL: ${TRITON_URL:-triton:8000}
       TRITON_GRPC_URL: ${TRITON_GRPC_URL:-triton:8001}
       AI_REDIS_URL: ${AI_REDIS_URL:-redis://ai-redis:6379/0}
+      # Recognition deps — the worker runs the full pipeline, so it needs the SAME
+      # gallery vector store + person DB + snapshot dir as the app. Without QDRANT_URL
+      # the gallery search returns 0 hits and every face is "Unknown 0%".
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-vizor_frs_faces}
+      FRS_DATABASE_URL: postgresql+psycopg2://frs:${AI_FRS_DB_PASSWORD:-frs}@frs-db:5432/frs
+      DATA_PATH: /data/frs
       FRS_LIVE_ENABLED: "true"
       GO2RTC_RTSP_HOST: go2rtc
       GO2RTC_RTSP_PORT: "8554"
