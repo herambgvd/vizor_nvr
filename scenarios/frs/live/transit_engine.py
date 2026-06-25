@@ -131,25 +131,38 @@ def _emit_overdue_event(f: dict, now: datetime) -> None:
     from db.events import record_event
     from db import session as _evt_session  # ensure record_event's session is ready
 
+    # Resolve rule name + the person's display name. The session stores the name at
+    # entry time, but older sessions (opened before that was added) only have a
+    # person_id — fall back to the gallery so the event shows "Heramb Mishra", not
+    # "Person 642d74c2".
     rule_name = None
+    person_name = f.get("person_name")
     try:
         with db_session() as s:
             r = s.get(TransitRule, f["rule_id"])
             rule_name = r.name if r else None
+            if not person_name and f.get("person_id"):
+                from db.models import FRSPerson
+                p = s.get(FRSPerson, f["person_id"])
+                person_name = p.full_name if p else None
     except Exception:  # noqa: BLE001
         pass
 
-    name = f.get("person_name") or (f"Person {str(f.get('person_id'))[:8]}"
-                                    if f.get("person_id") else "Unknown")
+    name = person_name or (f"Person {str(f.get('person_id'))[:8]}"
+                           if f.get("person_id") else "Unknown")
     record_event(
         camera_id=f.get("entry_camera"),
         person_id=f.get("person_id"),
-        person_name=f.get("person_name"),
+        person_name=person_name,
         confidence=None,
         snapshot_path=f.get("entry_snapshot"),
         event_type="transit_overdue",
         ts=now,
         attributes={
+            # Stash the resolved name in attributes too — the Events UI reads
+            # attributes.person_name for the PERSON column (the FRSEvent row has no
+            # name field), so without this it would show "Person <id>".
+            "person_name": person_name,
             "rule_id": f.get("rule_id"),
             "rule_name": rule_name,
             "session_id": f.get("session_id"),
