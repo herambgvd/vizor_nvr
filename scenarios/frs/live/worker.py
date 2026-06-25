@@ -366,10 +366,10 @@ class CameraWorker(threading.Thread):
                     if now - self._last_seen.get(f"spoof:{tid}", 0) >= self.cooldown:
                         self._last_seen[f"spoof:{tid}"] = now
                         snap, fc = self._snapshots(jpeg, bbox_px)
-                        _record_event(self.camera_id, None, None, live, snap, "spoof_detected", ts,
-                                      bbox=_bbox_obj(f.get("bbox")),
-                                      attributes={"face_snapshot": fc, "liveness_score": live,
-                                                  **self._demo_attr(f)})
+                        self._sink_event(self.camera_id, None, None, live, snap, "spoof_detected", ts,
+                                         bbox=_bbox_obj(f.get("bbox")),
+                                         attributes={"face_snapshot": fc, "liveness_score": live,
+                                                     **self._demo_attr(f)})
                     continue
 
                 if self.detection_only:
@@ -377,9 +377,9 @@ class CameraWorker(threading.Thread):
                         continue
                     self._last_seen[f"det:{tid}"] = now
                     snap, fc = self._snapshots(jpeg, bbox_px)
-                    _record_event(self.camera_id, None, None, f.get("confidence", 0.0),
-                                  snap, "face_detected", ts, bbox=_bbox_obj(f.get("bbox")),
-                                  attributes={"face_snapshot": fc, "liveness_score": live, **self._demo_attr(f)})
+                    self._sink_event(self.camera_id, None, None, f.get("confidence", 0.0),
+                                     snap, "face_detected", ts, bbox=_bbox_obj(f.get("bbox")),
+                                     attributes={"face_snapshot": fc, "liveness_score": live, **self._demo_attr(f)})
                     continue
 
                 # High-confidence lock (vizor-gpu parity): once a track is firmly
@@ -455,12 +455,12 @@ class CameraWorker(threading.Thread):
                 # must not leak onto an "Unknown" event — that showed a matched POI on
                 # an Unknown row, which is contradictory.
                 matched_photo = m.get("photo_id") if cpid else None
-                ev_id = _record_event(self.camera_id, cpid, cname, cscore,
-                                      snap, event_type, ts,
-                                      bbox=_bbox_obj(f.get("bbox")),
-                                      attributes={"face_snapshot": fc, "matched_photo_id": matched_photo,
-                                                  "liveness_score": live, **self._demo_attr(f)},
-                                      direction=self.direction)
+                ev_id = self._sink_event(self.camera_id, cpid, cname, cscore,
+                                         snap, event_type, ts,
+                                         bbox=_bbox_obj(f.get("bbox")),
+                                         attributes={"face_snapshot": fc, "matched_photo_id": matched_photo,
+                                                     "liveness_score": live, **self._demo_attr(f)},
+                                         direction=self.direction)
                 # Index this sighting's embedding into the SNAPSHOTS collection so
                 # the Investigate (forensic) tab can search "where/when seen" —
                 # mirrors vizor-app's frs_snapshots. Distinct from the gallery.
@@ -469,9 +469,8 @@ class CameraWorker(threading.Thread):
                 # Drive transit sessions on a recognised person.
                 if cpid:
                     try:
-                        from live.transit_engine import on_recognition
-                        on_recognition(cpid, self.camera_id, ts, person_name=cname,
-                                       snapshot_key=fc or snap)
+                        self._sink_transit(cpid, self.camera_id, ts, person_name=cname,
+                                           snapshot_key=fc or snap)
                     except Exception:  # noqa: BLE001
                         pass
         except Exception:  # noqa: BLE001 - never let one bad frame kill the worker
@@ -486,6 +485,22 @@ class CameraWorker(threading.Thread):
             return {}
         return {"age": d.get("age"), "age_range": d.get("age_range"),
                 "gender": d.get("gender"), "gender_confidence": d.get("gender_confidence")}
+
+    # ── event sink seam ──────────────────────────────────────────────────────
+    # The recognition pipeline routes EVERY event + transit-drive through these two
+    # methods instead of calling record_event / on_recognition directly. The default
+    # impl writes to Postgres inline (the legacy path — unchanged behaviour). The
+    # Redis-worker subclass overrides them to emit onto ai:events, so the events
+    # bridge does the DB write off the worker. Keeps recognition/snapshot/qdrant in
+    # the worker and DB/transit in the app.
+    def _sink_event(self, camera_id, person_id, person_name, confidence, snapshot_path,
+                    event_type, ts, bbox=None, attributes=None, direction=None) -> str:
+        return _record_event(camera_id, person_id, person_name, confidence, snapshot_path,
+                             event_type, ts, bbox=bbox, attributes=attributes, direction=direction)
+
+    def _sink_transit(self, person_id, camera_id, ts, person_name=None, snapshot_key=None) -> None:
+        from live.transit_engine import on_recognition
+        on_recognition(person_id, camera_id, ts, person_name=person_name, snapshot_key=snapshot_key)
 
     def _index_snapshot(self, event_id, embedding, person_id, person_name, score,
                         snapshot, face_snapshot, ts, demographics, liveness) -> None:
