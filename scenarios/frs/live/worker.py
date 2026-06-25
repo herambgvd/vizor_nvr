@@ -346,6 +346,18 @@ class CameraWorker(threading.Thread):
             self._dbg_faces = len(faces)
             if not faces:
                 return
+            self._process_faces(faces, jpeg, ts, now)
+        except Exception:  # noqa: BLE001 - never let one bad frame kill the worker
+            return
+        finally:
+            _INFLIGHT.release()
+
+    def _process_faces(self, faces, jpeg, ts, now) -> None:
+        """Post-detection logic: track, vote, gate, fire events. CPU + light I/O
+        (snapshot disk, qdrant index, event sink). Shared by the sync _process_frame
+        and the async worker pipeline (run via run_in_executor). `jpeg` may be a BGR
+        ndarray (the snapshot helper accepts both)."""
+        try:
             # Assign track ids via ByteTrack so votes accumulate per face across
             # frames even when the face moves fast (Kalman-predicted association).
             from recognition.inference.tracker import assign_track_ids
@@ -475,8 +487,6 @@ class CameraWorker(threading.Thread):
                         pass
         except Exception:  # noqa: BLE001 - never let one bad frame kill the worker
             return
-        finally:
-            _INFLIGHT.release()
 
     @staticmethod
     def _demo_attr(face) -> dict:

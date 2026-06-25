@@ -144,13 +144,11 @@ services:
       GO2RTC_RTSP_HOST: go2rtc
       GO2RTC_RTSP_PORT: "8554"
       WORKER_METRICS_PORT: "9101"
-      # Decoder: ffmpeg (PyAV) is the default — the cpp NVDEC module decodes fine
-      # standalone but its tight blocking next_frame() loop contends with nvr's SYNC
-      # recognition pipeline on the thread pool and stalls the camera loop (vizor-gpu
-      # avoids this with a fully-async pipeline; nvr reuses the sync CameraWorker).
-      # ffmpeg's lighter cooperative decode interleaves cleanly. Set FRS_DECODER=cpp
-      # to try NVDEC once the recognition pipeline is made async.
-      VIZOR_DECODER: ${FRS_DECODER:-ffmpeg}
+      # Decoder: cpp native NVDEC (h264_cuvid). The worker pipeline is now fully
+      # async (recognition awaits every Triton/qdrant call), so the event loop never
+      # blocks and the native decoder no longer stalls — GPU decode, lowest CPU.
+      # Fall back to ffmpeg (PyAV software) if the .so is missing.
+      VIZOR_DECODER: ${FRS_DECODER:-cpp}
       # High-bitrate 4MP main-stream RTSP can take >30s to connect + deliver the
       # first I-frame; the default 30s watchdog would false-restart it into a loop.
       # Match the old supervisor's 90s stale window.

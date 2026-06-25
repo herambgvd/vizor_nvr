@@ -183,6 +183,105 @@ def _match_vector(vector: list[float], threshold: float) -> dict | None:
     return best
 
 
+# ── async pipeline (worker path, mirrors vizor-gpu) ────────────────────────
+# A fully-async analyze_frame that awaits Triton (via the async engine) + qdrant so
+# the event loop never blocks — lets the native NVDEC decoder run without stalling.
+# CPU-bound steps (quality gates, align, denoise, roi, cv2) are offloaded to a
+# caller-provided executor via run_in_executor; the network steps are true awaits.
+# The legacy sync analyze_frame above is unchanged (in-app + ingest paths use it).
+
+async def _match_vector_async(vector: list[float], threshold: float, loop, executor) -> dict | None:
+    """qdrant search + name lookup off the loop (sync clients)."""
+    return await loop.run_in_executor(executor, _match_vector, vector, threshold)
+
+
+async def analyze_frame_async(frame, async_eng, loop, executor, *, min_conf=None, roi=None,
+                              with_liveness=False, with_demographics=False,
+                              gate_quality=True, det_conf=None, min_face_px=None,
+                              min_sharpness=None, max_pose_deg=None) -> dict:
+    """Async mirror of analyze_frame for the worker. `frame` is a BGR ndarray,
+    `async_eng` is an AsyncEngine, `executor` is the worker's recognition pool."""
+    threshold = config.SIMILARITY_THRESHOLD if min_conf is None else float(min_conf)
+    g_min_px = config.LIVE_MIN_FACE_PX if min_face_px is None else int(min_face_px)
+    g_min_sharp = config.LIVE_MIN_SHARPNESS if min_sharpness is None else float(min_sharpness)
+    g_max_pose = config.LIVE_MAX_POSE_DEG if max_pose_deg is None else float(max_pose_deg)
+    h, w = frame.shape[:2]
+    conf = (config.LIVE_DET_CONF if det_conf is None else float(det_conf)) if gate_quality else config.DET_CONF_THRESHOLD
+
+    try:
+        dets = await async_eng.detect_faces(frame, conf_thresh=conf)
+    except Exception as exc:  # noqa: BLE001
+        _note_engine_error(exc)
+        return {"faces": [], "width": w, "height": h, "engine": "error", "error": str(exc)[:200]}
+    _note_engine_ok()
+
+    def _cpu_prep(d):
+        """All the per-face CPU work up to the embed: roi + quality gates + align +
+        denoise. Returns (aligned_bgr, bbox_px) or None if gated out."""
+        bbox_px = list(map(float, d["bbox"]))
+        cx = (bbox_px[0] + bbox_px[2]) / 2 / w
+        cy = (bbox_px[1] + bbox_px[3]) / 2 / h
+        if roi and not _point_in_any_roi(cx, cy, roi):
+            return None
+        if gate_quality:
+            ok, _r = is_face_usable(d["bbox"], w, h, min_face_px=g_min_px)
+            if not ok:
+                return None
+            crop_q = crop_face(frame, d["bbox"], w, h)
+            if face_sharpness(crop_q) < g_min_sharp:
+                return None
+            lms_g = d.get("landmarks")
+            if (lms_g is not None and np is not None
+                    and float(np.asarray(lms_g).sum()) != 0.0
+                    and _landmarks_sane(np.asarray(lms_g), d["bbox"])):
+                yaw_g, pitch_g, roll_g = estimate_pose_from_landmarks(lms_g)
+                if max(abs(yaw_g), abs(pitch_g), abs(roll_g)) > g_max_pose:
+                    return None
+        aligned = denoise_face(align_face(frame, d["bbox"], d.get("landmarks"), w, h))
+        return aligned, bbox_px
+
+    faces = []
+    for d in dets:
+        prep = await loop.run_in_executor(executor, _cpu_prep, d)
+        if prep is None:
+            continue
+        aligned, bbox_px = prep
+        vec = await async_eng.embed_face(aligned)
+        if vec is None:
+            continue
+        vec = vec.tolist()
+        match = await _match_vector_async(vec, threshold, loop, executor)
+        face = {
+            "bbox": [bbox_px[0] / w, bbox_px[1] / h, bbox_px[2] / w, bbox_px[3] / h],
+            "bbox_px": bbox_px,
+            "confidence": float(d["confidence"]),
+            "embedding": vec,
+            "match": match,
+            "liveness": None,
+            "demographics": None,
+        }
+        if with_liveness:
+            try:
+                crop = await loop.run_in_executor(executor, crop_face_with_margin, frame, d["bbox"], w, h)
+                face["liveness"] = await async_eng.liveness(crop)
+            except Exception:  # noqa: BLE001
+                face["liveness"] = None
+        if with_demographics:
+            try:
+                lms = d.get("landmarks")
+                pose_ok = True
+                if lms is not None:
+                    yaw, pitch, roll = estimate_pose_from_landmarks(lms)
+                    pose_ok = max(yaw, pitch, roll) <= config.ENROLL_MAX_POSE_DEG
+                if pose_ok:
+                    crop = await loop.run_in_executor(executor, crop_face_with_margin, frame, d["bbox"], w, h)
+                    face["demographics"] = await async_eng.age_gender(crop)
+            except Exception:  # noqa: BLE001
+                face["demographics"] = None
+        faces.append(face)
+    return {"faces": faces, "width": w, "height": h, "engine": "arcface"}
+
+
 def analyze_frame(data: bytes, min_conf: float | None = None, roi=None,
                   with_liveness: bool = False, with_demographics: bool = False,
                   gate_quality: bool = True, det_conf: float | None = None,

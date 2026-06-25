@@ -89,6 +89,37 @@ class _EmitPipeline(FrsPipeline):
         self._pending = []
         return out
 
+    async def process_async(self, frame, async_eng, loop, executor) -> list[Event]:
+        """Fully-async per-frame pipeline (mirrors vizor-gpu): await detection +
+        embed + match (network) via the async engine; run the CPU/voting/snapshot
+        post-step on the executor. Never blocks the event loop, so the native NVDEC
+        decoder doesn't stall. Returns buffered Events."""
+        import time as _t
+        from schemas import utcnow
+        import recognition.service as _svc
+        now = _t.time()
+        ts = utcnow()
+        try:
+            self._votes.gc(now)
+        except Exception:  # noqa: BLE001
+            pass
+        result = await _svc.analyze_frame_async(
+            frame, async_eng, loop, executor,
+            min_conf=self.min_conf, roi=self.roi,
+            with_liveness=self.liveness_enabled, with_demographics=True,
+            det_conf=self.det_conf, min_face_px=self.min_face_px,
+            min_sharpness=self.min_sharpness, max_pose_deg=self.max_pose_deg,
+        )
+        faces = result.get("faces", [])
+        self._dbg_faces = len(faces)
+        if not faces:
+            return self.drain()
+        # Voting + snapshot + qdrant-index + event-buffer is CPU + light disk/qdrant
+        # I/O — run it off the loop so it doesn't block decode. It calls the buffering
+        # sinks, then we drain.
+        await loop.run_in_executor(executor, self._process_faces, faces, frame, ts, now)
+        return self.drain()
+
 
 class FrsWorker(BaseWorker):
     """Per-camera FRS recognition under the worker framework."""
@@ -102,6 +133,13 @@ class FrsWorker(BaseWorker):
         from vizor_sdk.worker import TritonClient, default_grpc_url, CircuitBreaker
         self._triton = TritonClient(default_grpc_url(), breaker=CircuitBreaker("triton"))
         self._pipelines: dict[str, _EmitPipeline] = {}
+        # Async inference engine over the async Triton client — every infer is awaited
+        # so the event loop (and the native NVDEC decoder) never block.
+        from recognition.inference.async_engine import AsyncEngine
+        self._async_eng = AsyncEngine(
+            self._triton,
+            has_fairface=os.getenv("FRS_FAIRFACE_ENABLED", "1") not in ("0", "false", "no"),
+            has_antispoof=os.getenv("FRS_LIVENESS_ENABLED", "0") not in ("0", "false", "no"))
         # DEDICATED recognition executor — separate from the default asyncio
         # to_thread pool that the cpp decoder's next_frame() borrows. Running the
         # heavy sync recognition on the shared pool starved the decoder's threads, so
@@ -134,12 +172,13 @@ class FrsWorker(BaseWorker):
 
     async def process_frame(self, cmd: Command, frame: Any) -> AsyncIterator[Event]:
         pl = self._pipeline_for(cmd)
-        # Run recognition on the DEDICATED pool (not the default to_thread pool the
-        # cpp decoder uses) so decode + control plane never starve.
+        # Fully-async pipeline: detection/embed/match are awaited (network, off-loop);
+        # the CPU/voting/snapshot post-step runs on the dedicated reco pool. The loop
+        # stays free so the decoder never stalls — this is the vizor-gpu pattern.
         import asyncio
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(self._reco_pool, pl.process, frame)
-        for ev in pl.drain():
+        events = await pl.process_async(frame, self._async_eng, loop, self._reco_pool)
+        for ev in events:
             yield ev
 
     async def on_config_update(self, cmd: Command) -> None:
