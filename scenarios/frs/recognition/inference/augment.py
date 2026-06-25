@@ -45,4 +45,34 @@ def generate_photometric_variants(aligned: np.ndarray) -> list[dict]:
     loose = cv2.copyMakeBorder(aligned, pad, pad, pad, pad, cv2.BORDER_REFLECT_101)
     variants.append({"image": cv2.resize(loose, (W, H), interpolation=cv2.INTER_CUBIC), "tag": "scale_loose"})
 
+    # Mild GEOMETRIC variants — synthesise the look of an angled / overhead camera
+    # from a frontal enrolment photo, so a top-down CCTV view still matches without
+    # the operator having to enrol that exact angle. Kept SMALL on purpose: large
+    # warps would blur identity and cause cross-person false matches. A gentle
+    # pitch-down perspective + a small in-plane tilt cover the common deviations a
+    # ceiling/corner camera adds on top of what the affine alignment already removes.
+    variants.extend(_geometric_variants(aligned, H, W))
+
     return variants
+
+
+def _geometric_variants(aligned: np.ndarray, H: int, W: int) -> list[dict]:
+    out: list[dict] = []
+    border = cv2.BORDER_REFLECT_101
+
+    # Small in-plane rotations (±8°) — roll the alignment leaves on tilted heads.
+    for ang, tag in ((8.0, "rot_cw"), (-8.0, "rot_ccw")):
+        M = cv2.getRotationMatrix2D((W / 2.0, H / 2.0), ang, 1.0)
+        out.append({"image": cv2.warpAffine(aligned, M, (W, H), borderMode=border),
+                    "tag": tag})
+
+    # Gentle "looking-down" perspective — squeeze the top edge inward so the face
+    # foreshortens like an overhead view. dx ~ 12% of width.
+    dx = W * 0.12
+    src = np.float32([[0, 0], [W, 0], [0, H], [W, H]])
+    dst = np.float32([[dx, 0], [W - dx, 0], [0, H], [W, H]])
+    Mp = cv2.getPerspectiveTransform(src, dst)
+    out.append({"image": cv2.warpPerspective(aligned, Mp, (W, H), borderMode=border),
+                "tag": "persp_down"})
+
+    return out
