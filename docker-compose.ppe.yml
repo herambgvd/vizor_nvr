@@ -55,6 +55,8 @@ services:
       # decodes the raw ppe_yolo26 [1,300,6] output itself.
       INFERENCE_BACKEND: ${PPE_INFERENCE_BACKEND:-triton}
       TRITON_URL: ${TRITON_URL:-triton:8000}
+      TRITON_GRPC_URL: ${TRITON_GRPC_URL:-triton:8001}
+      AI_REDIS_URL: ${AI_REDIS_URL:-redis://ai-redis:6379/0}
       PPE_MODEL_NAME: ${PPE_MODEL_NAME:-ppe_yolo26_trt}
       # Second-stage verifier = SigLIP (siglip_ppe). The old DINOv2 verifier is
       # retired (its vest head was untrained); PPE_VIT_MODEL_NAME left empty = off.

@@ -69,6 +69,34 @@ services:
       timeout: 5s
       retries: 5
 
+  ai-redis:
+    # Control plane + event bus for the AI worker framework (ported from vizor-gpu).
+    # SEPARATE from the NVR core `redis` (which is a volatile LRU cache, --save "");
+    # this one is durable (AOF, noeviction) because it carries the event stream that
+    # must NOT drop messages before they're bridged into Postgres.
+    #   * Streams: ai:{scenario}:control (backend->worker), ai:events (worker->bridge),
+    #     ai:{scenario}:status (heartbeat).
+    #   * KV: per-track dwell counters + recognition suppression (TTL'd).
+    #   * Pub/Sub: live overlay boxes + platform-config invalidation.
+    image: redis:7-alpine
+    container_name: gvd_ai_redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory ${REDIS_MEM_LIMIT:-512mb}
+      --maxmemory-policy noeviction
+    networks:
+      - internal
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
   rustfs:
     # S3-compatible object storage for AI-scenario media (FRS ID documents now;
     # snapshots/clips later). Pin a concrete tag before prod — :latest can change.
@@ -100,3 +128,4 @@ networks:
 volumes:
   qdrant_data:
   rustfs_data:
+  redis_data:

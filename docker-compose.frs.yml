@@ -71,6 +71,10 @@ services:
       # which models exist for the status endpoint.
       INFERENCE_BACKEND: ${FRS_INFERENCE_BACKEND:-triton}
       TRITON_URL: ${TRITON_URL:-triton:8000}
+      # gRPC endpoint for the new worker framework (hard-timeout infer, no hang).
+      TRITON_GRPC_URL: ${TRITON_GRPC_URL:-triton:8001}
+      # Durable AI event/control bus (separate from the core LRU cache redis).
+      AI_REDIS_URL: ${AI_REDIS_URL:-redis://ai-redis:6379/0}
       DETECTOR_MODEL_PATH: /models/scrfd_10g.onnx
       EMBED_MODEL_PATH: /models/arcface_r50.onnx
       ANTISPOOF_MODEL_PATH: /models/antispoofing.onnx

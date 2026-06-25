@@ -7,4 +7,6 @@ opencv-python-headless==4.10.0.84
 sqlalchemy==2.0.36
 psycopg2-binary==2.9.10
 alembic==1.14.0
-tritonclient[http]==2.50.0
+tritonclient[http,grpc]==2.50.0
+redis[hiredis]>=5.0
+prometheus-client>=0.20
