@@ -29,6 +29,13 @@ class PpeWorker(BaseWorker):
     def __init__(self, redis_url: str, **kw: Any) -> None:
         super().__init__(redis_url, **kw)
         self._pipelines: dict[str, PpePipeline] = {}
+        # Dedicated recognition pool, separate from the default to_thread pool the
+        # cpp decoder uses — otherwise heavy sync detection starves next_frame() and
+        # the camera loop stalls after one frame.
+        from concurrent.futures import ThreadPoolExecutor
+        import os as _os
+        n = max(2, min(8, (_os.cpu_count() or 4)))
+        self._reco_pool = ThreadPoolExecutor(max_workers=n, thread_name_prefix="ppe-reco")
 
     async def on_warmup(self) -> None:
         # The PPE detector connects lazily; nudge Triton readiness for the model so
@@ -63,7 +70,8 @@ class PpeWorker(BaseWorker):
     async def process_frame(self, cmd: Command, frame: Any) -> AsyncIterator[Event]:
         import asyncio
         pl = self._pipeline_for(cmd)
-        events = await asyncio.to_thread(pl.process, frame)
+        loop = asyncio.get_running_loop()
+        events = await loop.run_in_executor(self._reco_pool, pl.process, frame)
         for e in events or []:
             yield Event(
                 use_case=USE_CASE,

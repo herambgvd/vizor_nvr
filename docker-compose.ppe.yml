@@ -125,6 +125,8 @@ services:
       GO2RTC_RTSP_HOST: go2rtc
       GO2RTC_RTSP_PORT: "8554"
       WORKER_METRICS_PORT: "9102"
+      # ffmpeg (PyAV) default — see frs-worker note re: cpp+sync-pipeline contention.
+      VIZOR_DECODER: ${PPE_DECODER:-ffmpeg}
       WORKER_WATCHDOG_STALE_S: ${PPE_WATCHDOG_STALE_S:-90}
       PORT: 8092
     networks:

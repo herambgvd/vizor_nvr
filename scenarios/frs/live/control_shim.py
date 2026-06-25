@@ -54,6 +54,8 @@ class ControlShim:
         self._thread: threading.Thread | None = None
         # desired[device_id] = (config_sig, config_id)
         self._desired: dict[str, tuple[str, str]] = {}
+        self._reassert_every = 6   # re-emit all desired every N polls (~30s) so a
+        self._poll_count = 0       # restarted worker re-converges even after acks.
 
     def start(self) -> None:
         if self._thread is not None:
@@ -90,6 +92,8 @@ class ControlShim:
         cams = {c["camera_id"]: c for c in fetch_cameras()}
         current_ids = set(self._desired.keys())
         wanted_ids = set(cams.keys())
+        self._poll_count += 1
+        reassert = (self._poll_count % self._reassert_every) == 0
 
         # Stop cameras no longer enabled.
         for device_id in current_ids - wanted_ids:
@@ -117,6 +121,11 @@ class ControlShim:
                 self._emit(r, "update_config", device_id, _rtsp_url(device_id), cfg)
                 self._desired[device_id] = (sig, config_id)
                 logger.info("[frs-shim] update_config %s", device_id)
+            elif reassert:
+                # Idempotent re-assert so a restarted worker (which missed the
+                # already-acked original Command) re-converges. _start_locked treats
+                # a running camera as a no-op restart, so this is safe.
+                self._emit(r, "start_camera", device_id, _rtsp_url(device_id), cfg)
 
 
 _SHIM: ControlShim | None = None

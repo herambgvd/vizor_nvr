@@ -102,6 +102,14 @@ class FrsWorker(BaseWorker):
         from vizor_sdk.worker import TritonClient, default_grpc_url, CircuitBreaker
         self._triton = TritonClient(default_grpc_url(), breaker=CircuitBreaker("triton"))
         self._pipelines: dict[str, _EmitPipeline] = {}
+        # DEDICATED recognition executor — separate from the default asyncio
+        # to_thread pool that the cpp decoder's next_frame() borrows. Running the
+        # heavy sync recognition on the shared pool starved the decoder's threads, so
+        # next_frame() never got a slot and the camera loop stalled after 1 frame
+        # (vizor-gpu sidesteps this with a fully-async pipeline; we isolate the pool).
+        from concurrent.futures import ThreadPoolExecutor
+        n = max(2, min(8, (os.cpu_count() or 4)))
+        self._reco_pool = ThreadPoolExecutor(max_workers=n, thread_name_prefix="frs-reco")
 
     async def on_warmup(self) -> None:
         # Wait for the models the pipeline needs so the first real frame doesn't pay
@@ -126,10 +134,11 @@ class FrsWorker(BaseWorker):
 
     async def process_frame(self, cmd: Command, frame: Any) -> AsyncIterator[Event]:
         pl = self._pipeline_for(cmd)
-        # Recognition is CPU/GPU-bound + does inline qdrant/snapshot I/O — run it off
-        # the event loop so decode + the control plane never block on it.
+        # Run recognition on the DEDICATED pool (not the default to_thread pool the
+        # cpp decoder uses) so decode + control plane never starve.
         import asyncio
-        await asyncio.to_thread(pl.process, frame)
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(self._reco_pool, pl.process, frame)
         for ev in pl.drain():
             yield ev
 
@@ -144,6 +153,10 @@ class FrsWorker(BaseWorker):
     async def on_shutdown(self) -> None:
         try:
             await self._triton.close()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            self._reco_pool.shutdown(wait=False, cancel_futures=True)
         except Exception:  # noqa: BLE001
             pass
 

@@ -101,7 +101,12 @@ class BaseWorker(abc.ABC):
             raise ValueError("Subclass must set `use_case` class attribute")
 
         self.redis_url = redis_url
-        self.worker_id = worker_id or f"{socket.gethostname()}-{os.getpid()}-{uuid.uuid4().hex[:6]}"
+        # STABLE consumer id (hostname only, no pid/uuid) so a worker restart resumes
+        # the SAME consumer and re-reads its pending control Commands. With a random
+        # id per restart, each restart spawned a fresh consumer and the previously
+        # delivered start_camera Commands stayed parked on the now-dead consumer's
+        # PEL — the new worker saw lag=0 and started no cameras.
+        self.worker_id = worker_id or f"{self.use_case}-{socket.gethostname()}"
         self.consumer_group = consumer_group or f"{self.use_case}-workers"
         self.heartbeat_interval = heartbeat_interval
 
@@ -341,7 +346,39 @@ class BaseWorker(abc.ABC):
                 return
             raise
 
+    async def _claim_stale(self) -> None:
+        """On startup, claim control Commands left pending on OTHER (dead) consumers
+        and replay our own pending, so a restarted worker converges to the current
+        desired camera set instead of waiting for the next config change. Without
+        this, Commands delivered to a previous worker instance were stranded."""
+        try:
+            start = "0-0"
+            while True:
+                res = await self._redis.xautoclaim(
+                    self._control, self.consumer_group, self.worker_id,
+                    min_idle_time=0, start_id=start, count=64)
+                # redis-py returns (next_start, claimed, deleted) or (next_start, claimed)
+                next_start = res[0]
+                claimed = res[1] if len(res) > 1 else []
+                for entry_id, fields in claimed:
+                    try:
+                        await self._dispatch(fields)
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning("[%s] claim dispatch failed (%s): %s",
+                                       self.use_case, entry_id, e)
+                    try:
+                        await self._redis.xack(self._control, self.consumer_group, entry_id)
+                    except Exception:
+                        pass
+                if not claimed or next_start in ("0-0", "0"):
+                    break
+                start = next_start
+        except Exception as e:  # noqa: BLE001
+            logger.debug("[%s] claim_stale skipped: %s", self.use_case, e)
+
     async def _control_loop(self) -> None:
+        # First converge to any already-issued Commands stranded on old consumers.
+        await self._claim_stale()
         while not self._stop_event.is_set():
             try:
                 resp = await self._redis.xreadgroup(
