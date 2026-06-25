@@ -286,14 +286,29 @@ class GStreamerFrameSource(FrameSource):
         if self._closed:
             return
         self._closed = True
+        # Tear down in the right order and JOIN the GLib thread, otherwise every
+        # watchdog restart leaked a live `gst-*` thread (the daemon thread kept
+        # running _gloop.run()). Over hours that piled up to dozens of threads and
+        # starved FastAPI's sync threadpool → /health timed out → the container
+        # flapped "unhealthy" and events appeared to stall.
+        #   1. pipeline -> NULL stops the source pushing buffers,
+        #   2. quit the GLib loop so _run_glib returns,
+        #   3. join the thread (bounded) so it's actually gone.
+        try:
+            if self._pipeline is not None:
+                self._pipeline.set_state(Gst.State.NULL)
+        except Exception:  # noqa: BLE001
+            pass
         try:
             self._gloop.quit()
         except Exception:  # noqa: BLE001
             pass
-        try:
-            self._pipeline.set_state(Gst.State.NULL)
-        except Exception:  # noqa: BLE001
-            pass
+        t = getattr(self, "_thread", None)
+        if t is not None and t.is_alive():
+            try:
+                await asyncio.to_thread(t.join, 3.0)
+            except Exception:  # noqa: BLE001
+                pass
 
     def stats(self) -> dict[str, Any]:
         return dict(self._stats)

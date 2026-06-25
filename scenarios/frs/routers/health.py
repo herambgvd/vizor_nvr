@@ -1,6 +1,7 @@
 """Health + deep-health (engine/db/qdrant/ffmpeg/worker/disk readiness)."""
 from __future__ import annotations
 
+import asyncio
 import shutil
 import subprocess
 
@@ -35,26 +36,69 @@ def _disk() -> dict:
         return {"used_percent": None, "ok": True}
 
 
-@router.get("/health")
-def health(response: Response) -> dict:
-    """Real liveness probe (no auth, no PII). Reports degraded — and a 503 so the
-    orchestrator restarts the container — when the DB/engine is down, or when live
-    is enabled but no worker is actively decoding frames, or disk is near full."""
+import time as _time
+
+# Cached health snapshot. /health is hit constantly by the orchestrator; computing
+# it (DB ping, disk stat) on every request — on a SYNC route that borrows an anyio
+# threadpool thread — meant that whenever one component briefly blocked, the request
+# held its pool thread for the full timeout. Under a burst those threads piled up,
+# the pool starved, and EVERY subsequent /health stalled (the "events hold" the
+# container kept flapping on). We refresh the snapshot at most once per
+# _HEALTH_TTL_S and serve it from cache otherwise, and the route is async so it
+# never borrows a pool thread at all.
+_HEALTH_TTL_S = 5.0
+_health_cache: dict = {"ts": 0.0, "data": None, "code": 200}
+
+
+def _compute_health() -> tuple[dict, int]:
     db_ok = db_ready()
     engine_ok = recognition.engine_ready()
     workers = live_status()
     disk = _disk()
-    # Live degraded = enabled, has expected workers, but none active in the last 60s.
     live_ok = (not workers["enabled"]) or workers["expected"] == 0 or workers["active"] > 0
     ok = db_ok and disk["ok"] and live_ok
-    if not ok:
-        response.status_code = 503
-    return {
+    data = {
         "status": "ok" if ok else "degraded",
         "scenario": config.SCENARIO_SLUG, "version": config.VERSION,
         "db_ready": db_ok, "engine_ready": engine_ok,
         "workers": workers, "disk": disk,
     }
+    return data, (200 if ok else 503)
+
+
+def _refresh_health_loop() -> None:
+    """Recompute the health snapshot on a dedicated background thread, NOT on a
+    request. The /health route then just returns the cached snapshot instantly —
+    it never does DB/disk work and never borrows a pool thread, so it can't be
+    starved by recognition load (the root cause of the container flapping
+    "unhealthy" + the apparent event hold). One private thread, not the shared pool,
+    so it's isolated from inference back-pressure."""
+    import time as _t
+    while True:
+        try:
+            data, code = _compute_health()
+            _health_cache.update(ts=_t.monotonic(), data=data, code=code)
+        except Exception:  # noqa: BLE001
+            pass
+        _t.sleep(_HEALTH_TTL_S)
+
+
+@router.get("/health")
+async def health(response: Response) -> dict:
+    """Liveness probe (no auth, no PII). Returns the cached snapshot computed by the
+    background refresher — pure in-memory read, so it's always fast regardless of
+    recognition load."""
+    if _health_cache["data"] is None:
+        # First call before the refresher has run once — compute once inline.
+        try:
+            data, code = _compute_health()
+            _health_cache.update(ts=_time.monotonic(), data=data, code=code)
+        except Exception:  # noqa: BLE001
+            response.status_code = 503
+            return {"status": "starting", "scenario": config.SCENARIO_SLUG,
+                    "version": config.VERSION}
+    response.status_code = _health_cache["code"]
+    return _health_cache["data"]
 
 
 @router.post("/health/deep")
