@@ -89,6 +89,77 @@ html[data-console-font-size="18"] .text-\[14px\] { font-size: 16px; }
   background-color: #F3F4F6 !important;
 }
 
+/* ── White-theme compatibility: many screens hardcode dark-only utility classes
+ * (text-white on a now-white surface = invisible, bg-black panels = black holes).
+ * Remap the common offenders here so the whole platform is legible in light mode
+ * without editing every component. (Inline style={{color:'#fff'}} still needs a
+ * per-file fix — those are rare.) ───────────────────────────────────────────── */
+
+/* white / near-white text → dark ink */
+.light .text-white,
+.light .text-zinc-50,
+.light .text-neutral-50,
+.light .text-neutral-100,
+.light .text-gray-50,
+.light .text-gray-100,
+.light .text-slate-50,
+.light .text-slate-100 {
+  color: #0a0a0a !important;
+}
+
+/* black / very-dark backgrounds → white surface */
+.light .bg-black,
+.light .bg-neutral-950,
+.light .bg-neutral-900,
+.light .bg-slate-950,
+.light .bg-slate-900,
+.light .bg-gray-950,
+.light .bg-gray-900 {
+  background-color: #ffffff !important;
+}
+
+/* translucent black overlays (badges/labels over media) → light translucent */
+.light .bg-black\/80,
+.light .bg-black\/70,
+.light .bg-black\/60,
+.light .bg-black\/50,
+.light .bg-black\/40,
+.light .bg-black\/30,
+.light .bg-black\/20 {
+  background-color: rgba(255, 255, 255, 0.85) !important;
+  color: #0a0a0a !important;
+}
+
+/* mid greys used as secondary text in a few places */
+.light .text-zinc-700,
+.light .text-neutral-400,
+.light .text-neutral-500,
+.light .text-gray-400,
+.light .text-gray-500,
+.light .text-slate-400,
+.light .text-slate-500 {
+  color: #4b5563 !important;
+}
+
+/* lighter panel greys + their borders */
+.light .bg-neutral-800,
+.light .bg-slate-800,
+.light .bg-gray-800,
+.light .bg-zinc-700 {
+  background-color: #f3f4f6 !important;
+}
+.light .border-neutral-800,
+.light .border-slate-800,
+.light .border-gray-800,
+.light .border-neutral-700,
+.light .border-slate-700,
+.light .border-gray-700 {
+  border-color: #e5e7eb !important;
+}
+
+/* video tiles / panels that paint pure-black via inline backgrounds in light mode
+ * still read fine; but keep the app shell + cards on the token surfaces. */
+
 code, pre, .font-mono {
   font-family: "Source Code Pro", "JetBrains Mono", "Fira Code", monospace;
 }

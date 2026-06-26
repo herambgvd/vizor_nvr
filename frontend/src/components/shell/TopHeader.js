@@ -31,17 +31,20 @@ export default function TopHeader({ title }) {
     >
       <div className="flex items-center gap-2">
         {branding.logo_url ? (
+          // Logo set → show ONLY the logo (no text name beside it).
           <img
             src={branding.logo_url}
             alt={branding.system_name}
-            className="h-7 w-7 rounded object-contain"
+            className="h-8 max-w-[160px] rounded object-contain"
           />
         ) : (
-          <div className="h-6 w-6 rounded bg-[var(--console-accent)] flex items-center justify-center">
-            <Video className="h-3.5 w-3.5 text-white" />
-          </div>
+          <>
+            <div className="h-6 w-6 rounded bg-[var(--console-accent)] flex items-center justify-center">
+              <Video className="h-3.5 w-3.5 text-white" />
+            </div>
+            <span className="text-sm font-semibold tracking-tight">{branding.system_name}</span>
+          </>
         )}
-        <span className="text-sm font-semibold tracking-tight">{branding.system_name}</span>
       </div>
       <div className="h-4 w-px" style={{ background: "var(--console-border)" }} />
 

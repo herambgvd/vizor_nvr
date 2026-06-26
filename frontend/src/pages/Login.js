@@ -218,22 +218,25 @@ const Login = () => {
         {/* Brand */}
         <div className="flex flex-col items-center text-center mb-8">
           {branding.logo_url ? (
+            // Logo set → show ONLY the logo (no text name under it).
             <img
               src={branding.logo_url}
               alt={branding.system_name}
-              className="h-14 w-14 rounded-2xl object-contain mb-4 shadow-[0_0_48px_rgba(20,184,166,0.35)]"
+              className="h-20 max-w-[260px] object-contain mb-3"
             />
           ) : (
-            <div
-              className="h-14 w-14 rounded-2xl flex items-center justify-center mb-4 shadow-[0_0_48px_rgba(20,184,166,0.5)]"
-              style={{ backgroundColor: "var(--console-accent)" }}
-            >
-              <Video className="h-7 w-7 text-white" />
-            </div>
+            <>
+              <div
+                className="h-14 w-14 rounded-2xl flex items-center justify-center mb-4"
+                style={{ backgroundColor: "var(--console-accent)" }}
+              >
+                <Video className="h-7 w-7 text-white" />
+              </div>
+              <h1 className="text-3xl font-semibold tracking-tight">
+                <span style={{ color: "var(--console-text)" }}>{branding.system_name}</span>
+              </h1>
+            </>
           )}
-          <h1 className="text-3xl font-semibold tracking-tight">
-            <span style={{ color: "var(--console-text)" }}>{branding.system_name}</span>
-          </h1>
           <p
             className="font-telemetry text-[11px] uppercase tracking-[0.2em] mt-2"
             style={{ color: "var(--console-muted)" }}
