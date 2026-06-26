@@ -142,6 +142,66 @@ def build_dashboard(settings: dict) -> dict:
             "count": int(n),
         } for it, n in ti]
 
+        # ── Enhanced blocks (FRS parity) ───────────────────────────────────
+        # 1. Compliance rate today + trend vs the prior equal-length window.
+        checks_today = violations_today + compliant_today
+        rate_today = round(100.0 * compliant_today / checks_today, 1) if checks_today else None
+        prev_start = day_start - (now - day_start)
+        prev_v = _count(PPEEvent.event_type.in_(_VIOLATION_TYPES),
+                        PPEEvent.triggered_at >= prev_start, PPEEvent.triggered_at < day_start)
+        prev_c = _count(PPEEvent.event_type == "ppe_compliant",
+                        PPEEvent.triggered_at >= prev_start, PPEEvent.triggered_at < day_start)
+        prev_checks = prev_v + prev_c
+        rate_prev = round(100.0 * prev_c / prev_checks, 1) if prev_checks else None
+        compliance = {
+            "rate_today": rate_today, "rate_prev": rate_prev,
+            "checks_today": checks_today,
+            "trend": (round(rate_today - rate_prev, 1)
+                      if (rate_today is not None and rate_prev is not None) else None),
+        }
+
+        # 2. Per-camera compliance today.
+        cam_rows = s.execute(
+            select(PPEEvent.camera_id, PPEEvent.event_type, func.count())
+            .where(PPEEvent.triggered_at >= day_start)
+            .group_by(PPEEvent.camera_id, PPEEvent.event_type)).all()
+        cam_agg: dict = {}
+        for cid, et, n in cam_rows:
+            d = cam_agg.setdefault(cid, {"c": 0, "v": 0})
+            if et == "ppe_compliant":
+                d["c"] += int(n)
+            elif et in _VIOLATION_TYPES:
+                d["v"] += int(n)
+        cam_compliance = []
+        for cid, d in cam_agg.items():
+            tot = d["c"] + d["v"]
+            cam_compliance.append({
+                "camera": names.get(str(cid)) or (str(cid)[:8] if cid else "Unknown"),
+                "violations": d["v"],
+                "rate": round(100.0 * d["c"] / tot, 1) if tot else 0.0,
+            })
+        cam_compliance.sort(key=lambda r: r["violations"], reverse=True)
+
+        # 3. Live violations ticker — recent missing/removed events.
+        viol_rows = s.execute(
+            select(PPEEvent).where(PPEEvent.event_type.in_(_VIOLATION_TYPES),
+                                   PPEEvent.triggered_at >= day_start)
+            .order_by(PPEEvent.triggered_at.desc()).limit(30)).scalars().all()
+        violations_ticker = []
+        for e in viol_rows:
+            miss = e.missing_items or ([e.ppe_item] if e.ppe_item else [])
+            violations_ticker.append({
+                "items": ", ".join(_item_label(m) for m in miss) or "PPE",
+                "camera": names.get(str(e.camera_id)) or (str(e.camera_id)[:8] if e.camera_id else "—"),
+                "time": _iso_utc(e.triggered_at),
+            })
+
+        # 4. Recent violation snapshots (blurred client + a privacy-safe public route).
+        snaps = []
+        for e in viol_rows[:24]:
+            if e.snapshot_path:
+                snaps.append({"snapshot": e.snapshot_path, "time": _iso_utc(e.triggered_at)})
+
     return {
         # Stamp a UTC marker so the browser parses it as UTC, not local time.
         "generated_at": _iso_utc(now),
@@ -155,6 +215,11 @@ def build_dashboard(settings: dict) -> dict:
         "by_camera": by_camera,
         "hourly_trend": hourly,
         "top_violation_types": top_violation_types,
+        # Enhanced public dashboard blocks (FRS parity):
+        "compliance": compliance,            # rate today + trend
+        "cam_compliance": cam_compliance,    # per-camera rate + violations
+        "violations_ticker": violations_ticker,
+        "snapshots": snaps,                  # blurred client-side
     }
 
 

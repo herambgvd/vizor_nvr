@@ -381,8 +381,91 @@ export default function PublicScenarioDashboard() {
         <FrsHeadcountRow data={data} slug={slug} tz={tz} />
       )}
 
+      {/* ── PPE enhanced blocks ── */}
+      {data?.compliance && (
+        <PpeComplianceRows data={data} slug={slug} tz={tz} />
+      )}
+
       <style>{`@keyframes frsIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
         @keyframes frsTick{from{transform:translateX(100%)}to{transform:translateX(-100%)}}`}</style>
+    </>
+  );
+}
+
+// PPE-only: compliance rate + trend, per-camera compliance, live-violation ticker,
+// and privacy-blurred violation snapshots.
+function PpeComplianceRows({ data, slug, tz }) {
+  const c = data.compliance || {};
+  const cams = data.cam_compliance || [];
+  const ticker = data.violations_ticker || [];
+  const snaps = data.snapshots || [];
+  const trend = c.trend;
+  const trendColor = trend > 0 ? C.green : trend < 0 ? C.amber : C.muted;
+  const trendStr = trend == null ? "" : `${trend > 0 ? "▲ +" : trend < 0 ? "▼ " : "= "}${Math.abs(trend)} pts vs prev`;
+
+  return (
+    <>
+      {/* Row A — compliance rate + per-camera compliance */}
+      <div style={{ flex: "0 0 auto", height: 168, display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,2fr)", gap: 14 }}>
+        <Panel title="Compliance rate — today" fill>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 14 }}>
+            <span style={{ fontSize: 48, fontWeight: 800, color: C.text, lineHeight: 1 }}>{c.rate_today == null ? "—" : `${c.rate_today}%`}</span>
+            {trendStr && <span style={{ fontSize: 13, color: trendColor, fontWeight: 600 }}>{trendStr}</span>}
+          </div>
+          <p style={{ fontSize: 11, color: C.faint, marginTop: 8 }}>{c.checks_today ?? 0} PPE checks today</p>
+        </Panel>
+        <Panel title="Per-camera compliance" scroll>
+          {cams.length === 0 ? <Empty label="No checks yet" h={60} /> : (
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              {cams.map((g, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 0", borderBottom: i < cams.length - 1 ? `1px solid ${C.border}` : "none" }}>
+                  <span style={{ flex: 1, fontSize: 14 }}>{g.camera}</span>
+                  <span style={{ fontSize: 12, color: C.amber }}>{g.violations} viol</span>
+                  <span style={{ color: C.text, fontWeight: 700, fontSize: 15, minWidth: 56, textAlign: "right" }}>{g.rate}%</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Panel>
+      </div>
+
+      {/* Row B — live violations ticker */}
+      <div style={{ flex: "0 0 auto" }}>
+        <Panel title="Live violations" right={<span style={{ fontSize: 11, color: C.amber }}>{ticker.length} today</span>}>
+          {ticker.length === 0 ? <Empty label="No violations" h={44} /> : (
+            <div style={{ overflow: "hidden", whiteSpace: "nowrap", position: "relative", height: 30 }}>
+              <div style={{ display: "inline-flex", gap: 26, animation: `frsTick ${Math.max(18, ticker.length * 6)}s linear infinite` }}>
+                {ticker.map((v, i) => (
+                  <span key={i} style={{ fontSize: 13, color: C.text }}>
+                    <span style={{ color: C.amber, fontWeight: 700 }}>⚠ No {v.items}</span>
+                    {" · "}{v.camera}{" · "}<span style={{ color: C.faint }}>{v.time ? fmtTime(v.time, tz) : ""}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </Panel>
+      </div>
+
+      {/* Row C — violation snapshots (blurred) */}
+      <div style={{ flex: "0 0 auto", height: 320 }}>
+        <Panel title="Recent violations" fill scroll right={<span style={{ fontSize: 11, color: C.faint }}>privacy-blurred</span>}>
+          {snaps.length === 0 ? <Empty label="No violation snapshots" h={60} /> : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(76px, 1fr))", gap: 10 }}>
+              {snaps.map((u, i) => (
+                <div key={i} style={{ position: "relative", aspectRatio: "3/4", borderRadius: 6, overflow: "hidden", background: C.panel2 }}>
+                  <img src={`/api/ai/${slug}/public/snapshot?key=${encodeURIComponent(stripKey(u.snapshot))}`} alt=""
+                    style={{ width: "100%", height: "100%", objectFit: "cover", filter: "blur(2px)" }}
+                    onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                  <span style={{ position: "absolute", bottom: 2, left: 4, fontSize: 9, color: "#fff", textShadow: "0 1px 2px #000" }}>
+                    {u.time ? fmtTime(u.time, tz) : ""}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Panel>
+      </div>
     </>
   );
 }
