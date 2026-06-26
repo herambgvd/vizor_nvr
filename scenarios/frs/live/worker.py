@@ -487,6 +487,10 @@ class CameraWorker(threading.Thread):
                                          snap, event_type, ts,
                                          bbox=_bbox_obj(f.get("bbox")),
                                          attributes={"face_snapshot": fc, "matched_photo_id": matched_photo,
+                                                     # Detector confidence (a face WAS found) — distinct from the
+                                                     # gallery-match score, which is 0 on an Unknown. The Unknown
+                                                     # report shows this so "0%" isn't confusing.
+                                                     "det_confidence": round(float(f.get("confidence") or 0.0), 3),
                                                      "liveness_score": live, **self._demo_attr(f)},
                                          direction=self.direction)
                 # Index this sighting's embedding into the SNAPSHOTS collection so

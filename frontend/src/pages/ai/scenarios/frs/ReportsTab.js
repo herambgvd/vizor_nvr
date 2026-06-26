@@ -7,17 +7,45 @@
 // Each can be exported (CSV/XLSX) and scheduled (email + in-system download).
 // =============================================================================
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import {
-  CalendarClock, Download, FileSpreadsheet, FileText, Loader2, Mail,
+  CalendarClock, Download, FileSpreadsheet, FileText, ImageOff, Loader2, Mail,
   Play, Plus, Trash2, Users, UserX, ArrowLeftRight, ClipboardList,
 } from "lucide-react";
 
 import {
   frsReport, frsReportExportUrl, listReportSchedules, createReportSchedule,
   deleteReportSchedule, runReportSchedule, listReportRuns, reportRunDownloadUrl,
+  scenarioSnapshotUrl,
 } from "../../../../api/ai";
+
+const SLUG = "frs";
+
+// Authed face thumbnail for a plugin snapshot path (e.g. /snapshot?key=live:<id>).
+function SnapThumb({ path }) {
+  const [url, setUrl] = useState(null);
+  const [err, setErr] = useState(false);
+  useEffect(() => {
+    if (!path) return undefined;
+    let active = true, obj = null;
+    scenarioSnapshotUrl(SLUG, path).then((u) => {
+      if (!active) { if (u) URL.revokeObjectURL(u); return; }
+      obj = u; setUrl(u);
+    }).catch(() => active && setErr(true));
+    return () => { active = false; if (obj) URL.revokeObjectURL(obj); };
+  }, [path]);
+  if (!path || err || !url) {
+    return (
+      <div className="h-11 w-11 rounded flex items-center justify-center border"
+        style={{ borderColor: "var(--console-border)", background: "var(--console-raised)" }}>
+        <ImageOff className="h-4 w-4 text-zinc-600" />
+      </div>
+    );
+  }
+  return <img src={url} alt="face" loading="lazy" onError={() => setErr(true)}
+    className="h-11 w-11 rounded object-cover border" style={{ borderColor: "var(--console-border)" }} />;
+}
 
 const REPORTS = [
   { key: "attendance", label: "Attendance", icon: ClipboardList,
@@ -156,10 +184,10 @@ export default function ReportsTab() {
                   {columns.map((c) => (
                     <td key={c} className="px-3 py-2 whitespace-nowrap" style={{ color: "var(--console-text)" }}>
                       {c === "snapshot"
-                        ? (row[c]
-                          ? <span className="text-[11px] inline-flex items-center gap-1" style={{ color: "var(--console-accent)" }}>● captured</span>
-                          : <span className="text-[11px]" style={{ color: "var(--console-muted)" }}>—</span>)
-                        : renderCell(c, row[c])}
+                        ? <SnapThumb path={row[c]} />
+                        : c === "detected_pct"
+                          ? `${row[c]}%`
+                          : renderCell(c, row[c])}
                     </td>
                   ))}
                 </tr>

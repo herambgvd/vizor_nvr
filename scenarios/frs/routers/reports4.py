@@ -13,13 +13,17 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Optional
+from urllib.parse import parse_qs, urlparse
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy import and_, func, select
 
+import config
 from db import session
 from db.models import FRSAttendance, FRSEvent, FRSGroup, FRSPerson, TransitSession
 from deps import require_service_token, allowed_camera_ids
@@ -29,29 +33,83 @@ router = APIRouter(tags=["reports"])
 
 REPORTS = ("attendance", "group", "mismatch", "unknown")
 
+_SAFE = re.compile(r"^[A-Za-z0-9\-_]+$")
+
+
+def _snapshot_file(value: str) -> Optional[Path]:
+    """Resolve a stored snapshot reference (a '/snapshot?key=live:<id>' path, a bare
+    'live:<id>' key, or a relative photo storage_key) to an on-disk image path, or
+    None. Used to embed the actual image into XLSX exports."""
+    if not value:
+        return None
+    key = value
+    if value.startswith("/snapshot") or value.startswith("http"):
+        q = parse_qs(urlparse(value).query)
+        key = (q.get("key") or [""])[0]
+    for prefix in ("live:", "ingest:"):
+        if key.startswith(prefix):
+            name = key[len(prefix):]
+            if not _SAFE.match(name):
+                return None
+            p = config.DATA_PATH / "snapshots" / f"{name}.jpg"
+            return p if p.exists() else None
+    # else treat as a relative path under DATA_PATH (best effort, no traversal)
+    if ".." in key or key.startswith("/"):
+        return None
+    p = config.DATA_PATH / key
+    return p if p.exists() else None
+
 
 # ── export helpers ─────────────────────────────────────────────────────────
 def _csv(columns: list[str], rows: list[dict]) -> Response:
+    # CSV is plain text — it can't hold images, so drop the snapshot column entirely
+    # (an image lives only in the XLSX export).
+    cols = [c for c in columns if c != "snapshot"]
     buf = io.StringIO()
-    w = csv.DictWriter(buf, fieldnames=columns, extrasaction="ignore")
+    w = csv.DictWriter(buf, fieldnames=cols, extrasaction="ignore")
     w.writeheader()
     for r in rows:
-        w.writerow(r)
+        w.writerow({c: r.get(c, "") for c in cols})
     return Response(buf.getvalue(), media_type="text/csv",
                     headers={"Content-Disposition": "attachment; filename=report.csv"})
 
 
 def _xlsx(columns: list[str], rows: list[dict], title: str = "Report") -> Response:
     from openpyxl import Workbook
-    from openpyxl.styles import Font
+    from openpyxl.drawing.image import Image as XLImage
+    from openpyxl.styles import Alignment, Font
+    from openpyxl.utils import get_column_letter
+
     wb = Workbook()
     ws = wb.active
     ws.title = title[:31]
-    ws.append(columns)
+    has_snap = "snapshot" in columns
+    ws.append([c.replace("_", " ").title() for c in columns])
     for c in ws[1]:
         c.font = Font(bold=True)
-    for r in rows:
-        ws.append([r.get(c, "") for c in columns])
+
+    THUMB = 56  # px — embedded face thumbnail size
+    for ri, r in enumerate(rows, start=2):
+        ws.append([("" if c == "snapshot" else r.get(c, "")) for c in columns])
+        if not has_snap:
+            continue
+        src = _snapshot_file(r.get("snapshot") or "")
+        if not src:
+            continue
+        try:
+            img = XLImage(str(src))
+            img.width = img.height = THUMB
+            col_letter = get_column_letter(columns.index("snapshot") + 1)
+            ws.row_dimensions[ri].height = THUMB * 0.78  # pt
+            ws.add_image(img, f"{col_letter}{ri}")
+        except Exception:  # noqa: BLE001
+            pass
+
+    if has_snap:
+        ws.column_dimensions[get_column_letter(columns.index("snapshot") + 1)].width = 10
+    for c in ws[1]:
+        c.alignment = Alignment(vertical="center")
+
     bio = io.BytesIO()
     wb.save(bio)
     return Response(
@@ -83,7 +141,7 @@ def report_attendance(day_from: str = Query(...), day_to: str = Query(...),
                       format: str = Query("json"),
                       _: None = Depends(require_service_token),
                       allowed: Optional[list[str]] = Depends(allowed_camera_ids)) -> Response:
-    columns = ["day", "person_name", "first_in", "last_out", "duration"]
+    columns = ["snapshot", "day", "person_name", "first_in", "last_out", "duration"]
     with session() as s:
         conds = [FRSAttendance.day_key >= day_from, FRSAttendance.day_key <= day_to]
         if allowed is not None:
@@ -93,14 +151,16 @@ def report_attendance(day_from: str = Query(...), day_to: str = Query(...),
         stmt = (select(
             FRSAttendance.day_key, FRSAttendance.person_id, FRSPerson.full_name,
             FRSAttendance.check_in_at, FRSAttendance.check_out_at,
+            FRSAttendance.check_in_snapshot, FRSAttendance.check_out_snapshot,
         ).outerjoin(FRSPerson, FRSPerson.id == FRSAttendance.person_id)
          .where(and_(*conds))
          .order_by(FRSAttendance.day_key.desc(), FRSPerson.full_name))
         rows = []
-        for day, pid, name, cin, cout in s.execute(stmt).all():
+        for day, pid, name, cin, cout, cin_snap, cout_snap in s.execute(stmt).all():
             last = cout or cin
             dur = (last - cin).total_seconds() if (cin and last) else None
             rows.append({
+                "snapshot": cin_snap or cout_snap or "",
                 "day": day,
                 "person_name": name or (f"Person {str(pid)[:8]}" if pid else "Unknown"),
                 "first_in": iso(cin), "last_out": iso(cout) or iso(cin),
@@ -146,7 +206,7 @@ def report_group(day_from: str = Query(...), day_to: str = Query(...),
 def report_mismatch(day_from: str = Query(...), day_to: str = Query(...),
                     format: str = Query("json"),
                     _: None = Depends(require_service_token)) -> Response:
-    columns = ["person_name", "entry_time", "exit_time", "status"]
+    columns = ["snapshot", "person_name", "entry_time", "exit_time", "status"]
     start = naive(datetime.fromisoformat(day_from)) if "T" in day_from else naive(datetime.fromisoformat(day_from + "T00:00:00"))
     end = naive(datetime.fromisoformat(day_to)) if "T" in day_to else naive(datetime.fromisoformat(day_to + "T23:59:59"))
     with session() as s:
@@ -165,6 +225,8 @@ def report_mismatch(day_from: str = Query(...), day_to: str = Query(...),
             else:
                 status = "Unpaired (no exit)"
             rows.append({
+                "snapshot": attrs.get("entry_snapshot") or attrs.get("face_snapshot")
+                or attrs.get("snapshot") or "",
                 "person_name": name or attrs.get("person_name")
                 or (f"Person {str(sess.person_id)[:8]}" if sess.person_id else "Unknown"),
                 "entry_time": iso(sess.started_at),
@@ -180,7 +242,9 @@ def report_unknown(day_from: str = Query(...), day_to: str = Query(...),
                    format: str = Query("json"),
                    _: None = Depends(require_service_token),
                    allowed: Optional[list[str]] = Depends(allowed_camera_ids)) -> Response:
-    columns = ["time", "camera_id", "confidence", "snapshot"]
+    # "confidence" here is the DETECTOR confidence (a face was found) — the match score
+    # is always 0 on an Unknown, so showing that read as a confusing "0%".
+    columns = ["snapshot", "time", "camera_id", "detected_pct"]
     start = naive(datetime.fromisoformat(day_from + "T00:00:00")) if "T" not in day_from else naive(datetime.fromisoformat(day_from))
     end = naive(datetime.fromisoformat(day_to + "T23:59:59")) if "T" not in day_to else naive(datetime.fromisoformat(day_to))
     with session() as s:
@@ -188,7 +252,7 @@ def report_unknown(day_from: str = Query(...), day_to: str = Query(...),
                  FRSEvent.triggered_at >= start, FRSEvent.triggered_at <= end]
         if allowed is not None:
             if not allowed:
-                return _respond(columns + ["count"], [], format, "Unknown Attempts")
+                return _respond(columns, [], format, "Unknown Attempts")
             conds.append(FRSEvent.camera_id.in_(allowed))
         stmt = (select(FRSEvent).where(and_(*conds))
                 .order_by(FRSEvent.triggered_at.desc()).limit(2000))
@@ -196,11 +260,16 @@ def report_unknown(day_from: str = Query(...), day_to: str = Query(...),
         rows = []
         for e in evs:
             attrs = e.attributes or {}
+            # Prefer the stored detector confidence; fall back to the event confidence
+            # only if it's non-zero (older rows had no det_confidence attr).
+            det = attrs.get("det_confidence")
+            if det is None:
+                det = float(e.confidence or 0.0)
             rows.append({
+                "snapshot": attrs.get("face_snapshot") or e.snapshot_path or "",
                 "time": iso(e.triggered_at),
                 "camera_id": e.camera_id,
-                "confidence": round(float(e.confidence or 0.0), 3),
-                "snapshot": attrs.get("face_snapshot") or e.snapshot_path or "",
+                "detected_pct": round(float(det) * 100, 1),
             })
     # The UI also wants a total count up top — include it in JSON; exports list rows.
     if (format or "json").lower() == "json":
