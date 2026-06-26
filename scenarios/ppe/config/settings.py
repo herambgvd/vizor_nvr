@@ -28,6 +28,15 @@ PPE_DATABASE_URL = os.getenv(
 )
 DATA_PATH = Path(os.getenv("DATA_PATH", "/data/ppe"))
 
+# ── Email (scheduled report delivery) ──────────────────────────────────────
+SMTP_HOST = os.getenv("PPE_SMTP_HOST", "")
+SMTP_PORT = int(os.getenv("PPE_SMTP_PORT", "587"))
+SMTP_USER = os.getenv("PPE_SMTP_USER", "")
+SMTP_PASSWORD = os.getenv("PPE_SMTP_PASSWORD", "")
+SMTP_FROM = os.getenv("PPE_SMTP_FROM", SMTP_USER or "noreply@vizor.local")
+SMTP_TLS = os.getenv("PPE_SMTP_TLS", "1").lower() in ("1", "true", "yes", "on")
+REPORTS_DIR = DATA_PATH / "reports"
+
 # ── Inference (shared Triton) ────────────────────────────────────────────────
 # 'triton' → shared Triton server (production, batched). The plugin decodes the
 # raw [1,300,6] ppe_yolo26 output itself; no in-process torch/ultralytics.

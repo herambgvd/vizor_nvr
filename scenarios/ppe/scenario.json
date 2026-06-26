@@ -55,6 +55,17 @@
     { "method": "POST", "path": "/events/delete" },
 
     { "method": "GET", "path": "/reports/summary" },
+    { "method": "GET", "path": "/reports/compliance" },
+    { "method": "GET", "path": "/reports/violations" },
+    { "method": "GET", "path": "/reports/by_item" },
+    { "method": "GET", "path": "/reports/worker" },
+    { "method": "GET", "path": "/report-schedules" },
+    { "method": "POST", "path": "/report-schedules" },
+    { "method": "PUT", "path": "/report-schedules/{id}" },
+    { "method": "DELETE", "path": "/report-schedules/{id}" },
+    { "method": "POST", "path": "/report-schedules/{id}/run" },
+    { "method": "GET", "path": "/report-runs" },
+    { "method": "GET", "path": "/report-runs/{id}/download" },
     { "method": "GET", "path": "/snapshot" }
   ],
   "resource_requirements": {

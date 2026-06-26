@@ -29,13 +29,16 @@ from routers import (
     ingest,
     public,
     reports,
+    reports4,
+    report_schedule,
     settings as settings_router,
     snapshot,
 )
 
 app = FastAPI(title="Vizor PPE Compliance", version=config.VERSION)
 
-for module in (health, events, reports, snapshot, settings_router, public, ingest):
+for module in (health, events, reports, reports4, report_schedule, snapshot,
+               settings_router, public, ingest):
     app.include_router(module.router)
 
 
@@ -48,6 +51,9 @@ def _startup() -> None:
     start_live_manager()
     # Retention sweeper: purge aged events + snapshot files.
     start_retention_sweeper()
+    # Scheduled-report runner: fires due report schedules, emails + stores the file.
+    from routers.report_schedule import start_report_scheduler
+    start_report_scheduler()
 
 
 if __name__ == "__main__":

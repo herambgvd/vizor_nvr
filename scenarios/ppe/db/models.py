@@ -74,3 +74,46 @@ class PPESettings(Base):
     # violation types are not PII; this gates any worker identity if ever shown).
     public_show_names = Column(Boolean, nullable=False, default=False)
     updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
+
+
+class PPECameraName(Base):
+    """Last-known camera_id → friendly name (FRS parity). The core cameras API can be
+    empty when a scenario is toggled off; persist names so reports/dashboard never show
+    raw ids."""
+    __tablename__ = "ppe_camera_names"
+    camera_id = Column(String, primary_key=True)
+    name = Column(String(200), nullable=False)
+    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
+
+
+class ReportSchedule(Base):
+    """A scheduled PPE report: which report, cadence, range, recipients."""
+    __tablename__ = "ppe_report_schedules"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    name = Column(String(200), nullable=False)
+    report = Column(String(30), nullable=False)        # compliance|violations|by_item|worker
+    fmt = Column(String(10), nullable=False, default="xlsx")
+    frequency = Column(String(10), nullable=False, default="daily")
+    at_time = Column(String(5), nullable=False, default="08:00")
+    range_days = Column(Integer, nullable=False, default=1)
+    recipients = Column(Text, nullable=True)
+    enabled = Column(Boolean, nullable=False, default=True)
+    last_run_at = Column(DateTime, nullable=True)
+    next_run_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=_utcnow)
+    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
+
+
+class ReportRun(Base):
+    """A generated PPE report file kept for download."""
+    __tablename__ = "ppe_report_runs"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    schedule_id = Column(String, nullable=True)
+    report = Column(String(30), nullable=False)
+    fmt = Column(String(10), nullable=False)
+    filename = Column(String(300), nullable=False)
+    path = Column(String(500), nullable=False)
+    emailed_to = Column(Text, nullable=True)
+    email_ok = Column(Boolean, nullable=True)
+    rows = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=_utcnow)
