@@ -222,7 +222,10 @@ def worker_logs(camera_id: str) -> dict:
 
 
 def _worker_v2_enabled() -> bool:
-    return os.getenv("FRS_WORKER_V2", "false").lower() in ("1", "true", "yes", "on")
+    # Architecture v2 is the only supported live path now — default ON. The events
+    # bridge + control shim MUST run or the worker emits with nothing draining to the
+    # DB (no events). Only an explicit FRS_WORKER_V2=0/false/off disables it.
+    return os.getenv("FRS_WORKER_V2", "1").lower() not in ("0", "false", "no", "off")
 
 
 def start_live_manager():

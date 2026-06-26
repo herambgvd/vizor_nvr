@@ -59,13 +59,12 @@ services:
       # Live worker decoder: async supervisor + GStreamer (NVDEC-capable) instead of
       # the legacy ffmpeg thread workers. Default on for scenario consistency with PPE.
       FRS_LIVE_ASYNC: ${FRS_LIVE_ASYNC:-1}
-      # Architecture v2: app runs the events bridge + control shim instead of the
-      # in-process supervisor (recognition moves to the gvd_ai_frs_worker process).
-      # DEFAULT 1 — the worker-v2 worker is the live recognition path. If this is 0
-      # the app boots legacy in-process mode and the events bridge never starts, so
-      # the worker emits to ai:events but nothing drains it to the DB → "no events".
-      # Always deploy the worker too (`--profile worker-v2`).
-      FRS_WORKER_V2: ${FRS_WORKER_V2:-1}
+      # Architecture v2 is the ONLY live path now — hardcoded on. The app runs the
+      # events bridge + control shim (not the legacy in-process supervisor). If this
+      # were off the worker would emit to ai:events with nothing draining to the DB
+      # → "no events". The frs-worker service is a normal (non-profile) service so it
+      # auto-starts on boot alongside the app.
+      FRS_WORKER_V2: "1"
       # Use the camera 720p sub-stream for AI (4x fewer pixels than the 4MP main →
       # much lower decode + colour-convert + per-frame CPU). The control shim builds
       # the {camera}_sub go2rtc URL. cpp NVDEC handles the sub stream cleanly.
@@ -132,15 +131,20 @@ services:
   # Out-of-process recognition worker on the ported vizor-gpu framework: gRPC
   # Triton (hard-timeout, no _post hang), per-camera asyncio + watchdog, Redis
   # control plane. Reuses the frs image but runs the worker entrypoint instead of
-  # the FastAPI app. Opt-in via `--profile worker-v2`; the app side must also have
-  # FRS_WORKER_V2=1 so it runs the bridge+shim instead of the in-process supervisor.
+  # the FastAPI app. This is the live recognition path — a NORMAL service (no
+  # profile) so `up -d` and a host reboot bring it up automatically with the app.
+  # `restart: unless-stopped` re-launches it after a crash or machine power-cycle.
   frs-worker:
+    build:
+      context: ./scenarios
+      dockerfile: frs/Dockerfile
     image: vizor_nvr-frs
     container_name: gvd_ai_frs_worker
     restart: unless-stopped
-    profiles: ["worker-v2"]
     command: ["python", "-m", "live.redis_worker"]
     depends_on:
+      frs:
+        condition: service_started
       ai-redis:
         condition: service_healthy
       triton:
