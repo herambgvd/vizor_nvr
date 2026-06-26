@@ -32,9 +32,14 @@ async def investigate(file: UploadFile = File(...), top_k: int = Form(100),
     data = await file.read()
     if not data:
         raise HTTPException(400, "empty upload")
-    vector = recognition.query_embedding(data)
+    try:
+        vector = recognition.query_embedding(data)
+    except recognition.EngineUnavailable:
+        raise HTTPException(503, "recognition engine is starting up — retry in a moment")
+    except recognition.ImageDecodeError:
+        raise HTTPException(415, "could not read that image — use a JPG or PNG photo")
     if vector is None:
-        raise HTTPException(422, "no usable face in query image (or engine unavailable)")
+        raise HTTPException(422, "no usable face in query image")
     requested = [c.strip() for c in (camera_ids or "").split(",") if c.strip()]
     if allowed is None:
         cam_filter = requested or None                      # no proxy scope (internal)

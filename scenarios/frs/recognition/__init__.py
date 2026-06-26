@@ -14,4 +14,6 @@ from .service import (  # noqa: F401
     onnx_status,
     query_embedding,
     recognize,
+    EngineUnavailable,
+    ImageDecodeError,
 )

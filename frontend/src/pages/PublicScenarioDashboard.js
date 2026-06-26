@@ -376,9 +376,118 @@ export default function PublicScenarioDashboard() {
         </Panel>
       </div>
 
-      <style>{`@keyframes frsIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}`}</style>
+      {/* ── FRS enhanced blocks (only when the backend supplies them) ── */}
+      {data?.headcount && (
+        <FrsHeadcountRow data={data} slug={slug} tz={tz} />
+      )}
+
+      <style>{`@keyframes frsIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+        @keyframes frsTick{from{transform:translateX(100%)}to{transform:translateX(-100%)}}`}</style>
     </>
   );
+}
+
+// FRS-only: present-now headcount + trend, group headcount, live-violation ticker,
+// entry/exit mismatch, and privacy-blurred unknown snapshots.
+function FrsHeadcountRow({ data, slug, tz }) {
+  const hc = data.headcount || {};
+  const groups = data.by_group || [];
+  const violations = data.violations || [];
+  const mismatches = data.mismatches || [];
+  const unknowns = data.unknowns || [];
+  const trend = hc.trend || 0;
+  const trendColor = trend > 0 ? C.green : trend < 0 ? C.amber : C.muted;
+  const trendStr = `${trend > 0 ? "▲ +" : trend < 0 ? "▼ " : "= "}${Math.abs(trend)} vs last 15m`;
+
+  return (
+    <>
+      {/* Row A — present-now headcount + group headcount */}
+      <div style={{ flex: "0 0 auto", display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,2fr)", gap: 14 }}>
+        <Panel title="Headcount — present now">
+          <div style={{ display: "flex", alignItems: "baseline", gap: 14 }}>
+            <span style={{ fontSize: 48, fontWeight: 800, color: C.text, lineHeight: 1 }}>{hc.present_now ?? 0}</span>
+            <span style={{ fontSize: 13, color: trendColor, fontWeight: 600 }}>{trendStr}</span>
+          </div>
+          <p style={{ fontSize: 11, color: C.faint, marginTop: 8 }}>distinct people seen in the last 15 minutes</p>
+        </Panel>
+        <Panel title="Group-wise headcount" scroll>
+          {groups.length === 0 ? <Empty label="No one on the floor right now" h={60} /> : (
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              {groups.map((g, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 0", borderBottom: i < groups.length - 1 ? `1px solid ${C.border}` : "none" }}>
+                  <span style={{ width: 10, height: 10, borderRadius: 999, background: g.color || C.violet, flexShrink: 0 }} />
+                  <span style={{ flex: 1, fontSize: 14 }}>{g.group}</span>
+                  <span style={{ color: C.text, fontWeight: 700, fontSize: 16 }}>{g.present}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Panel>
+      </div>
+
+      {/* Row B — live violations ticker */}
+      <div style={{ flex: "0 0 auto" }}>
+        <Panel title="Live violations" right={<span style={{ fontSize: 11, color: C.amber }}>{violations.length} active</span>}>
+          {violations.length === 0 ? (
+            <Empty label="No violations" h={44} />
+          ) : (
+            <div style={{ overflow: "hidden", whiteSpace: "nowrap", position: "relative", height: 30 }}>
+              <div style={{ display: "inline-flex", gap: 26, animation: `frsTick ${Math.max(18, violations.length * 6)}s linear infinite` }}>
+                {violations.map((v, i) => (
+                  <span key={i} style={{ fontSize: 13, color: C.text }}>
+                    <span style={{ color: C.amber, fontWeight: 700 }}>⚠ {v.reason}</span>
+                    {" · "}{v.name}{" · "}<span style={{ color: C.faint }}>{v.group}</span>
+                    {" · "}{v.camera ? String(v.camera).slice(0, 8) : "—"}
+                    {" · "}<span style={{ color: C.faint }}>{v.time ? fmtTime(v.time, tz) : ""}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </Panel>
+      </div>
+
+      {/* Row C — entry/exit mismatch + unknown snapshots (blurred) */}
+      <div style={{ flex: "1 1 0", minHeight: 220, display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1.2fr)", gap: 14 }}>
+        <Panel title="Entry / Exit mismatch" scroll right={<span style={{ fontSize: 11, color: C.amber }}>{data.mismatch_count ?? mismatches.length}</span>}>
+          {mismatches.length === 0 ? <Empty label="All entries paired" h={60} /> : (
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              {mismatches.map((m, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 0", borderBottom: i < mismatches.length - 1 ? `1px solid ${C.border}` : "none" }}>
+                  <span style={{ flex: 1, fontSize: 13.5 }}>{m.name}</span>
+                  <span style={{ fontSize: 12, color: C.faint }}>in {m.entry_time ? fmtTime(m.entry_time, tz) : "—"}</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: m.status === "Overdue" ? C.amber : C.muted, minWidth: 78, textAlign: "right" }}>{m.status}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Panel>
+        <Panel title="Unknown persons" scroll right={<span style={{ fontSize: 11, color: C.faint }}>privacy-blurred</span>}>
+          {unknowns.length === 0 ? <Empty label="No unknown persons today" h={60} /> : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(76px, 1fr))", gap: 10 }}>
+              {unknowns.map((u, i) => (
+                <div key={i} style={{ position: "relative", aspectRatio: "3/4", borderRadius: 6, overflow: "hidden", background: C.panel2 }}>
+                  <img src={`/api/ai/${slug}/public/snapshot?key=${encodeURIComponent(stripKey(u.snapshot))}`} alt=""
+                    style={{ width: "100%", height: "100%", objectFit: "cover", filter: "blur(2px)" }}
+                    onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                  <span style={{ position: "absolute", bottom: 2, left: 4, fontSize: 9, color: "#fff", textShadow: "0 1px 2px #000" }}>
+                    {u.time ? fmtTime(u.time, tz) : ""}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Panel>
+      </div>
+    </>
+  );
+}
+
+// "/snapshot?key=live:xyz" → "live:xyz" for the public snapshot route.
+function stripKey(snap) {
+  if (!snap) return "";
+  const m = /[?&]key=([^&]+)/.exec(snap);
+  return m ? decodeURIComponent(m[1]) : snap;
 }
 
 const Centered = ({ title, sub }) => (

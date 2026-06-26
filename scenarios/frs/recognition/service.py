@@ -119,11 +119,31 @@ def onnx_status() -> dict[str, Any]:
     }
 
 
+class EngineUnavailable(RuntimeError):
+    """The recognition engine isn't ready (Triton unreachable / models not loaded)."""
+
+
+class ImageDecodeError(ValueError):
+    """The uploaded bytes couldn't be decoded as an image (unsupported format)."""
+
+
 def _bgr_from_bytes(data: bytes):
     if cv2 is None or np is None:
         return None
     arr = np.frombuffer(data, dtype=np.uint8)
-    return cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    if img is not None:
+        return img
+    # cv2 can't decode some uploads (EXIF-rotated phone JPEGs, webp, CMYK, PNG with
+    # alpha, etc). Fall back to PIL, honour EXIF orientation, convert to BGR.
+    try:
+        from PIL import Image as _PILImage, ImageOps
+        im = _PILImage.open(io.BytesIO(data))
+        im = ImageOps.exif_transpose(im).convert("RGB")
+        rgb = np.asarray(im)
+        return cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _histogram_embedding(data: bytes) -> list[float]:
@@ -482,10 +502,10 @@ def query_embedding(data: bytes) -> list[float] | None:
     None only if the engine is unavailable or the image can't be decoded."""
     eng = engine()
     if not (eng and eng.ready):
-        return None
+        raise EngineUnavailable("recognition engine not ready")
     frame = _bgr_from_bytes(data)
     if frame is None:
-        return None
+        raise ImageDecodeError("could not decode the uploaded image")
     h, w = frame.shape[:2]
     dets = eng.detect_faces(frame, conf_thresh=0.5)
     if not dets:
