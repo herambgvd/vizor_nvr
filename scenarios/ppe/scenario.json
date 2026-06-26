@@ -15,8 +15,8 @@
     "triton_inference",
     "gpu_required"
   ],
-  "tabs": ["cameras", "live", "ppe_detect", "events", "reports", "settings"],
-  "module_tabs": ["cameras", "live", "ppe_detect", "events", "reports", "settings"],
+  "tabs": ["cameras", "live", "events", "reports", "settings"],
+  "module_tabs": ["cameras", "live", "events", "reports", "settings"],
   "camera_config_schema": {
     "fields": [
       {"key": "compliance_enabled", "type": "bool", "label": "PPE compliance", "group": "Compliance", "default": true, "help": "Run per-worker PPE compliance on this camera."},
