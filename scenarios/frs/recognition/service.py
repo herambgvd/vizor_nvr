@@ -501,8 +501,13 @@ def query_embedding(data: bytes) -> list[float] | None:
     treating the whole image as the face. No quality gate, NO denoise. Returns
     None only if the engine is unavailable or the image can't be decoded."""
     eng = engine()
-    if not (eng and eng.ready):
-        raise EngineUnavailable("recognition engine not ready")
+    if eng is None:
+        raise EngineUnavailable("recognition engine not configured")
+    # NOTE: deliberately DON'T gate on eng.ready here. The readiness probe
+    # (is_model_ready over HTTP) flaps under the uvicorn server — it returned False
+    # in the serving process even though scrfd+arcface were loaded and inference
+    # worked — which surfaced as a bogus 503. Just run the inference; if the models
+    # truly aren't reachable, detect/embed return None and we report that below.
     frame = _bgr_from_bytes(data)
     if frame is None:
         raise ImageDecodeError("could not decode the uploaded image")
@@ -519,7 +524,11 @@ def query_embedding(data: bytes) -> list[float] | None:
         if aligned is None:
             return None
     vec = eng.embed_face(aligned)
-    return vec.tolist() if vec is not None else None
+    if vec is not None:
+        return vec.tolist()
+    # A face was found (or full-frame fallback) but the embedder returned nothing —
+    # that's the model being unreachable, not a "no face" situation.
+    raise EngineUnavailable("embedding model did not respond")
 
 
 def augment_points(aligned) -> list[dict]:

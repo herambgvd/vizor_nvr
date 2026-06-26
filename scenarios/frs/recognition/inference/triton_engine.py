@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import threading
+
 import numpy as np
 
 try:
@@ -52,20 +54,28 @@ class TritonEngine:
         self._has_fairface = has_fairface
         self._has_antispoof = has_antispoof
         self._timeout = timeout
-        self._client = None
+        # The triton HTTP client (geventhttpclient) is NOT safe to share across
+        # threads — FastAPI runs sync endpoints in a threadpool, so a client built on
+        # one thread silently fails (returns nothing) on another, which surfaced as a
+        # bogus "engine not ready" 503 on /investigate. Keep one client PER THREAD.
+        self._tls = threading.local()
         self._load_errors: dict[str, str] = {}
         self._ready_cache: dict[str, tuple[bool, float]] = {}  # name -> (ok, monotonic_ts)
 
-    # ── client ────────────────────────────────────────────────────────────
+    # ── client (thread-local) ──────────────────────────────────────────────
     def _conn(self):
-        if self._client is not None or triton_http is None:
-            return self._client
+        if triton_http is None:
+            return None
+        c = getattr(self._tls, "client", None)
+        if c is not None:
+            return c
         try:
-            self._client = triton_http.InferenceServerClient(url=self.url, verbose=False)
+            c = triton_http.InferenceServerClient(url=self.url, verbose=False)
+            self._tls.client = c
         except Exception as exc:  # noqa: BLE001
             self._load_errors["client"] = str(exc)
-            self._client = None
-        return self._client
+            c = None
+        return c
 
     def _model_ready(self, name: str) -> bool:
         # Cache a positive readiness for a while. is_model_ready() is a network
