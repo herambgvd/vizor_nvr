@@ -201,9 +201,6 @@ const Login = () => {
       className="relative min-h-screen flex items-center justify-center overflow-hidden px-4 py-10 text-foreground"
       style={{ background: "var(--console-bg)" }}
     >
-      {/* Aurora glow — top bloom */}
-      <div className="aurora" />
-
       {/* Dot grid, faded toward center */}
       <div
         className="pointer-events-none absolute inset-0 z-0 opacity-[0.06]"
@@ -217,15 +214,6 @@ const Login = () => {
             "radial-gradient(ellipse 70% 55% at 50% 35%, #000 35%, transparent 100%)",
         }}
       />
-      {/* Accent halo behind the card */}
-      <div
-        className="pointer-events-none absolute left-1/2 top-[18%] -translate-x-1/2 w-[420px] h-[420px] rounded-full blur-3xl opacity-20 z-0"
-        style={{
-          background:
-            "radial-gradient(circle, var(--console-accent) 0%, transparent 70%)",
-        }}
-      />
-
       <div className="relative z-10 w-full max-w-md">
         {/* Brand */}
         <div className="flex flex-col items-center text-center mb-8">
@@ -244,7 +232,7 @@ const Login = () => {
             </div>
           )}
           <h1 className="text-3xl font-semibold tracking-tight">
-            <span className="text-gradient-blue">{branding.system_name}</span>
+            <span style={{ color: "var(--console-text)" }}>{branding.system_name}</span>
           </h1>
           <p
             className="font-telemetry text-[11px] uppercase tracking-[0.2em] mt-2"

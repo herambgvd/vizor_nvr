@@ -134,6 +134,18 @@ function primeAudio() {
     const ctx = _getAudioCtx();
     if (ctx && ctx.state === "suspended") ctx.resume().catch(() => {});
   } catch { /* no webaudio */ }
+  // Unlock the shared <audio> element under this gesture (a silent play+pause) so
+  // later server-TTS .play() calls aren't autoplay-blocked. Separate gate from
+  // WebAudio + SpeechSynthesis.
+  try {
+    const el = _getTtsEl();
+    if (el) {
+      el.muted = true;
+      const p = el.play();
+      if (p && p.then) p.then(() => { el.pause(); el.muted = false; }).catch(() => { el.muted = false; });
+      else { el.pause(); el.muted = false; }
+    }
+  } catch { /* no audio el */ }
   if (_audioPrimed) return;
   _audioPrimed = true;
   _warmVoices();
@@ -169,25 +181,38 @@ function _warmVoices() {
 
 let _lastSpeakAt = 0;
 let _ttsAudio = null;        // current server-TTS <audio>, so we don't overlap
-let _serverTtsOk = true;     // flips false if the /tts endpoint isn't available
+let _serverTtsOk = true;     // flips false ONLY if the /tts endpoint itself is gone
+// Reusable <audio> element. A `new Audio()` per phrase is autoplay-gated separately
+// from the WebAudio context; we unlock ONE shared element on the first gesture
+// (primeAudio) and reuse it, so every later .play() is allowed.
+let _ttsEl = null;
+function _getTtsEl() {
+  if (typeof window === "undefined") return null;
+  if (!_ttsEl) { _ttsEl = new Audio(); _ttsEl.preload = "auto"; }
+  return _ttsEl;
+}
 
 // Play a server-synthesised WAV (espeak-ng on the FRS service) — browser-voice
-// independent, so it works on every kiosk regardless of installed OS voices. Fetches
-// the WAV as an authed blob, then plays it. Returns true if it took ownership of the
-// announcement; false → caller falls back to browser speech / beep.
+// independent. Fetches the WAV as an authed blob, then plays it on the shared,
+// gesture-unlocked <audio> element. Returns true if it took ownership of the
+// announcement. NOTE: a transient autoplay-block on play() must NOT disable server
+// TTS forever — only a fetch failure (endpoint missing) does.
 function speakServer(phrase, slug) {
   if (!_serverTtsOk || slug !== "frs") return false;
-  if (_ttsAudio && !_ttsAudio.ended && !_ttsAudio.paused) return true; // let it finish
+  const el = _getTtsEl();
+  if (!el) return false;
+  if (!el.paused && !el.ended) return true; // an announcement is still playing
   ttsAudioUrl(slug, phrase)
     .then((url) => {
-      if (!url) { _serverTtsOk = false; return; }
-      const a = new Audio(url);
-      a.onended = () => { try { URL.revokeObjectURL(url); } catch { /* noop */ } };
-      a.play().catch(() => { _serverTtsOk = false; });
-      _ttsAudio = a;
+      if (!url) { _serverTtsOk = false; return; }  // endpoint truly unavailable
+      const prev = el.src;
+      el.src = url;
+      el.onended = () => { try { URL.revokeObjectURL(url); } catch { /* noop */ } };
+      el.play().catch(() => { /* autoplay-blocked this once — keep trying next event */ });
+      if (prev && prev.startsWith("blob:")) { try { URL.revokeObjectURL(prev); } catch { /* noop */ } }
     })
-    .catch(() => { _serverTtsOk = false; });
-  return true;  // attempted; don't also beep
+    .catch(() => { /* network blip — don't permanently disable */ });
+  return true;
 }
 
 function speakPhrase(phrase, slug) {
