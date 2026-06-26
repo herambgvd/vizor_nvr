@@ -51,6 +51,13 @@ RUN pip install --no-cache-dir "/sdk[app,triton]"
 COPY ppe/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
+# PyAV + libav runtime libs for the ffmpeg (software) decode path in the worker —
+# parity with FRS. Without PyAV the ffmpeg decoder crashes with "No module named 'av'".
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libavcodec58 libavformat58 libavutil56 libswscale5 libavfilter7 libswresample3 \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir "av==12.3.0"
+
 # Application — thin entrypoint + one package per concern.
 COPY ppe/scenario.json ppe/app.py ppe/alembic.ini ./
 COPY ppe/config ./config

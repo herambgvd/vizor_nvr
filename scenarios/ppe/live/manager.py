@@ -146,7 +146,10 @@ def _async_enabled() -> bool:
 
 def _worker_v2_enabled() -> bool:
     import os
-    return os.getenv("PPE_WORKER_V2", "false").lower() in ("1", "true", "yes", "on")
+    # v2 is the only supported live path now (parity with FRS) — default ON. The app
+    # MUST run the bridge+shim or the worker emits nothing to the DB; running the
+    # in-process GStreamer supervisor instead also SIGSEGVs. Only explicit 0 disables.
+    return os.getenv("PPE_WORKER_V2", "1").lower() not in ("0", "false", "no", "off")
 
 
 def start_live_manager():
