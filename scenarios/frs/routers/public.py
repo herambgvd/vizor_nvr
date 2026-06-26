@@ -39,20 +39,50 @@ _CAM_CACHE: dict = {"at": 0.0, "map": {}}
 
 
 def _camera_names() -> dict:
+    """camera_id → friendly name. Tries the core API; whatever it learns it PERSISTS to
+    frs_camera_names so the name survives the core API going empty (scenario toggled
+    off / transient). Always merges the persisted names in as a fallback."""
     import time
     now = time.time()
     if now - _CAM_CACHE["at"] < 60 and _CAM_CACHE["map"]:
         return _CAM_CACHE["map"]
     names: dict = {}
+    # 1. persisted (durable) names first.
+    try:
+        from db import session as _session
+        from db.models import FRSCameraName
+        from sqlalchemy import select as _select
+        with _session() as s:
+            for row in s.execute(_select(FRSCameraName)).scalars().all():
+                names[str(row.camera_id)] = row.name
+    except Exception:  # noqa: BLE001
+        pass
+    # 2. fresh from core — overrides + gets persisted.
+    fresh: dict = {}
     try:
         from live.manager import _fetch_cameras
         for c in _fetch_cameras():
             cid = c.get("camera_id") or c.get("device_id") or c.get("id")
             nm = c.get("camera_name") or c.get("name")
-            if cid and nm:
-                names[str(cid)] = nm
+            if cid and nm and str(cid) != str(nm):
+                fresh[str(cid)] = nm
     except Exception:  # noqa: BLE001
         pass
+    if fresh:
+        names.update(fresh)
+        try:
+            from db import session as _session
+            from db.models import FRSCameraName
+            with _session() as s:
+                for cid, nm in fresh.items():
+                    row = s.get(FRSCameraName, cid)
+                    if row is None:
+                        s.add(FRSCameraName(camera_id=cid, name=nm))
+                    else:
+                        row.name = nm
+                s.commit()
+        except Exception:  # noqa: BLE001
+            pass
     if names:
         _CAM_CACHE.update(at=now, map=names)
     return names

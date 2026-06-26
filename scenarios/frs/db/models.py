@@ -195,6 +195,17 @@ class FRSSettings(Base):
     updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
 
 
+class FRSCameraName(Base):
+    """Last-known camera_id → friendly name. The core internal-cameras API can return
+    empty (scenario toggled off, transient), which left reports/tour/dashboard showing
+    raw ids. Persist names here the moment we ever see them so the friendly name
+    survives the core API going quiet."""
+    __tablename__ = "frs_camera_names"
+    camera_id = Column(String, primary_key=True)
+    name = Column(String(200), nullable=False)
+    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
+
+
 class ReportSchedule(Base):
     """A scheduled report: which of the 4 reports, on what cron-ish cadence, which
     range to cover, and where to email it. The scheduler thread fires it at the due
