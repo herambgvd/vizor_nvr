@@ -14,6 +14,15 @@ from deps import require_service_token, allowed_camera_ids
 from db.models import FRSEvent, FRSPerson, InvestigationJob
 from schemas import iso
 
+
+def _public_camera_names() -> dict:
+    """camera_id → friendly name (cached). Reuses the public dashboard's resolver."""
+    try:
+        from routers.public import _camera_names
+        return _camera_names()
+    except Exception:  # noqa: BLE001
+        return {}
+
 router = APIRouter(tags=["investigate"])
 
 
@@ -113,10 +122,14 @@ def tour_timeline(person_id: str, _: None = Depends(require_service_token),
             select(FRSEvent).where(*conds)
             .order_by(FRSEvent.triggered_at.desc()).limit(500)
         ).scalars().all()
+        cam_names = _public_camera_names()
         entries = [
-            {"camera_id": e.camera_id, "triggered_at": iso(e.triggered_at),
+            {"camera_id": e.camera_id,
+             "camera_name": cam_names.get(str(e.camera_id)) if e.camera_id else None,
+             "triggered_at": iso(e.triggered_at),
              "confidence": e.confidence, "event_type": e.event_type,
-             "snapshot_path": e.snapshot_path}
+             # Prefer the face crop; fall back to the full-frame snapshot.
+             "snapshot_path": (e.attributes or {}).get("face_snapshot") or e.snapshot_path}
             for e in rows
         ]
     return {"person_id": person_id, "entries": entries, "total": len(entries)}

@@ -35,7 +35,9 @@ import {
 import { format, formatDistanceToNowStrict } from "date-fns";
 import { formatDateTime, formatTime } from "../../../../lib/datetime";
 
-import { listPersons, personTimeline, photoImageUrl } from "../../../../api/ai";
+import { listPersons, personTimeline, photoImageUrl, scenarioSnapshotUrl } from "../../../../api/ai";
+
+const SLUG = "frs";
 import { snapshotUrl } from "./frsShared";
 
 const inputStyle = {
@@ -281,7 +283,20 @@ const Stat = ({ icon: Icon, label, value, accent }) => (
 
 const EventCard = ({ entry }) => {
   const [errored, setErrored] = useState(false);
-  const url = snapshotUrl(entry.snapshotKey);
+  const [url, setUrl] = useState(null);
+  // Plugin snapshots (/snapshot?key=…) are auth-gated, so a plain <img src> 401s and
+  // shows the broken-image icon. Fetch the bytes with the token → object URL, same as
+  // Events/Investigate.
+  useEffect(() => {
+    const key = entry.snapshotKey;
+    if (!key) return undefined;
+    let active = true, obj = null;
+    scenarioSnapshotUrl(SLUG, key).then((u) => {
+      if (!active) { if (u) URL.revokeObjectURL(u); return; }
+      obj = u; setUrl(u);
+    }).catch(() => active && setErrored(true));
+    return () => { active = false; if (obj) URL.revokeObjectURL(obj); };
+  }, [entry.snapshotKey]);
   const showImg = url && !errored;
   return (
     <div
@@ -313,7 +328,7 @@ const EventCard = ({ entry }) => {
         <div className="flex items-center gap-1 min-w-0">
           <Video className="h-3 w-3 shrink-0" style={{ color: "var(--console-accent)" }} />
           <span className="font-telemetry text-[10px] font-semibold truncate" style={{ color: "var(--console-text)" }}>
-            {shortCam(entry.cameraId)}
+            {entry.cameraName || shortCam(entry.cameraId)}
           </span>
         </div>
         <div className="flex items-center justify-between font-telemetry text-[9px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
@@ -344,6 +359,7 @@ const TimelinePane = ({ person }) => {
     () =>
       entries.map((e) => ({
         cameraId: e.camera_id ?? e.stream_id ?? null,
+        cameraName: e.camera_name || null,
         when: e.triggered_at || e.timestamp || null,
         confidence: e.confidence,
         eventType: e.event_type || null,
