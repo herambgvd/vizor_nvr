@@ -13,18 +13,26 @@ Client machine (verified):
 ## 0. On the client — stop + remove the old POC stack
 
 ```bash
-# stop + remove old containers (keeps NOTHING of the POC stack)
+# stop + remove ALL the old POC containers
 docker rm -f vizor-frontend vizor-backend vizor-tasks vizor-triton vizor-mongo \
   vizor-redis vizor-qdrant vizor-ollama vizor-rustfs vizor-frs-worker \
   vizor-ppe-worker vizor-go2rtc 2>/dev/null
 
-# free the disk the old images eat (ollama 10.6GB, old triton 31GB, etc).
+# remove the old CUSTOM images (DO registry) + the POC-only big ones.
 docker image rm -f $(docker images 'registry.digitalocean.com/gvd-registry/*' -q) 2>/dev/null
-docker image rm -f ollama/ollama:latest 2>/dev/null
+docker image rm -f ollama/ollama:latest mongo:7 2>/dev/null
+
+# KEEP these — we reuse them, so we DON'T ship them (saves Drive space):
+#   redis:7-alpine, rustfs/rustfs:latest, nvidia/cuda:12.4.1-base-ubuntu22.04
+# The client's qdrant:latest + go2rtc:1.9.4 are REPLACED by the pinned versions we
+# ship (qdrant v1.18.0, go2rtc 1.9.9) — remove the old ones:
+docker image rm -f qdrant/qdrant:latest alexxit/go2rtc:1.9.4 2>/dev/null
+
 docker volume prune -f      # ONLY if the client confirms the POC data is disposable
 ```
 
-Keep the host's NVIDIA driver + docker + nvidia-container-toolkit (already installed).
+Keep the host's NVIDIA driver + docker + nvidia-container-toolkit (already installed),
+and the reusable base images above.
 
 --------------------------------------------------------------------------------
 ## 1. On YOUR machine — build the images (with the license fix)
