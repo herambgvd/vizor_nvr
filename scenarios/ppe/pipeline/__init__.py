@@ -11,6 +11,7 @@ from .engine import (  # noqa: F401
     canonical_label,
     deduplicate_persons,
     eligible_people,
+    evaluable_items,
     point_in_zone,
     positive_evidence,
 )

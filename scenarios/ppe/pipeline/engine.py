@@ -38,6 +38,33 @@ DEFAULT_RULES: dict[str, tuple[float, float]] = {
     "NO_Boots": (0.78, 1.00),
 }
 
+def evaluable_items(person_box, frame_w: int, frame_h: int, required: list[str],
+                    edge_margin: int = 4, min_visible: float = 0.6) -> set[str]:
+    """Which required PPE items can actually be JUDGED for this person — i.e. their
+    body region is visible in frame. If a person's head is cropped above the top edge
+    we can't see a helmet, so 'helmet' must not be flagged missing. Returns the subset
+    of `required` whose region band is sufficiently inside the frame."""
+    x1, y1, x2, y2 = person_box
+    ph = max(1, y2 - y1)
+    out: set[str] = set()
+    for item in required:
+        band = DEFAULT_RULES.get(item)
+        if band is None:
+            out.add(item)            # no region rule → always evaluable
+            continue
+        top, bot = band
+        ry1 = y1 + top * ph
+        ry2 = y1 + bot * ph
+        # clip the region to the frame; require enough of it to remain visible
+        vis_top = max(ry1, edge_margin)
+        vis_bot = min(ry2, frame_h - edge_margin)
+        region_h = max(1.0, ry2 - ry1)
+        visible_frac = max(0.0, vis_bot - vis_top) / region_h
+        if visible_frac >= min_visible:
+            out.add(item)
+    return out
+
+
 # UI / config item name (lowercase) → canonical detector label used internally.
 # The camera_config_schema multiselect speaks "helmet"/"vest"/"goggles"/"boots";
 # the engine speaks the canonical "Hardhat"/"Safety_Vest"/"Goggles"/"Boots".
@@ -170,10 +197,17 @@ class ComplianceEngine:
         self.states: dict[int, dict[str, PpeState]] = defaultdict(lambda: defaultdict(PpeState))
         self.last_seen: dict[int, float] = {}
 
-    def update(self, track_id: int, present: dict[str, Detection], now: float) -> list[tuple[str, str]]:
+    def update(self, track_id: int, present: dict[str, Detection], now: float,
+               evaluable: set[str] | None = None) -> list[tuple[str, str]]:
         self.last_seen[track_id] = now
         events: list[tuple[str, str]] = []
         for ppe in self.required:
+            # Skip an item whose body region isn't visible in frame (e.g. the head is
+            # cropped above the top edge → can't judge the helmet). Don't flag missing
+            # PPE for a region we literally can't see — that was a false "No helmet" on
+            # a head-out-of-frame worker. The item's timers are left untouched.
+            if evaluable is not None and ppe not in evaluable:
+                continue
             state = self.states[track_id][ppe]
             if ppe in present:
                 state.present_now = True
