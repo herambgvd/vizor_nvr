@@ -90,6 +90,19 @@ class TritonClient:
     def all_ready(self, *names: str) -> bool:
         return all(self.model_ready(n) for n in names)
 
+    def load_model(self, name: str) -> bool:
+        """Load a model by name (Triton explicit model-control mode). No-op-safe if
+        already loaded; returns True on success."""
+        c = self._conn()
+        if c is None:
+            return False
+        try:
+            c.load_model(name)
+            return True
+        except Exception as exc:  # noqa: BLE001
+            self.load_errors[name] = str(exc)
+            return False
+
     # ── inference ───────────────────────────────────────────────────────────
     def infer(
         self,
@@ -105,10 +118,19 @@ class TritonClient:
         if c is None or lib is None:
             return None
         try:
+            # Triton dtype string per numpy kind. Default to FP32 (the common case),
+            # but honour the array's real dtype so non-float inputs (e.g. a raw UINT8
+            # image fed to a DALI preprocess) aren't silently cast to float.
+            _DT = {"float32": "FP32", "float16": "FP16", "uint8": "UINT8",
+                   "int8": "INT8", "int32": "INT32", "int64": "INT64"}
             tin = []
             for name, arr in inputs.items():
-                a = np.ascontiguousarray(arr.astype(np.float32))
-                t = lib.InferInput(name, list(a.shape), "FP32")
+                dt = _DT.get(str(arr.dtype))
+                if dt is None:
+                    a = np.ascontiguousarray(arr.astype(np.float32)); dt = "FP32"
+                else:
+                    a = np.ascontiguousarray(arr)
+                t = lib.InferInput(name, list(a.shape), dt)
                 t.set_data_from_numpy(a)
                 tin.append(t)
             outs = [lib.InferRequestedOutput(n) for n in out_names]

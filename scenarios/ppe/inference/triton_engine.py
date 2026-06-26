@@ -17,6 +17,7 @@ proven POC pipeline consumes, so the compliance logic is unchanged.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 import numpy as np
@@ -83,6 +84,11 @@ class PPEDetector:
         self.input = config.PPE_MODEL_INPUT
         self.output = config.PPE_MODEL_OUTPUT
         self.imgsz = config.PPE_MODEL_IMGSZ
+        # GPU preprocess: route detection through the DALI->YOLO ensemble (letterbox on
+        # the GPU). Off by default; enable with PPE_GPU_PREPROCESS=1 once the ensemble
+        # model is loaded in Triton.
+        self._gpu_pp = os.environ.get("PPE_GPU_PREPROCESS", "0").lower() in ("1", "true", "yes", "on")
+        self._ens_model = os.environ.get("PPE_ENSEMBLE_MODEL", "ppe_yolo_ensemble")
 
     # ── readiness ──────────────────────────────────────────────────────────
     def ready(self) -> bool:
@@ -98,12 +104,28 @@ class PPEDetector:
         if frame_bgr is None or getattr(frame_bgr, "size", 0) == 0:
             return []
         h, w = frame_bgr.shape[:2]
-        try:
-            tensor, scale, pad_x, pad_y = _letterbox(frame_bgr, self.imgsz)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("ppe letterbox failed: %s", exc)
-            return []
-        out = self.client.infer_one(self.model, self.input, tensor, [self.output])
+        if self._gpu_pp:
+            # GPU preprocess: send the RAW BGR frame to the DALI->YOLO ensemble; the
+            # letterbox runs on the GPU (no cv2 on the CPU). The scale + centre pad are
+            # deterministic from (h, w, imgsz) — same maths as _letterbox — so we invert
+            # the boxes identically without ever building the tensor here.
+            size = self.imgsz
+            scale = min(size / max(1, w), size / max(1, h))
+            new_w, new_h = max(1, int(round(w * scale))), max(1, int(round(h * scale)))
+            pad_x, pad_y = (size - new_w) // 2, (size - new_h) // 2
+            try:
+                raw = np.ascontiguousarray(frame_bgr[None, ...].astype(np.uint8))
+                out = self.client.infer_one(self._ens_model, "RAW_IMAGE", raw, [self.output])
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("ppe gpu-pp infer failed: %s", exc)
+                return []
+        else:
+            try:
+                tensor, scale, pad_x, pad_y = _letterbox(frame_bgr, self.imgsz)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("ppe letterbox failed: %s", exc)
+                return []
+            out = self.client.infer_one(self.model, self.input, tensor, [self.output])
         if not out or self.output not in out:
             return []
         raw = np.asarray(out[self.output])

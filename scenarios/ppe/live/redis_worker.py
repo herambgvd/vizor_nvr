@@ -43,9 +43,23 @@ class PpeWorker(BaseWorker):
         # own gRPC client (set via VIZOR_TRITON_GRPC + TRITON_GRPC_URL).
         try:
             import asyncio
+            import os
             import config
             from inference.triton_engine import detector
             model = config.PPE_MODEL_NAME
+            # Triton runs in explicit model-control mode, so models must be loaded by
+            # name. Load the GPU-preprocess ensemble (which transitively loads the DALI
+            # preprocess + the TRT YOLO) when GPU preprocess is on; else just YOLO.
+            want = [model]
+            if os.environ.get("PPE_GPU_PREPROCESS", "0").lower() in ("1", "true", "yes", "on"):
+                want = [os.environ.get("PPE_ENSEMBLE_MODEL", "ppe_yolo_ensemble"),
+                        "ppe_yolo_pp", model]
+            for m in want:
+                try:
+                    await asyncio.to_thread(detector.client.load_model, m)
+                    logger.info("[ppe] warmup: load_model %s", m)
+                except Exception as le:  # noqa: BLE001
+                    logger.warning("[ppe] warmup: load_model %s failed: %s", m, le)
             for _ in range(60):  # up to ~180s
                 if await asyncio.to_thread(detector.ready):
                     logger.info("[ppe] warmup: model %s ready", model)

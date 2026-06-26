@@ -147,6 +147,11 @@ services:
       # round-trip) is the biggest CPU cost. Run it once per 8 frames instead of 5
       # (cached verdict between) — ~40% fewer SigLIP passes, detection unchanged.
       PPE_SIGLIP_INTERVAL: ${PPE_SIGLIP_INTERVAL:-8}
+      # Phase 2: GPU preprocess. The YOLO letterbox (resize 1280 + pad + normalise,
+      # ~6.4 ms/frame) moves off the CPU into a Triton DALI->YOLO ensemble that runs on
+      # the GPU. The worker sends the raw BGR frame; boxes come back identical (tensor
+      # verified bit-exact vs the cv2 path). Needs ppe_yolo_ensemble loaded in Triton.
+      PPE_GPU_PREPROCESS: ${PPE_GPU_PREPROCESS:-1}
       # ffmpeg (PyAV) decode in the worker — parity with FRS (gstreamer/cpp was
       # unstable). PyAV is now installed in the image.
       VIZOR_DECODER: ${PPE_DECODER:-ffmpeg}
