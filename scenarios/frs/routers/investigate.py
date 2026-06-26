@@ -125,7 +125,8 @@ def tour_timeline(person_id: str, _: None = Depends(require_service_token),
         cam_names = _public_camera_names()
         entries = [
             {"camera_id": e.camera_id,
-             "camera_name": cam_names.get(str(e.camera_id)) if e.camera_id else None,
+             "camera_name": (e.attributes or {}).get("camera_name")
+             or (cam_names.get(str(e.camera_id)) if e.camera_id else None),
              "triggered_at": iso(e.triggered_at),
              "confidence": e.confidence, "event_type": e.event_type,
              # Prefer the face crop; fall back to the full-frame snapshot.

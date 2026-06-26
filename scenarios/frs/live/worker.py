@@ -491,6 +491,9 @@ class CameraWorker(threading.Thread):
                                                      # gallery-match score, which is 0 on an Unknown. The Unknown
                                                      # report shows this so "0%" isn't confusing.
                                                      "det_confidence": round(float(f.get("confidence") or 0.0), 3),
+                                                     # Friendly camera name (the core cameras API can be empty, so
+                                                     # stamp it on the event for reports/tour/dashboard).
+                                                     "camera_name": self.config.get("camera_name"),
                                                      "liveness_score": live, **self._demo_attr(f)},
                                          direction=self.direction)
                 # Index this sighting's embedding into the SNAPSHOTS collection so

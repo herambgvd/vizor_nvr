@@ -36,6 +36,15 @@ REPORTS = ("attendance", "group", "mismatch", "unknown")
 _SAFE = re.compile(r"^[A-Za-z0-9\-_]+$")
 
 
+def _camera_names() -> dict:
+    """camera_id → friendly name (cached). Reuses the public dashboard resolver."""
+    try:
+        from routers.public import _camera_names as _cn
+        return _cn()
+    except Exception:  # noqa: BLE001
+        return {}
+
+
 def _snapshot_file(value: str) -> Optional[Path]:
     """Resolve a stored snapshot reference (a '/snapshot?key=live:<id>' path, a bare
     'live:<id>' key, or a relative photo storage_key) to an on-disk image path, or
@@ -62,14 +71,17 @@ def _snapshot_file(value: str) -> Optional[Path]:
 
 # ── export helpers ─────────────────────────────────────────────────────────
 def _csv(columns: list[str], rows: list[dict]) -> Response:
-    # CSV is plain text — it can't hold images, so drop the snapshot column entirely
-    # (an image lives only in the XLSX export).
-    cols = [c for c in columns if c != "snapshot"]
+    # CSV is plain text — it can't EMBED an image. Instead of dropping the snapshot,
+    # emit a "snapshot" column holding a present/absent marker (the actual picture is
+    # in the XLSX export). Keeps the column so the CSV isn't missing it.
     buf = io.StringIO()
-    w = csv.DictWriter(buf, fieldnames=cols, extrasaction="ignore")
+    w = csv.DictWriter(buf, fieldnames=columns, extrasaction="ignore")
     w.writeheader()
     for r in rows:
-        w.writerow({c: r.get(c, "") for c in cols})
+        out = {c: r.get(c, "") for c in columns}
+        if "snapshot" in columns:
+            out["snapshot"] = "yes" if r.get("snapshot") else ""
+        w.writerow(out)
     return Response(buf.getvalue(), media_type="text/csv",
                     headers={"Content-Disposition": "attachment; filename=report.csv"})
 
@@ -244,9 +256,10 @@ def report_unknown(day_from: str = Query(...), day_to: str = Query(...),
                    allowed: Optional[list[str]] = Depends(allowed_camera_ids)) -> Response:
     # "confidence" here is the DETECTOR confidence (a face was found) — the match score
     # is always 0 on an Unknown, so showing that read as a confusing "0%".
-    columns = ["snapshot", "time", "camera_id", "detected_pct"]
+    columns = ["snapshot", "time", "camera", "detected_pct"]
     start = naive(datetime.fromisoformat(day_from + "T00:00:00")) if "T" not in day_from else naive(datetime.fromisoformat(day_from))
     end = naive(datetime.fromisoformat(day_to + "T23:59:59")) if "T" not in day_to else naive(datetime.fromisoformat(day_to))
+    cam_names = _camera_names()
     with session() as s:
         conds = [FRSEvent.event_type == "face_unknown",
                  FRSEvent.triggered_at >= start, FRSEvent.triggered_at <= end]
@@ -268,7 +281,8 @@ def report_unknown(day_from: str = Query(...), day_to: str = Query(...),
             rows.append({
                 "snapshot": attrs.get("face_snapshot") or e.snapshot_path or "",
                 "time": iso(e.triggered_at),
-                "camera_id": e.camera_id,
+                "camera": attrs.get("camera_name") or cam_names.get(str(e.camera_id))
+                or (str(e.camera_id)[:8] if e.camera_id else "—"),
                 "detected_pct": round(float(det) * 100, 1),
             })
     # The UI also wants a total count up top — include it in JSON; exports list rows.
