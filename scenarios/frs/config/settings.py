@@ -48,6 +48,9 @@ LIVE_MIN_FACE_PX = int(os.getenv("FRS_LIVE_MIN_FACE_PX", "80"))
 LIVE_MAX_POSE_DEG = float(os.getenv("FRS_LIVE_MAX_POSE_DEG", "40"))
 LIVE_MIN_SHARPNESS = float(os.getenv("FRS_LIVE_MIN_SHARPNESS", "60"))
 LIVE_DET_CONF = float(os.getenv("FRS_LIVE_DET_CONF", "0.5"))
+# Higher bar to EMIT an "Unknown" event than to detect a face, so SCRFD false
+# positives (back-of-head / hand / blur) are tracked but not surfaced as noise.
+LIVE_UNKNOWN_MIN_DET_CONF = float(os.getenv("FRS_LIVE_UNKNOWN_MIN_DET_CONF", "0.65"))
 # Multi-frame consensus before emitting an event (vizor-gpu default = 5). Firing
 # on a single frame produces flickery, low-confidence matches.
 LIVE_VOTE_MIN_FRAMES = int(os.getenv("FRS_LIVE_VOTE_MIN_FRAMES", "5"))

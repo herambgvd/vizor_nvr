@@ -155,6 +155,13 @@ class CameraWorker(threading.Thread):
         return self._cfg_num("max_pose_deg", config.LIVE_MAX_POSE_DEG, float)
 
     @property
+    def unknown_min_det_conf(self):
+        # Min SCRFD detection confidence to EMIT an "Unknown" event (higher than the
+        # detect threshold) so false detections (back-of-head/hand/blur) are tracked
+        # but never surfaced as Unknown noise. Recognised faces are exempt.
+        return self._cfg_num("unknown_min_det_conf", config.LIVE_UNKNOWN_MIN_DET_CONF, float)
+
+    @property
     def liveness_enabled(self) -> bool:
         return bool(self.config.get("liveness_enabled"))
 
@@ -432,6 +439,15 @@ class CameraWorker(threading.Thread):
                     continue
                 cpid, cscore, _emb, cname = consensus
                 event_type = "face_recognized" if cpid else "face_unknown"
+
+                # False-positive gate for UNKNOWN events: SCRFD occasionally fires on a
+                # back-of-head / hand / blurry patch — those produce a garbage embedding
+                # that matches nobody, so they surface as "Unknown 0%" noise. Require a
+                # higher detection confidence to EMIT an unknown than to detect, so weak
+                # detections are tracked+voted but not turned into events. Recognised
+                # faces (cpid set) are never suppressed.
+                if not cpid and float(f.get("confidence") or 0.0) < self.unknown_min_det_conf:
+                    continue
 
                 # should_fire upgrade state-machine (vizor-gpu parity): fire on a
                 # new track, on unknown→recognized upgrade, on a different person,
