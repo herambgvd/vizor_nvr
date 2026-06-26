@@ -16,16 +16,16 @@ CUSTOM=(
   vizor_nvr-ppe
 )
 
-# Base images to ship — only the ones the client DOESN'T already have (or has at the
-# wrong version). The client keeps: redis:7-alpine, rustfs:latest (identical),
-# nvidia/cuda base. We DO ship qdrant pinned (client has :latest) + go2rtc pinned, and
-# the big triton + timescaledb/postgres/nginx the client lacks. Edit if the client's
-# `docker images` shows a match you'd rather reuse.
+# Base images to ship. The client wipes EVERYTHING, so ship the full set the stack
+# needs. (No separate nvidia/cuda image — it's only a build base, baked into the frs/ppe
+# images; no compose service pulls it.)
 BASE=(
   nvcr.io/nvidia/tritonserver:24.08-py3
   timescale/timescaledb:2.17.2-pg16
   postgres:16-alpine
+  redis:7-alpine
   qdrant/qdrant:v1.18.0
+  rustfs/rustfs:latest
   alexxit/go2rtc:1.9.9
   nginx:1.27-alpine
 )
