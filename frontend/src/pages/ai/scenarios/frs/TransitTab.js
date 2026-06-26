@@ -886,7 +886,7 @@ const TransitTab = () => {
   const ruleName = (id) => rules.find((r) => r.id === id)?.name || id || "—";
 
   return (
-    <div className="p-6 flex flex-col gap-5">
+    <div className="h-full overflow-y-auto p-6 flex flex-col gap-5">
       {/* Header */}
       <div className="flex items-center gap-2">
         <ArrowLeftRight className="h-4 w-4" style={{ color: "var(--console-accent)" }} />
