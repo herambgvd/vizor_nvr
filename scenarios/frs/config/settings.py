@@ -18,6 +18,15 @@ DATA_PATH = Path(os.getenv("DATA_PATH", "/data/frs"))
 QDRANT_URL = os.getenv("QDRANT_URL", "").rstrip("/")
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "vizor_frs_faces")
 
+# ── Email (scheduled report delivery) ──────────────────────────────────────
+SMTP_HOST = os.getenv("FRS_SMTP_HOST", "")
+SMTP_PORT = int(os.getenv("FRS_SMTP_PORT", "587"))
+SMTP_USER = os.getenv("FRS_SMTP_USER", "")
+SMTP_PASSWORD = os.getenv("FRS_SMTP_PASSWORD", "")
+SMTP_FROM = os.getenv("FRS_SMTP_FROM", SMTP_USER or "noreply@vizor.local")
+SMTP_TLS = os.getenv("FRS_SMTP_TLS", "1").lower() in ("1", "true", "yes", "on")
+REPORTS_DIR = DATA_PATH / "reports"
+
 # Inference backend: 'triton' → shared Triton server (production, batched,
 # scales to 64+ channels); otherwise in-process onnxruntime (dev / small node).
 INFERENCE_BACKEND = os.getenv("INFERENCE_BACKEND", "onnxruntime-gpu")

@@ -32,6 +32,8 @@ from routers import (
     public,
     recognize,
     reports,
+    reports4,
+    report_schedule,
     settings as settings_router,
     transit,
     tts,
@@ -40,7 +42,8 @@ from routers import (
 app = FastAPI(title="Vizor Face Recognition", version=config.VERSION)
 
 for module in (health, groups, persons, photos, recognize, investigate,
-               transit, reports, ingest, public, settings_router, tts):
+               transit, reports, reports4, report_schedule, ingest, public,
+               settings_router, tts):
     app.include_router(module.router)
 
 
@@ -70,6 +73,9 @@ def _startup() -> None:
     # never starved by recognition load (was flapping "unhealthy" → apparent event hold).
     from routers.health import _refresh_health_loop
     threading.Thread(target=_refresh_health_loop, daemon=True, name="health-refresh").start()
+    # Scheduled-report runner: fires due report schedules, emails + stores the file.
+    from routers.report_schedule import start_report_scheduler
+    start_report_scheduler()
 
 
 if __name__ == "__main__":

@@ -354,6 +354,17 @@
       "method": "GET",
       "path": "/tts"
     },
+    { "method": "GET", "path": "/reports/attendance" },
+    { "method": "GET", "path": "/reports/group" },
+    { "method": "GET", "path": "/reports/mismatch" },
+    { "method": "GET", "path": "/reports/unknown" },
+    { "method": "GET", "path": "/report-schedules" },
+    { "method": "POST", "path": "/report-schedules" },
+    { "method": "PUT", "path": "/report-schedules/{id}" },
+    { "method": "DELETE", "path": "/report-schedules/{id}" },
+    { "method": "POST", "path": "/report-schedules/{id}/run" },
+    { "method": "GET", "path": "/report-runs" },
+    { "method": "GET", "path": "/report-runs/{id}/download" },
     {
       "method": "POST",
       "path": "/feedback"

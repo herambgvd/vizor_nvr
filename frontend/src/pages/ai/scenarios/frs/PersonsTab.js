@@ -35,6 +35,8 @@ import {
   ShieldAlert,
   Clock,
   RotateCcw,
+  FileSpreadsheet,
+  Download,
 } from "lucide-react";
 import { toast } from "sonner";
 import { friendlyError } from "../../../../lib/utils";
@@ -44,6 +46,8 @@ import {
   createPerson,
   updatePerson,
   deletePerson,
+  importPersons,
+  downloadPersonsImportTemplate,
   uploadIdDocument,
   deleteIdDocument,
   idDocumentUrl,
@@ -354,6 +358,113 @@ const PersonForm = ({ initial, groups, onClose, qc }) => {
           {mut.isPending && <Loader2 className="h-3 w-3 animate-spin" />}
           {editing ? "Save" : "Create"}
         </button>
+      </div>
+    </Modal>
+  );
+};
+
+const BulkImportModal = ({ onClose, qc }) => {
+  const [sheet, setSheet] = useState(null);
+  const [photos, setPhotos] = useState([]);
+  const [updateExisting, setUpdateExisting] = useState(true);
+  const [result, setResult] = useState(null);
+
+  const mut = useMutation({
+    mutationFn: () => importPersons({ sheet, photos, updateExisting }),
+    onSuccess: (data) => {
+      setResult(data);
+      qc.invalidateQueries({ queryKey: ["frs-persons"] });
+      toast.success(`Imported ${data.created || 0} created, ${data.updated || 0} updated`);
+    },
+    onError: (e) => toast.error(friendlyError(e, "Import failed")),
+  });
+
+  const submit = () => {
+    if (!sheet) {
+      toast.error("Excel file is required");
+      return;
+    }
+    mut.mutate();
+  };
+
+  const rows = result?.results || [];
+  return (
+    <Modal title="Bulk import persons" onClose={onClose}>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Excel / CSV">
+          <input
+            type="file"
+            accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
+            className="font-telemetry text-[11px]"
+            style={{ color: "var(--console-muted)" }}
+            onChange={(e) => setSheet(e.target.files?.[0] || null)}
+          />
+          {sheet && <span className="font-telemetry text-[10px] truncate" style={{ color: "var(--console-accent)" }}>{sheet.name}</span>}
+        </Field>
+        <Field label="Photos">
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            multiple
+            className="font-telemetry text-[11px]"
+            style={{ color: "var(--console-muted)" }}
+            onChange={(e) => setPhotos(Array.from(e.target.files || []))}
+          />
+          {photos.length > 0 && (
+            <span className="font-telemetry text-[10px]" style={{ color: "var(--console-accent)" }}>
+              {photos.length} selected
+            </span>
+          )}
+        </Field>
+      </div>
+
+      <label className="flex items-center gap-2 cursor-pointer">
+        <input type="checkbox" checked={updateExisting} onChange={(e) => setUpdateExisting(e.target.checked)} />
+        <span className="font-telemetry text-[11px]" style={{ color: "var(--console-text)" }}>
+          Update existing external IDs
+        </span>
+      </label>
+
+      {result && (
+        <div className="rounded border overflow-hidden" style={{ borderColor: "var(--console-border)", background: "var(--console-raised)" }}>
+          <div className="grid grid-cols-5 gap-2 px-3 py-2 font-telemetry text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)", borderBottom: "1px solid var(--console-border)" }}>
+            <span>Total {result.total}</span>
+            <span>Created {result.created}</span>
+            <span>Updated {result.updated}</span>
+            <span>Skipped {result.skipped}</span>
+            <span>Photos {result.photos_enrolled}/{(result.photos_enrolled || 0) + (result.photos_failed || 0)}</span>
+          </div>
+          <div className="max-h-56 overflow-auto">
+            {rows.slice(0, 80).map((r) => (
+              <div key={`${r.row}-${r.person_id || r.full_name || r.error}`} className="grid grid-cols-[50px_90px_1fr] gap-2 px-3 py-1.5 font-telemetry text-[10px]" style={{ color: "var(--console-text)", borderBottom: "1px solid var(--console-border)" }}>
+                <span style={{ color: "var(--console-muted)" }}>#{r.row}</span>
+                <span style={{ color: r.status === "failed" || r.status === "skipped" ? "var(--console-rec)" : "var(--console-accent)" }}>{r.status}</span>
+                <span className="truncate">{r.full_name || r.external_id || r.error}{r.error ? ` · ${r.error}` : ""}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="flex justify-between gap-2 pt-1">
+        <button
+          type="button"
+          onClick={() => downloadPersonsImportTemplate().catch((e) => toast.error(friendlyError(e, "Template download failed")))}
+          className="inline-flex items-center gap-1.5 font-telemetry text-[10px] uppercase tracking-widest px-3 py-1.5 rounded border"
+          style={{ background: "var(--console-raised)", borderColor: "var(--console-border)", color: "var(--console-muted)" }}
+        >
+          <Download className="h-3.5 w-3.5" />
+          Template
+        </button>
+        <div className="flex gap-2">
+          <button type="button" onClick={onClose} className="font-telemetry text-[10px] uppercase tracking-widest px-3 py-1.5 rounded border" style={{ background: "var(--console-raised)", borderColor: "var(--console-border)", color: "var(--console-muted)" }}>
+            Close
+          </button>
+          <button type="button" onClick={submit} disabled={mut.isPending} className="inline-flex items-center gap-1.5 font-telemetry text-[10px] uppercase tracking-widest px-3 py-1.5 rounded disabled:opacity-50" style={{ background: "var(--console-accent)", color: "#fff" }}>
+            {mut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileSpreadsheet className="h-3.5 w-3.5" />}
+            Import
+          </button>
+        </div>
       </div>
     </Modal>
   );
@@ -749,6 +860,7 @@ const PersonsTab = () => {
   const [groupFilter, setGroupFilter] = useState("");
   const [page, setPage] = useState(0);
   const [showAdd, setShowAdd] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [openPersonId, setOpenPersonId] = useState(null);
 
   useEffect(() => {
@@ -822,6 +934,15 @@ const PersonsTab = () => {
           </select>
           <button
             type="button"
+            onClick={() => setShowImport(true)}
+            className="inline-flex items-center gap-1.5 font-telemetry text-[10px] uppercase tracking-widest px-3 py-1.5 rounded border"
+            style={{ background: "var(--console-raised)", borderColor: "var(--console-border)", color: "var(--console-muted)" }}
+          >
+            <FileSpreadsheet className="h-3.5 w-3.5" />
+            Import
+          </button>
+          <button
+            type="button"
             onClick={() => setShowAdd(true)}
             className="inline-flex items-center gap-1.5 font-telemetry text-[10px] uppercase tracking-widest px-3 py-1.5 rounded"
             style={{ background: "var(--console-accent)", color: "#fff" }}
@@ -868,6 +989,7 @@ const PersonsTab = () => {
       )}
 
       {showAdd && <PersonForm groups={groups} qc={qc} onClose={() => setShowAdd(false)} />}
+      {showImport && <BulkImportModal qc={qc} onClose={() => setShowImport(false)} />}
       {drawerPerson && <PersonDrawer person={drawerPerson} groups={groups} qc={qc} onClose={() => setOpenPersonId(null)} />}
     </div>
   );

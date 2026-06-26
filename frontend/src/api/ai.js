@@ -135,6 +135,50 @@ export const scenarioReportsSummary = async (slug, params = {}) => (
   proxyScenario(slug, "/reports/summary", { params })
 );
 
+// ── FRS: the four fixed reports + scheduling ───────────────────────────────
+// report ∈ attendance | group | mismatch | unknown. JSON for the table.
+export const frsReport = async (report, { day_from, day_to } = {}) =>
+  proxyScenario(FRS_SLUG, `/reports/${report}`, { params: { day_from, day_to, format: "json" } });
+
+// Download a report as csv|xlsx — authed blob → object URL the caller can save.
+export const frsReportExportUrl = async (report, { day_from, day_to, format = "xlsx" } = {}) => {
+  const token = getAccessToken();
+  const qs = new URLSearchParams({ day_from, day_to, format }).toString();
+  let resp;
+  try {
+    resp = await fetch(`${BACKEND_URL}/api/ai/scenarios/${FRS_SLUG}/proxy/reports/${report}?${qs}`,
+      { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  } catch (_e) { return null; }
+  if (!resp.ok) return null;
+  const blob = await resp.blob();
+  if (!blob || blob.size === 0) return null;
+  return URL.createObjectURL(blob);
+};
+
+export const listReportSchedules = async () => proxyScenario(FRS_SLUG, "/report-schedules");
+export const createReportSchedule = async (payload) =>
+  proxyScenario(FRS_SLUG, "/report-schedules", { method: "POST", data: payload });
+export const updateReportSchedule = async (id, patch) =>
+  proxyScenario(FRS_SLUG, `/report-schedules/${id}`, { method: "PUT", data: patch });
+export const deleteReportSchedule = async (id) =>
+  proxyScenario(FRS_SLUG, `/report-schedules/${id}`, { method: "DELETE" });
+export const runReportSchedule = async (id) =>
+  proxyScenario(FRS_SLUG, `/report-schedules/${id}/run`, { method: "POST" });
+export const listReportRuns = async (limit = 50) =>
+  proxyScenario(FRS_SLUG, "/report-runs", { params: { limit } });
+export const reportRunDownloadUrl = async (id, fmt = "xlsx") => {
+  const token = getAccessToken();
+  let resp;
+  try {
+    resp = await fetch(`${BACKEND_URL}/api/ai/scenarios/${FRS_SLUG}/proxy/report-runs/${id}/download`,
+      { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  } catch (_e) { return null; }
+  if (!resp.ok) return null;
+  const blob = await resp.blob();
+  if (!blob || blob.size === 0) return null;
+  return URL.createObjectURL(blob);
+};
+
 export const scenarioThumbnailUrl = async (slug, resultId) => {
   const token = getAccessToken();
   let resp;
@@ -212,6 +256,35 @@ export const updatePerson = async (id, patch) =>
 
 export const deletePerson = async (id) =>
   proxyScenario(FRS_SLUG, `/persons/${id}`, { method: "DELETE" });
+
+export const importPersons = async ({ sheet, photos = [], updateExisting = true }) => {
+  const form = new FormData();
+  form.append("sheet", sheet);
+  form.append("update_existing", updateExisting ? "true" : "false");
+  photos.forEach((file) => form.append("photos", file));
+  return proxyScenario(FRS_SLUG, "/persons/import", {
+    method: "POST",
+    data: form,
+    timeout: 300000,
+  });
+};
+
+export const downloadPersonsImportTemplate = async () => {
+  const token = getAccessToken();
+  const resp = await fetch(`${BACKEND_URL}/api/ai/scenarios/${FRS_SLUG}/proxy/persons/import-template`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!resp.ok) throw new Error("Template download failed");
+  const blob = await resp.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "frs_persons_import_template.xlsx";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+};
 
 // ID document (image/PDF) stored in the object store, served through the proxy.
 export const uploadIdDocument = async (id, file) => {

@@ -193,3 +193,38 @@ class FRSSettings(Base):
     # Privacy: whether the public dashboard may show person names (never snapshots).
     public_show_names = Column(Boolean, nullable=False, default=False)
     updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
+
+
+class ReportSchedule(Base):
+    """A scheduled report: which of the 4 reports, on what cron-ish cadence, which
+    range to cover, and where to email it. The scheduler thread fires it at the due
+    time, generates the file, emails it, and stores it for in-system download."""
+    __tablename__ = "frs_report_schedules"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    name = Column(String(200), nullable=False)
+    report = Column(String(30), nullable=False)        # attendance|group|mismatch|unknown
+    fmt = Column(String(10), nullable=False, default="xlsx")  # csv|xlsx
+    frequency = Column(String(10), nullable=False, default="daily")  # daily|weekly|monthly
+    at_time = Column(String(5), nullable=False, default="08:00")     # HH:MM (local)
+    range_days = Column(Integer, nullable=False, default=1)          # how many days back to cover
+    recipients = Column(Text, nullable=True)            # comma-separated emails
+    enabled = Column(Boolean, nullable=False, default=True)
+    last_run_at = Column(DateTime, nullable=True)
+    next_run_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=_utcnow)
+    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
+
+
+class ReportRun(Base):
+    """A generated report file (from a schedule or manual run) kept for download."""
+    __tablename__ = "frs_report_runs"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    schedule_id = Column(String, nullable=True)
+    report = Column(String(30), nullable=False)
+    fmt = Column(String(10), nullable=False)
+    filename = Column(String(300), nullable=False)
+    path = Column(String(500), nullable=False)          # on-disk path under DATA_PATH/reports
+    emailed_to = Column(Text, nullable=True)
+    email_ok = Column(Boolean, nullable=True)
+    rows = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=_utcnow)

@@ -31,16 +31,19 @@ from schemas import photo_dict
 router = APIRouter(tags=["photos"])
 
 
-@router.post("/persons/{person_id}/photos", status_code=201)
-async def add_photo(person_id: str, file: UploadFile = File(...), _: None = Depends(require_service_token)) -> dict:
+def enroll_photo_bytes(person_id: str, data: bytes, *, content_type: str | None = None) -> dict:
+    """Store and enroll one person photo from bytes.
+
+    Shared by the single-photo endpoint and bulk import so both paths keep the
+    same quality gates, duplicate guard, Qdrant payloads, and recount behavior.
+    """
     with session() as s:
         person = s.get(FRSPerson, person_id)
         if not person:
             raise HTTPException(404, "person not found")
         person_name = person.full_name
-    if file.content_type and file.content_type.lower() not in ALLOWED_CONTENT:
-        raise HTTPException(415, f"unsupported content type: {file.content_type}")
-    data = await file.read()
+    if content_type and content_type.lower() not in ALLOWED_CONTENT:
+        raise HTTPException(415, f"unsupported content type: {content_type}")
     if not data:
         raise HTTPException(400, "empty upload")
     if len(data) > MAX_PHOTO_BYTES:
@@ -108,6 +111,12 @@ async def add_photo(person_id: str, file: UploadFile = File(...), _: None = Depe
         recount_person(s, person_id)
         ph = s.get(FRSPhoto, photo_id)
         return photo_dict(ph)
+
+
+@router.post("/persons/{person_id}/photos", status_code=201)
+async def add_photo(person_id: str, file: UploadFile = File(...), _: None = Depends(require_service_token)) -> dict:
+    data = await file.read()
+    return enroll_photo_bytes(person_id, data, content_type=file.content_type)
 
 
 @router.get("/persons/{person_id}/photos")

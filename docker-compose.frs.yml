@@ -92,6 +92,14 @@ services:
       GO2RTC_RTSP_PORT: "8554"
       FRS_RECORDINGS_ROOT: /data/recordings
       FRS_RETENTION_EVENT_DAYS: ${FRS_RETENTION_EVENT_DAYS:-90}
+      # Scheduled-report email (optional — empty host disables email; reports still
+      # generate + are downloadable in-system).
+      FRS_SMTP_HOST: ${FRS_SMTP_HOST:-}
+      FRS_SMTP_PORT: ${FRS_SMTP_PORT:-587}
+      FRS_SMTP_USER: ${FRS_SMTP_USER:-}
+      FRS_SMTP_PASSWORD: ${FRS_SMTP_PASSWORD:-}
+      FRS_SMTP_FROM: ${FRS_SMTP_FROM:-}
+      FRS_SMTP_TLS: ${FRS_SMTP_TLS:-1}
       PORT: 8093
     networks:
       - internal
