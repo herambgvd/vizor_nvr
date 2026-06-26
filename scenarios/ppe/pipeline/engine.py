@@ -38,28 +38,40 @@ DEFAULT_RULES: dict[str, tuple[float, float]] = {
     "NO_Boots": (0.78, 1.00),
 }
 
+_HEAD_ITEMS = {"Hardhat", "NO_Hardhat", "Goggles", "NO_Goggles"}
+# Any of these detections linked to a person proves a HEAD is visible for them.
+_HEAD_EVIDENCE = {"Hardhat", "NO_Hardhat", "Goggles", "NO_Goggles"}
+
+
 def evaluable_items(person_box, frame_w: int, frame_h: int, required: list[str],
+                    linked: dict | None = None,
                     edge_margin: int = 4, min_visible: float = 0.6) -> set[str]:
-    """Which required PPE items can actually be JUDGED for this person — i.e. their
-    body region is visible in frame. If a person's head is cropped above the top edge
-    we can't see a helmet, so 'helmet' must not be flagged missing. Returns the subset
-    of `required` whose region band is sufficiently inside the frame."""
+    """Which required PPE items can actually be JUDGED for this person — their body
+    region must be visible in frame. Head items (helmet/goggles) need the HEAD to be
+    visible; we treat the head as not-visible when EITHER the box top is at the frame
+    edge OR the detector found no head-class evidence (helmet/no_helmet/goggles) on
+    this person — i.e. the head is occluded by furniture / turned away. We must not
+    flag 'No helmet' on a head we can't see. `linked` is this person's associated PPE
+    detections (label -> Detection)."""
     x1, y1, x2, y2 = person_box
     ph = max(1, y2 - y1)
-    # A person box whose TOP sits at the frame's top edge is almost always a person
-    # walking in from above / behind glass with the head + shoulders cut off — the
-    # detector anchors the box at the visible torso/legs. We can't see a head, so head
-    # items (helmet/goggles) must NOT be judged. ~2% of frame height of slack.
+    # A box anchored at the top frame edge → head cropped out (walking in from above /
+    # behind glass). The detector anchors the box at the visible torso/legs.
     head_cut = y1 <= max(edge_margin, 0.02 * frame_h)
-    _HEAD_ITEMS = {"Hardhat", "NO_Hardhat", "Goggles", "NO_Goggles"}
+    # Head present in the scene? Only if the detector emitted a head-region class for
+    # this person. No head-class detection at all → head is occluded/turned → can't
+    # judge helmet. (When `linked` isn't supplied, fall back to geometry only.)
+    head_seen = True
+    if linked is not None:
+        head_seen = any(lbl in _HEAD_EVIDENCE for lbl in linked)
     out: set[str] = set()
     for item in required:
         band = DEFAULT_RULES.get(item)
         if band is None:
             out.add(item)            # no region rule → always evaluable
             continue
-        if head_cut and item in _HEAD_ITEMS:
-            continue                 # head not in frame → can't judge helmet/goggles
+        if item in _HEAD_ITEMS and (head_cut or not head_seen):
+            continue                 # head not visible → can't judge helmet/goggles
         top, bot = band
         ry1 = y1 + top * ph
         ry2 = y1 + bot * ph

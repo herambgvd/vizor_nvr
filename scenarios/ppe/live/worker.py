@@ -480,9 +480,13 @@ class CameraWorker(threading.Thread):
             raw = linked.get(tid, {})
             stable = self._smoother.update(tid, raw, self._frame_no)
             evidence = positive_evidence(stable, config.NO_HARDHAT_CONF, config.NEGATIVE_MARGIN)
-            # Only judge items whose body region is visible — if the head is cropped
-            # above the frame top we can't see a helmet, so don't flag "No helmet".
-            evaluable = evaluable_items(person.box, w, h, self.required_canonical)
+            # Only judge items whose body region is visible. Head items (helmet/goggles)
+            # also need head-class evidence (helmet/no_helmet/goggles) on this person —
+            # no head detection at all means the head is cropped/occluded/turned, so we
+            # must NOT flag "No helmet". `stable` holds all associated labels (incl the
+            # NO_* negatives), which is exactly the head-presence signal.
+            evaluable = evaluable_items(person.box, w, h, self.required_canonical,
+                                        linked=stable)
             fired = self._engine.update(tid, evidence, now, evaluable=evaluable)
             present_items = [CANONICAL_TO_ITEM.get(k, k) for k in evidence]
             # The engine fires per missing PPE item; collapse to ONE event per
