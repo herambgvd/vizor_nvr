@@ -181,6 +181,12 @@ PYBIND11_MODULE(vizor_decode, m) {
              py::arg("dst_w"), py::arg("dst_h"),
              "Allocate a GPU resize+normalise context for a fixed "
              "destination size (e.g. 640x640 for yolov12m).")
+        .def("set_norm", &vd::Preprocessor::set_norm,
+             py::arg("norm_scale"), py::arg("norm_mean"), py::arg("swap_rb"),
+             py::arg("pad_val"), py::arg("center_pad"),
+             "Configure normalisation: out = pixel*norm_scale - norm_mean; "
+             "swap_rb→RGB(YOLO)/BGR(SCRFD); pad_val raw pad; center_pad letterbox. "
+             "SCRFD: set_norm(1/128, 127.5, False, 0, False).")
         .def("run",
              [](vd::Preprocessor& self,
                 uintptr_t src_y_ptr, size_t src_y_pitch,
@@ -209,6 +215,25 @@ PYBIND11_MODULE(vizor_decode, m) {
              "Upload a host BGR ndarray to GPU and run the "
              "letterbox+normalise kernel. Returns PreprocessOutput "
              "with device_ptr_int pointing at the GPU tensor.")
+        .def("run_bgr_host",
+             [](vd::Preprocessor& self,
+                py::array_t<uint8_t, py::array::c_style | py::array::forcecast> bgr) {
+                 if (bgr.ndim() != 3 || bgr.shape(2) != 3)
+                     throw std::runtime_error("run_bgr_host expects HxWx3 uint8");
+                 const int h = static_cast<int>(bgr.shape(0));
+                 const int w = static_cast<int>(bgr.shape(1));
+                 const int dw = self.dst_w(), dh = self.dst_h();
+                 auto result = py::array_t<float>({1, 3, dh, dw});
+                 const uint8_t* data = bgr.data();
+                 float* outp = result.mutable_data();
+                 {
+                     py::gil_scoped_release rel;
+                     self.run_bgr_host(data, w, h, outp);  // copy happens in .cu (nvcc)
+                 }
+                 return result;
+             },
+             "Like run_bgr but copies the result back to a host NCHW float32 "
+             "ndarray (ready to pass to Triton).")
         .def_static("cuda_available", &vd::Preprocessor::cuda_available);
 #endif
 }

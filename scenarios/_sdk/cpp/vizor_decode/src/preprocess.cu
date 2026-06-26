@@ -113,30 +113,34 @@ __global__ void nv12_to_rgb_letterbox_kernel(
     dst_b[dst_idx] = b * (1.0f / 255.0f);
 }
 
-// BGR → letterboxed CHW float RGB kernel. Mirrors the NV12 path but
-// skips the YUV→RGB conversion (input is already BGR).
+// BGR → letterboxed CHW float kernel. Parametrised normalisation so the SAME kernel
+// serves YOLO (RGB, /255, pad 114) and SCRFD (BGR, (x-127.5)/128, pad 0):
+//   out = (channel * norm_scale - norm_mean) , swap_rb swaps R/B channel order,
+//   pad pixels emit (pad_val * norm_scale - norm_mean).
 __global__ void bgr_letterbox_kernel(
     const uint8_t* __restrict__ src_bgr, size_t src_pitch,
     int src_w, int src_h,
     float* __restrict__ dst,
     int dst_w, int dst_h,
-    float scale, int pad_x, int pad_y, int scaled_w, int scaled_h) {
+    float scale, int pad_x, int pad_y, int scaled_w, int scaled_h,
+    float norm_scale, float norm_mean, float pad_val, int swap_rb) {
     const int x = blockIdx.x * blockDim.x + threadIdx.x;
     const int y = blockIdx.y * blockDim.y + threadIdx.y;
     if (x >= dst_w || y >= dst_h) return;
 
     const int dst_plane = dst_w * dst_h;
-    float* dst_r = dst;
-    float* dst_g = dst + dst_plane;
-    float* dst_b = dst + dst_plane * 2;
+    // Channel 0/2 ordering depends on swap_rb: swap_rb=1 → RGB out, 0 → BGR out.
+    float* dst_c0 = dst;                    // first channel written
+    float* dst_g  = dst + dst_plane;        // green always middle
+    float* dst_c2 = dst + dst_plane * 2;    // third channel written
     const int dst_idx = y * dst_w + x;
 
     if (x < pad_x || y < pad_y ||
         x >= pad_x + scaled_w || y >= pad_y + scaled_h) {
-        const float pad = 114.0f / 255.0f;
-        dst_r[dst_idx] = pad;
+        const float pad = pad_val * norm_scale - norm_mean;
+        dst_c0[dst_idx] = pad;
         dst_g[dst_idx] = pad;
-        dst_b[dst_idx] = pad;
+        dst_c2[dst_idx] = pad;
         return;
     }
 
@@ -167,14 +171,18 @@ __global__ void bgr_letterbox_kernel(
                (1 - fx) *      fy  * v10 + fx *      fy  * v11;
     };
 
-    // Source is BGR, model wants RGB → swap order.
+    // Source is interleaved BGR (chan 0=B, 1=G, 2=R).
     const float b = bilerp(0);
     const float g = bilerp(1);
     const float r = bilerp(2);
 
-    dst_r[dst_idx] = r * (1.0f / 255.0f);
-    dst_g[dst_idx] = g * (1.0f / 255.0f);
-    dst_b[dst_idx] = b * (1.0f / 255.0f);
+    // swap_rb=1 → channel0=R, channel2=B (RGB out, YOLO). swap_rb=0 → channel0=B,
+    // channel2=R (BGR out, SCRFD). Green is always the middle channel.
+    const float first  = swap_rb ? r : b;
+    const float third  = swap_rb ? b : r;
+    dst_c0[dst_idx] = first * norm_scale - norm_mean;
+    dst_g[dst_idx]  = g     * norm_scale - norm_mean;
+    dst_c2[dst_idx] = third * norm_scale - norm_mean;
 }
 
 }  // namespace
@@ -182,6 +190,12 @@ __global__ void bgr_letterbox_kernel(
 struct Preprocessor::Impl {
     int dst_w;
     int dst_h;
+    // Normalisation config (defaults = YOLO: RGB, /255, pad 114, top-left? no — centred).
+    float norm_scale = 1.0f / 255.0f;
+    float norm_mean  = 0.0f;
+    float pad_val    = 114.0f;
+    int   swap_rb    = 1;        // 1 → RGB out (YOLO); 0 → BGR out (SCRFD)
+    int   center_pad = 1;        // 1 → centre letterbox (YOLO); 0 → top-left (SCRFD)
     float*  d_buf = nullptr;
     size_t  bytes = 0;
     cudaStream_t stream = nullptr;
@@ -205,6 +219,16 @@ Preprocessor::Preprocessor(int dst_w, int dst_h)
         throw std::runtime_error("cudaMalloc");
     }
     cudaStreamCreate(&impl_->stream);
+}
+
+void Preprocessor::set_norm(float norm_scale, float norm_mean, bool swap_rb,
+                            float pad_val, bool center_pad) {
+    if (!impl_) return;
+    impl_->norm_scale = norm_scale;
+    impl_->norm_mean  = norm_mean;
+    impl_->swap_rb    = swap_rb ? 1 : 0;
+    impl_->pad_val    = pad_val;
+    impl_->center_pad = center_pad ? 1 : 0;
 }
 
 Preprocessor::~Preprocessor() {
@@ -239,8 +263,9 @@ PreprocessOutput Preprocessor::run_bgr(
     const float scale = sx < sy ? sx : sy;
     const int scaled_w = static_cast<int>(src_w * scale + 0.5f);
     const int scaled_h = static_cast<int>(src_h * scale + 0.5f);
-    const int pad_x = (impl_->dst_w - scaled_w) / 2;
-    const int pad_y = (impl_->dst_h - scaled_h) / 2;
+    // SCRFD fills a black canvas top-left (pad_x=pad_y=0); YOLO centres.
+    const int pad_x = impl_->center_pad ? (impl_->dst_w - scaled_w) / 2 : 0;
+    const int pad_y = impl_->center_pad ? (impl_->dst_h - scaled_h) / 2 : 0;
 
     dim3 block(16, 16);
     dim3 grid((impl_->dst_w + 15) / 16, (impl_->dst_h + 15) / 16);
@@ -251,7 +276,8 @@ PreprocessOutput Preprocessor::run_bgr(
         src_w, src_h,
         impl_->d_buf,
         impl_->dst_w, impl_->dst_h,
-        scale, pad_x, pad_y, scaled_w, scaled_h);
+        scale, pad_x, pad_y, scaled_w, scaled_h,
+        impl_->norm_scale, impl_->norm_mean, impl_->pad_val, impl_->swap_rb);
 
     cudaStreamSynchronize(impl_->stream);
 
@@ -263,6 +289,15 @@ PreprocessOutput Preprocessor::run_bgr(
     out.h = impl_->dst_h;
     out.w = impl_->dst_w;
     return out;
+}
+
+int Preprocessor::dst_w() const { return impl_ ? impl_->dst_w : 0; }
+int Preprocessor::dst_h() const { return impl_ ? impl_->dst_h : 0; }
+
+void Preprocessor::run_bgr_host(
+    const uint8_t* host_bgr, int src_w, int src_h, float* out) {
+    PreprocessOutput o = run_bgr(host_bgr, src_w, src_h);
+    cudaMemcpy(out, o.device_ptr, o.bytes, cudaMemcpyDeviceToHost);
 }
 
 PreprocessOutput Preprocessor::run(

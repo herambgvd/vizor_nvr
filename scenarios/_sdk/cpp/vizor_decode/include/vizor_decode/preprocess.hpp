@@ -38,6 +38,23 @@ public:
     Preprocessor(int dst_w, int dst_h);
     ~Preprocessor();
 
+    // Configure normalisation so one kernel serves different models:
+    //   out = pixel * norm_scale - norm_mean ; swap_rb=true → RGB out (YOLO),
+    //   false → BGR out (SCRFD); pad_val = raw pad pixel (114 YOLO, 0 SCRFD);
+    //   center_pad=true → centred letterbox (YOLO), false → top-left (SCRFD).
+    // Defaults match YOLO so existing callers are unaffected.
+    // SCRFD: set_norm(1.0f/128, 127.5f, false, 0.0f, false).
+    void set_norm(float norm_scale, float norm_mean, bool swap_rb,
+                  float pad_val, bool center_pad);
+
+    int dst_w() const;
+    int dst_h() const;
+
+    // Like run_bgr but also copies the GPU result into the caller-provided host
+    // buffer `out` (NCHW float32, 1*3*dst_h*dst_w). The cudaMemcpy lives here (nvcc
+    // unit) so the pybind .cpp doesn't need the CUDA toolchain.
+    void run_bgr_host(const uint8_t* host_bgr, int src_w, int src_h, float* out);
+
     Preprocessor(const Preprocessor&) = delete;
     Preprocessor& operator=(const Preprocessor&) = delete;
 
