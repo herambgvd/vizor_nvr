@@ -19,7 +19,7 @@ router = APIRouter(tags=["investigate"])
 
 @router.post("/investigate")
 async def investigate(file: UploadFile = File(...), top_k: int = Form(100),
-                      min_score: float = Form(0.6), camera_ids: str = Form(""),
+                      min_score: float = Form(0.45), camera_ids: str = Form(""),
                       _: None = Depends(require_service_token),
                       allowed: Optional[list[str]] = Depends(allowed_camera_ids)) -> JSONResponse:
     """Forensic search (vizor-app parity): match the query face against the

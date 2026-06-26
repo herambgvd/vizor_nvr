@@ -266,7 +266,9 @@ function HistoryDrawer({ open, onClose, onSelect }) {
   );
 }
 
-const DEFAULT_THRESHOLD = 0.6;
+// 0.45, not 0.6 — top-down CCTV faces legitimately match the snapshot index at
+// ~0.5, so a 0.6 floor hid every real result and made investigate look broken.
+const DEFAULT_THRESHOLD = 0.45;
 const DEFAULT_MAX_RESULTS = 100;
 
 const InvestigateTab = () => {
