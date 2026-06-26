@@ -215,27 +215,41 @@ function speakServer(phrase, slug) {
   return true;
 }
 
+// Pick the nicest available browser voice — prefer a natural female en voice (the
+// "good" one the client liked), in order: Google US female → any female en → any en.
+function _pickVoice(voices) {
+  const en = voices.filter((v) => /^en/i.test(v.lang));
+  const byName = (re) => en.find((v) => re.test(v.name || ""));
+  return (
+    byName(/google.*us.*english/i) ||
+    byName(/female|samantha|zira|aria|jenny|libby|sonia/i) ||
+    en[0] || voices[0] || null
+  );
+}
+
 function speakPhrase(phrase, slug) {
   if (!phrase) return false;
   const now = Date.now();
   if (now - _lastSpeakAt < ALARM_THROTTLE_MS) return true;
   _lastSpeakAt = now;
-  // 1) Server-side TTS (preferred — deterministic across browsers).
-  if (speakServer(phrase, slug)) return true;
-  // 2) Browser SpeechSynthesis fallback.
+  // 1) Browser SpeechSynthesis FIRST — its system voices (e.g. Google US English
+  //    female) sound natural; the client preferred this over the robotic espeak.
   const synth = window.speechSynthesis;
   const voices = (() => { try { return synth ? (synth.getVoices() || []) : []; } catch { return []; } })();
-  if (!synth || voices.length === 0) return false;  // → caller beeps
-  if (synth.speaking || synth.pending) return true;
-  try {
-    const u = new SpeechSynthesisUtterance(phrase);
-    u.rate = 1.0; u.pitch = 1.0; u.volume = 1.0;
-    u.voice = voices.find((v) => /^en/i.test(v.lang)) || voices[0];
-    synth.speak(u);
-    return true;
-  } catch {
-    return false;
+  if (synth && voices.length > 0) {
+    if (synth.speaking || synth.pending) return true;
+    try {
+      const u = new SpeechSynthesisUtterance(phrase);
+      u.rate = 1.0; u.pitch = 1.0; u.volume = 1.0;
+      u.voice = _pickVoice(voices);
+      synth.speak(u);
+      return true;
+    } catch { /* fall through to server TTS */ }
   }
+  // 2) Server-side espeak TTS — only when the browser has no usable voice (kiosks).
+  if (speakServer(phrase, slug)) return true;
+  // 3) Nothing spoke → caller beeps.
+  return false;
 }
 
 // Build the per-event spoken phrase. PPE names the missing items; other scenarios
