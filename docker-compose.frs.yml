@@ -61,7 +61,11 @@ services:
       FRS_LIVE_ASYNC: ${FRS_LIVE_ASYNC:-1}
       # Architecture v2: app runs the events bridge + control shim instead of the
       # in-process supervisor (recognition moves to the gvd_ai_frs_worker process).
-      FRS_WORKER_V2: ${FRS_WORKER_V2:-0}
+      # DEFAULT 1 — the worker-v2 worker is the live recognition path. If this is 0
+      # the app boots legacy in-process mode and the events bridge never starts, so
+      # the worker emits to ai:events but nothing drains it to the DB → "no events".
+      # Always deploy the worker too (`--profile worker-v2`).
+      FRS_WORKER_V2: ${FRS_WORKER_V2:-1}
       # Use the camera 720p sub-stream for AI (4x fewer pixels than the 4MP main →
       # much lower decode + colour-convert + per-frame CPU). The control shim builds
       # the {camera}_sub go2rtc URL. cpp NVDEC handles the sub stream cleanly.
