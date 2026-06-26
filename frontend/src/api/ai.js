@@ -179,6 +179,46 @@ export const reportRunDownloadUrl = async (id, fmt = "xlsx") => {
   return URL.createObjectURL(blob);
 };
 
+// ── Generic per-scenario report helpers (PPE reuses these; report key varies) ──
+export const scenarioReport = async (slug, report, { day_from, day_to } = {}) =>
+  proxyScenario(slug, `/reports/${report}`, { params: { day_from, day_to, format: "json" } });
+
+export const scenarioReportExportUrl = async (slug, report, { day_from, day_to, format = "xlsx" } = {}) => {
+  const token = getAccessToken();
+  const qs = new URLSearchParams({ day_from, day_to, format }).toString();
+  let resp;
+  try {
+    resp = await fetch(`${BACKEND_URL}/api/ai/scenarios/${slug}/proxy/reports/${report}?${qs}`,
+      { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  } catch (_e) { return null; }
+  if (!resp.ok) return null;
+  const blob = await resp.blob();
+  if (!blob || blob.size === 0) return null;
+  return URL.createObjectURL(blob);
+};
+
+export const listScenarioReportSchedules = async (slug) => proxyScenario(slug, "/report-schedules");
+export const createScenarioReportSchedule = async (slug, payload) =>
+  proxyScenario(slug, "/report-schedules", { method: "POST", data: payload });
+export const deleteScenarioReportSchedule = async (slug, id) =>
+  proxyScenario(slug, `/report-schedules/${id}`, { method: "DELETE" });
+export const runScenarioReportSchedule = async (slug, id) =>
+  proxyScenario(slug, `/report-schedules/${id}/run`, { method: "POST" });
+export const listScenarioReportRuns = async (slug, limit = 50) =>
+  proxyScenario(slug, "/report-runs", { params: { limit } });
+export const scenarioReportRunDownloadUrl = async (slug, id) => {
+  const token = getAccessToken();
+  let resp;
+  try {
+    resp = await fetch(`${BACKEND_URL}/api/ai/scenarios/${slug}/proxy/report-runs/${id}/download`,
+      { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  } catch (_e) { return null; }
+  if (!resp.ok) return null;
+  const blob = await resp.blob();
+  if (!blob || blob.size === 0) return null;
+  return URL.createObjectURL(blob);
+};
+
 export const scenarioThumbnailUrl = async (slug, resultId) => {
   const token = getAccessToken();
   let resp;

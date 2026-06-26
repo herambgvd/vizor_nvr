@@ -1,236 +1,224 @@
 // =============================================================================
-// AI · PPE · Reports tab — compliance summary: violations / compliant counts,
-// compliance rate, by-camera, by-event-type and by-hour breakdowns. Scoped to
-// PPE only. Plugin /reports/summary drives the compliance panels.
+// AI · PPE · Reports — four PPE reports + CSV/Excel export + scheduling.
+//   1. Compliance : per camera — checks, compliant, violations, %
+//   2. Violations : each missing/removed event + snapshot
+//   3. By Item    : per PPE item — violation count
+//   4. Worker     : per worker track — violations vs compliant
 // =============================================================================
 
-import React, { useMemo, useState } from "react";
-import { useQuery, keepPreviousData } from "@tanstack/react-query";
+import React, { useEffect, useState } from "react";
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import {
-  Activity,
-  Users,
-  ShieldAlert,
-  BarChart3,
-  Clock,
-  Loader2,
+  CalendarClock, Download, FileSpreadsheet, FileText, HardHat, ImageOff, Loader2,
+  Mail, Play, Plus, ShieldCheck, Trash2, Users, AlertTriangle,
 } from "lucide-react";
 
-import { listScenarioCameras, listScenarioEvents, scenarioReportsSummary } from "../../../../api/ai";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../../../components/ui/select";
-import { cameraNameMap } from "../frs/frsShared";
+import {
+  scenarioReport, scenarioReportExportUrl, listScenarioReportSchedules,
+  createScenarioReportSchedule, deleteScenarioReportSchedule, runScenarioReportSchedule,
+  listScenarioReportRuns, scenarioReportRunDownloadUrl, scenarioSnapshotUrl,
+} from "../../../../api/ai";
 
-const RANGE_PRESETS = [
-  { value: "1", label: "Last 24 hours" },
-  { value: "7", label: "Last 7 days" },
-  { value: "30", label: "Last 30 days" },
+const SLUG = "ppe";
+
+const REPORTS = [
+  { key: "compliance", label: "Compliance", icon: ShieldCheck, desc: "Per camera — rate" },
+  { key: "violations", label: "Violations", icon: AlertTriangle, desc: "Missing PPE + snapshots" },
+  { key: "by_item", label: "By Item", icon: HardHat, desc: "Helmet / vest / …" },
+  { key: "worker", label: "Worker", icon: Users, desc: "Per worker track" },
 ];
 
-const SCOPE = {
-  activeLabel: "Compliance active",
-  scopeTitle: "PPE model scope",
-  blurb:
-    "PPE compliance reports are plugin-driven. Violations and compliant verdicts are produced per worker by the PPE scenario.",
-  footnote:
-    "Detailed compliance counts will populate here once the PPE detector publishes plugin report metrics.",
+const todayISO = (off = 0) => { const d = new Date(); d.setDate(d.getDate() + off); return d.toISOString().slice(0, 10); };
+const saveBlob = (url, name) => {
+  if (!url) return;
+  const a = document.createElement("a"); a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
 };
-
-function scenarioScopeItems(scenario) {
-  const fields = scenario?.camera_config_schema?.fields || [];
-  const byKey = (k) => fields.find((f) => f.key === k)?.default;
-  const fromSchema = byKey("required_items") || byKey("required_ppe");
-  if (Array.isArray(fromSchema) && fromSchema.length) return fromSchema;
-  if (Array.isArray(scenario?.event_types) && scenario.event_types.length) return scenario.event_types;
-  return [];
-}
-
-function StatCard({ icon: Icon, label, value, accent }) {
-  return (
-    <div className="rounded-lg border p-4" style={{ borderColor: "var(--console-border)", background: "var(--console-panel)" }}>
-      <div className="flex items-center justify-between">
-        <span className="text-[10px] uppercase tracking-widest text-zinc-500 font-telemetry">{label}</span>
-        <Icon className={`h-4 w-4 ${accent}`} />
-      </div>
-      <div className="mt-2 text-2xl font-semibold text-zinc-100 font-telemetry">{value}</div>
-    </div>
-  );
-}
-
-function HBarChart({ data, color = "#3b82f6", emptyLabel }) {
-  if (!data || data.length === 0) {
-    return <p className="text-xs text-zinc-500 py-6 text-center">{emptyLabel}</p>;
+const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
+function renderCell(col, val) {
+  if (val == null || val === "") return "—";
+  if (typeof val === "string" && ISO_RE.test(val)) {
+    const d = new Date(val);
+    if (!isNaN(d)) return d.toLocaleString([], { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" });
   }
-  const max = Math.max(...data.map((d) => d.value), 1);
-  const rowH = 26;
-  const labelW = 120;
-  const barW = 280;
-  const valW = 44;
-  const width = labelW + barW + valW;
-  const height = data.length * rowH;
-  return (
-    <svg width="100%" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMinYMin meet" role="img">
-      {data.map((d, i) => {
-        const w = Math.max(2, (d.value / max) * barW);
-        const y = i * rowH;
-        return (
-          <g key={`${d.label}-${i}`}>
-            <text x={labelW - 8} y={y + rowH / 2} textAnchor="end" dominantBaseline="middle" fontSize="11" fill="#a1a1aa">
-              {d.label.length > 16 ? `${d.label.slice(0, 15)}…` : d.label}
-            </text>
-            <rect x={labelW} y={y + 5} width={barW} height={rowH - 10} rx="3" fill="#27272a" />
-            <rect x={labelW} y={y + 5} width={w} height={rowH - 10} rx="3" fill={color} opacity="0.85" />
-            <text x={labelW + barW + valW - 4} y={y + rowH / 2} textAnchor="end" dominantBaseline="middle" fontSize="11" fill="#d4d4d8">
-              {d.value}
-            </text>
-          </g>
-        );
-      })}
-    </svg>
-  );
+  if (col === "compliance_pct") return `${val}%`;
+  return String(val);
 }
 
-function Panel({ title, icon: Icon, children }) {
+function SnapThumb({ path }) {
+  const [url, setUrl] = useState(null); const [err, setErr] = useState(false);
+  useEffect(() => {
+    if (!path) return undefined;
+    let active = true, obj = null;
+    scenarioSnapshotUrl(SLUG, path).then((u) => { if (!active) { if (u) URL.revokeObjectURL(u); return; } obj = u; setUrl(u); })
+      .catch(() => active && setErr(true));
+    return () => { active = false; if (obj) URL.revokeObjectURL(obj); };
+  }, [path]);
+  if (!path || err || !url) {
+    return <div className="h-11 w-11 rounded flex items-center justify-center border"
+      style={{ borderColor: "var(--console-border)", background: "var(--console-raised)" }}><ImageOff className="h-4 w-4 text-zinc-600" /></div>;
+  }
+  return <img src={url} alt="" loading="lazy" onError={() => setErr(true)}
+    className="h-11 w-11 rounded object-cover border" style={{ borderColor: "var(--console-border)" }} />;
+}
+
+export default function ReportsTab() {
+  const qc = useQueryClient();
+  const [active, setActive] = useState("compliance");
+  const [dayFrom, setDayFrom] = useState(todayISO(-6));
+  const [dayTo, setDayTo] = useState(todayISO(0));
+
+  const { data, isFetching } = useQuery({
+    queryKey: ["ppe", "report", active, dayFrom, dayTo],
+    queryFn: () => scenarioReport(SLUG, active, { day_from: dayFrom, day_to: dayTo }),
+    placeholderData: keepPreviousData,
+  });
+  const columns = data?.columns || [];
+  const rows = data?.items || [];
+
+  const doExport = async (format) => {
+    const url = await scenarioReportExportUrl(SLUG, active, { day_from: dayFrom, day_to: dayTo, format });
+    saveBlob(url, `${active}_${dayFrom}_${dayTo}.${format === "csv" ? "csv" : "xlsx"}`);
+  };
+
   return (
-    <div className="rounded-lg border p-4" style={{ borderColor: "var(--console-border)", background: "var(--console-panel)" }}>
-      <div className="flex items-center gap-2 mb-3">
-        <Icon className="h-4 w-4 text-zinc-400" />
-        <span className="text-[10px] uppercase tracking-widest text-zinc-500 font-telemetry">{title}</span>
+    <div className="h-full overflow-y-auto px-4 py-4 md:px-6 space-y-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {REPORTS.map((r) => {
+          const Icon = r.icon; const on = active === r.key;
+          return (
+            <button key={r.key} type="button" onClick={() => setActive(r.key)}
+              className="rounded-lg border p-3 text-left transition-colors"
+              style={{ borderColor: on ? "var(--console-accent)" : "var(--console-border)", background: on ? "var(--console-raised)" : "var(--console-panel)" }}>
+              <div className="flex items-center gap-2">
+                <Icon className="h-4 w-4" style={{ color: "var(--console-accent)" }} />
+                <span className="text-sm font-medium">{r.label}</span>
+              </div>
+              <p className="text-[11px] mt-1" style={{ color: "var(--console-muted)" }}>{r.desc}</p>
+            </button>
+          );
+        })}
       </div>
-      {children}
+
+      <div className="flex flex-wrap items-end gap-3 rounded-lg border p-3"
+        style={{ borderColor: "var(--console-border)", background: "var(--console-panel)" }}>
+        <div>
+          <label className="block text-[10px] uppercase tracking-widest mb-1" style={{ color: "var(--console-muted)" }}>From</label>
+          <input type="date" value={dayFrom} max={dayTo} onChange={(e) => setDayFrom(e.target.value)}
+            className="rounded-md border px-2 py-1.5 text-sm bg-transparent" style={{ borderColor: "var(--console-border)", colorScheme: "dark" }} />
+        </div>
+        <div>
+          <label className="block text-[10px] uppercase tracking-widest mb-1" style={{ color: "var(--console-muted)" }}>To</label>
+          <input type="date" value={dayTo} min={dayFrom} max={todayISO(0)} onChange={(e) => setDayTo(e.target.value)}
+            className="rounded-md border px-2 py-1.5 text-sm bg-transparent" style={{ borderColor: "var(--console-border)", colorScheme: "dark" }} />
+        </div>
+        <div className="flex-1" />
+        <button type="button" onClick={() => doExport("csv")} className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm hover:bg-white/[0.04]" style={{ borderColor: "var(--console-border)" }}><FileText className="h-4 w-4" /> CSV</button>
+        <button type="button" onClick={() => doExport("xlsx")} className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm hover:bg-white/[0.04]" style={{ borderColor: "var(--console-border)" }}><FileSpreadsheet className="h-4 w-4" /> Excel</button>
+      </div>
+
+      <div className="rounded-lg border overflow-hidden" style={{ borderColor: "var(--console-border)" }}>
+        <div className="px-3 py-2 flex items-center justify-between" style={{ background: "var(--console-raised)" }}>
+          <span className="text-xs font-telemetry uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
+            {REPORTS.find((r) => r.key === active)?.label} · {rows.length} rows
+          </span>
+          {isFetching && <Loader2 className="h-3.5 w-3.5 animate-spin" style={{ color: "var(--console-muted)" }} />}
+        </div>
+        <div className="overflow-x-auto max-h-[420px] overflow-y-auto">
+          <table className="w-full text-sm">
+            <thead className="sticky top-0" style={{ background: "var(--console-panel)" }}>
+              <tr>{columns.map((c) => (
+                <th key={c} className="px-3 py-2 text-left text-[10px] uppercase tracking-widest font-telemetry"
+                  style={{ color: "var(--console-muted)", borderBottom: "1px solid var(--console-border)" }}>{c.replace(/_/g, " ")}</th>
+              ))}</tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 ? (
+                <tr><td colSpan={columns.length || 1} className="px-3 py-8 text-center text-sm" style={{ color: "var(--console-muted)" }}>No data for this range.</td></tr>
+              ) : rows.map((row, i) => (
+                <tr key={i} className="border-t" style={{ borderColor: "var(--console-border)" }}>
+                  {columns.map((c) => (
+                    <td key={c} className="px-3 py-2 whitespace-nowrap" style={{ color: "var(--console-text)" }}>
+                      {c === "snapshot" ? <SnapThumb path={row[c]} /> : renderCell(c, row[c])}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <SchedulesPanel qc={qc} />
     </div>
   );
 }
 
-export default function ReportsTab({ scenario }) {
-  const scenarioId = scenario?.id;
-  const [preset, setPreset] = useState("7");
-
-  const { since, until } = useMemo(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - Number(preset));
-    return { since: d.toISOString(), until: undefined };
-  }, [preset]);
-
-  const { data: cameras = [], isLoading: camerasLoading } = useQuery({
-    queryKey: ["scenario-cameras", scenarioId],
-    queryFn: () => listScenarioCameras(scenarioId),
-    enabled: !!scenarioId,
-  });
-
-  const hasPluginSummary = useMemo(
-    () => (scenario?.proxy_routes || []).some((route) => route?.path === "/reports/summary"),
-    [scenario?.proxy_routes],
+function Field({ label, children }) {
+  return (
+    <div><label className="block text-[10px] uppercase tracking-widest mb-1" style={{ color: "var(--console-muted)" }}>{label}</label>{children}</div>
   );
-  const { data: events, isLoading: eventsLoading, isFetching } = useQuery({
-    queryKey: ["scenario-events-summary", "ppe", since, until],
-    queryFn: () => listScenarioEvents(scenario.slug, { since, until, limit: 500 }),
-    enabled: !!scenario?.slug,
-    placeholderData: keepPreviousData,
-  });
+}
 
-  const { data: pluginSummary } = useQuery({
-    queryKey: ["scenario-plugin-summary", "ppe", since, until],
-    queryFn: () => scenarioReportsSummary(scenario.slug, { since, until }),
-    enabled: !!scenario?.slug && hasPluginSummary,
-    placeholderData: keepPreviousData,
-  });
-
-  const enabledCount = useMemo(() => (cameras || []).filter((c) => c.enabled).length, [cameras]);
-  const cameraNames = useMemo(() => cameraNameMap(cameras || []), [cameras]);
-  const byHourData = useMemo(
-    () => (pluginSummary?.by_hour || []).map((b) => ({ label: `${b.hour}:00`, value: b.count })),
-    [pluginSummary],
-  );
-  const summaryByCamera = useMemo(
-    () => (pluginSummary?.by_camera || []).map((b) => ({
-      label: cameraNames[b.camera_id] || b.camera_id || "Unknown",
-      value: b.count,
-    })),
-    [pluginSummary, cameraNames],
-  );
-  const ppeByType = useMemo(
-    () => (pluginSummary?.by_type || []).map((b) => ({
-      label: String(b.event_type || "").replace(/_/g, " "),
-      value: b.count,
-    })),
-    [pluginSummary],
-  );
-  const scopeItems = useMemo(() => scenarioScopeItems(scenario), [scenario]);
+function SchedulesPanel({ qc }) {
+  const [form, setForm] = useState({ name: "", report: "violations", fmt: "xlsx", frequency: "daily", at_time: "08:00", range_days: 7, recipients: "" });
+  const { data: schedules } = useQuery({ queryKey: ["ppe", "report-schedules"], queryFn: () => listScenarioReportSchedules(SLUG) });
+  const { data: runs } = useQuery({ queryKey: ["ppe", "report-runs"], queryFn: () => listScenarioReportRuns(SLUG, 20) });
+  const refresh = () => { qc.invalidateQueries({ queryKey: ["ppe", "report-schedules"] }); qc.invalidateQueries({ queryKey: ["ppe", "report-runs"] }); };
+  const createM = useMutation({ mutationFn: (p) => createScenarioReportSchedule(SLUG, p), onSuccess: refresh });
+  const delM = useMutation({ mutationFn: (id) => deleteScenarioReportSchedule(SLUG, id), onSuccess: refresh });
+  const runM = useMutation({ mutationFn: (id) => runScenarioReportSchedule(SLUG, id), onSuccess: refresh });
+  const downloadRun = async (r) => { const url = await scenarioReportRunDownloadUrl(SLUG, r.id); saveBlob(url, r.filename); };
 
   return (
-    <div className="p-4 space-y-4">
-      <div className="flex flex-wrap items-end gap-3 rounded-lg border p-3" style={{ borderColor: "var(--console-border)", background: "var(--console-panel)" }}>
-        <div className="w-44">
-          <label className="block text-[9px] uppercase tracking-wider text-zinc-500 font-telemetry mb-0.5">Range</label>
-          <Select value={preset} onValueChange={setPreset}>
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {RANGE_PRESETS.map((p) => (
-                <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        {isFetching && <Loader2 className="h-4 w-4 animate-spin text-zinc-400 self-center" />}
+    <div className="rounded-lg border p-4 space-y-4" style={{ borderColor: "var(--console-border)", background: "var(--console-panel)" }}>
+      <div className="flex items-center gap-2">
+        <CalendarClock className="h-4 w-4" style={{ color: "var(--console-accent)" }} />
+        <span className="text-sm font-medium">Scheduled reports</span>
+        <span className="text-[11px]" style={{ color: "var(--console-muted)" }}>email at the set time + download here</span>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2 items-end">
+        <Field label="Name"><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Daily violations" className="w-full rounded border px-2 py-1.5 text-sm bg-transparent" style={{ borderColor: "var(--console-border)" }} /></Field>
+        <Field label="Report"><select value={form.report} onChange={(e) => setForm({ ...form, report: e.target.value })} className="w-full rounded border px-2 py-1.5 text-sm bg-transparent" style={{ borderColor: "var(--console-border)", colorScheme: "dark" }}>{REPORTS.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}</select></Field>
+        <Field label="Format"><select value={form.fmt} onChange={(e) => setForm({ ...form, fmt: e.target.value })} className="w-full rounded border px-2 py-1.5 text-sm bg-transparent" style={{ borderColor: "var(--console-border)", colorScheme: "dark" }}><option value="xlsx">Excel</option><option value="csv">CSV</option></select></Field>
+        <Field label="Frequency"><select value={form.frequency} onChange={(e) => setForm({ ...form, frequency: e.target.value })} className="w-full rounded border px-2 py-1.5 text-sm bg-transparent" style={{ borderColor: "var(--console-border)", colorScheme: "dark" }}><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select></Field>
+        <Field label="Time"><input type="time" value={form.at_time} onChange={(e) => setForm({ ...form, at_time: e.target.value })} className="w-full rounded border px-2 py-1.5 text-sm bg-transparent" style={{ borderColor: "var(--console-border)", colorScheme: "dark" }} /></Field>
+        <Field label="Range (days)"><input type="number" min={1} value={form.range_days} onChange={(e) => setForm({ ...form, range_days: Number(e.target.value) })} className="w-full rounded border px-2 py-1.5 text-sm bg-transparent" style={{ borderColor: "var(--console-border)" }} /></Field>
+        <Field label="Recipients"><input value={form.recipients} onChange={(e) => setForm({ ...form, recipients: e.target.value })} placeholder="a@x.com, b@y.com" className="w-full rounded border px-2 py-1.5 text-sm bg-transparent" style={{ borderColor: "var(--console-border)" }} /></Field>
+      </div>
+      <button type="button" disabled={createM.isPending || !form.name} onClick={() => createM.mutate(form)} className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-50" style={{ background: "var(--console-accent)", color: "#fff" }}><Plus className="h-4 w-4" /> Add schedule</button>
+
+      <div className="space-y-1.5">
+        {(schedules?.items || []).map((s) => (
+          <div key={s.id} className="flex items-center gap-3 rounded border px-3 py-2 text-sm" style={{ borderColor: "var(--console-border)" }}>
+            <span className="font-medium">{s.name}</span>
+            <span className="text-[11px]" style={{ color: "var(--console-muted)" }}>{s.report} · {s.frequency} {s.at_time} · {s.fmt}</span>
+            {s.recipients && <span className="text-[11px] inline-flex items-center gap-1" style={{ color: "var(--console-muted)" }}><Mail className="h-3 w-3" />{s.recipients}</span>}
+            <span className="flex-1" />
+            <span className="text-[11px]" style={{ color: "var(--console-muted)" }}>next {s.next_run_at ? new Date(s.next_run_at).toLocaleString() : "—"}</span>
+            <button type="button" title="Run now" onClick={() => runM.mutate(s.id)} className="p-1 hover:opacity-70"><Play className="h-4 w-4" /></button>
+            <button type="button" title="Delete" onClick={() => delM.mutate(s.id)} className="p-1 hover:opacity-70"><Trash2 className="h-4 w-4" style={{ color: "#f87171" }} /></button>
+          </div>
+        ))}
+        {(schedules?.items || []).length === 0 && <p className="text-[11px]" style={{ color: "var(--console-muted)" }}>No schedules yet.</p>}
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatCard
-          icon={Activity}
-          label="Scenario events"
-          value={eventsLoading ? "—" : (pluginSummary?.total_events ?? events?.total ?? (events?.items || []).length)}
-          accent="text-blue-400"
-        />
-        <StatCard icon={Users} label="Assigned cameras" value={camerasLoading ? "—" : cameras.length} accent="text-emerald-400" />
-        <StatCard icon={ShieldAlert} label={SCOPE.activeLabel} value={camerasLoading ? "—" : enabledCount} accent="text-amber-400" />
-        <StatCard icon={BarChart3} label="Detection classes" value={scopeItems.length} accent="text-purple-400" />
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Panel title={SCOPE.scopeTitle} icon={Clock}>
-          <div className="space-y-3 text-[12px] text-zinc-400">
-            <p>{SCOPE.blurb}</p>
-            {scopeItems.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {scopeItems.map((item) => (
-                  <span key={item} className="rounded border border-white/10 bg-black px-2 py-1 text-[11px] uppercase tracking-wide">
-                    {String(item).replace(/_/g, " ")}
-                  </span>
-                ))}
+      {(runs?.items || []).length > 0 && (
+        <div>
+          <div className="text-[10px] uppercase tracking-widest mb-1.5" style={{ color: "var(--console-muted)" }}>Recent files</div>
+          <div className="space-y-1">
+            {(runs.items || []).map((r) => (
+              <div key={r.id} className="flex items-center gap-3 text-sm">
+                <span>{r.report}</span>
+                <span className="text-[11px]" style={{ color: "var(--console-muted)" }}>{r.rows} rows · {new Date(r.created_at).toLocaleString()}</span>
+                {r.emailed_to && <span className="text-[11px] inline-flex items-center gap-1" style={{ color: r.email_ok ? "#34d399" : "#fbbf24" }}><Mail className="h-3 w-3" />{r.email_ok ? "sent" : "email off"}</span>}
+                <span className="flex-1" />
+                <button type="button" onClick={() => downloadRun(r)} className="inline-flex items-center gap-1 text-[12px] hover:opacity-70" style={{ color: "var(--console-accent)" }}><Download className="h-3.5 w-3.5" /> download</button>
               </div>
-            )}
-            <p className="text-zinc-600">{SCOPE.footnote}</p>
+            ))}
           </div>
-        </Panel>
-      </div>
-
-      {/* Compliance summary — counts + breakdowns. */}
-      {pluginSummary && (
-        <>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <StatCard icon={Activity} label="Total events" value={pluginSummary.total_events ?? 0} accent="text-blue-400" />
-            <StatCard icon={ShieldAlert} label="Violations" value={pluginSummary.violations ?? 0} accent="text-rose-400" />
-            <StatCard icon={Users} label="Compliant" value={pluginSummary.compliant ?? 0} accent="text-emerald-400" />
-            <StatCard
-              icon={BarChart3}
-              label="Compliance rate"
-              value={pluginSummary.compliance_rate != null ? `${Math.round(pluginSummary.compliance_rate * 100)}%` : "—"}
-              accent="text-purple-400"
-            />
-          </div>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <Panel title="Violations by camera" icon={BarChart3}>
-              <HBarChart data={summaryByCamera} color="#f43f5e" emptyLabel="No compliance events in this range yet." />
-            </Panel>
-            <Panel title="By event type" icon={ShieldAlert}>
-              <HBarChart data={ppeByType} color="#f59e0b" emptyLabel="No compliance events in this range yet." />
-            </Panel>
-          </div>
-          <Panel title="Events by hour" icon={Clock}>
-            <HBarChart data={byHourData} color="#3b82f6" emptyLabel="No events in this range yet." />
-          </Panel>
-        </>
+        </div>
       )}
     </div>
   );
