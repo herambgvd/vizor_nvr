@@ -159,6 +159,9 @@ services:
       # cost for marginal accuracy gain; off by default in the worker. Cap the
       # recognition thread pool so N cameras don't spin every core on cv2 work.
       FRS_DENOISE_ALIGNED: ${FRS_DENOISE_ALIGNED:-false}
+      # GPU SCRFD preprocess (CUDA kernel does resize/letterbox/normalise instead of
+      # cv2 on the CPU) — moves per-frame pre-processing off the CPU. Default off.
+      FRS_GPU_PREPROCESS: ${FRS_GPU_PREPROCESS:-0}
       FRS_RECO_POOL_WORKERS: ${FRS_RECO_POOL_WORKERS:-3}
       OMP_NUM_THREADS: ${FRS_OMP_THREADS:-2}
       OPENCV_NUM_THREADS: ${FRS_OPENCV_THREADS:-2}
@@ -166,7 +169,7 @@ services:
       # async (recognition awaits every Triton/qdrant call), so the event loop never
       # blocks and the native decoder no longer stalls — GPU decode, lowest CPU.
       # Fall back to ffmpeg (PyAV software) if the .so is missing.
-      VIZOR_DECODER: ${FRS_DECODER:-cpp}
+      VIZOR_DECODER: ${FRS_DECODER:-ffmpeg}
       # High-bitrate 4MP main-stream RTSP can take >30s to connect + deliver the
       # first I-frame; the default 30s watchdog would false-restart it into a loop.
       # Match the old supervisor's 90s stale window.

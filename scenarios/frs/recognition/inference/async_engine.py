@@ -12,9 +12,14 @@ the in-app supervisor path are untouched.
 """
 from __future__ import annotations
 
+import logging
+import os
+
 import numpy as np
 
 from .scrfd import names_for, postprocess_scrfd, preprocess_scrfd
+
+logger = logging.getLogger("frs.async_engine")
 from .preprocess import (
     postprocess_arcface, preprocess_arcface,
     postprocess_antispoofing, preprocess_antispoofing,
@@ -34,10 +39,53 @@ class AsyncEngine:
         self._triton = triton  # vizor_sdk.worker.TritonClient (async infer)
         self._has_fairface = has_fairface
         self._has_antispoof = has_antispoof
+        # GPU preprocess: do SCRFD's resize/letterbox/normalise on the GPU (CUDA
+        # kernel) instead of cv2 on the CPU. Flag-gated; falls back to cv2 if the
+        # native module lacks CUDA. Verified numerically equal to preprocess_scrfd.
+        # The Preprocessor owns a CUDA stream bound to the thread that created it, and
+        # the recognition runs on a multi-thread pool — so we keep ONE Preprocessor
+        # PER THREAD (thread-local) instead of sharing one across threads (which
+        # crashed with "terminate called without an active exception").
+        self._gpu_enabled = False
+        if os.getenv("FRS_GPU_PREPROCESS", "0").lower() in ("1", "true", "yes", "on"):
+            try:
+                import vizor_decode as _vd
+                if hasattr(_vd, "Preprocessor") and _vd.Preprocessor.cuda_available():
+                    self._gpu_enabled = True
+                    logger.info("[async_engine] GPU SCRFD preprocess ENABLED (thread-local)")
+            except Exception as e:  # noqa: BLE001
+                logger.warning("[async_engine] GPU preprocess unavailable, using cv2: %s", e)
+        import threading as _threading
+        self._tls = _threading.local()
+
+    def _thread_pp(self):
+        """Return this thread's own Preprocessor (built once per thread)."""
+        pp = getattr(self._tls, "pp", None)
+        if pp is None:
+            import vizor_decode as _vd
+            from .scrfd import SCRFD_SIZE
+            pp = _vd.Preprocessor(SCRFD_SIZE[1], SCRFD_SIZE[0])
+            pp.set_norm(1.0 / 128.0, 127.5 / 128.0, False, 0.0, False)  # SCRFD: BGR,(x-127.5)/128,pad0,top-left
+            self._tls.pp = pp
+        return pp
+
+    def _scrfd_input(self, frame_bgr: np.ndarray):
+        """Return (tensor[1,3,640,640] float32, scale) for SCRFD — GPU kernel when
+        enabled, else the cv2 path. scale is min(dst/src) (same letterbox math)."""
+        if self._gpu_enabled:
+            try:
+                from .scrfd import SCRFD_SIZE
+                h, w = frame_bgr.shape[:2]
+                scale = min(SCRFD_SIZE[0] / h, SCRFD_SIZE[1] / w)
+                tensor = self._thread_pp().run_bgr_host(np.ascontiguousarray(frame_bgr))
+                return tensor, scale
+            except Exception as e:  # noqa: BLE001 — never crash; fall back to cv2
+                logger.warning("[async_engine] GPU preprocess failed, cv2 fallback: %s", e)
+        return preprocess_scrfd(frame_bgr)
 
     async def detect_faces(self, frame_bgr: np.ndarray, conf_thresh: float = 0.5,
                            nms_thresh: float = 0.4) -> list[dict]:
-        tensor, scale = preprocess_scrfd(frame_bgr)
+        tensor, scale = self._scrfd_input(frame_bgr)
         try:
             raw = await self._triton.infer(_DET_MODEL, {_DET_IN: tensor.astype(np.float32)}, _DET_OUTS)
         except Exception:  # noqa: BLE001 — timeout / triton blip: drop the frame

@@ -12,7 +12,13 @@
 # per-frame colour-convert + resize move OFF the CPU. That needs nvcc, so the builder
 # uses the CUDA *devel* base (runtime has no compiler). The final stage stays on the
 # slim runtime base — only the compiled .so is copied across.
-FROM nvidia/cuda:12.5.1-devel-ubuntu22.04 AS decodebuilder
+# NOTE: CUDA preprocess (WITH_CUDA=ON) is temporarily OFF — linking the CUDA
+# preprocess into the .so destabilised the cpp NVDEC decoder at runtime (SIGSEGV /
+# "terminate called without an active exception"), a CUDA-context conflict between
+# NVDEC decode + the preprocess CUDA init that needs dedicated context handling.
+# Reverted to the proven decode-only build; GPU preprocess will return once the
+# context issue is fixed. Runtime base = no nvcc needed for decode-only.
+FROM nvidia/cuda:12.5.1-runtime-ubuntu22.04 AS decodebuilder
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
         software-properties-common ca-certificates gnupg curl git make \
@@ -35,7 +41,7 @@ COPY _sdk/cpp/vizor_decode /build/vizor_decode
 # resolve the Development component on this base and configure fails.
 RUN cmake -S /build/vizor_decode -B /build/vizor_decode/build -G Ninja \
         -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-        -DVIZOR_DECODE_WITH_CUDA=ON \
+        -DVIZOR_DECODE_WITH_CUDA=OFF \
         -DVIZOR_DECODE_BUILD_TESTS=OFF \
         -DPython3_EXECUTABLE=/usr/bin/python3.11 \
         -DPython3_FIND_STRATEGY=LOCATION \
