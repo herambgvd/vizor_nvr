@@ -158,7 +158,7 @@ services:
       # CPU tuning. The aligned-crop NLM denoise is ~27ms/face — biggest per-frame CPU
       # cost for marginal accuracy gain; off by default in the worker. Cap the
       # recognition thread pool so N cameras don't spin every core on cv2 work.
-      FRS_DENOISE_ALIGNED: ${FRS_DENOISE_ALIGNED:-false}
+      FRS_DENOISE_ALIGNED: ${FRS_DENOISE_ALIGNED:-true}
       # GPU SCRFD preprocess (CUDA kernel does resize/letterbox/normalise instead of
       # cv2 on the CPU) — moves per-frame pre-processing off the CPU. Default off.
       FRS_GPU_PREPROCESS: ${FRS_GPU_PREPROCESS:-0}
