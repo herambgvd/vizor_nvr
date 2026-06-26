@@ -300,20 +300,20 @@ const EventCard = ({ entry }) => {
   const showImg = url && !errored;
   return (
     <div
-      className="rounded overflow-hidden flex flex-col"
+      className="rounded overflow-hidden flex flex-col self-start"
       style={{ background: "var(--console-panel)", border: "1px solid var(--console-border)" }}
     >
-      <div className="aspect-square relative" style={{ background: "var(--console-raised)" }}>
+      <div className="relative w-full" style={{ aspectRatio: "1 / 1", background: "var(--console-raised)" }}>
         {showImg ? (
           <img
             src={url}
             alt="snapshot"
             loading="lazy"
             onError={() => setErrored(true)}
-            className="w-full h-full object-cover"
+            className="absolute inset-0 w-full h-full object-cover"
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center">
+          <div className="absolute inset-0 flex items-center justify-center">
             <ImageOff className="h-5 w-5" style={{ color: "var(--console-muted)" }} />
           </div>
         )}
