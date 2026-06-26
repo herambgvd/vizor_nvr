@@ -6,12 +6,13 @@
 # NVDEC (nvh264dec) on the GPU instead of burning a CPU core per camera on software
 # decode. Inference still runs on the shared Triton server (this stays a thin client);
 # the CUDA runtime here is only for the GPU video decode path.
-# ── builder: compile the native vizor_decode NVDEC module (.so) for py3.11 ────
-# GStreamer crashed in the worker process ("Unable to read configuration"), so the
-# worker decodes via this native module instead: NVDEC h264_cuvid through libav.
-# CUDA preprocess kernels are OFF (VIZOR_DECODE_WITH_CUDA=OFF) — we only need the
-# NVDEC decode path, which is libavcodec, not nvcc — so no CUDA toolkit needed here.
-FROM nvidia/cuda:12.5.1-runtime-ubuntu22.04 AS decodebuilder
+# ── builder: compile the native vizor_decode NVDEC + CUDA-preprocess module ───
+# The worker decodes via this native module (NVDEC h264_cuvid through libav) AND
+# runs the NV12->letterbox->float NCHW preprocess on the GPU (preprocess.cu), so the
+# per-frame colour-convert + resize move OFF the CPU. That needs nvcc, so the builder
+# uses the CUDA *devel* base (runtime has no compiler). The final stage stays on the
+# slim runtime base — only the compiled .so is copied across.
+FROM nvidia/cuda:12.5.1-devel-ubuntu22.04 AS decodebuilder
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
         software-properties-common ca-certificates gnupg curl git make \
@@ -34,10 +35,11 @@ COPY _sdk/cpp/vizor_decode /build/vizor_decode
 # resolve the Development component on this base and configure fails.
 RUN cmake -S /build/vizor_decode -B /build/vizor_decode/build -G Ninja \
         -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-        -DVIZOR_DECODE_WITH_CUDA=OFF \
+        -DVIZOR_DECODE_WITH_CUDA=ON \
         -DVIZOR_DECODE_BUILD_TESTS=OFF \
         -DPython3_EXECUTABLE=/usr/bin/python3.11 \
         -DPython3_FIND_STRATEGY=LOCATION \
+        -DCMAKE_CUDA_ARCHITECTURES="${CUDA_ARCHS:-89}" \
     && cmake --build /build/vizor_decode/build -j \
     && find /build/vizor_decode/build -name 'vizor_decode*.so' -exec cp {} /vizor_decode.so \;
 
