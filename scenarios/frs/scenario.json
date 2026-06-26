@@ -243,6 +243,14 @@
       "path": "/persons"
     },
     {
+      "method": "GET",
+      "path": "/persons/import-template"
+    },
+    {
+      "method": "POST",
+      "path": "/persons/import"
+    },
+    {
       "method": "POST",
       "path": "/persons"
     },

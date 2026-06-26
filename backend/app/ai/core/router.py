@@ -372,6 +372,8 @@ def _required_face_permission(method: str, path: str) -> str | None:
     (manage_ai_faces); investigate/recognize search faces (search_ai_faces)."""
     p = path.strip("/")
     m = method.upper()
+    if m == "POST" and p == "persons/import":
+        return "manage_ai_faces"
     if m == "POST" and p.startswith("persons/") and p.endswith("/photos"):
         return "manage_ai_faces"
     if m == "DELETE" and (p.startswith("persons/") or p.startswith("photos/")):
