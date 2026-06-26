@@ -52,6 +52,10 @@ class LicensePayload:
     # AI: licensed scenario slugs + the per-AI-camera cap applied to each.
     scenarios: List[str] = field(default_factory=list)
     ai_camera_limit: int = 0
+    # Optional PER-SCENARIO AI camera caps, e.g. {"frs": 4, "ppe": 7}. A scenario not
+    # in this map falls back to ai_camera_limit. Lets one license grant different camera
+    # counts per scenario.
+    feature_limits: Dict[str, int] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, d: dict) -> "LicensePayload":
@@ -70,6 +74,10 @@ class LicensePayload:
             tier=d.get("tier", "free"),
             scenarios=list(d.get("scenarios", []) or []),
             ai_camera_limit=int(d.get("ai_camera_limit", 0)),
+            feature_limits={
+                str(k): int(v)
+                for k, v in (d.get("feature_limits") or {}).items()
+            },
         )
 
 
@@ -321,6 +329,16 @@ class LicenseService:
 
     def ai_camera_limit(self) -> int:
         return self._payload.ai_camera_limit if (self._payload and self.is_active()) else 0
+
+    def feature_limit(self, slug: str) -> int:
+        """Per-scenario AI camera cap, falling back to the global ai_camera_limit (then
+        camera_limit). 0 = no licensed cameras for that scenario."""
+        if not (self._payload and self.is_active()):
+            return 0
+        fl = self._payload.feature_limits or {}
+        if slug in fl:
+            return int(fl[slug])
+        return int(self._payload.ai_camera_limit or self._payload.camera_limit or 0)
 
     # ── Snapshot for /api/license ─────────────────────────────────────
 

@@ -56,11 +56,9 @@ class AIService:
         # Licensed AI scenarios come from the signed license `scenarios` list;
         # the per-AI-camera cap is `ai_camera_limit` (falls back to camera_limit).
         scenarios = set(lic.scenarios()) if lic.is_active() else set()
-        ai_cap = lic.ai_camera_limit() if lic.is_active() else 0
-        if not ai_cap:
-            ai_cap = lic.camera_limit() if lic.is_active() else 0
 
         rows = (await db.execute(select(AIScenario))).scalars().all()
+        caps: dict = {}
         for s in rows:
             licensed = s.slug in scenarios
             s.licensed = licensed
@@ -68,10 +66,15 @@ class AIService:
                 s.enabled = False           # can't run an unlicensed scenario
                 s.camera_limit = 0
             else:
-                s.camera_limit = int(ai_cap or 0)
+                # Per-scenario cap from the license feature_limits map (falls back to
+                # the global ai_camera_limit / camera_limit). Lets one license grant
+                # e.g. FRS=4 + PPE=7.
+                cap = lic.feature_limit(s.slug) if lic.is_active() else 0
+                s.camera_limit = int(cap or 0)
+                caps[s.slug] = s.camera_limit
         await db.commit()
-        logger.info("[ai] licensing synced: scenarios=%s ai_cap=%s",
-                    sorted(scenarios), ai_cap)
+        logger.info("[ai] licensing synced: scenarios=%s caps=%s",
+                    sorted(scenarios), caps)
 
     # ── Queries ─────────────────────────────────────────────────────────
     @staticmethod

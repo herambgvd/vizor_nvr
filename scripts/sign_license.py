@@ -174,6 +174,11 @@ def _build_payload(args: argparse.Namespace) -> dict:
     if isinstance(feature_options, str):
         feature_options = json.loads(feature_options) if feature_options.strip() else {}
 
+    feature_limits = getattr(args, "feature_limits", {}) or {}
+    if isinstance(feature_limits, str):
+        feature_limits = json.loads(feature_limits) if feature_limits.strip() else {}
+    feature_limits = {str(k): int(v) for k, v in feature_limits.items()}
+
     return {
         "customer": args.customer,
         "license_id": args.license_id,
@@ -185,6 +190,7 @@ def _build_payload(args: argparse.Namespace) -> dict:
         "scenarios": _csv(args.scenarios),
         "features": _csv(args.features),
         "feature_options": feature_options,
+        "feature_limits": feature_limits,
         "tier": args.tier,
     }
 
@@ -388,6 +394,9 @@ def main() -> int:
     sg.add_argument("--features", default="")
     sg.add_argument("--feature-options", default="",
                     help='JSON map for scenario sub-features, e.g. {"frs":["attendance","investigation"]}')
+    sg.add_argument("--feature-limits", default="",
+                    help='JSON map of PER-SCENARIO AI camera caps, e.g. {"frs":4,"ppe":7}. '
+                         "A scenario not listed falls back to --ai-camera-limit.")
     sg.add_argument("--hardware-fingerprint", default=None)
     sg.add_argument("--from-request", default=None,
                     help="base64 license-request blob from the client "
