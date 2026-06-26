@@ -143,6 +143,10 @@ services:
       OPENCV_NUM_THREADS: ${PPE_OPENCV_THREADS:-2}
       MKL_NUM_THREADS: ${PPE_MKL_THREADS:-2}
       PPE_RECO_POOL_WORKERS: ${PPE_RECO_POOL_WORKERS:-3}
+      # Phase 1 CPU tuning: SigLIP (per-person, per-region cv2 preprocess + Triton
+      # round-trip) is the biggest CPU cost. Run it once per 8 frames instead of 5
+      # (cached verdict between) — ~40% fewer SigLIP passes, detection unchanged.
+      PPE_SIGLIP_INTERVAL: ${PPE_SIGLIP_INTERVAL:-8}
       # ffmpeg (PyAV) decode in the worker — parity with FRS (gstreamer/cpp was
       # unstable). PyAV is now installed in the image.
       VIZOR_DECODER: ${PPE_DECODER:-ffmpeg}

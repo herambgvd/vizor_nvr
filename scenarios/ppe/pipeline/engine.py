@@ -46,12 +46,20 @@ def evaluable_items(person_box, frame_w: int, frame_h: int, required: list[str],
     of `required` whose region band is sufficiently inside the frame."""
     x1, y1, x2, y2 = person_box
     ph = max(1, y2 - y1)
+    # A person box whose TOP sits at the frame's top edge is almost always a person
+    # walking in from above / behind glass with the head + shoulders cut off — the
+    # detector anchors the box at the visible torso/legs. We can't see a head, so head
+    # items (helmet/goggles) must NOT be judged. ~2% of frame height of slack.
+    head_cut = y1 <= max(edge_margin, 0.02 * frame_h)
+    _HEAD_ITEMS = {"Hardhat", "NO_Hardhat", "Goggles", "NO_Goggles"}
     out: set[str] = set()
     for item in required:
         band = DEFAULT_RULES.get(item)
         if band is None:
             out.add(item)            # no region rule → always evaluable
             continue
+        if head_cut and item in _HEAD_ITEMS:
+            continue                 # head not in frame → can't judge helmet/goggles
         top, bot = band
         ry1 = y1 + top * ph
         ry2 = y1 + bot * ph
