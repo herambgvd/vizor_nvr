@@ -402,15 +402,15 @@ function FrsHeadcountRow({ data, slug, tz }) {
   return (
     <>
       {/* Row A — present-now headcount + group headcount */}
-      <div style={{ flex: "0 0 auto", display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,2fr)", gap: 14 }}>
-        <Panel title="Headcount — present now">
+      <div style={{ flex: "0 0 auto", height: 168, display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,2fr)", gap: 14 }}>
+        <Panel title="Headcount — present now" fill>
           <div style={{ display: "flex", alignItems: "baseline", gap: 14 }}>
             <span style={{ fontSize: 48, fontWeight: 800, color: C.text, lineHeight: 1 }}>{hc.present_now ?? 0}</span>
             <span style={{ fontSize: 13, color: trendColor, fontWeight: 600 }}>{trendStr}</span>
           </div>
           <p style={{ fontSize: 11, color: C.faint, marginTop: 8 }}>distinct people seen in the last 15 minutes</p>
         </Panel>
-        <Panel title="Group-wise headcount" scroll>
+        <Panel title="Group-wise headcount" fill scroll>
           {groups.length === 0 ? <Empty label="No one on the floor right now" h={60} /> : (
             <div style={{ display: "flex", flexDirection: "column" }}>
               {groups.map((g, i) => (
@@ -437,7 +437,7 @@ function FrsHeadcountRow({ data, slug, tz }) {
                   <span key={i} style={{ fontSize: 13, color: C.text }}>
                     <span style={{ color: C.amber, fontWeight: 700 }}>⚠ {v.reason}</span>
                     {" · "}{v.name}{" · "}<span style={{ color: C.faint }}>{v.group}</span>
-                    {" · "}{v.camera ? String(v.camera).slice(0, 8) : "—"}
+                    {" · "}{v.camera || "—"}
                     {" · "}<span style={{ color: C.faint }}>{v.time ? fmtTime(v.time, tz) : ""}</span>
                   </span>
                 ))}
@@ -448,21 +448,21 @@ function FrsHeadcountRow({ data, slug, tz }) {
       </div>
 
       {/* Row C — entry/exit mismatch + unknown snapshots (blurred) */}
-      <div style={{ flex: "0 0 auto", minHeight: 240, maxHeight: 360, display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1.2fr)", gap: 14 }}>
-        <Panel title="Entry / Exit mismatch" scroll right={<span style={{ fontSize: 11, color: C.amber }}>{data.mismatch_count ?? mismatches.length}</span>}>
+      <div style={{ flex: "0 0 auto", height: 320, display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1.2fr)", gap: 14 }}>
+        <Panel title="Entry / Exit mismatch" fill scroll right={<span style={{ fontSize: 11, color: C.amber }}>{data.mismatch_count ?? mismatches.length}</span>}>
           {mismatches.length === 0 ? <Empty label="All entries paired" h={60} /> : (
             <div style={{ display: "flex", flexDirection: "column" }}>
               {mismatches.map((m, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 0", borderBottom: i < mismatches.length - 1 ? `1px solid ${C.border}` : "none" }}>
-                  <span style={{ flex: 1, fontSize: 13.5 }}>{m.name}</span>
-                  <span style={{ fontSize: 12, color: C.faint }}>in {m.entry_time ? fmtTime(m.entry_time, tz) : "—"}</span>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: m.status === "Overdue" ? C.amber : C.muted, minWidth: 78, textAlign: "right" }}>{m.status}</span>
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 0", borderBottom: i < mismatches.length - 1 ? `1px solid ${C.border}` : "none" }}>
+                  <span style={{ flex: 1, fontSize: 13.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{m.name}</span>
+                  <span style={{ fontSize: 12, color: C.faint, whiteSpace: "nowrap" }}>in {m.entry_time ? fmtTime(m.entry_time, tz) : "—"}</span>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, color: m.status === "Overdue" ? C.amber : C.muted, minWidth: 70, textAlign: "right" }}>{m.status}</span>
                 </div>
               ))}
             </div>
           )}
         </Panel>
-        <Panel title="Unknown persons" scroll right={<span style={{ fontSize: 11, color: C.faint }}>privacy-blurred</span>}>
+        <Panel title="Unknown persons" fill scroll right={<span style={{ fontSize: 11, color: C.faint }}>privacy-blurred</span>}>
           {unknowns.length === 0 ? <Empty label="No unknown persons today" h={60} /> : (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(76px, 1fr))", gap: 10 }}>
               {unknowns.map((u, i) => (

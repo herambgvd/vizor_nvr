@@ -206,21 +206,31 @@ def public_dashboard() -> dict:
                 break
 
         # ── 4. Entry/Exit mismatch — open (unpaired) + overdue sessions ────
+        # Collapse to ONE row per person (their most recent open/overdue session) so a
+        # stuck person doesn't spam dozens of rows. Public glance, not an audit log.
         mm_rows = s.execute(
             select(TransitSession, FRSPerson.full_name)
             .outerjoin(FRSPerson, FRSPerson.id == TransitSession.person_id)
             .where(TransitSession.status.in_(("open", "overdue")))
             .order_by(TransitSession.started_at.desc())
-            .limit(30)
+            .limit(300)
         ).all()
-        mismatches = [{
-            "name": (name or "Unknown") if show_names else "—",
-            "entry_time": iso(sess.started_at),
-            "status": "Overdue" if sess.status == "overdue" else "No exit yet",
-        } for sess, name in mm_rows]
-        mismatch_count = int(s.scalar(
-            select(func.count()).select_from(TransitSession)
-            .where(TransitSession.status.in_(("open", "overdue")))) or 0)
+        seen_pp: set = set()
+        mismatches = []
+        for sess, name in mm_rows:
+            pk = sess.person_id or id(sess)
+            if pk in seen_pp:
+                continue
+            seen_pp.add(pk)
+            mismatches.append({
+                "name": (name or "Unknown") if show_names else "—",
+                "entry_time": iso(sess.started_at),
+                "status": "Overdue" if sess.status == "overdue" else "No exit yet",
+            })
+            if len(mismatches) >= 12:
+                break
+        # Count = distinct people currently unpaired (not raw session count).
+        mismatch_count = len(seen_pp)
 
         # ── 5. Unknown persons — recent snapshots (blurred client-side) ────
         unk_rows = s.execute(
