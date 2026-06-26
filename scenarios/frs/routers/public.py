@@ -34,6 +34,36 @@ def _guard() -> dict:
     return st
 
 
+# Camera id → friendly name, cached ~60s (the dashboard polls; don't hammer core).
+_CAM_CACHE: dict = {"at": 0.0, "map": {}}
+
+
+def _camera_names() -> dict:
+    import time
+    now = time.time()
+    if now - _CAM_CACHE["at"] < 60 and _CAM_CACHE["map"]:
+        return _CAM_CACHE["map"]
+    names: dict = {}
+    try:
+        from live.manager import _fetch_cameras
+        for c in _fetch_cameras():
+            cid = c.get("camera_id") or c.get("device_id") or c.get("id")
+            nm = c.get("camera_name") or c.get("name")
+            if cid and nm:
+                names[str(cid)] = nm
+    except Exception:  # noqa: BLE001
+        pass
+    if names:
+        _CAM_CACHE.update(at=now, map=names)
+    return names
+
+
+def _cam(cid, names) -> str:
+    if not cid:
+        return "—"
+    return names.get(str(cid)) or (str(cid)[:8])
+
+
 @router.get("/dashboard")
 def public_dashboard() -> dict:
     """Aggregate FRS analytics for the public dashboard. No auth, no snapshots."""
@@ -64,22 +94,31 @@ def public_dashboard() -> dict:
             .where(FRSEvent.triggered_at >= day_start)
             .group_by(FRSEvent.camera_id)
         ).all()
-        by_camera = [{"camera_id": c or "unknown", "count": int(n)} for c, n in per_cam]
+        cam_names = _camera_names()
+        by_camera = [{"camera_id": c or "unknown",
+                      "camera_name": _cam(c, cam_names),
+                      "count": int(n)} for c, n in per_cam]
 
-        # Hourly trend (last 24h) — bucket by hour.
-        since = now - timedelta(hours=24)
+        # Hourly trend (last 24h) — CONTINUOUS timeline: one bucket per hour for the
+        # whole window (zero-filled) so the chart is a smooth 24h curve, not a few
+        # sparse points that collapse into a flat/jagged line.
+        win = now.replace(minute=0, second=0, microsecond=0)
+        hours = [win - timedelta(hours=k) for k in range(23, -1, -1)]
+        since = hours[0]
         rows = s.execute(
             select(FRSEvent.triggered_at)
             .where(FRSEvent.triggered_at >= since)
         ).all()
-        buckets: dict[str, int] = {}
+        counts: dict[str, int] = {}
         for (t,) in rows:
             if t is None:
                 continue
-            key = t.strftime("%H:00")
-            buckets[key] = buckets.get(key, 0) + 1
-        hourly = [{"hour": h, "count": buckets.get(h, 0)}
-                  for h in sorted(buckets.keys())]
+            counts[t.strftime("%Y-%m-%d %H")] = counts.get(t.strftime("%Y-%m-%d %H"), 0) + 1
+        hourly = [{
+            "hour": hh.strftime("%H:00"),
+            "ts": hh.isoformat() + "Z",
+            "count": counts.get(hh.strftime("%Y-%m-%d %H"), 0),
+        } for hh in hours]
 
         # Top recognised persons today (names only if opted in).
         top = []
@@ -159,7 +198,7 @@ def public_dashboard() -> dict:
             violations.append({
                 "name": (pname or "Unknown") if show_names else "—",
                 "group": gname or "—",
-                "camera": ev.camera_id or "—",
+                "camera": _cam(ev.camera_id, cam_names),
                 "reason": reason,
                 "time": iso(ev.triggered_at),
             })

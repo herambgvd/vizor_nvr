@@ -295,7 +295,7 @@ export default function PublicScenarioDashboard() {
           {data?.generated_at ? `Updated ${fmtTime(data.generated_at, tz)}` : ""}
         </span>
       </div>
-      <div style={{ flex: "1 1 auto", minHeight: 0, padding: "16px 28px", display: "flex", flexDirection: "column", gap: 14 }}>{children}</div>
+      <div style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto", padding: "16px 28px", display: "flex", flexDirection: "column", gap: 14 }}>{children}</div>
     </div>
   );
 
@@ -320,8 +320,8 @@ export default function PublicScenarioDashboard() {
         ))}
       </div>
 
-      {/* Row 2 — trend + split (fills, equal share) */}
-      <div style={{ flex: "1 1 0", minHeight: 0, display: "grid", gridTemplateColumns: desc.split ? "minmax(0,2fr) minmax(0,1fr)" : "1fr", gap: 14 }}>
+      {/* Row 2 — trend + split */}
+      <div style={{ flex: "0 0 auto", minHeight: 260, display: "grid", gridTemplateColumns: desc.split ? "minmax(0,2fr) minmax(0,1fr)" : "1fr", gap: 14 }}>
         <Panel title="Activity — today" fill><div style={{ flex: 1, minHeight: 0 }}><AreaChart data={data?.hourly_trend || []} /></div></Panel>
         {desc.split && (
           <Panel title={desc.split.title} fill>
@@ -330,8 +330,8 @@ export default function PublicScenarioDashboard() {
         )}
       </div>
 
-      {/* Row 3 — by camera / top list + live feed (fills, equal share) */}
-      <div style={{ flex: "1 1 0", minHeight: 0, display: "grid", gridTemplateColumns: hasTop ? "1fr 1fr 1.2fr" : "1fr 1.4fr", gap: 14 }}>
+      {/* Row 3 — by camera / top list + live feed */}
+      <div style={{ flex: "0 0 auto", minHeight: 240, display: "grid", gridTemplateColumns: hasTop ? "1fr 1fr 1.2fr" : "1fr 1.4fr", gap: 14 }}>
         <Panel title="By camera (today)" fill scroll><HBars data={data?.by_camera || []} /></Panel>
         {hasTop && (
           <Panel title={desc.topList.title} fill scroll>
@@ -448,7 +448,7 @@ function FrsHeadcountRow({ data, slug, tz }) {
       </div>
 
       {/* Row C — entry/exit mismatch + unknown snapshots (blurred) */}
-      <div style={{ flex: "1 1 0", minHeight: 220, display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1.2fr)", gap: 14 }}>
+      <div style={{ flex: "0 0 auto", minHeight: 240, maxHeight: 360, display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1.2fr)", gap: 14 }}>
         <Panel title="Entry / Exit mismatch" scroll right={<span style={{ fontSize: 11, color: C.amber }}>{data.mismatch_count ?? mismatches.length}</span>}>
           {mismatches.length === 0 ? <Empty label="All entries paired" h={60} /> : (
             <div style={{ display: "flex", flexDirection: "column" }}>
