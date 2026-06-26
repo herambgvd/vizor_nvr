@@ -44,6 +44,18 @@ function saveBlobUrl(url, name) {
   setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
 
+// Render an ISO timestamp as a short local time; pass other cells through.
+const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
+function renderCell(col, val) {
+  if (val == null || val === "") return "—";
+  if (typeof val === "string" && ISO_RE.test(val)) {
+    const d = new Date(val);
+    if (!isNaN(d)) return d.toLocaleString([], { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+  }
+  if (col === "compliance_pct") return `${val}%`;
+  return String(val);
+}
+
 export default function ReportsTab() {
   const qc = useQueryClient();
   const [active, setActive] = useState("attendance");
@@ -64,7 +76,7 @@ export default function ReportsTab() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="h-full overflow-y-auto px-4 py-4 md:px-6 space-y-4">
       {/* Report selector */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {REPORTS.map((r) => {
@@ -142,10 +154,12 @@ export default function ReportsTab() {
               ) : rows.map((row, i) => (
                 <tr key={i} className="border-t" style={{ borderColor: "var(--console-border)" }}>
                   {columns.map((c) => (
-                    <td key={c} className="px-3 py-2" style={{ color: "var(--console-text)" }}>
-                      {c === "snapshot" && row[c]
-                        ? <span className="text-[11px]" style={{ color: "var(--console-muted)" }}>captured</span>
-                        : String(row[c] ?? "—")}
+                    <td key={c} className="px-3 py-2 whitespace-nowrap" style={{ color: "var(--console-text)" }}>
+                      {c === "snapshot"
+                        ? (row[c]
+                          ? <span className="text-[11px] inline-flex items-center gap-1" style={{ color: "var(--console-accent)" }}>● captured</span>
+                          : <span className="text-[11px]" style={{ color: "var(--console-muted)" }}>—</span>)
+                        : renderCell(c, row[c])}
                     </td>
                   ))}
                 </tr>
