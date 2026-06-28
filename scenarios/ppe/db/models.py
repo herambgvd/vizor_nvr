@@ -44,6 +44,13 @@ class PPEEvent(Base):
     bbox = Column(JSON, nullable=True)             # {x,y,w,h} normalised 0..1
     snapshot_path = Column(String(500), nullable=True)
     triggered_at = Column(DateTime, default=_utcnow)
+    # Incident lifecycle (AI-Powered EventManager parity): one row per worker-incident,
+    # UPDATED while the worker stays in the same state instead of inserting a new row each
+    # frame. updated_at = last observation; observation_count = frames seen; duration_s =
+    # how long the incident has lasted.
+    updated_at = Column(DateTime, nullable=True)
+    observation_count = Column(Integer, nullable=True, default=1)
+    duration_s = Column(Float, nullable=True)
     __table_args__ = (
         Index("ix_ppe_events_camera", "camera_id"),
         Index("ix_ppe_events_type", "event_type"),

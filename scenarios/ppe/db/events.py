@@ -142,3 +142,29 @@ def record_event(
         "triggered_at": _iso_utc(ts or utcnow()),
     })
     return new_id
+
+
+def update_event(event_id: str, ts, *, confidence=None, snapshot_path=None,
+                 bbox=None, observation_count=None, duration_s=None) -> bool:
+    """Update an existing incident row in place (AI-Powered upsert) — bumps updated_at,
+    observation_count and duration while a worker stays in the same state, instead of
+    inserting a new row each frame. Keeps the BEST (highest) confidence + latest snapshot.
+    Returns False if the event no longer exists."""
+    from db.models import PPEEvent
+    with session() as s:
+        ev = s.get(PPEEvent, event_id)
+        if ev is None:
+            return False
+        ev.updated_at = naive(ts) or ts
+        if observation_count is not None:
+            ev.observation_count = observation_count
+        if duration_s is not None:
+            ev.duration_s = duration_s
+        if confidence is not None and (ev.confidence is None or confidence > ev.confidence):
+            ev.confidence = round(float(confidence), 4)
+        if snapshot_path is not None:
+            ev.snapshot_path = snapshot_path
+        if bbox is not None:
+            ev.bbox = bbox
+        s.commit()
+    return True

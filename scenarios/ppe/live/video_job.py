@@ -219,7 +219,13 @@ class VideoJobManager:
         writer = self._open_writer(out_path, fps, w, h)
 
         roi = build_roi(cfg.get("roi"), h, w)
-        tracker = ByteTracker()
+        # AI-Powered custom_bytetrack.yaml params (proven on this footage): higher
+        # new-track threshold + longer buffer keep worker ids stable through occlusion.
+        tracker = ByteTracker(
+            iou_threshold=getattr(config, "PPE_TRACK_MATCH_THRESH", 0.80),
+            max_age=getattr(config, "PPE_TRACK_BUFFER", 45),
+            high_thresh=getattr(config, "PPE_TRACK_HIGH_THRESH", 0.45),
+            low_thresh=getattr(config, "PPE_TRACK_LOW_THRESH", 0.10))
         stable = StableIdMapper(getattr(config, "STABLE_ID_MAX_AGE", 2.0))
         # v2 logic: AI-Powered tight-region association + direct has-pos/has-neg rule.
         # Use the v2 missing-grace (shorter, ~1s) so a one-frame helmet drop doesn't flip
@@ -232,7 +238,8 @@ class VideoJobManager:
         # One event per confirmed status transition per worker (AI-Powered lifecycle).
         self._lifecycle = EventLifecycle(
             enter_frames=getattr(config, "PPE_LIFECYCLE_ENTER_FRAMES", 3),
-            expire_s=getattr(config, "PPE_LIFECYCLE_EXPIRE_S", 8.0))
+            expire_s=getattr(config, "PPE_LIFECYCLE_EXPIRE_S", 8.0),
+            dup_cooldown_s=getattr(config, "PPE_LIFECYCLE_DUP_COOLDOWN_S", 30.0))
 
         # Re-ID stable-identity (AI-Powered) — per-job extractor + matcher.
         self._reid = self._reid_matcher = self._matcher = None
@@ -373,16 +380,29 @@ class VideoJobManager:
                              _BOX_RED if is_violation else _BOX_GREEN)
             _draw_status_card(annotated, _ibox(person.box), tid, item_colors)
 
-            if ev is not None:
+            if ev is not None and ev.get("action") == "create":
                 if ev["type"] == "violation":
                     job.violation_count += 1
-                    self._emit_violation(job, person, "PPE_MISSING", present,
-                                         ev["missing"], present_items, frame, annotated,
-                                         item_colors, w, h)
+                    new_id = self._emit_violation(job, person, "PPE_MISSING", present,
+                                                  ev["missing"], present_items, frame,
+                                                  annotated, item_colors, w, h)
                     self._track_alert(job, person, ev["missing"], alert_keys)
                 elif emit_compliant:
                     job.compliant_count += 1
-                    self._emit_compliant(job, person, present, present_items, frame, w, h)
+                    new_id = self._emit_compliant(job, person, present, present_items,
+                                                  frame, w, h)
+                else:
+                    new_id = None
+                if new_id:
+                    self._lifecycle.set_event_id(tid, new_id)
+            elif ev is not None and ev.get("action") == "update":
+                # AI-Powered upsert: bump the active incident row in place (no new row).
+                from db.events import update_event
+                update_event(ev["event_id"], utcnow(),
+                             confidence=float(person.confidence),
+                             observation_count=ev["obs_count"],
+                             duration_s=ev["duration_s"],
+                             bbox=_bbox_obj(person.box, w, h))
 
             # roll the per-worker summary
             st = job._persons.setdefault(tid, {"display_id": tid, "missing": set(),
@@ -403,18 +423,18 @@ class VideoJobManager:
         conf = round(min(0.98, float(person.confidence)), 4)
         snap = _save_snapshot(job.job_id, frame, person.box, _BOX_RED,
                               person.track_id, item_colors)
-        _record_event(f"video:{job.job_id}", event_type, person.track_id, primary,
-                      missing, present_items, conf, snap, utcnow(),
-                      bbox=_bbox_obj(person.box, w, h))
+        return _record_event(f"video:{job.job_id}", event_type, person.track_id, primary,
+                             missing, present_items, conf, snap, utcnow(),
+                             bbox=_bbox_obj(person.box, w, h))
 
     def _emit_compliant(self, job, person, present, present_items, frame, w, h):
         conf = round(float(person.confidence), 4)
         item_colors = {c: _BOX_GREEN for c in present}
         snap = _save_snapshot(job.job_id, frame, person.box, _BOX_GREEN,
                               person.track_id, item_colors)
-        _record_event(f"video:{job.job_id}", "ppe_compliant", person.track_id, None,
-                      [], present_items, conf, snap, utcnow(),
-                      bbox=_bbox_obj(person.box, w, h))
+        return _record_event(f"video:{job.job_id}", "ppe_compliant", person.track_id, None,
+                             [], present_items, conf, snap, utcnow(),
+                             bbox=_bbox_obj(person.box, w, h))
 
     def _track_alert(self, job, person, missing, alert_keys):
         key = (person.track_id, tuple(sorted(missing)))

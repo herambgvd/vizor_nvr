@@ -161,6 +161,15 @@ PPE_REID = os.getenv("PPE_REID", "1").lower() not in ("0", "false", "no", "off")
 # worker not seen this long (incident closed).
 PPE_LIFECYCLE_ENTER_FRAMES = int(os.getenv("PPE_LIFECYCLE_ENTER_FRAMES", "6"))
 PPE_LIFECYCLE_EXPIRE_S = float(os.getenv("PPE_LIFECYCLE_EXPIRE_S", "8.0"))
+# Same worker+kind not re-emitted within this window (AI-Powered DUPLICATE_COOLDOWN) —
+# stops a worker whose helmet flickers across the threshold from spamming events.
+PPE_LIFECYCLE_DUP_COOLDOWN_S = float(os.getenv("PPE_LIFECYCLE_DUP_COOLDOWN_S", "30.0"))
+# ByteTrack tuning ported from the AI-Powered custom_bytetrack.yaml (stable worker ids
+# through occlusion on this kind of footage).
+PPE_TRACK_HIGH_THRESH = float(os.getenv("PPE_TRACK_HIGH_THRESH", "0.45"))
+PPE_TRACK_LOW_THRESH = float(os.getenv("PPE_TRACK_LOW_THRESH", "0.10"))
+PPE_TRACK_MATCH_THRESH = float(os.getenv("PPE_TRACK_MATCH_THRESH", "0.80"))
+PPE_TRACK_BUFFER = int(os.getenv("PPE_TRACK_BUFFER", "45"))
 PPE_REID_MODEL_NAME = os.getenv("PPE_REID_MODEL_NAME", "person_reid_trt")
 PPE_REID_THRESHOLD = float(os.getenv("PPE_REID_THRESHOLD", "0.60"))
 PPE_REID_HISTORY = int(os.getenv("PPE_REID_HISTORY", "50"))
