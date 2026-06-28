@@ -66,7 +66,9 @@ class ControlShim:
 
     def _emit(self, r, action: str, device_id: str, rtsp_url=None, cfg=None) -> None:
         cmd = {"action": action, "device_id": device_id, "rtsp_url": rtsp_url, "config": cfg or {}}
-        r.xadd(CONTROL_STREAM, {"payload": json.dumps(cmd)}, maxlen=10_000, approximate=True)
+        # Short control stream — only recent commands matter; the worker re-converges from
+        # _claim_stale on boot. A large cap let acked-but-undeleted entries pile up.
+        r.xadd(CONTROL_STREAM, {"payload": json.dumps(cmd)}, maxlen=100, approximate=True)
 
     def _reconcile(self, r, fetch_cameras, report_state) -> None:
         cams = {c["camera_id"]: c for c in fetch_cameras()}

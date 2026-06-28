@@ -54,8 +54,13 @@ class ControlShim:
         self._thread: threading.Thread | None = None
         # desired[device_id] = (config_sig, config_id)
         self._desired: dict[str, tuple[str, str]] = {}
-        self._reassert_every = 6   # re-emit all desired every N polls (~30s) so a
-        self._poll_count = 0       # restarted worker re-converges even after acks.
+        # Re-emit all desired cameras every N polls as a safety net for a worker that
+        # restarted and missed the already-acked originals. The worker ALSO re-converges
+        # via _claim_stale on boot, so this only needs to be an occasional backstop — at
+        # ~30s it churned the control stream (and "already running; restarting" flicker)
+        # every half-minute. ~5 min (60 polls @ 5s) is enough.
+        self._reassert_every = int(getattr(config, "FRS_SHIM_REASSERT_EVERY", 60))
+        self._poll_count = 0
 
     def start(self) -> None:
         if self._thread is not None:
@@ -86,7 +91,12 @@ class ControlShim:
             "rtsp_url": rtsp_url,
             "config": cfg or {},
         }
-        r.xadd(CONTROL_STREAM, {"payload": json.dumps(cmd)}, maxlen=10_000, approximate=True)
+        # Keep the control stream SHORT. It's a command log, not history — only the most
+        # recent start/stop/update per camera matters, and the worker re-converges from
+        # _claim_stale on boot. A large cap let acked-but-undeleted entries pile up
+        # (XLEN crept into the hundreds), confusing the consumer group until a camera was
+        # dropped. ~100 is plenty for a handful of cameras.
+        r.xadd(CONTROL_STREAM, {"payload": json.dumps(cmd)}, maxlen=100, approximate=True)
 
     def _reconcile(self, r, fetch_cameras, report_state) -> None:
         cams = {c["camera_id"]: c for c in fetch_cameras()}
