@@ -21,6 +21,7 @@ import {
   X,
   RotateCcw,
   Check,
+  Square,
 } from "lucide-react";
 
 import {
@@ -29,6 +30,7 @@ import {
   getPpeVideoResult,
   fetchPpeVideoFrame,
   fetchPpeVideoOutput,
+  cancelPpeVideo,
 } from "../../../../api/ppe";
 
 const PPE_ITEMS = ["helmet", "vest", "goggles", "boots"];
@@ -135,7 +137,7 @@ export default function VideoTab() {
             return u;
           });
           frameObj = u;
-        } else if (st.state === "done") {
+        } else if (st.state === "done" || st.state === "cancelled") {
           const r = await getPpeVideoResult(job.job_id);
           if (!alive) return;
           setResult(r);
@@ -173,7 +175,20 @@ export default function VideoTab() {
   const toggleItem = (it) =>
     setRequired((r) => (r.includes(it) ? r.filter((x) => x !== it) : [...r, it]));
 
-  const processing = job && !result && status?.state !== "error";
+  const [stopping, setStopping] = useState(false);
+  const stopAnalysis = async () => {
+    if (!job?.job_id) return;
+    setStopping(true);
+    try {
+      await cancelPpeVideo(job.job_id);
+    } catch (_e) {
+      /* ignore — poll will reflect the final state */
+    }
+  };
+
+  const processing =
+    job && !result && status?.state !== "error" && status?.state !== "cancelled";
+  const cancelled = status?.state === "cancelled";
 
   return (
     <div className="p-4 grid grid-cols-1 lg:grid-cols-3 gap-4 h-full overflow-y-auto">
@@ -261,11 +276,27 @@ export default function VideoTab() {
           <div className="text-xs text-red-400 border border-red-500/40 rounded p-2">{error}</div>
         )}
 
-        {(processing || result) && (
+        {processing && (
+          <button
+            onClick={stopAnalysis}
+            disabled={stopping}
+            className="w-full h-10 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+            style={{ background: "#dc2626", color: "#fff", border: "1px solid #b91c1c" }}
+          >
+            {stopping ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />}
+            {stopping ? "Stopping…" : "Stop analysis"}
+          </button>
+        )}
+        {(result || cancelled) && (
           <button onClick={reset} className="w-full h-9 rounded text-xs border flex items-center justify-center gap-2"
             style={{ borderColor: "var(--console-border)" }}>
             <RotateCcw className="h-3.5 w-3.5" /> New video
           </button>
+        )}
+        {cancelled && (
+          <div className="text-xs text-amber-400 border border-amber-500/40 rounded p-2">
+            Analysis stopped. Partial events were saved.
+          </div>
         )}
       </div>
 

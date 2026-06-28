@@ -68,6 +68,7 @@
     { "method": "GET", "path": "/report-runs/{id}/download" },
     { "method": "GET", "path": "/snapshot" },
     { "method": "POST", "path": "/video/upload" },
+    { "method": "POST", "path": "/video/cancel/{job_id}" },
     { "method": "GET", "path": "/video/stream/{job_id}" },
     { "method": "GET", "path": "/video/frame/{job_id}" },
     { "method": "GET", "path": "/video/status/{job_id}" },

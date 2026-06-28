@@ -88,6 +88,17 @@ def frame(job_id: str, _: None = Depends(require_service_token)):
                     headers={"Cache-Control": "no-store"})
 
 
+@router.post("/cancel/{job_id}")
+def cancel(job_id: str, _: None = Depends(require_service_token)):
+    """Stop a running analysis. The loop breaks at the next frame; whatever events
+    were already recorded stay (partial result)."""
+    job = VIDEO_JOBS.get(job_id)
+    if job is None:
+        raise HTTPException(404, "job not found")
+    job.cancel()
+    return {"job_id": job_id, "state": "cancelling"}
+
+
 @router.get("/status/{job_id}")
 def status(job_id: str, _: None = Depends(require_service_token)):
     job = VIDEO_JOBS.get(job_id)

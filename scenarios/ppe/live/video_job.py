@@ -74,9 +74,10 @@ class VideoJob:
         self.input_path = Path(input_path)
         self.config = cfg or {}
 
-        self.state = "processing"           # processing | done | error
+        self.state = "processing"           # processing | done | error | cancelled
         self.error: Optional[str] = None
         self.started_at = datetime.utcnow().isoformat()
+        self._cancel = False                # set by cancel() to stop the loop early
 
         self.total_frames = 0
         self.processed_frames = 0
@@ -102,6 +103,10 @@ class VideoJob:
     def get_frame(self) -> Optional[bytes]:
         with self._lock:
             return self._latest_jpeg
+
+    def cancel(self) -> None:
+        """Request the processing loop to stop at the next frame."""
+        self._cancel = True
 
     # ── status / result ──────────────────────────────────────────────────────
     @property
@@ -173,9 +178,9 @@ class VideoJobManager:
     def _run(self, job: VideoJob) -> None:
         try:
             self._process(job)
-            job.state = "done"
-            logger.info("[video] job %s done (%d violations, %d persons)",
-                        job.job_id, job.violation_count, len(job._persons))
+            job.state = "cancelled" if job._cancel else "done"
+            logger.info("[video] job %s %s (%d violations, %d persons)",
+                        job.job_id, job.state, job.violation_count, len(job._persons))
         except Exception as exc:  # noqa: BLE001
             logger.exception("[video] job %s failed: %s", job.job_id, exc)
             job.error = str(exc)
@@ -229,6 +234,8 @@ class VideoJobManager:
         # cooldown behave the same on a file as in real time.
         try:
             while True:
+                if job._cancel:
+                    break                    # operator stopped the analysis
                 ok, frame = cap.read()
                 if not ok:
                     break

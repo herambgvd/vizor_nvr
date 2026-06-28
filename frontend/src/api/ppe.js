@@ -21,6 +21,9 @@ export const uploadPpeVideo = async (file, cfg = {}) => {
 export const getPpeVideoStatus = (jobId) =>
   proxyScenario(SLUG, `/video/status/${jobId}`);
 
+export const cancelPpeVideo = (jobId) =>
+  proxyScenario(SLUG, `/video/cancel/${jobId}`, { method: "POST" });
+
 export const getPpeVideoResult = (jobId) =>
   proxyScenario(SLUG, `/video/result/${jobId}`);
 
