@@ -54,76 +54,14 @@ PPE_MODEL_IMGSZ = int(os.getenv("PPE_MODEL_IMGSZ", "1280"))
 # Second-stage per-person crop PPE re-detection (the proven worker's
 # detect_ppe_in_crops). Steadies helmet/vest evidence so a person doesn't
 # oscillate compliant<->missing. One extra Triton call per person per frame —
-# fine at the analyze-fps cap. Disable to fall back to full-frame-only.
-# Default OFF when the SigLIP verifier is active: SigLIP already re-validates each
-# person's PPE (per-region crop), so the extra full-detector crop pass just doubles
-# the per-frame Triton load and stalls the decode pipe at 1280. Re-enable only if
-# running without SigLIP.
+# fine at the analyze-fps cap. Disable to fall back to full-frame-only. (Used only by
+# the legacy non-v2 path; the v2/processor pipeline doesn't run the crop stage.)
 PPE_CROP_STAGE = os.getenv("PPE_CROP_STAGE", "false").lower() in ("1", "true", "yes", "on")
 
-# Optional DINOv2 head/torso verifier — Triton model name. Empty = YOLO-only
-# baseline (the POC supports this by omitting --vit-verifier). Wiring is present
-# so the verifier can be hosted later without touching the pipeline.
-PPE_VIT_MODEL_NAME = os.getenv("PPE_VIT_MODEL_NAME", "")
-# Camera-trained linear heads (helmet/vest) over the DINOv2 CLS embedding. Bundled
-# in the image at models/; the DINOv2 backbone itself is served on Triton.
-PPE_VIT_ARTIFACT = os.getenv(
-    "PPE_VIT_ARTIFACT",
-    str(Path(__file__).resolve().parent.parent / "models" / "vit_ppe_dinov2_small.npz"),
-)
-PPE_VIT_CONFIRM = float(os.getenv("PPE_VIT_CONFIRM", "0.58"))      # reject helmet below
-PPE_VIT_RESCUE = float(os.getenv("PPE_VIT_RESCUE", "0.82"))        # add helmet above
-PPE_VIT_VEST_RESCUE = float(os.getenv("PPE_VIT_VEST_RESCUE", "0.92"))  # add vest above
-# Veto a YOLO vest the DINOv2 torso head doesn't agree with — kills the common
-# "red/bright shirt read as a hi-vis vest" false positive. 0 = no vest veto.
-PPE_VIT_VEST_CONFIRM = float(os.getenv("PPE_VIT_VEST_CONFIRM", "0.50"))
-# The hosted DINOv2 vest head is untrained (returns ~0.96 for every torso), so
-# vest fusion (both rescue and veto) is OFF — vests come from YOLO only. Flip on
-# only with a properly trained vest head.
-PPE_VIT_FUSE_VEST = os.getenv("PPE_VIT_FUSE_VEST", "false").lower() in ("1", "true", "yes", "on")
-PPE_VIT_INTERVAL = int(os.getenv("PPE_VIT_INTERVAL", "5"))         # run once / N frames
-
-# ── SigLIP second-stage verifier (retired) ───────────────────────────────────
-# SigLIP2-large image encoder on Triton + precomputed text heads (4 PPE items).
-# DISABLED by default: the new YOLO26 PPE model is trained on the negative classes
-# (no_helmet/no_gloves/no_boots) directly, so it discriminates worn-vs-missing on its
-# own — the SigLIP veto/rescue second stage is no longer needed, and dropping it frees
-# the SigLIP2-large VRAM + per-crop inference. Empty model name = SigLIP off (verifier
-# is fail-soft / no-op). Set PPE_SIGLIP_MODEL_NAME=siglip_ppe to re-enable.
-PPE_SIGLIP_MODEL_NAME = os.getenv("PPE_SIGLIP_MODEL_NAME", "")
-PPE_SIGLIP_ARTIFACT = os.getenv(
-    "PPE_SIGLIP_ARTIFACT",
-    str(Path(__file__).resolve().parent.parent / "models" / "siglip_ppe_heads.npz"),
-)
-PPE_SIGLIP_INTERVAL = int(os.getenv("PPE_SIGLIP_INTERVAL", "5"))   # run once / N frames
-# Per-item confirm (veto a YOLO positive below this) / rescue (add a YOLO miss
-# above this). Raw SigLIP sigmoid probs — derived from the client sample crops
-# (vest HAS med 0.28 vs NO 0.00; helmet HAS med 0.13 vs NO 0.00). Conservative so
-# the verifier only acts when clearly disagreeing with YOLO.
-
-def _f(env, default):
-    return float(os.getenv(env, str(default)))
-
-
-# CONFIRM = veto floor: a YOLO positive scoring below this is removed. Default 0
-# (NO veto) — on a top-down office cam a seated/head-down worker's helmet crop
-# scores low even when the helmet is clearly worn, so vetoing made the helmet
-# FLICKER (detected one frame, vetoed the next → false "no helmet" flood). YOLO +
-# the evidence smoother already handle positives well; SigLIP is used only to
-# RESCUE misses (below). Raise a specific item's confirm only if YOLO is producing
-# real false positives for it that SigLIP can reliably reject.
-PPE_SIGLIP_CONFIRM = {
-    "Hardhat": _f("PPE_SIGLIP_CONFIRM_HELMET", 0.0),
-    "Safety_Vest": _f("PPE_SIGLIP_CONFIRM_VEST", 0.0),
-    "Goggles": _f("PPE_SIGLIP_CONFIRM_GOGGLES", 0.0),
-    "Boots": _f("PPE_SIGLIP_CONFIRM_BOOTS", 0.0),
-}
-PPE_SIGLIP_RESCUE = {
-    "Hardhat": _f("PPE_SIGLIP_RESCUE_HELMET", 0.120),
-    "Safety_Vest": _f("PPE_SIGLIP_RESCUE_VEST", 0.250),
-    "Goggles": _f("PPE_SIGLIP_RESCUE_GOGGLES", 0.300),
-    "Boots": _f("PPE_SIGLIP_RESCUE_BOOTS", 0.300),
-}
+# Second-stage verifiers (SigLIP / DINOv2) were REMOVED — the new YOLO26 PPE model is
+# trained on the negative classes (no_helmet/no_gloves/no_boots) directly and the v2
+# association + ReID + lifecycle pipeline handles accuracy, so no veto/rescue stage is
+# needed (and it frees the extra VRAM + per-crop inference).
 
 # ── Detection / compliance thresholds (POC run_video.py defaults) ────────────
 # Decode floor — drop the NMS-baked export's low-score padding rows before any
@@ -158,8 +96,11 @@ PPE_REID = os.getenv("PPE_REID", "1").lower() not in ("0", "false", "no", "off")
 # Event lifecycle: emit ONE event per confirmed compliance-status transition per worker
 # (enter compliant / remove helmet / re-wear), not one per frame. enter_frames = how many
 # frames a new status must persist before it commits (blink absorption); expire = drop a
-# worker not seen this long (incident closed).
-PPE_LIFECYCLE_ENTER_FRAMES = int(os.getenv("PPE_LIFECYCLE_ENTER_FRAMES", "6"))
+# worker not seen this long (incident closed). Default 3 — on night/low-light or far-camera
+# streams detection is intermittent, and a higher value (6) rarely accumulates enough
+# consecutive same-status frames to ever commit (so no events fire). The presence smoother
+# + dup-cooldown still suppress per-frame churn.
+PPE_LIFECYCLE_ENTER_FRAMES = int(os.getenv("PPE_LIFECYCLE_ENTER_FRAMES", "3"))
 PPE_LIFECYCLE_EXPIRE_S = float(os.getenv("PPE_LIFECYCLE_EXPIRE_S", "8.0"))
 # Same worker+kind not re-emitted within this window (AI-Powered DUPLICATE_COOLDOWN) —
 # stops a worker whose helmet flickers across the threshold from spamming events.

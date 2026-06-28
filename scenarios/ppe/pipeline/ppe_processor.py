@@ -61,7 +61,7 @@ class PPEProcessor:
         self.engine = ComplianceEngineV2(self.required, grace, self.cooldown)
         self.smoother = PresenceSmoother(window=15, min_frac=0.5)
         self.lifecycle = EventLifecycle(
-            enter_frames=getattr(config, "PPE_LIFECYCLE_ENTER_FRAMES", 6),
+            enter_frames=getattr(config, "PPE_LIFECYCLE_ENTER_FRAMES", 3),
             expire_s=getattr(config, "PPE_LIFECYCLE_EXPIRE_S", 8.0),
             dup_cooldown_s=getattr(config, "PPE_LIFECYCLE_DUP_COOLDOWN_S", 30.0))
         self.temporal_cache: dict = {}

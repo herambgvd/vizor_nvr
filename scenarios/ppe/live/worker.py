@@ -249,11 +249,6 @@ class CameraWorker(threading.Thread):
         self._proc = PPEProcessor(
             required=self.required_canonical, item_floor=self._item_floor,
             missing_grace=_v2_grace, cooldown=self.cooldown, camera_id=self.camera_id)
-        # Second-stage verifier: prefer SigLIP (discriminates vest/helmet/goggles/
-        # boots). The legacy DINOv2 verifier is retired; SigLIP is the only
-        # second-stage. No-op when PPE_SIGLIP_MODEL_NAME is empty.
-        from inference.siglip_verifier import SiglipVerifier
-        self._vit = SiglipVerifier(self._detector)
         self._engine = ComplianceEngine(
             self.required_canonical, self.missing_grace, self.min_present,
             self.cooldown, config.ALERT_INITIAL_MISSING,
@@ -534,19 +529,6 @@ class CameraWorker(threading.Thread):
             except Exception as exc:  # noqa: BLE001 — never kill the frame
                 if self._frame_no % 100 == 0:
                     print(f"[ppe-live] {self.camera_id[:8]} crop stage error: {exc}", flush=True)
-
-        # Second-stage verifier (SigLIP / DINOv2): confirm weak positives + rescue
-        # missed PPE, fused into `linked` before smoothing. Only the required items
-        # are scored. No-op + fail-soft when no verifier is configured.
-        if self._vit.enabled:
-            try:
-                scores = self._vit.classify(frame_bgr, persons, self._frame_no,
-                                            self.required_canonical)
-            except TypeError:
-                # Legacy DINOv2 verifier classify() has no items arg.
-                scores = self._vit.classify(frame_bgr, persons, self._frame_no)
-            if scores:
-                self._vit.fuse(linked, scores)
 
         active_ids = {p.track_id for p in persons if p.track_id is not None}
         for person in persons:

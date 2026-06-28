@@ -81,6 +81,6 @@
     "cpu_cores": 4,
     "memory_gb": 8,
     "storage": "event snapshots volume, own Postgres",
-    "models": ["ppe_yolo26 (Triton)", "DINOv2 PPE verifier (Triton, optional)"]
+    "models": ["ppe_yolo26 (Triton)", "person_reid (Triton)"]
   }
 }

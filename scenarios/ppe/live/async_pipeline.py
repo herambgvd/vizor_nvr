@@ -2,7 +2,7 @@
 async supervisor (vizor_sdk.aio).
 
 `PpePipeline` REUSES the entire CameraWorker pipeline (detector, tracker, stable-id
-mapper, smoother, ComplianceEngine, SigLIP verifier, ROI, snapshots, all thresholds
+mapper, smoother, ComplianceEngine, ROI, snapshots, all thresholds
 and the exact `_process` logic) by subclassing it — but it does NOT run as a thread
 and it does NOT write events to the DB inline. Instead `_emit`/`_maybe_emit_compliant`
 collect event payloads into a list, and the supervisor's AsyncEventWriter delivers
