@@ -33,12 +33,13 @@ from routers import (
     report_schedule,
     settings as settings_router,
     snapshot,
+    video,
 )
 
 app = FastAPI(title="Vizor PPE Compliance", version=config.VERSION)
 
 for module in (health, events, reports, reports4, report_schedule, snapshot,
-               settings_router, public, ingest):
+               settings_router, public, ingest, video):
     app.include_router(module.router)
 
 
