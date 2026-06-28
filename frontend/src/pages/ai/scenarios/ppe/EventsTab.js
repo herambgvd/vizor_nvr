@@ -194,7 +194,16 @@ function ItemChip({ label, tone }) {
   );
 }
 
-function EventDetailModal({ event, camMap, onClose }) {
+function EventDetailModal({ event, camMap, onClose, onNavigate, hasPrev, hasNext }) {
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape") onClose?.();
+      else if (e.key === "ArrowLeft" && hasPrev) onNavigate?.(-1);
+      else if (e.key === "ArrowRight" && hasNext) onNavigate?.(1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, onNavigate, hasPrev, hasNext]);
   if (!event) return null;
   const ev = event;
   const confPct = typeof ev.confidence === "number" ? `${(ev.confidence * 100).toFixed(1)}%` : "—";
@@ -223,9 +232,31 @@ function EventDetailModal({ event, camMap, onClose }) {
       <div className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-lg flex flex-col" style={{ background: "var(--console-panel)", border: "1px solid var(--console-border)" }} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3 sticky top-0 z-10" style={{ borderBottom: "1px solid var(--console-border)", background: "var(--console-panel)" }}>
           <span className="font-telemetry text-[12px] font-semibold uppercase tracking-widest" style={{ color: "var(--console-text)" }}>Event details</span>
-          <button type="button" onClick={onClose} className="h-7 w-7 inline-flex items-center justify-center rounded hover:opacity-70" style={{ color: "var(--console-muted)" }}>
-            <X className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => onNavigate?.(-1)}
+              disabled={!hasPrev}
+              title="Previous (←)"
+              className="h-7 w-7 inline-flex items-center justify-center rounded hover:opacity-70 disabled:opacity-30 disabled:cursor-not-allowed"
+              style={{ color: "var(--console-muted)" }}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigate?.(1)}
+              disabled={!hasNext}
+              title="Next (→)"
+              className="h-7 w-7 inline-flex items-center justify-center rounded hover:opacity-70 disabled:opacity-30 disabled:cursor-not-allowed"
+              style={{ color: "var(--console-muted)" }}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+            <button type="button" onClick={onClose} className="h-7 w-7 inline-flex items-center justify-center rounded hover:opacity-70 ml-1" style={{ color: "var(--console-muted)" }}>
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4 p-4">
           {/* LEFT (3 cols): full annotated frame + person close-up crop below it. */}
@@ -565,7 +596,22 @@ export default function EventsTab({ scenario }) {
       )}
 
       {detailEvent && (
-        <EventDetailModal event={detailEvent} camMap={camMap} onClose={() => setDetailEvent(null)} />
+        <EventDetailModal
+          event={detailEvent}
+          camMap={camMap}
+          onClose={() => setDetailEvent(null)}
+          onNavigate={(dir) => {
+            const idx = items.findIndex((e) => e.id === detailEvent.id);
+            if (idx < 0) return;
+            const next = items[idx + dir];
+            if (next) setDetailEvent(next);
+          }}
+          hasPrev={items.findIndex((e) => e.id === detailEvent.id) > 0}
+          hasNext={(() => {
+            const i = items.findIndex((e) => e.id === detailEvent.id);
+            return i >= 0 && i < items.length - 1;
+          })()}
+        />
       )}
     </div>
   );
