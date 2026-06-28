@@ -376,9 +376,42 @@ class BaseWorker(abc.ABC):
         except Exception as e:  # noqa: BLE001
             logger.debug("[%s] claim_stale skipped: %s", self.use_case, e)
 
+    async def _prune_dead_consumers(self) -> None:
+        """Remove dead consumer ids from the control group. Each worker restart leaves
+        its old consumer behind (a new id is registered on boot); they pile up and the
+        NVR's worker-status UI gets confused about which consumer is live. After
+        _claim_stale() has replayed any pending work, drop every OTHER consumer that has
+        no pending entries and has been idle past the stale window (safe — they're dead).
+        Keeps only this live worker and any genuinely-busy peer."""
+        try:
+            stale_ms = max(60_000, int(float(
+                os.environ.get("WORKER_WATCHDOG_STALE_S", "90")) * 1000) * 2)
+            consumers = await self._redis.xinfo_consumers(
+                self._control, self.consumer_group)
+            for c in consumers:
+                name = c.get("name")
+                if isinstance(name, bytes):
+                    name = name.decode()
+                if name == self.worker_id:
+                    continue
+                if int(c.get("pending", 0)) > 0:
+                    continue
+                if int(c.get("idle", 0)) < stale_ms:
+                    continue
+                try:
+                    await self._redis.xgroup_delconsumer(
+                        self._control, self.consumer_group, name)
+                    logger.info("[%s] pruned dead consumer %s", self.use_case, name)
+                except Exception:  # noqa: BLE001
+                    pass
+        except Exception as e:  # noqa: BLE001
+            logger.debug("[%s] prune_dead_consumers skipped: %s", self.use_case, e)
+
     async def _control_loop(self) -> None:
         # First converge to any already-issued Commands stranded on old consumers.
         await self._claim_stale()
+        # Then drop the dead consumer ids left by previous restarts (UI status hygiene).
+        await self._prune_dead_consumers()
         while not self._stop_event.is_set():
             try:
                 resp = await self._redis.xreadgroup(

@@ -12,13 +12,22 @@ branch_labels = None
 depends_on = None
 
 
+def _has(name: str) -> bool:
+    """Baseline create_all() may already have built these (it uses the CURRENT models).
+    Guard each create so a fresh `alembic upgrade head` doesn't hit DuplicateTable."""
+    return sa.inspect(op.get_bind()).has_table(name)
+
+
 def upgrade() -> None:
-    op.create_table(
-        "ppe_camera_names",
-        sa.Column("camera_id", sa.String(), primary_key=True),
-        sa.Column("name", sa.String(length=200), nullable=False),
-        sa.Column("updated_at", sa.DateTime(), nullable=True),
-    )
+    if not _has("ppe_camera_names"):
+        op.create_table(
+            "ppe_camera_names",
+            sa.Column("camera_id", sa.String(), primary_key=True),
+            sa.Column("name", sa.String(length=200), nullable=False),
+            sa.Column("updated_at", sa.DateTime(), nullable=True),
+        )
+    if _has("ppe_report_schedules") and _has("ppe_report_runs"):
+        return
     op.create_table(
         "ppe_report_schedules",
         sa.Column("id", sa.String(), primary_key=True),

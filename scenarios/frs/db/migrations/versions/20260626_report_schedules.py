@@ -12,7 +12,17 @@ branch_labels = None
 depends_on = None
 
 
+def _has_table(name: str) -> bool:
+    """The baseline migration's Base.metadata.create_all() may already have created
+    this table (it builds the CURRENT models, which include this one). Guard so a
+    fresh `alembic upgrade head` doesn't fail with DuplicateTable."""
+    insp = sa.inspect(op.get_bind())
+    return insp.has_table(name)
+
+
 def upgrade() -> None:
+    if _has_table("frs_report_schedules") and _has_table("frs_report_runs"):
+        return
     op.create_table(
         "frs_report_schedules",
         sa.Column("id", sa.String(), primary_key=True),

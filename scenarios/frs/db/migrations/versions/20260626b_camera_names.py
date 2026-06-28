@@ -13,6 +13,9 @@ depends_on = None
 
 
 def upgrade() -> None:
+    # The baseline migration's create_all() may already have made this table.
+    if sa.inspect(op.get_bind()).has_table("frs_camera_names"):
+        return
     op.create_table(
         "frs_camera_names",
         sa.Column("camera_id", sa.String(), primary_key=True),

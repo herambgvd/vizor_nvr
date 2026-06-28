@@ -136,3 +136,4 @@ triton/model_repository/**/*.bin
 
 # Allow the template (no secrets)
 !.env.example
+_ship/

@@ -184,8 +184,10 @@ services:
       # Decoder: cpp native NVDEC (h264_cuvid). The worker pipeline is now fully
       # async (recognition awaits every Triton/qdrant call), so the event loop never
       # blocks and the native decoder no longer stalls — GPU decode, lowest CPU.
-      # Fall back to ffmpeg (PyAV software) if the .so is missing.
-      VIZOR_DECODER: ${FRS_DECODER:-ffmpeg}
+      # Default cpp: the ffmpeg (PyAV software) path SIGSEGVs ~every 3 min under load
+      # on real DVR/camera sub-streams (proven at SMCC); the cpp .so is built into the
+      # image so it's always available. Falls back to ffmpeg only if the .so is missing.
+      VIZOR_DECODER: ${FRS_DECODER:-cpp}
       # High-bitrate 4MP main-stream RTSP can take >30s to connect + deliver the
       # first I-frame; the default 30s watchdog would false-restart it into a loop.
       # Match the old supervisor's 90s stale window.

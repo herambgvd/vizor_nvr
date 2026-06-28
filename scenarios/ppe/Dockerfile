@@ -5,6 +5,41 @@
 # CUDA runtime base (parity with FRS + vizor-gpu) so the GStreamer live decoder can
 # use NVDEC (nvh264dec) on the GPU instead of a CPU core per camera. Inference still
 # runs on the shared Triton server; the CUDA runtime here is only for GPU video decode.
+# ── builder: compile the native vizor_decode NVDEC module (parity with FRS) ───
+# The worker decodes via this native module (NVDEC h264_cuvid through libav). Without
+# it the worker falls back to PyAV software decode, which SIGSEGVs ~every 3 min under
+# load. Build it here so VIZOR_DECODER=cpp works out of the box (no client-side copy).
+# Decode-only (WITH_CUDA=OFF) — same proven config as FRS.
+FROM nvidia/cuda:12.5.1-runtime-ubuntu22.04 AS decodebuilder
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        software-properties-common ca-certificates gnupg curl git make \
+    && add-apt-repository -y ppa:deadsnakes/ppa \
+    && apt-get update && apt-get install -y --no-install-recommends \
+        python3.11 python3.11-dev \
+        cmake ninja-build pkg-config g++ \
+        libavcodec-dev libavformat-dev libavutil-dev libswscale-dev \
+        libavfilter-dev libswresample-dev \
+        libspdlog-dev libfmt-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 \
+    && curl -fsSL https://bootstrap.pypa.io/get-pip.py | python3.11 - \
+    && pip install --no-cache-dir "pybind11>=2.11"
+# nv-codec-headers — cuvid header defs libavcodec's h264_cuvid path links against.
+RUN git clone --depth 1 https://github.com/FFmpeg/nv-codec-headers.git /tmp/nvh \
+    && make -C /tmp/nvh install && rm -rf /tmp/nvh
+COPY _sdk/cpp/vizor_decode /build/vizor_decode
+RUN cmake -S /build/vizor_decode -B /build/vizor_decode/build -G Ninja \
+        -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        -DVIZOR_DECODE_WITH_CUDA=OFF \
+        -DVIZOR_DECODE_BUILD_TESTS=OFF \
+        -DPython3_EXECUTABLE=/usr/bin/python3.11 \
+        -DPython3_FIND_STRATEGY=LOCATION \
+        -DCMAKE_CUDA_ARCHITECTURES="${CUDA_ARCHS:-89}" \
+    && cmake --build /build/vizor_decode/build -j \
+    && find /build/vizor_decode/build -name 'vizor_decode*.so' -exec cp {} /vizor_decode.so \;
+
+
 FROM nvidia/cuda:12.5.1-runtime-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -57,6 +92,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libavcodec58 libavformat58 libavutil56 libswscale5 libavfilter7 libswresample3 \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir "av==12.3.0"
+
+# Native cpp NVDEC decoder (compiled in the builder stage). The worker sets
+# VIZOR_DECODER=cpp and imports this; without it, it falls back to PyAV (SIGSEGV-prone).
+COPY --from=decodebuilder /vizor_decode.so /usr/local/lib/python3.11/dist-packages/vizor_decode.so
 
 # Application — thin entrypoint + one package per concern.
 COPY ppe/scenario.json ppe/app.py ppe/alembic.ini ./

@@ -83,10 +83,14 @@ PPE_VIT_VEST_CONFIRM = float(os.getenv("PPE_VIT_VEST_CONFIRM", "0.50"))
 PPE_VIT_FUSE_VEST = os.getenv("PPE_VIT_FUSE_VEST", "false").lower() in ("1", "true", "yes", "on")
 PPE_VIT_INTERVAL = int(os.getenv("PPE_VIT_INTERVAL", "5"))         # run once / N frames
 
-# ── SigLIP second-stage verifier (replaces DINOv2) ───────────────────────────
+# ── SigLIP second-stage verifier (retired) ───────────────────────────────────
 # SigLIP2-large image encoder on Triton + precomputed text heads (4 PPE items).
-# Empty model name = SigLIP off (falls back to YOLO-only / DINOv2 if that's set).
-PPE_SIGLIP_MODEL_NAME = os.getenv("PPE_SIGLIP_MODEL_NAME", "siglip_ppe")
+# DISABLED by default: the new YOLO26 PPE model is trained on the negative classes
+# (no_helmet/no_gloves/no_boots) directly, so it discriminates worn-vs-missing on its
+# own — the SigLIP veto/rescue second stage is no longer needed, and dropping it frees
+# the SigLIP2-large VRAM + per-crop inference. Empty model name = SigLIP off (verifier
+# is fail-soft / no-op). Set PPE_SIGLIP_MODEL_NAME=siglip_ppe to re-enable.
+PPE_SIGLIP_MODEL_NAME = os.getenv("PPE_SIGLIP_MODEL_NAME", "")
 PPE_SIGLIP_ARTIFACT = os.getenv(
     "PPE_SIGLIP_ARTIFACT",
     str(Path(__file__).resolve().parent.parent / "models" / "siglip_ppe_heads.npz"),

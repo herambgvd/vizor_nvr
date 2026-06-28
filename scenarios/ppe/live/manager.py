@@ -8,6 +8,7 @@ to the NVR so the Cameras tab shows running / stopped / error.
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 
@@ -90,9 +91,61 @@ def _loop():
         time.sleep(config.LIVE_POLL_SECONDS)
 
 
+def _worker_v2_base() -> str:
+    host = os.environ.get("PPE_WORKER_HOST", "ppe-worker")
+    port = os.environ.get("PPE_WORKER_METRICS_PORT", "9102")
+    return f"http://{host}:{port}"
+
+
+def _worker_v2_status() -> dict | None:
+    """Cluster liveness from the worker-v2 process /health (parity with FRS)."""
+    if not _worker_v2_enabled():
+        return None
+    try:
+        import urllib.request as _u
+        h = json.loads(_u.urlopen(f"{_worker_v2_base()}/health", timeout=2).read())
+        pls = h.get("pipelines") or {}
+        expected = len(pls)
+        alive = sum(1 for v in pls.values() if not v.get("task_done", True))
+        active = sum(1 for v in pls.values()
+                     if not v.get("task_done", True)
+                     and (v.get("last_frame_age_s") is not None)
+                     and v["last_frame_age_s"] < 60.0)
+        return {"enabled": config.LIVE_ENABLED, "expected": expected,
+                "alive": alive, "active": active}
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _worker_v2_logs(camera_id: str) -> dict | None:
+    """Per-camera diagnostics from the worker-v2 process /health."""
+    if not _worker_v2_enabled():
+        return None
+    try:
+        import urllib.request as _u
+        h = json.loads(_u.urlopen(f"{_worker_v2_base()}/health", timeout=2).read())
+        pl = (h.get("pipelines") or {}).get(camera_id)
+        running = pl is not None and not pl.get("task_done", True)
+        age = pl.get("last_frame_age_s") if pl else None
+        return {
+            "camera_id": camera_id,
+            "running": bool(running),
+            "active": bool(running and age is not None and age < 60.0),
+            "stats": {"last_frame_secs_ago": age},
+            "logs": [],
+            "detail": "worker-v2 (out-of-process)" if pl else "no worker pipeline for this camera",
+        }
+    except Exception as e:  # noqa: BLE001
+        return {"camera_id": camera_id, "running": False, "active": False,
+                "logs": [], "stats": {}, "detail": f"worker-v2 unreachable: {e}"}
+
+
 def live_status() -> dict:
     """Snapshot of worker liveness for /health: how many workers exist, how many
     are alive, and how many decoded a frame within the last 60s ("active")."""
+    v2 = _worker_v2_status()
+    if v2 is not None:
+        return v2
     if _ASYNC_SUP is not None:
         s = _ASYNC_SUP.status()
         return {"enabled": config.LIVE_ENABLED, "expected": s["expected"],
@@ -110,6 +163,9 @@ def live_status() -> dict:
 def worker_logs(camera_id: str) -> dict:
     """Live worker diagnostics for one camera — recent log lines + current stats,
     for the operator's in-UI 'worker logs' panel."""
+    v2 = _worker_v2_logs(camera_id)
+    if v2 is not None:
+        return v2
     if _ASYNC_SUP is not None:
         return _ASYNC_SUP.camera_logs(camera_id)
     now = time.time()

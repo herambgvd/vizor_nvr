@@ -111,6 +111,10 @@ services:
       BRIDGE_HTTP_URL: ${BRIDGE_HTTP_URL:-http://host.docker.internal:8099}
       ENABLE_AI_MODULES: ${ENABLE_AI_MODULES:-true}
       AI_PLUGIN_SERVICE_TOKEN: ${AI_PLUGIN_SERVICE_TOKEN:-dev-XNrW79MQknM38BVGRkDZWrUQhJsJ2HUBbYfTOkWAZY0}
+      # AI scenarios self-register with this key (must be a DB-seeded api_keys row with
+      # prefix vzn_ and scope ai:register). Without it the backend rejects /ai/register
+      # and the UI shows "no AI scenarios". Passed through so the plugins can register.
+      AI_PLUGIN_API_KEY: ${AI_PLUGIN_API_KEY:-}
       AI_PLUGIN_PROXY_TIMEOUT: ${AI_PLUGIN_PROXY_TIMEOUT:-30}
       DATABASE_URL: postgresql+asyncpg://${DB_USER:-nvr}:${DB_PASSWORD}@db:5432/gvd_nvr
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required}

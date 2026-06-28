@@ -21,7 +21,6 @@ services:
       --model-repository=/models
       --model-control-mode=explicit
       --load-model=ppe_yolo26_trt
-      --load-model=siglip_ppe
       --load-model=scrfd_10g
       --load-model=arcface_r50
       --load-model=antispoofing

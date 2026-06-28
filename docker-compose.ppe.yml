@@ -67,10 +67,13 @@ services:
       TRITON_GRPC_URL: ${TRITON_GRPC_URL:-triton:8001}
       AI_REDIS_URL: ${AI_REDIS_URL:-redis://ai-redis:6379/0}
       PPE_MODEL_NAME: ${PPE_MODEL_NAME:-ppe_yolo26_trt}
-      # Second-stage verifier = SigLIP (siglip_ppe). The old DINOv2 verifier is
-      # retired (its vest head was untrained); PPE_VIT_MODEL_NAME left empty = off.
+      # Second-stage verifier RETIRED. The new YOLO26 PPE model is trained on the
+      # negative classes (no_helmet/no_gloves/no_boots) directly, so it discriminates
+      # worn-vs-missing without a SigLIP/DINOv2 veto stage — dropping SigLIP frees its
+      # VRAM + per-crop inference. Both empty = verifier off (fail-soft / no-op).
+      # Set PPE_SIGLIP_MODEL_NAME=siglip_ppe to re-enable.
       PPE_VIT_MODEL_NAME: ${PPE_VIT_MODEL_NAME:-}
-      PPE_SIGLIP_MODEL_NAME: ${PPE_SIGLIP_MODEL_NAME:-siglip_ppe}
+      PPE_SIGLIP_MODEL_NAME: ${PPE_SIGLIP_MODEL_NAME:-}
       # Live per-camera compliance — pull frames from go2rtc's RTSP restream.
       PPE_LIVE_ENABLED: "true"
       GO2RTC_RTSP_HOST: go2rtc
@@ -152,9 +155,11 @@ services:
       # the GPU. The worker sends the raw BGR frame; boxes come back identical (tensor
       # verified bit-exact vs the cv2 path). Needs ppe_yolo_ensemble loaded in Triton.
       PPE_GPU_PREPROCESS: ${PPE_GPU_PREPROCESS:-1}
-      # ffmpeg (PyAV) decode in the worker — parity with FRS (gstreamer/cpp was
-      # unstable). PyAV is now installed in the image.
-      VIZOR_DECODER: ${PPE_DECODER:-ffmpeg}
+      # cpp native NVDEC decode (parity with FRS). The cpp .so is now built into the
+      # PPE image (builder stage), so cpp works out of the box. The ffmpeg (PyAV)
+      # software path SIGSEGVs ~every 3 min under load on real DVR sub-streams (proven
+      # at SMCC). Falls back to ffmpeg only if the .so is somehow missing.
+      VIZOR_DECODER: ${PPE_DECODER:-cpp}
       WORKER_WATCHDOG_STALE_S: ${PPE_WATCHDOG_STALE_S:-90}
       PORT: 8092
     networks:

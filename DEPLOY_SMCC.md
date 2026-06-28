@@ -87,8 +87,9 @@ bash triton/build_trt_engines.sh
 ```
 
 FRS needs: scrfd_10g, arcface_r50, fairface, antispoofing.
-PPE needs: ppe_yolo26, siglip_ppe (+ the DALI ensemble `ppe_yolo_pp` / `ppe_yolo_ensemble`,
-which are not TRT and ship as-is).
+PPE needs: ppe_yolo26 (+ the DALI ensemble `ppe_yolo_pp` / `ppe_yolo_ensemble`,
+which are not TRT and ship as-is). SigLIP is retired — the YOLO26 model detects the
+negative classes (no_helmet/etc) itself, so no second-stage verifier / extra VRAM.
 
 --------------------------------------------------------------------------------
 ## 5. Issue the license (FRS=4, PPE=7) bound to the client machine
@@ -134,7 +135,7 @@ the UI blocks the 5th FRS / 8th PPE camera).
 --------------------------------------------------------------------------------
 ## Notes / gotchas
 - GPU budget on 16 GB: Triton (FRS scrfd+arcface+fairface+antispoof ~2 GB) + PPE
-  (yolo+siglip+dali ~1.5 GB) + decode. Comfortable on 16 GB.
+  (yolo+dali ~0.8 GB; SigLIP retired) + decode. Comfortable on 16 GB.
 - PPE worker-v2 + FRS worker-v2 are NORMAL services now (no `--profile`); they come up
   with `up -d` and after a reboot. (FRS_WORKER_V2 / PPE_WORKER_V2 hardcoded on.)
 - PPE GPU preprocess (DALI ensemble) + ffmpeg decode are default-on; CPU stays low.
