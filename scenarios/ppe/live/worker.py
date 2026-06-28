@@ -237,6 +237,11 @@ class CameraWorker(threading.Thread):
         )
         self._stable = StableIdMapper(self.stable_id_max_age)
         self._smoother = EvidenceSmoother(config.SMOOTH_WINDOW, config.SMOOTH_MIN_HITS)
+        # v2 logic (default ON) — AI-Powered tight-region association + direct rule.
+        self._logic_v2 = os.environ.get("PPE_LOGIC_V2", "1").lower() not in ("0", "false", "no", "off")
+        from pipeline import ComplianceEngineV2
+        self._engine_v2 = ComplianceEngineV2(self.required_canonical, self.missing_grace, self.cooldown)
+        self._assoc_cache: dict = {}
         # Second-stage verifier: prefer SigLIP (discriminates vest/helmet/goggles/
         # boots). The legacy DINOv2 verifier is retired; SigLIP is the only
         # second-stage. No-op when PPE_SIGLIP_MODEL_NAME is empty.
@@ -442,6 +447,34 @@ class CameraWorker(threading.Thread):
             return
         persons = self._stable.update(raw_tracked, now)
 
+        # ── v2 logic path (AI-Powered tight-region association + direct rule) ──────
+        # Default ON. Fixes a neighbour's helmet being cross-assigned to a bare-headed
+        # worker (false compliant). Set PPE_LOGIC_V2=0 to fall back to the old path.
+        if self._logic_v2:
+            from pipeline import evaluate_frame
+            results = evaluate_frame(
+                persons, items, self._engine_v2,
+                required=self.required_canonical, now=now, frame_w=w, frame_h=h,
+                item_floor=self._item_floor, temporal_cache=self._assoc_cache,
+                camera_id=self.camera_id)
+            for person in persons:
+                tid = person.track_id
+                if tid is None:
+                    continue
+                res = results.get(tid, {"fired": [], "present": set(), "missing": []})
+                present = res["present"]
+                present_items = [CANONICAL_TO_ITEM.get(k, k) for k in present]
+                if res["fired"]:
+                    missing = [CANONICAL_TO_ITEM.get(r, r) for r in res["missing"]] \
+                        or [CANONICAL_TO_ITEM.get(lbl, lbl) for _, lbl in res["fired"]]
+                    self._dbg_violations += 1
+                    self._emit_v2(person, missing, present_items, frame_bgr, h, w)
+                elif self.emit_compliant and self._engine_v2.is_compliant(tid) \
+                        and not res["missing"]:
+                    self._maybe_emit_compliant_v2(person, present_items, frame_bgr, h, w, now)
+            self._engine_v2.purge(now)
+            return
+
         # Full-frame PPE → worker association by body zone, then per-item filter at
         # the proven confidence floors (helmet 0.10 / vest 0.50 / no_helmet 0.15).
         items = [it for it in items if it.confidence >= self._item_floor(it.label)]
@@ -588,6 +621,40 @@ class CameraWorker(threading.Thread):
             [], present_items, conf, snap, utcnow(),
             bbox=_bbox_obj(person.box, w, h),
         )
+
+    # ── v2 emission (present is a set of worn canonical labels) ──────────────
+    def _v2_colors(self, present: set) -> dict:
+        return {c: (_BOX_GREEN if c in present else _BOX_RED)
+                for c in ("Hardhat", "Safety_Vest", "Goggles", "Boots")
+                if c in set(self.required_canonical)}
+
+    def _emit_v2(self, person, missing, present_items, frame_bgr, h, w) -> None:
+        present = {ITEM_TO_CANONICAL.get(i, i) for i in present_items}
+        item_colors = self._v2_colors(present)
+        conf = round(min(0.98, float(person.confidence)), 4)
+        snap = self._snapshot(frame_bgr, person.box, _BOX_RED, person.track_id, item_colors)
+        _record_event(
+            self.camera_id, "ppe_missing", person.track_id,
+            missing[0] if missing else None, missing, present_items, conf, snap,
+            utcnow(), bbox=_bbox_obj(person.box, w, h))
+        self._log("warn", f"Violation: worker #{person.track_id} missing "
+                          f"{', '.join(missing) if missing else 'PPE'}")
+
+    def _maybe_emit_compliant_v2(self, person, present_items, frame_bgr, h, w, now) -> None:
+        key = f"compliant:{person.track_id}"
+        last = getattr(self, "_compliant_last", {})
+        if now - last.get(key, -1e12) < self.cooldown:
+            return
+        last[key] = now
+        self._compliant_last = last
+        present = {ITEM_TO_CANONICAL.get(i, i) for i in present_items}
+        item_colors = self._v2_colors(present)
+        conf = round(float(person.confidence), 4)
+        snap = self._snapshot(frame_bgr, person.box, _BOX_GREEN, person.track_id, item_colors)
+        _record_event(
+            self.camera_id, "ppe_compliant", person.track_id, None,
+            [], present_items, conf, snap, utcnow(),
+            bbox=_bbox_obj(person.box, w, h))
 
     def _snapshot(self, frame_bgr, box, color=_BOX_RED, track_id=None,
                   item_colors=None) -> str | None:
