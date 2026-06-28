@@ -24,19 +24,15 @@ import config
 from db.events import record_event as _record_event
 from pipeline import (
     CANONICAL_TO_ITEM,
-    DEFAULT_RULES,
     ITEM_TO_CANONICAL,
-    ComplianceEngine,
+    ComplianceEngineV2,
     Detection,
-    EvidenceSmoother,
     StableIdMapper,
-    associate_ppe,
     build_roi,
     deduplicate_persons,
     eligible_people,
-    evaluable_items,
+    evaluate_frame,
     in_roi,
-    positive_evidence,
 )
 from schemas import utcnow
 
@@ -224,9 +220,9 @@ class VideoJobManager:
         roi = build_roi(cfg.get("roi"), h, w)
         tracker = ByteTracker()
         stable = StableIdMapper(getattr(config, "STABLE_ID_MAX_AGE", 2.0))
-        smoother = EvidenceSmoother(config.SMOOTH_WINDOW, config.SMOOTH_MIN_HITS)
-        engine = ComplianceEngine(required_canonical, missing_grace,
-                                  config.MIN_PRESENT, cooldown, config.ALERT_INITIAL_MISSING)
+        # v2 logic: AI-Powered tight-region association + direct has-pos/has-neg rule.
+        engine = ComplianceEngineV2(required_canonical, missing_grace, cooldown)
+        temporal_cache: dict = {}
         compliant_last: dict[int, float] = {}
         alert_keys: set = set()
         frame_no = 0
@@ -250,7 +246,7 @@ class VideoJobManager:
                     continue
 
                 annotated = self._process_frame(
-                    frame, detector, tracker, stable, smoother, engine, roi,
+                    frame, detector, tracker, stable, engine, temporal_cache, roi,
                     required_canonical, emit_compliant, cooldown, compliant_last,
                     alert_keys, job, now, w, h)
                 writer.write(annotated)
@@ -266,7 +262,7 @@ class VideoJobManager:
         # Push the annotated mp4 into rustfs (same object store live snapshots use).
         job.output_key = self._store_output(job.job_id, out_path)
 
-    def _process_frame(self, frame, detector, tracker, stable, smoother, engine,
+    def _process_frame(self, frame, detector, tracker, stable, engine, temporal_cache,
                        roi, required_canonical, emit_compliant, cooldown,
                        compliant_last, alert_keys, job, now, w, h):
         from vizor_sdk import assign_track_ids
@@ -306,80 +302,64 @@ class VideoJobManager:
             return annotated
         persons = stable.update(raw_tracked, now)
 
-        items = [it for it in items if it.confidence >= _item_floor(it.label)]
-        linked = associate_ppe(persons, items, DEFAULT_RULES)
-        try:
-            crop_links = detector.detect_crops(frame, persons)
-            linked = _merge_links(linked, crop_links)
-        except Exception:  # noqa: BLE001
-            pass
+        # v2 associate + judge (AI-Powered tight-region scorer, direct has-pos/has-neg).
+        results = evaluate_frame(persons, items, engine, required=required_canonical,
+                                 now=now, frame_w=w, frame_h=h, item_floor=_item_floor,
+                                 temporal_cache=temporal_cache, camera_id=job.job_id)
 
-        active = {p.track_id for p in persons if p.track_id is not None}
         for person in persons:
             tid = person.track_id
             if tid is None:
                 continue
-            raw = linked.get(tid, {})
-            stableev = smoother.update(tid, raw, job.processed_frames)
-            evidence = positive_evidence(stableev, config.NO_HARDHAT_CONF, config.NEGATIVE_MARGIN)
-            evaluable = evaluable_items(person.box, w, h, required_canonical, linked=stableev)
-            fired = engine.update(tid, evidence, now, evaluable=evaluable)
-            present_items = [CANONICAL_TO_ITEM.get(k, k) for k in evidence]
-            item_colors = {c: (_BOX_GREEN if c in evidence else _BOX_RED)
+            res = results.get(tid, {"fired": [], "present": set(), "missing": []})
+            present = res["present"]
+            present_items = [CANONICAL_TO_ITEM.get(k, k) for k in present]
+            item_colors = {c: (_BOX_GREEN if c in present else _BOX_RED)
                            for c in required_canonical}
 
-            if fired:
-                # engine.update() returns list[(event, ppe)] — same as the live worker.
-                by_event: dict[str, list] = {}
-                for event, ppe in fired:
-                    by_event.setdefault(event, []).append(ppe)
-                for event, ppes in by_event.items():
-                    job.violation_count += 1
-                    missing = [CANONICAL_TO_ITEM.get(r, r) for r in required_canonical
-                               if r not in evidence] or [CANONICAL_TO_ITEM.get(p, p) for p in ppes]
-                    self._emit_violation(job, person, event, evidence, missing,
-                                         present_items, frame, annotated, item_colors, w, h)
-                    self._track_alert(job, person, missing, alert_keys)
+            if res["fired"]:
+                job.violation_count += 1
+                missing = [CANONICAL_TO_ITEM.get(r, r) for r in res["missing"]] \
+                    or [CANONICAL_TO_ITEM.get(lbl, lbl) for _, lbl in res["fired"]]
+                self._emit_violation(job, person, "PPE_MISSING", present, missing,
+                                     present_items, frame, annotated, item_colors, w, h)
+                self._track_alert(job, person, missing, alert_keys)
                 _draw_corner_box(annotated, _ibox(person.box), _BOX_RED)
                 _draw_status_card(annotated, _ibox(person.box), tid, item_colors)
             else:
                 _draw_corner_box(annotated, _ibox(person.box), _BOX_GREEN)
                 _draw_status_card(annotated, _ibox(person.box), tid, item_colors)
-                if emit_compliant and _confidently_compliant(evidence, required_canonical):
+                if emit_compliant and engine.is_compliant(tid) and not res["missing"]:
                     if now - compliant_last.get(tid, -1e12) >= cooldown:
                         compliant_last[tid] = now
                         job.compliant_count += 1
-                        self._emit_compliant(job, person, evidence, present_items,
+                        self._emit_compliant(job, person, present, present_items,
                                              frame, w, h)
             # roll the per-worker summary
             st = job._persons.setdefault(tid, {"display_id": tid, "missing": set(),
                                                 "order": len(job._persons)})
-            for r in required_canonical:
-                if r not in evidence:
-                    st["missing"].add(CANONICAL_TO_ITEM.get(r, r))
-
-        smoother.purge(active)
+            for r in res["missing"]:
+                st["missing"].add(CANONICAL_TO_ITEM.get(r, r))
         engine.purge(now)
         return annotated
 
     # ── emission (events into the PPE DB, snapshots to disk) ─────────────────
-    def _emit_violation(self, job, person, event, evidence, missing, present_items,
+    def _emit_violation(self, job, person, event, present, missing, present_items,
                         frame, annotated, item_colors, w, h):
         event_type = _EVENT_TYPE.get(event, "ppe_missing")
         primary = missing[0] if missing else None
-        confs = [evidence[ITEM_TO_CANONICAL.get(m, m)].confidence
-                 for m in missing if evidence.get(ITEM_TO_CANONICAL.get(m, m))]
-        conf = max(confs) if confs else None
+        # Violation confidence from the person detection (AI-Powered style) — the missing
+        # item has no positive box to score, so the person box is the available signal.
+        conf = round(min(0.98, float(person.confidence)), 4)
         snap = _save_snapshot(job.job_id, frame, person.box, _BOX_RED,
                               person.track_id, item_colors)
         _record_event(f"video:{job.job_id}", event_type, person.track_id, primary,
                       missing, present_items, conf, snap, utcnow(),
                       bbox=_bbox_obj(person.box, w, h))
 
-    def _emit_compliant(self, job, person, evidence, present_items, frame, w, h):
-        confs = [evidence[r].confidence for r in evidence]
-        conf = min(confs) if confs else None
-        item_colors = {c: _BOX_GREEN for c in evidence}
+    def _emit_compliant(self, job, person, present, present_items, frame, w, h):
+        conf = round(float(person.confidence), 4)
+        item_colors = {c: _BOX_GREEN for c in present}
         snap = _save_snapshot(job.job_id, frame, person.box, _BOX_GREEN,
                               person.track_id, item_colors)
         _record_event(f"video:{job.job_id}", "ppe_compliant", person.track_id, None,
