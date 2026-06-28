@@ -561,8 +561,10 @@ class CameraWorker(threading.Thread):
             det = evidence.get(req)
             if det is None:
                 return False
-            # canonical req -> the detector label whose floor applies.
-            floor = self._item_floor("Hardhat" if req == "Hardhat" else "Safety_Vest")
+            # _item_floor already maps each canonical label (Hardhat/Safety_Vest/
+            # Goggles/Boots) to its own per-item confidence floor, so pass req directly
+            # — otherwise goggles/boots wrongly used the vest floor.
+            floor = self._item_floor(req)
             if det.confidence < floor:
                 return False
         return True
