@@ -102,6 +102,53 @@ class PpePipeline(CameraWorker, Pipeline):
             "_log": f"Compliant: worker #{person.track_id}",
         })
 
+    # ── v2 emit paths (the active pipeline) — also collect into _pending, never write
+    #    the DB inline. The worker process has no event DB; the app's events bridge does
+    #    the record_event. Without these overrides the v2 path's _emit_v2 called
+    #    record_event directly in the worker (DB not ready) → events silently vanished.
+    def _emit_v2(self, person, missing, present_items, frame_bgr, h, w):
+        from .worker import _BOX_RED, ITEM_TO_CANONICAL
+        present = {ITEM_TO_CANONICAL.get(i, i) for i in present_items}
+        item_colors = self._v2_colors(present)
+        conf = round(min(0.98, float(person.confidence)), 4)
+        snap = self._snapshot(frame_bgr, person.box, _BOX_RED, person.track_id, item_colors)
+        self._dbg_violations += 1
+        ev = {
+            "camera_id": self.camera_id, "event_type": "ppe_missing",
+            "worker_track_id": person.track_id,
+            "ppe_item": missing[0] if missing else None,
+            "missing_items": missing, "present_items": present_items,
+            "confidence": conf, "snapshot_path": snap,
+            "bbox": _bbox_obj(person.box, w, h),
+            "_log": f"Violation: worker #{person.track_id} missing "
+                    f"{', '.join(missing) if missing else 'PPE'}",
+        }
+        self._pending.append(ev)
+        return ev   # used as the "event id" so the lifecycle can upsert into the same dict
+
+    def _maybe_emit_compliant_v2(self, person, present_items, frame_bgr, h, w, now):
+        from .worker import _BOX_GREEN, ITEM_TO_CANONICAL
+        present = {ITEM_TO_CANONICAL.get(i, i) for i in present_items}
+        item_colors = self._v2_colors(present)
+        conf = round(float(person.confidence), 4)
+        snap = self._snapshot(frame_bgr, person.box, _BOX_GREEN, person.track_id, item_colors)
+        ev = {
+            "camera_id": self.camera_id, "event_type": "ppe_compliant",
+            "worker_track_id": person.track_id, "ppe_item": None,
+            "missing_items": [], "present_items": present_items,
+            "confidence": conf, "snapshot_path": snap,
+            "bbox": _bbox_obj(person.box, w, h),
+            "_log": f"Compliant: worker #{person.track_id}",
+        }
+        self._pending.append(ev)
+        return ev
+
+    def _update_incident(self, person, act, w, h) -> None:
+        # Live path has no event DB (the app's bridge persists). Incident upsert is a
+        # video-job-only optimisation, so do nothing here — each confirmed transition
+        # already emitted a bridged event.
+        return None
+
 
 def _now() -> float:
     import time

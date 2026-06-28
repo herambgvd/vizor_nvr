@@ -52,11 +52,20 @@ class PPEProcessor:
             config, "V2_MISSING_GRACE", 1.0)
         self.cooldown = cooldown if cooldown is not None else config.COOLDOWN
 
+        # ByteTrack high_thresh = the confidence needed to START a new track. It MUST be
+        # <= the person-detection floor (PERSON_CONF, default 0.20), otherwise low-confidence
+        # people (night / far / dim cameras detect at ~0.2-0.4) never establish a track →
+        # track_id stays 0 → they're skipped → NO events. The AI-Powered yaml's 0.45 was
+        # tuned for a bright webcam and silently dropped every dim worker here. Default it
+        # to PERSON_CONF so anything detected can also be tracked.
+        _high = getattr(config, "PPE_TRACK_HIGH_THRESH", None)
+        if _high is None:
+            _high = min(getattr(config, "PERSON_CONF", 0.20), 0.30)
         self.tracker = ByteTracker(
-            iou_threshold=getattr(config, "PPE_TRACK_MATCH_THRESH", 0.80),
-            max_age=getattr(config, "PPE_TRACK_BUFFER", 45),
-            high_thresh=getattr(config, "PPE_TRACK_HIGH_THRESH", 0.45),
-            low_thresh=getattr(config, "PPE_TRACK_LOW_THRESH", 0.10))
+            iou_threshold=getattr(config, "PPE_TRACK_MATCH_THRESH", 0.30),
+            max_age=getattr(config, "PPE_TRACK_BUFFER", 150),
+            high_thresh=_high,
+            low_thresh=getattr(config, "PPE_TRACK_LOW_THRESH", 0.05))
         self.stable = StableIdMapper(getattr(config, "STABLE_ID_MAX_AGE", 12.0))
         self.engine = ComplianceEngineV2(self.required, grace, self.cooldown)
         self.smoother = PresenceSmoother(window=15, min_frac=0.5)

@@ -431,13 +431,13 @@ class CameraWorker(threading.Thread):
                         new_id = None
                     if new_id:
                         self._proc.set_event_id(tid, new_id)
-                elif act.get("action") == "update":
-                    from db.events import update_event
-                    update_event(act["event_id"], utcnow(),
-                                 confidence=float(person.confidence),
-                                 observation_count=act["obs_count"],
-                                 duration_s=act["duration_s"],
-                                 bbox=_bbox_obj(person.box, w, h))
+                # NOTE: the lifecycle "update" action (incident upsert) is a video-job
+                # optimisation that writes the DB directly. The live worker has NO event
+                # DB — events go through the app's bridge — so we only act on "create"
+                # here and let each new incident be its own bridged event. (Overriding
+                # _update_incident lets the in-process video path still upsert.)
+                else:
+                    self._update_incident(person, act, w, h)
             self._proc.purge(now)
             return
 
@@ -676,6 +676,18 @@ class CameraWorker(threading.Thread):
             self.camera_id, "ppe_compliant", person.track_id, None,
             [], present_items, conf, snap, utcnow(),
             bbox=_bbox_obj(person.box, w, h))
+
+    def _update_incident(self, person, act, w, h) -> None:
+        """Upsert an in-progress incident row in place. Default = direct DB UPDATE
+        (used by the in-process video job, whose container owns the DB). The live
+        worker has no event DB, so PpePipeline overrides this to a no-op (each new
+        incident is its own bridged event)."""
+        from db.events import update_event
+        update_event(act["event_id"], utcnow(),
+                     confidence=float(person.confidence),
+                     observation_count=act["obs_count"],
+                     duration_s=act["duration_s"],
+                     bbox=_bbox_obj(person.box, w, h))
 
     def _snapshot(self, frame_bgr, box, color=_BOX_RED, track_id=None,
                   item_colors=None) -> str | None:

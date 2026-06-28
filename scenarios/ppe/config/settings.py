@@ -105,12 +105,17 @@ PPE_LIFECYCLE_EXPIRE_S = float(os.getenv("PPE_LIFECYCLE_EXPIRE_S", "8.0"))
 # Same worker+kind not re-emitted within this window (AI-Powered DUPLICATE_COOLDOWN) —
 # stops a worker whose helmet flickers across the threshold from spamming events.
 PPE_LIFECYCLE_DUP_COOLDOWN_S = float(os.getenv("PPE_LIFECYCLE_DUP_COOLDOWN_S", "30.0"))
-# ByteTrack tuning ported from the AI-Powered custom_bytetrack.yaml (stable worker ids
-# through occlusion on this kind of footage).
-PPE_TRACK_HIGH_THRESH = float(os.getenv("PPE_TRACK_HIGH_THRESH", "0.45"))
-PPE_TRACK_LOW_THRESH = float(os.getenv("PPE_TRACK_LOW_THRESH", "0.10"))
-PPE_TRACK_MATCH_THRESH = float(os.getenv("PPE_TRACK_MATCH_THRESH", "0.80"))
-PPE_TRACK_BUFFER = int(os.getenv("PPE_TRACK_BUFFER", "45"))
+# ByteTrack tuning. high_thresh = confidence to START a track; it MUST be <= PERSON_CONF
+# or low-confidence (night/far) people never establish a track and produce no events — so
+# it is left UNSET here and the processor derives it from PERSON_CONF. iou/buffer kept
+# permissive so a worker isn't re-numbered through brief occlusion. (The AI-Powered yaml's
+# 0.45/0.80 were tuned for a bright webcam and silently dropped dim workers.)
+PPE_TRACK_HIGH_THRESH = os.getenv("PPE_TRACK_HIGH_THRESH")  # None → derived from PERSON_CONF
+if PPE_TRACK_HIGH_THRESH is not None:
+    PPE_TRACK_HIGH_THRESH = float(PPE_TRACK_HIGH_THRESH)
+PPE_TRACK_LOW_THRESH = float(os.getenv("PPE_TRACK_LOW_THRESH", "0.05"))
+PPE_TRACK_MATCH_THRESH = float(os.getenv("PPE_TRACK_MATCH_THRESH", "0.30"))
+PPE_TRACK_BUFFER = int(os.getenv("PPE_TRACK_BUFFER", "150"))
 PPE_REID_MODEL_NAME = os.getenv("PPE_REID_MODEL_NAME", "person_reid_trt")
 PPE_REID_THRESHOLD = float(os.getenv("PPE_REID_THRESHOLD", "0.60"))
 PPE_REID_HISTORY = int(os.getenv("PPE_REID_HISTORY", "50"))

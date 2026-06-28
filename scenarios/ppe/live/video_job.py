@@ -219,13 +219,16 @@ class VideoJobManager:
         writer = self._open_writer(out_path, fps, w, h)
 
         roi = build_roi(cfg.get("roi"), h, w)
-        # AI-Powered custom_bytetrack.yaml params (proven on this footage): higher
-        # new-track threshold + longer buffer keep worker ids stable through occlusion.
+        # high_thresh must be <= PERSON_CONF or low-confidence people never get a track
+        # (see ppe_processor.py). Derive it from PERSON_CONF when unset.
+        _vhigh = getattr(config, "PPE_TRACK_HIGH_THRESH", None)
+        if _vhigh is None:
+            _vhigh = min(getattr(config, "PERSON_CONF", 0.20), 0.30)
         tracker = ByteTracker(
-            iou_threshold=getattr(config, "PPE_TRACK_MATCH_THRESH", 0.80),
-            max_age=getattr(config, "PPE_TRACK_BUFFER", 45),
-            high_thresh=getattr(config, "PPE_TRACK_HIGH_THRESH", 0.45),
-            low_thresh=getattr(config, "PPE_TRACK_LOW_THRESH", 0.10))
+            iou_threshold=getattr(config, "PPE_TRACK_MATCH_THRESH", 0.30),
+            max_age=getattr(config, "PPE_TRACK_BUFFER", 150),
+            high_thresh=_vhigh,
+            low_thresh=getattr(config, "PPE_TRACK_LOW_THRESH", 0.05))
         stable = StableIdMapper(getattr(config, "STABLE_ID_MAX_AGE", 2.0))
         # v2 logic: AI-Powered tight-region association + direct has-pos/has-neg rule.
         # Use the v2 missing-grace (shorter, ~1s) so a one-frame helmet drop doesn't flip
