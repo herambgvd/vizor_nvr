@@ -32,6 +32,7 @@ from pipeline import (
     deduplicate_persons,
     eligible_people,
     evaluate_frame,
+    gid_to_int,
     in_roi,
 )
 from schemas import utcnow
@@ -221,8 +222,29 @@ class VideoJobManager:
         tracker = ByteTracker()
         stable = StableIdMapper(getattr(config, "STABLE_ID_MAX_AGE", 2.0))
         # v2 logic: AI-Powered tight-region association + direct has-pos/has-neg rule.
-        engine = ComplianceEngineV2(required_canonical, missing_grace, cooldown)
+        # Use the v2 missing-grace (shorter, ~1s) so a one-frame helmet drop doesn't flip
+        # the worker; the cfg override still wins if the operator set one.
+        v2_grace = float(cfg.get("missing_grace", config.V2_MISSING_GRACE))
+        engine = ComplianceEngineV2(required_canonical, v2_grace, cooldown)
         temporal_cache: dict = {}
+        from pipeline import PresenceSmoother
+        self._presence = PresenceSmoother(window=8, min_frac=0.4)
+
+        # Re-ID stable-identity (AI-Powered) — per-job extractor + matcher.
+        self._reid = self._reid_matcher = self._matcher = None
+        self._reid_gid: dict[int, int] = {}
+        if getattr(config, "PPE_REID", False):
+            try:
+                from inference.reid_engine import ReIDExtractor
+                from pipeline import ReIDMatcher, gid_to_int as _g2i  # noqa: F401
+                self._reid = ReIDExtractor()
+                self._reid.warmup()
+                self._matcher = ReIDMatcher(config.PPE_REID_THRESHOLD,
+                                            config.PPE_REID_HISTORY,
+                                            config.PPE_REID_MAX_UNKNOWN)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[video] reid disabled (%s)", exc)
+                self._reid = self._matcher = None
         compliant_last: dict[int, float] = {}
         alert_keys: set = set()
         frame_no = 0
@@ -302,10 +324,28 @@ class VideoJobManager:
             return annotated
         persons = stable.update(raw_tracked, now)
 
+        # Re-ID: remap each person's track id to a STABLE global identity (AI-Powered),
+        # so a worker keeps one id across ByteTrack flips → no flicker / duplicate events.
+        if self._reid is not None and self._matcher is not None:
+            remapped = []
+            for p in persons:
+                if p.track_id is None:
+                    remapped.append(p)
+                    continue
+                gid = self._reid_gid.get(p.track_id)
+                if gid is None:
+                    emb = self._reid.extract_person(frame, p.box)
+                    g = self._matcher.match(emb, now) if emb is not None else None
+                    gid = gid_to_int(g) if g else p.track_id
+                    self._reid_gid[p.track_id] = gid
+                remapped.append(Detection(p.label, p.confidence, p.box, gid))
+            persons = remapped
+
         # v2 associate + judge (AI-Powered tight-region scorer, direct has-pos/has-neg).
         results = evaluate_frame(persons, items, engine, required=required_canonical,
                                  now=now, frame_w=w, frame_h=h, item_floor=_item_floor,
-                                 temporal_cache=temporal_cache, camera_id=job.job_id)
+                                 temporal_cache=temporal_cache, camera_id=job.job_id,
+                                 smoother=self._presence)
 
         for person in persons:
             tid = person.track_id

@@ -144,6 +144,25 @@ IOU = float(os.getenv("PPE_IOU", "0.50"))
 MISSING_GRACE = float(os.getenv("PPE_MISSING_GRACE", "2.0"))   # s absent before violation
 MIN_PRESENT = float(os.getenv("PPE_MIN_PRESENT", "3.0"))       # stable s before "removed"
 COOLDOWN = float(os.getenv("PPE_COOLDOWN", "30.0"))            # per-track/ppe event gap (s)
+
+# v2 logic uses ONE uniform PPE confidence floor (AI-Powered's 0.35) for all items
+# instead of the per-item split (helmet 0.10 / vest 0.50). The very low helmet floor
+# let stray weak helmet boxes flicker a worker compliant<->missing; 0.35 is what gave the
+# stable AI-Powered results.
+V2_PPE_CONF = float(os.getenv("PPE_V2_CONF", "0.35"))
+
+# Person Re-ID (stable worker identity across ByteTrack id changes) — AI-Powered parity.
+# Uses the shared `person_reid` Triton model + numpy cosine matcher (no torch). Default
+# ON; set PPE_REID=0 to key compliance/events off the raw track id instead.
+PPE_REID = os.getenv("PPE_REID", "1").lower() not in ("0", "false", "no", "off")
+PPE_REID_MODEL_NAME = os.getenv("PPE_REID_MODEL_NAME", "person_reid_trt")
+PPE_REID_THRESHOLD = float(os.getenv("PPE_REID_THRESHOLD", "0.60"))
+PPE_REID_HISTORY = int(os.getenv("PPE_REID_HISTORY", "50"))
+PPE_REID_MAX_UNKNOWN = int(os.getenv("PPE_REID_MAX_UNKNOWN", "5"))
+# Missing must persist this long (s) before a violation fires under v2 — AI-Powered used
+# ~5 frames of persistence; at a few processed FPS that's ~1s. Keeps a one-frame helmet
+# drop from raising a false alert.
+V2_MISSING_GRACE = float(os.getenv("PPE_V2_MISSING_GRACE", "1.0"))
 ALERT_INITIAL_MISSING = os.getenv("PPE_ALERT_INITIAL_MISSING", "true").lower() in (
     "1", "true", "yes", "on",
 )

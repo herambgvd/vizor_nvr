@@ -14,14 +14,42 @@ this module is only the associate + judge core, so it stays free of I/O.
 """
 from __future__ import annotations
 
+from collections import deque
+
 from .association_v2 import associate_v2
 from .compliance_v2 import ComplianceEngineV2, NEG_LABEL  # noqa: F401
 
 
+class PresenceSmoother:
+    """Per-(track, item) sliding-window vote that absorbs single-frame detection blinks.
+    An item counts as WORN when it was positively associated in >= `min_frac` of the last
+    `window` frames the worker appeared — so a helmet that flickers off for a frame or two
+    doesn't flip the worker to a violation (the source of compliant<->missing churn)."""
+
+    def __init__(self, window: int = 8, min_frac: float = 0.4):
+        self.window = window
+        self.min_frac = min_frac
+        self._hist: dict = {}      # (track_id, label) -> deque[0/1]
+
+    def update(self, track_id, label: str, seen: bool) -> bool:
+        key = (track_id, label)
+        dq = self._hist.get(key)
+        if dq is None:
+            dq = deque(maxlen=self.window)
+            self._hist[key] = dq
+        dq.append(1 if seen else 0)
+        return (sum(dq) / len(dq)) >= self.min_frac
+
+    def purge(self, active: set) -> None:
+        for key in [k for k in self._hist if k[0] not in active]:
+            self._hist.pop(key, None)
+
+
 def evaluate_frame(persons, items, engine: ComplianceEngineV2, *,
                    required: list[str], now: float, frame_w: int, frame_h: int,
-                   item_floor, temporal_cache: dict, camera_id: str = "",
-                   edge_margin: int = 4):
+                   item_floor=None, temporal_cache: dict, camera_id: str = "",
+                   edge_margin: int = 4, conf_floor: float | None = None,
+                   smoother: "PresenceSmoother | None" = None):
     """Associate + judge one frame.
 
     Returns: dict track_id -> {
@@ -31,9 +59,17 @@ def evaluate_frame(persons, items, engine: ComplianceEngineV2, *,
     }
     `engine` carries the per-track timers across frames; `temporal_cache` carries the
     association stability bonus across frames (pass the SAME dicts each frame).
+    Uses ONE uniform `conf_floor` for all PPE boxes (AI-Powered style, default 0.35) —
+    the per-item `item_floor` callable is only used if conf_floor is None.
     """
+    if conf_floor is None:
+        try:
+            import config
+            conf_floor = config.V2_PPE_CONF
+        except Exception:  # noqa: BLE001
+            conf_floor = 0.35
     # confidence-floor the PPE boxes (person boxes already filtered by the caller).
-    items = [it for it in items if it.confidence >= item_floor(it.label)]
+    items = [it for it in items if it.confidence >= conf_floor]
     linked, negatives = associate_v2(persons, items, temporal_cache, camera_id)
 
     out: dict = {}
@@ -46,10 +82,23 @@ def evaluate_frame(persons, items, engine: ComplianceEngineV2, *,
         # Only judge head items when the head is actually in-frame (box not at the very
         # top edge). Torso/feet items are always evaluable.
         evaluable = _evaluable(person.box, frame_h, required, edge_margin)
-        fired = engine.update(tid, present_map, neg_map, now, evaluable=evaluable)
-        present = {lbl for lbl in present_map if lbl in required}
+        # Smooth each required item's presence over a sliding window so a one/two-frame
+        # helmet blink doesn't flip the worker (the compliant<->missing churn).
+        if smoother is not None:
+            worn = set()
+            for lbl in required:
+                if smoother.update(tid, lbl, lbl in present_map):
+                    worn.add(lbl)
+            present_for_rule = {lbl: present_map[lbl] for lbl in present_map if lbl in worn}
+            for lbl in worn:
+                present_for_rule.setdefault(lbl, present_map.get(lbl))
+        else:
+            present_for_rule = present_map
+            worn = {lbl for lbl in present_map if lbl in required}
+        fired = engine.update(tid, present_for_rule, neg_map, now, evaluable=evaluable)
+        present = {lbl for lbl in worn if lbl in required}
         missing = [lbl for lbl in required
-                   if lbl in evaluable and lbl not in present_map]
+                   if lbl in evaluable and lbl not in present]
         out[tid] = {"fired": fired, "present": present, "missing": missing}
     return out
 
