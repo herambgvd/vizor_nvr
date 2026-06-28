@@ -318,8 +318,9 @@ class VideoJobManager:
                            for c in required_canonical}
 
             if fired:
+                # engine.update() returns list[(event, ppe)] — same as the live worker.
                 by_event: dict[str, list] = {}
-                for ppe, event in fired.items():
+                for event, ppe in fired:
                     by_event.setdefault(event, []).append(ppe)
                 for event, ppes in by_event.items():
                     job.violation_count += 1
