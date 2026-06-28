@@ -155,6 +155,12 @@ V2_PPE_CONF = float(os.getenv("PPE_V2_CONF", "0.35"))
 # Uses the shared `person_reid` Triton model + numpy cosine matcher (no torch). Default
 # ON; set PPE_REID=0 to key compliance/events off the raw track id instead.
 PPE_REID = os.getenv("PPE_REID", "1").lower() not in ("0", "false", "no", "off")
+# Event lifecycle: emit ONE event per confirmed compliance-status transition per worker
+# (enter compliant / remove helmet / re-wear), not one per frame. enter_frames = how many
+# frames a new status must persist before it commits (blink absorption); expire = drop a
+# worker not seen this long (incident closed).
+PPE_LIFECYCLE_ENTER_FRAMES = int(os.getenv("PPE_LIFECYCLE_ENTER_FRAMES", "6"))
+PPE_LIFECYCLE_EXPIRE_S = float(os.getenv("PPE_LIFECYCLE_EXPIRE_S", "8.0"))
 PPE_REID_MODEL_NAME = os.getenv("PPE_REID_MODEL_NAME", "person_reid_trt")
 PPE_REID_THRESHOLD = float(os.getenv("PPE_REID_THRESHOLD", "0.60"))
 PPE_REID_HISTORY = int(os.getenv("PPE_REID_HISTORY", "50"))

@@ -227,8 +227,12 @@ class VideoJobManager:
         v2_grace = float(cfg.get("missing_grace", config.V2_MISSING_GRACE))
         engine = ComplianceEngineV2(required_canonical, v2_grace, cooldown)
         temporal_cache: dict = {}
-        from pipeline import PresenceSmoother
-        self._presence = PresenceSmoother(window=8, min_frac=0.4)
+        from pipeline import PresenceSmoother, EventLifecycle
+        self._presence = PresenceSmoother(window=15, min_frac=0.5)
+        # One event per confirmed status transition per worker (AI-Powered lifecycle).
+        self._lifecycle = EventLifecycle(
+            enter_frames=getattr(config, "PPE_LIFECYCLE_ENTER_FRAMES", 3),
+            expire_s=getattr(config, "PPE_LIFECYCLE_EXPIRE_S", 8.0))
 
         # Re-ID stable-identity (AI-Powered) — per-job extractor + matcher.
         self._reid = self._reid_matcher = self._matcher = None
@@ -354,33 +358,39 @@ class VideoJobManager:
             res = results.get(tid, {"fired": [], "present": set(), "missing": []})
             present = res["present"]
             present_items = [CANONICAL_TO_ITEM.get(k, k) for k in present]
+            is_violation = bool(res["missing"])
             item_colors = {c: (_BOX_GREEN if c in present else _BOX_RED)
                            for c in required_canonical}
 
-            if res["fired"]:
-                job.violation_count += 1
-                missing = [CANONICAL_TO_ITEM.get(r, r) for r in res["missing"]] \
-                    or [CANONICAL_TO_ITEM.get(lbl, lbl) for _, lbl in res["fired"]]
-                self._emit_violation(job, person, "PPE_MISSING", present, missing,
-                                     present_items, frame, annotated, item_colors, w, h)
-                self._track_alert(job, person, missing, alert_keys)
-                _draw_corner_box(annotated, _ibox(person.box), _BOX_RED)
-                _draw_status_card(annotated, _ibox(person.box), tid, item_colors)
-            else:
-                _draw_corner_box(annotated, _ibox(person.box), _BOX_GREEN)
-                _draw_status_card(annotated, _ibox(person.box), tid, item_colors)
-                if emit_compliant and engine.is_compliant(tid) and not res["missing"]:
-                    if now - compliant_last.get(tid, -1e12) >= cooldown:
-                        compliant_last[tid] = now
-                        job.compliant_count += 1
-                        self._emit_compliant(job, person, present, present_items,
-                                             frame, w, h)
+            # Draw every frame (live view), but EMIT only on a confirmed status change:
+            # worker enters compliant → 1 compliant event; removes helmet → 1 violation
+            # event; re-wears → 1 compliant event. (Client requirement / AI-Powered
+            # lifecycle.) The lifecycle keys off the stable Re-ID id.
+            missing = [CANONICAL_TO_ITEM.get(r, r) for r in res["missing"]]
+            ev = self._lifecycle.update(tid, compliant=not is_violation,
+                                        missing=missing, now=now)
+            _draw_corner_box(annotated, _ibox(person.box),
+                             _BOX_RED if is_violation else _BOX_GREEN)
+            _draw_status_card(annotated, _ibox(person.box), tid, item_colors)
+
+            if ev is not None:
+                if ev["type"] == "violation":
+                    job.violation_count += 1
+                    self._emit_violation(job, person, "PPE_MISSING", present,
+                                         ev["missing"], present_items, frame, annotated,
+                                         item_colors, w, h)
+                    self._track_alert(job, person, ev["missing"], alert_keys)
+                elif emit_compliant:
+                    job.compliant_count += 1
+                    self._emit_compliant(job, person, present, present_items, frame, w, h)
+
             # roll the per-worker summary
             st = job._persons.setdefault(tid, {"display_id": tid, "missing": set(),
                                                 "order": len(job._persons)})
             for r in res["missing"]:
                 st["missing"].add(CANONICAL_TO_ITEM.get(r, r))
         engine.purge(now)
+        self._lifecycle.purge(now)
         return annotated
 
     # ── emission (events into the PPE DB, snapshots to disk) ─────────────────
