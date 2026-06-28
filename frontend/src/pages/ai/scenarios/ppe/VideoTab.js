@@ -20,6 +20,7 @@ import {
   Loader2,
   X,
   RotateCcw,
+  Check,
 } from "lucide-react";
 
 import {
@@ -175,7 +176,7 @@ export default function VideoTab() {
   const processing = job && !result && status?.state !== "error";
 
   return (
-    <div className="p-4 grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <div className="p-4 grid grid-cols-1 lg:grid-cols-3 gap-4 h-full overflow-y-auto">
       {/* ── left: config / upload ─────────────────────────────────────────── */}
       <div className="lg:col-span-1 space-y-4">
         <Section title="Upload video">
@@ -209,22 +210,30 @@ export default function VideoTab() {
 
         <Section title="Required PPE">
           <div className="flex flex-wrap gap-2">
-            {PPE_ITEMS.map((it) => (
-              <button
-                key={it}
-                disabled={!!job}
-                onClick={() => toggleItem(it)}
-                className="px-3 h-8 rounded text-xs uppercase tracking-wide border"
-                style={{
-                  borderColor: "var(--console-border)",
-                  background: required.includes(it) ? "var(--accent, #16a34a)" : "transparent",
-                  color: required.includes(it) ? "#fff" : "inherit",
-                }}
-              >
-                {it}
-              </button>
-            ))}
+            {PPE_ITEMS.map((it) => {
+              const on = required.includes(it);
+              return (
+                <button
+                  key={it}
+                  disabled={!!job}
+                  onClick={() => toggleItem(it)}
+                  className="px-3 h-8 rounded text-xs uppercase tracking-wide border-2 flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                  style={{
+                    borderColor: on ? "#16a34a" : "#3f3f46",
+                    background: on ? "#16a34a" : "transparent",
+                    color: on ? "#fff" : "#a1a1aa",
+                    fontWeight: on ? 700 : 500,
+                  }}
+                >
+                  {on && <Check className="h-3 w-3" />}
+                  {it}
+                </button>
+              );
+            })}
           </div>
+          <p className="text-[11px] opacity-50 mt-2">
+            Selected (green) items are checked on every worker. Tap to toggle.
+          </p>
           <label className="flex items-center gap-2 mt-3 text-xs">
             <input
               type="checkbox"
@@ -240,11 +249,11 @@ export default function VideoTab() {
           <button
             disabled={!file || busy || required.length === 0}
             onClick={startUpload}
-            className="w-full h-10 rounded font-medium text-sm flex items-center justify-center gap-2 disabled:opacity-50"
-            style={{ background: "var(--accent, #16a34a)", color: "#fff" }}
+            className="w-full h-11 rounded-lg font-semibold text-sm flex items-center justify-center gap-2 shadow-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{ background: "#16a34a", color: "#fff", border: "1px solid #15803d" }}
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlaySquare className="h-4 w-4" />}
-            Analyse video
+            {busy ? "Uploading…" : "Analyse video"}
           </button>
         )}
 

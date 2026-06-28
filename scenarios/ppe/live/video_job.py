@@ -190,8 +190,12 @@ class VideoJobManager:
     def _process(self, job: VideoJob) -> None:
         if cv2 is None:
             raise RuntimeError("OpenCV not available")
-        from inference.triton_engine import detector
+        # OWN detector instance — the module-level `detector` singleton's Triton client
+        # is shared with the app/live path and is NOT thread-safe, so a concurrent infer
+        # from this background thread hangs. A fresh PPEDetector has its own client.
+        from inference.triton_engine import PPEDetector
         from vizor_sdk import assign_track_ids, ByteTracker  # noqa: F401
+        detector = PPEDetector()
 
         cfg = job.config
         required = cfg.get("required_items") or ["helmet", "vest"]
