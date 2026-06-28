@@ -240,8 +240,15 @@ class CameraWorker(threading.Thread):
         # v2 logic (default ON) — AI-Powered tight-region association + direct rule.
         self._logic_v2 = os.environ.get("PPE_LOGIC_V2", "1").lower() not in ("0", "false", "no", "off")
         from pipeline import ComplianceEngineV2
-        self._engine_v2 = ComplianceEngineV2(self.required_canonical, self.missing_grace, self.cooldown)
+        _v2_grace = getattr(config, "V2_MISSING_GRACE", self.missing_grace)
+        self._engine_v2 = ComplianceEngineV2(self.required_canonical, _v2_grace, self.cooldown)
         self._assoc_cache: dict = {}
+        # Shared full pipeline (Re-ID + smoothing + lifecycle + AI-Powered ByteTrack) —
+        # the SAME processor the video-upload job uses, so live + video are identical.
+        from pipeline import PPEProcessor
+        self._proc = PPEProcessor(
+            required=self.required_canonical, item_floor=self._item_floor,
+            missing_grace=_v2_grace, cooldown=self.cooldown, camera_id=self.camera_id)
         # Second-stage verifier: prefer SigLIP (discriminates vest/helmet/goggles/
         # boots). The legacy DINOv2 verifier is retired; SigLIP is the only
         # second-stage. No-op when PPE_SIGLIP_MODEL_NAME is empty.
@@ -402,6 +409,42 @@ class CameraWorker(threading.Thread):
         if not self._roi_built:
             self._roi = build_roi(self.roi_config, h, w)
             self._roi_built = True
+
+        # ── v2 shared pipeline (Re-ID + smoothing + lifecycle, parity with video) ──
+        if self._logic_v2:
+            persons, results, actions = self._proc.process(
+                frame_bgr, now, self._roi, w, h)
+            self._dbg_persons = len(persons)
+            for person in persons:
+                tid = person.track_id
+                if tid is None:
+                    continue
+                res = results.get(tid, {"present": set(), "missing": []})
+                present_items = [CANONICAL_TO_ITEM.get(k, k) for k in res["present"]]
+                act = actions.get(tid)
+                if not act:
+                    continue
+                if act.get("action") == "create":
+                    if act["type"] == "violation":
+                        missing = [CANONICAL_TO_ITEM.get(r, r) for r in res["missing"]]
+                        self._dbg_violations += 1
+                        new_id = self._emit_v2(person, missing, present_items, frame_bgr, h, w)
+                    elif self.emit_compliant:
+                        new_id = self._maybe_emit_compliant_v2(
+                            person, present_items, frame_bgr, h, w, now)
+                    else:
+                        new_id = None
+                    if new_id:
+                        self._proc.set_event_id(tid, new_id)
+                elif act.get("action") == "update":
+                    from db.events import update_event
+                    update_event(act["event_id"], utcnow(),
+                                 confidence=float(person.confidence),
+                                 observation_count=act["obs_count"],
+                                 duration_s=act["duration_s"],
+                                 bbox=_bbox_obj(person.box, w, h))
+            self._proc.purge(now)
+            return
 
         detections = self._detector.detect(frame_bgr)
         if not detections:
@@ -628,30 +671,26 @@ class CameraWorker(threading.Thread):
                 for c in ("Hardhat", "Safety_Vest", "Goggles", "Boots")
                 if c in set(self.required_canonical)}
 
-    def _emit_v2(self, person, missing, present_items, frame_bgr, h, w) -> None:
+    def _emit_v2(self, person, missing, present_items, frame_bgr, h, w):
         present = {ITEM_TO_CANONICAL.get(i, i) for i in present_items}
         item_colors = self._v2_colors(present)
         conf = round(min(0.98, float(person.confidence)), 4)
         snap = self._snapshot(frame_bgr, person.box, _BOX_RED, person.track_id, item_colors)
-        _record_event(
+        new_id = _record_event(
             self.camera_id, "ppe_missing", person.track_id,
             missing[0] if missing else None, missing, present_items, conf, snap,
             utcnow(), bbox=_bbox_obj(person.box, w, h))
         self._log("warn", f"Violation: worker #{person.track_id} missing "
                           f"{', '.join(missing) if missing else 'PPE'}")
+        return new_id
 
-    def _maybe_emit_compliant_v2(self, person, present_items, frame_bgr, h, w, now) -> None:
-        key = f"compliant:{person.track_id}"
-        last = getattr(self, "_compliant_last", {})
-        if now - last.get(key, -1e12) < self.cooldown:
-            return
-        last[key] = now
-        self._compliant_last = last
+    def _maybe_emit_compliant_v2(self, person, present_items, frame_bgr, h, w, now):
+        # Lifecycle already gates duplicates; just emit on the transition it confirmed.
         present = {ITEM_TO_CANONICAL.get(i, i) for i in present_items}
         item_colors = self._v2_colors(present)
         conf = round(float(person.confidence), 4)
         snap = self._snapshot(frame_bgr, person.box, _BOX_GREEN, person.track_id, item_colors)
-        _record_event(
+        return _record_event(
             self.camera_id, "ppe_compliant", person.track_id, None,
             [], present_items, conf, snap, utcnow(),
             bbox=_bbox_obj(person.box, w, h))

@@ -59,17 +59,20 @@ def evaluate_frame(persons, items, engine: ComplianceEngineV2, *,
     }
     `engine` carries the per-track timers across frames; `temporal_cache` carries the
     association stability bonus across frames (pass the SAME dicts each frame).
-    Uses ONE uniform `conf_floor` for all PPE boxes (AI-Powered style, default 0.35) —
-    the per-item `item_floor` callable is only used if conf_floor is None.
+    PPE-box confidence floor: when `item_floor` (a per-label callable) is supplied it wins
+    so the operator's per-camera helmet/vest/goggles/boots sliders take effect; otherwise a
+    uniform `conf_floor` (default config.V2_PPE_CONF / 0.35) is used.
     """
-    if conf_floor is None:
-        try:
-            import config
-            conf_floor = config.V2_PPE_CONF
-        except Exception:  # noqa: BLE001
-            conf_floor = 0.35
-    # confidence-floor the PPE boxes (person boxes already filtered by the caller).
-    items = [it for it in items if it.confidence >= conf_floor]
+    if item_floor is not None:
+        items = [it for it in items if it.confidence >= item_floor(it.label)]
+    else:
+        if conf_floor is None:
+            try:
+                import config
+                conf_floor = config.V2_PPE_CONF
+            except Exception:  # noqa: BLE001
+                conf_floor = 0.35
+        items = [it for it in items if it.confidence >= conf_floor]
     linked, negatives = associate_v2(persons, items, temporal_cache, camera_id)
 
     out: dict = {}

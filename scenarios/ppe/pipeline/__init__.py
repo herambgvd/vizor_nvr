@@ -21,3 +21,4 @@ from .compliance_v2 import ComplianceEngineV2, ITEM_LABEL, NEG_LABEL  # noqa: F4
 from .process_v2 import evaluate_frame, PresenceSmoother  # noqa: F401
 from .reid_matcher import ReIDMatcher, gid_to_int  # noqa: F401
 from .event_lifecycle import EventLifecycle  # noqa: F401
+from .ppe_processor import PPEProcessor  # noqa: F401
