@@ -26,6 +26,12 @@ class Go2RTCManager:
 
     def __init__(self):
         self._base_url = settings.GO2RTC_URL
+        # Browser-facing base. The internal _base_url (http://go2rtc:1984) is a Docker
+        # service name the BROWSER cannot resolve — handing it to the client made live
+        # view fail. Browsers reach go2rtc through nginx's /go2rtc/ proxy instead, so all
+        # client-facing URLs are RELATIVE to the page origin. Override with GO2RTC_PUBLIC_URL
+        # only for an unusual reverse-proxy layout.
+        self._public_base = (getattr(settings, "GO2RTC_PUBLIC_URL", "") or "/go2rtc").rstrip("/")
         self._rtsp_port = settings.GO2RTC_RTSP_PORT
         self._client: Optional[httpx.AsyncClient] = None
         # go2rtc rewrites its single go2rtc.yaml on every stream PUT/DELETE.
@@ -177,17 +183,19 @@ class Go2RTCManager:
         host = self._base_url.replace("http://", "").replace("https://", "").split(":")[0]
         return f"rtsp://{host}:{self._rtsp_port}/{stream_id}"
 
+    # Browser-facing URLs use the nginx /go2rtc/ proxy (relative), NOT the internal
+    # go2rtc:1984 service name which the browser can't resolve.
     def get_webrtc_url(self, stream_id: str) -> str:
-        return f"{self._base_url}/api/webrtc?src={stream_id}"
+        return f"{self._public_base}/api/webrtc?src={stream_id}"
 
     def get_mse_url(self, stream_id: str) -> str:
-        return f"{self._base_url}/api/ws?src={stream_id}"
+        return f"{self._public_base}/api/ws?src={stream_id}"
 
     def get_snapshot_url(self, stream_id: str) -> str:
-        return f"{self._base_url}/api/frame.jpeg?src={stream_id}"
+        return f"{self._public_base}/api/frame.jpeg?src={stream_id}"
 
     def get_mp4_url(self, stream_id: str) -> str:
-        return f"{self._base_url}/api/stream.mp4?src={stream_id}"
+        return f"{self._public_base}/api/stream.mp4?src={stream_id}"
 
     async def wait_for_stream_ready(self, stream_id: str, timeout: float = 8.0, interval: float = 0.5) -> bool:
         """

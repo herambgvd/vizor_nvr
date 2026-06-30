@@ -425,8 +425,6 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 from app.auth.router import router as auth_router
 from app.cameras.router import router as cameras_router
-from app.recordings.router import router as recordings_router
-from app.bookmarks.router import router as bookmarks_router
 from app.events.router import router as events_router
 from app.storage.router import router as storage_router
 from app.monitoring.router import router as monitoring_router
@@ -450,8 +448,6 @@ app.include_router(snapshots_router, prefix="/api")
 app.include_router(cameras_router, prefix="/api")
 from app.cameras.pos_router import router as pos_router
 app.include_router(pos_router, prefix="/api")
-app.include_router(recordings_router, prefix="/api")
-app.include_router(bookmarks_router, prefix="/api")
 app.include_router(events_router, prefix="/api")
 app.include_router(storage_router, prefix="/api")
 from app.cluster.router import router as cluster_router
