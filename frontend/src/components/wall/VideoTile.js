@@ -4,7 +4,11 @@ import { Camera as CamIcon, Circle, Maximize2, Settings, Image, Video, X } from 
 import {
   ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger,
 } from "../ui/context-menu";
-import { WebRTCPlayer } from "../nvr/WebRTCPlayer";
+// Embed go2rtc's OWN built-in player (stream.html, WebRTC + automatic MSE fallback)
+// in an iframe. Our hand-rolled WebRTC/MSE players hit ICE/mDNS (cross-subnet) and
+// MSE codec/buffer races; the built-in player handles all of it and works across
+// subnets through the nginx /go2rtc/ proxy. (Proven: /go2rtc/stream.html?src=… plays.)
+import { Go2RTCEmbedPlayer as WebRTCPlayer } from "../nvr/Go2RTCEmbedPlayer";
 import { getStreamUrls, captureSnapshot, startRecording, stopRecording } from "../../api/cameras";
 import { toast } from "sonner";
 import useLicense from "../../hooks/useLicense";
