@@ -7,24 +7,6 @@
 # =============================================================================
 
 services:
-  ppe-db:
-    image: postgres:16-alpine
-    container_name: gvd_ai_ppe_db
-    restart: unless-stopped
-    networks:
-      - internal
-    environment:
-      POSTGRES_USER: ppe
-      POSTGRES_PASSWORD: ${AI_PPE_DB_PASSWORD:-ppe}
-      POSTGRES_DB: ppe
-    volumes:
-      - ppe_db_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ppe -d ppe"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-
   ppe:
     build:
       context: ./scenarios
@@ -34,7 +16,7 @@ services:
     depends_on:
       backend:
         condition: service_healthy
-      ppe-db:
+      db:
         condition: service_healthy
       triton:
         condition: service_started
@@ -43,7 +25,7 @@ services:
       VIZOR_BASE_URL: http://backend:8000/api
       VIZOR_API_KEY: ${AI_PLUGIN_API_KEY:-}
       VIZOR_SERVICE_TOKEN: ${AI_PLUGIN_SERVICE_TOKEN:-dev-XNrW79MQknM38BVGRkDZWrUQhJsJ2HUBbYfTOkWAZY0}
-      PPE_DATABASE_URL: postgresql+psycopg2://ppe:${AI_PPE_DB_PASSWORD:-ppe}@ppe-db:5432/ppe
+      PPE_DATABASE_URL: postgresql+psycopg2://ppe:${AI_PPE_DB_PASSWORD:-ppe}@db:5432/ppe
       DATA_PATH: /data/ppe
       STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
       STORAGE_LOCAL_ROOT: ${STORAGE_LOCAL_ROOT:-/data/objstore}
@@ -133,7 +115,7 @@ services:
         condition: service_healthy
       triton:
         condition: service_started
-      ppe-db:
+      db:
         condition: service_healthy
     environment:
       SCENARIO_SLUG: ppe
@@ -194,5 +176,4 @@ networks:
 
 volumes:
   objstore:
-  ppe_db_data:
   ppe_snapshots:

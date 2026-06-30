@@ -7,24 +7,6 @@
 # =============================================================================
 
 services:
-  frs-db:
-    image: postgres:16-alpine
-    container_name: gvd_ai_frs_db
-    restart: unless-stopped
-    networks:
-      - internal
-    environment:
-      POSTGRES_USER: frs
-      POSTGRES_PASSWORD: ${AI_FRS_DB_PASSWORD:-frs}
-      POSTGRES_DB: frs
-    volumes:
-      - frs_db_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U frs -d frs"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-
   frs:
     build:
       context: ./scenarios
@@ -36,7 +18,7 @@ services:
         condition: service_healthy
       qdrant:
         condition: service_started
-      frs-db:
+      db:
         condition: service_healthy
       triton:
         condition: service_started
@@ -45,7 +27,7 @@ services:
       VIZOR_BASE_URL: http://backend:8000/api
       VIZOR_API_KEY: ${AI_PLUGIN_API_KEY:-}
       VIZOR_SERVICE_TOKEN: ${AI_PLUGIN_SERVICE_TOKEN:-dev-XNrW79MQknM38BVGRkDZWrUQhJsJ2HUBbYfTOkWAZY0}
-      FRS_DATABASE_URL: postgresql+psycopg2://frs:${AI_FRS_DB_PASSWORD:-frs}@frs-db:5432/frs
+      FRS_DATABASE_URL: postgresql+psycopg2://frs:${AI_FRS_DB_PASSWORD:-frs}@db:5432/frs
       QDRANT_URL: http://qdrant:6333
       QDRANT_COLLECTION: vizor_frs_faces
       DATA_PATH: /data/frs
@@ -154,7 +136,7 @@ services:
         condition: service_healthy
       triton:
         condition: service_started
-      frs-db:
+      db:
         condition: service_healthy
       qdrant:
         condition: service_started
@@ -170,7 +152,7 @@ services:
       # the gallery search returns 0 hits and every face is "Unknown 0%".
       QDRANT_URL: http://qdrant:6333
       QDRANT_COLLECTION: ${QDRANT_COLLECTION:-vizor_frs_faces}
-      FRS_DATABASE_URL: postgresql+psycopg2://frs:${AI_FRS_DB_PASSWORD:-frs}@frs-db:5432/frs
+      FRS_DATABASE_URL: postgresql+psycopg2://frs:${AI_FRS_DB_PASSWORD:-frs}@db:5432/frs
       DATA_PATH: /data/frs
       STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
       STORAGE_LOCAL_ROOT: ${STORAGE_LOCAL_ROOT:-/data/objstore}
@@ -222,6 +204,5 @@ networks:
     name: ${COMPOSE_PROJECT_NAME:-vizor_nvr}_internal
 
 volumes:
-  frs_db_data:
   frs_photos:
   objstore:

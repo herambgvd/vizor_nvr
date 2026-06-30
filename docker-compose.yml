@@ -33,6 +33,9 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
     volumes:
       - db_data:/var/lib/postgresql/data
+      # Create the frs + ppe databases/roles on first init so the AI plugins share
+      # this one Postgres instead of separate frs-db / ppe-db containers.
+      - ./deploy/initdb:/docker-entrypoint-initdb.d:ro
     deploy:
       resources:
         limits:
