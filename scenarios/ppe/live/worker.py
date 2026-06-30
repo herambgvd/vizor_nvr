@@ -248,7 +248,8 @@ class CameraWorker(threading.Thread):
         from pipeline import PPEProcessor
         self._proc = PPEProcessor(
             required=self.required_canonical, item_floor=self._item_floor,
-            missing_grace=_v2_grace, cooldown=self.cooldown, camera_id=self.camera_id)
+            missing_grace=_v2_grace, cooldown=self.cooldown, camera_id=self.camera_id,
+            person_conf=self.person_conf, min_person_frac=self.min_person_frac)
         self._engine = ComplianceEngine(
             self.required_canonical, self.missing_grace, self.min_present,
             self.cooldown, config.ALERT_INITIAL_MISSING,
@@ -569,8 +570,18 @@ class CameraWorker(threading.Thread):
 
     def _item_floor(self, label: str) -> float:
         # Per-camera operator overrides (Cameras tab) fall back to platform defaults.
+        # The NO_* negative classes get their OWN floor — they must be confident before a
+        # "missing" is asserted, so a weak/flickering NO_* detection can't false-flag a
+        # compliant worker. Previously only NO_Hardhat had a floor; NO_Vest/NO_Goggles/
+        # NO_Boots fell through to the helmet floor.
         if label == "NO_Hardhat":
             return config.NO_HARDHAT_CONF
+        if label == "NO_Safety_Vest":
+            return getattr(config, "NO_VEST_CONF", config.NO_HARDHAT_CONF)
+        if label == "NO_Goggles":
+            return getattr(config, "NO_GOGGLES_CONF", config.NO_HARDHAT_CONF)
+        if label == "NO_Boots":
+            return getattr(config, "NO_BOOTS_CONF", config.NO_HARDHAT_CONF)
         if label == "Hardhat":
             return self._cfg_num("hardhat_conf", config.HARDHAT_CONF, float)
         if label == "Safety_Vest":

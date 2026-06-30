@@ -68,10 +68,19 @@ def body_region(box, region: str):
     return box
 
 
+# Head items (helmet/goggles) must genuinely overlap THIS person's head band to associate.
+# In crowded scenes the person_overlap + distance terms alone could carry a neighbour's
+# helmet onto a bare-headed worker (false "compliant"). Gate head items on a minimum
+# region_iou so geometry, not just proximity, decides head PPE.
+_HEAD_REGION_IOU_MIN = 0.10
+
+
 def _score_pair(person: Detection, item: Detection, temporal_hit: bool) -> float:
     region = _REGION_BY_LABEL.get(item.label, "torso")
     region_box = body_region(person.box, region)
     region_iou = _iou(region_box, item.box)
+    if region == "head" and region_iou < _HEAD_REGION_IOU_MIN:
+        return 0.0   # not actually on this person's head — refuse the association
     item_area = max(1.0, (item.box[2] - item.box[0]) * (item.box[3] - item.box[1]))
     person_overlap = _intersection_area(person.box, item.box) / item_area
     dist = _center_distance_score(region_box, item.box)

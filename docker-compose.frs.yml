@@ -140,8 +140,17 @@ services:
       dockerfile: frs/Dockerfile
     image: vizor_nvr-frs
     container_name: gvd_ai_frs_worker
+    # Pinned hostname → stable redis consumer id across recreate (claim-stale recovery).
+    hostname: gvd-frs-worker
     restart: unless-stopped
     command: ["python", "-m", "live.redis_worker"]
+    # Surface crash-loop / stuck-warmup as 'unhealthy' (metrics server serves /health).
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9101/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 180s
     depends_on:
       frs:
         condition: service_started

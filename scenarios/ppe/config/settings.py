@@ -76,6 +76,16 @@ VEST_CONF = float(os.getenv("PPE_VEST_CONF", "0.50"))
 GOGGLES_CONF = float(os.getenv("PPE_GOGGLES_CONF", "0.35"))
 BOOTS_CONF = float(os.getenv("PPE_BOOTS_CONF", "0.35"))
 NO_HARDHAT_CONF = float(os.getenv("PPE_NO_HARDHAT_CONF", "0.15"))
+# Per-negative-class floors. A "missing item" must be at least this confident before it
+# false-flags a worker. Default to the NO_Hardhat floor so behaviour is unchanged unless
+# tuned per site.
+NO_VEST_CONF = float(os.getenv("PPE_NO_VEST_CONF", str(NO_HARDHAT_CONF)))
+NO_GOGGLES_CONF = float(os.getenv("PPE_NO_GOGGLES_CONF", str(NO_HARDHAT_CONF)))
+NO_BOOTS_CONF = float(os.getenv("PPE_NO_BOOTS_CONF", str(NO_HARDHAT_CONF)))
+# Presence smoothing: fraction of the window an item must be seen to count as worn. Lower
+# than 0.5 so an intermittently-detected worn item is still credited (favours not falsely
+# flagging a compliant worker).
+PPE_PRESENCE_MIN_FRAC = float(os.getenv("PPE_PRESENCE_MIN_FRAC", "0.3"))
 NEGATIVE_MARGIN = float(os.getenv("PPE_NEGATIVE_MARGIN", "1.20"))
 IOU = float(os.getenv("PPE_IOU", "0.50"))
 
@@ -149,7 +159,10 @@ MAX_PERSON_ASPECT = float(os.getenv("PPE_MAX_PERSON_ASPECT", "4.5"))
 # Minimum person height as a FRACTION of frame height. A far/small person (e.g.
 # someone at a doorway) is too low-res for reliable PPE detection and tends to
 # produce false PPE (a shirt read as a vest), so skip them. 0 = disabled.
-MIN_PERSON_FRAC = float(os.getenv("PPE_MIN_PERSON_FRAC", "0.22"))
+# Min person height as a fraction of frame height to be eligible. 0.22 dropped far/small
+# workers on wide-angle DVR cams (a top client accuracy complaint); 0.08 keeps them.
+# Operators can raise it per-camera via the "Min person size" slider.
+MIN_PERSON_FRAC = float(os.getenv("PPE_MIN_PERSON_FRAC", "0.08"))
 
 # Default required PPE when a camera does not configure it. Canonical labels.
 REQUIRED_PPE_DEFAULT = [

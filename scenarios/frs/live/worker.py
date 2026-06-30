@@ -354,7 +354,11 @@ class CameraWorker(threading.Thread):
             if not faces:
                 return
             self._process_faces(faces, jpeg, ts, now)
-        except Exception:  # noqa: BLE001 - never let one bad frame kill the worker
+        except Exception as exc:  # noqa: BLE001 - never let one bad frame kill the worker
+            # Rate-limited log so a persistently-failing-but-'active' camera is visible
+            # (was a bare return that hid every frame/recognition error). Mirrors PPE.
+            if getattr(self, "_frame_no", 0) % 50 == 0:
+                self._log("error", f"Frame error: {str(exc)[:120]}")
             return
         finally:
             _INFLIGHT.release()
@@ -508,7 +512,9 @@ class CameraWorker(threading.Thread):
                                            snapshot_key=fc or snap)
                     except Exception:  # noqa: BLE001
                         pass
-        except Exception:  # noqa: BLE001 - never let one bad frame kill the worker
+        except Exception as exc:  # noqa: BLE001 - never let one bad frame kill the worker
+            if getattr(self, "_frame_no", 0) % 50 == 0:
+                self._log("error", f"Recognition error: {str(exc)[:120]}")
             return
 
     @staticmethod

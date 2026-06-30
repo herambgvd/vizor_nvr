@@ -41,6 +41,15 @@ class ControlShim:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._desired: dict[str, tuple[str, str]] = {}
+        # Re-emit every desired camera every N polls as a safety net for a worker that
+        # was recreated/restarted and missed the already-acked original start_camera.
+        # _claim_stale only replays PEL (un-acked) entries, and the control loop acks
+        # every command after dispatch — so once a start_camera has been processed by
+        # ANY worker generation it is gone from all PELs and a freshly-recreated worker
+        # finds nothing to claim. Without this backstop, frames stay at 0 until the app
+        # is restarted (which rebuilds _desired empty and re-emits). Mirrors the FRS shim.
+        self._reassert_every = int(getattr(config, "PPE_SHIM_REASSERT_EVERY", 20))
+        self._poll_count = 0
 
     def start(self) -> None:
         if self._thread is not None:
@@ -74,6 +83,8 @@ class ControlShim:
         cams = {c["camera_id"]: c for c in fetch_cameras()}
         current_ids = set(self._desired.keys())
         wanted_ids = set(cams.keys())
+        self._poll_count += 1
+        reassert = self._reassert_every > 0 and (self._poll_count % self._reassert_every) == 0
 
         for device_id in current_ids - wanted_ids:
             self._emit(r, "stop_camera", device_id)
@@ -99,6 +110,11 @@ class ControlShim:
                 self._emit(r, "update_config", device_id, _rtsp_url(device_id), cfg)
                 self._desired[device_id] = (sig, config_id)
                 logger.info("[ppe-shim] update_config %s", device_id)
+            elif reassert:
+                # Idempotent re-assert so a recreated/restarted worker (which missed the
+                # already-acked original Command) re-converges with NO app restart.
+                # _start_locked treats a running camera as a no-op restart, so this is safe.
+                self._emit(r, "start_camera", device_id, _rtsp_url(device_id), cfg)
 
 
 _SHIM: ControlShim | None = None

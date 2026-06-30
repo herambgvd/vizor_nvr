@@ -71,12 +71,19 @@ class EventLifecycle:
         st.last_seen = now
         miss = tuple(missing or ())
 
-        # candidate (pending) status — persist enter_frames before committing (blink absorb)
-        if st.pending is None or st.pending != compliant or st.pending_missing != miss:
+        # candidate (pending) status — persist enter_frames before committing (blink absorb).
+        # Debounce on the BOOLEAN compliance status only. Resetting the counter whenever the
+        # exact missing-item SET changed meant a worker whose missing set flickered between
+        # e.g. {Hardhat} and {Hardhat, Safety_Vest} never reached enter_frames → the
+        # violation NEVER committed (observed at SMCC). Now the counter only resets on a
+        # status flip (compliant<->violation); the missing set just settles in place and we
+        # take the most-recent set at commit time.
+        if st.pending is None or st.pending != compliant:
             st.pending = compliant
             st.pending_missing = miss
             st.pending_count = 1
         else:
+            st.pending_missing = miss   # keep the latest missing set without resetting count
             st.pending_count += 1
 
         if st.pending_count >= self.enter_frames:

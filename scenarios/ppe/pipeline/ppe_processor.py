@@ -43,11 +43,19 @@ class PPEProcessor:
     """
 
     def __init__(self, *, required, item_floor=None, missing_grace=None, cooldown=None,
-                 camera_id: str = ""):
+                 camera_id: str = "", person_conf=None, min_person_frac=None):
         from vizor_sdk import ByteTracker
         self.required = list(required)
         self.item_floor = item_floor
         self.camera_id = camera_id
+        # Per-camera eligibility gates from the UI sliders (shim config). Default to the
+        # module constants when not supplied so behaviour is unchanged for callers that
+        # don't pass them. Previously process() read config.PERSON_CONF /
+        # config.MIN_PERSON_FRAC directly, so the per-camera sliders were DEAD.
+        self.person_conf = (person_conf if person_conf is not None
+                            else getattr(config, "PERSON_CONF", 0.20))
+        self.min_person_frac = (min_person_frac if min_person_frac is not None
+                                else getattr(config, "MIN_PERSON_FRAC", 0.05))
         grace = missing_grace if missing_grace is not None else getattr(
             config, "V2_MISSING_GRACE", 1.0)
         self.cooldown = cooldown if cooldown is not None else config.COOLDOWN
@@ -68,7 +76,11 @@ class PPEProcessor:
             low_thresh=getattr(config, "PPE_TRACK_LOW_THRESH", 0.05))
         self.stable = StableIdMapper(getattr(config, "STABLE_ID_MAX_AGE", 12.0))
         self.engine = ComplianceEngineV2(self.required, grace, self.cooldown)
-        self.smoother = PresenceSmoother(window=15, min_frac=0.5)
+        # Presence smoothing driven by config, not hardcoded. A lower min_frac credits a
+        # worn item that only detects intermittently (favours not falsely flagging).
+        self.smoother = PresenceSmoother(
+            window=int(getattr(config, "SMOOTH_WINDOW", 15)),
+            min_frac=float(getattr(config, "PPE_PRESENCE_MIN_FRAC", 0.3)))
         self.lifecycle = EventLifecycle(
             enter_frames=getattr(config, "PPE_LIFECYCLE_ENTER_FRAMES", 3),
             expire_s=getattr(config, "PPE_LIFECYCLE_EXPIRE_S", 8.0),
@@ -102,7 +114,7 @@ class PPEProcessor:
         all_persons, items = [], []
         for d in detections:
             if d.label == "Person":
-                if d.confidence >= config.PERSON_CONF:
+                if d.confidence >= self.person_conf:
                     all_persons.append(d)
             else:
                 items.append(d)
@@ -110,7 +122,7 @@ class PPEProcessor:
         persons = deduplicate_persons(
             eligible_people(all_persons, frame_h, frame_w, config.MIN_PERSON_HEIGHT,
                             config.MIN_FOOT_Y, config.BORDER_MARGIN,
-                            config.MAX_PERSON_ASPECT, config.MIN_PERSON_FRAC))
+                            config.MAX_PERSON_ASPECT, self.min_person_frac))
         if roi is not None:
             persons = [p for p in persons if in_roi(p, roi)]
         if not persons:

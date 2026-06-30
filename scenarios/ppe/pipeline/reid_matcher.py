@@ -89,8 +89,22 @@ class ReIDMatcher:
                 self.last_seen.pop(gid, None)
 
 
+# Collision-free gid->int registry. The old `int(hex[:8],16) % 99000` hashed many distinct
+# global ids into the same ~99000-wide bucket, so two different workers could collapse onto
+# one integer track id → their compliance / lifecycle state mixed. A process-local
+# sequential registry guarantees one int per gid (no collisions).
+_GID_INT: dict = {}
+_GID_NEXT = [1000]
+
+
 def gid_to_int(gid: str) -> int:
-    """Stable small positive int for a global id (events store an int track id)."""
+    """Stable, collision-free small positive int for a global id (events store an int
+    track id). Same gid -> same int for the life of the process."""
     if not gid:
         return 0
-    return (int(gid.replace("gid_", "")[:8], 16) % 99000) + 1000
+    n = _GID_INT.get(gid)
+    if n is None:
+        n = _GID_NEXT[0]
+        _GID_NEXT[0] += 1
+        _GID_INT[gid] = n
+    return n

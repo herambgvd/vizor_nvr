@@ -107,15 +107,23 @@ def evaluate_frame(persons, items, engine: ComplianceEngineV2, *,
 
 
 _HEAD = {"Hardhat", "Goggles"}
+_FEET = {"Boots"}
 
 
 def _evaluable(box, frame_h: int, required: list[str], edge_margin: int) -> set:
-    """Head items are skippable only when the head is cropped at the top frame edge."""
-    _, y1, _, _ = box
-    head_cut = y1 <= max(edge_margin, 0.02 * frame_h)
+    """An item is evaluable only when the body region it lives on is actually visible.
+    Head items are skipped when the head is cropped at the TOP edge; feet items (boots)
+    are skipped when the feet are cropped at the BOTTOM edge or fall below frame — else a
+    worker whose legs are out of frame is falsely flagged for 'missing boots'."""
+    _, y1, _, y2 = box
+    top_margin = max(edge_margin, 0.02 * frame_h)
+    head_cut = y1 <= top_margin
+    feet_cut = y2 >= frame_h - top_margin
     out = set()
     for label in required:
         if label in _HEAD and head_cut:
+            continue
+        if label in _FEET and feet_cut:
             continue
         out.add(label)
     return out

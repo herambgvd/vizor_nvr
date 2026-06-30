@@ -110,8 +110,20 @@ services:
       dockerfile: ppe/Dockerfile
     image: vizor_nvr-ppe
     container_name: gvd_ai_ppe_worker
+    # Pinned hostname so the worker's redis consumer id is STABLE across container
+    # recreate; this is what makes _claim_stale recover its own pending commands and
+    # re-attach cameras without an app restart.
+    hostname: gvd-ppe-worker
     restart: unless-stopped
     command: ["python", "-m", "live.redis_worker"]
+    # Surface a crash-loop / stuck-warmup as 'unhealthy' instead of letting
+    # restart:unless-stopped silently paper over it. The metrics server serves /health.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9102/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 180s
     depends_on:
       ppe:
         condition: service_started
