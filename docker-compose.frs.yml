@@ -93,7 +93,6 @@ services:
       FRS_LIVE_ENABLED: "true"
       GO2RTC_RTSP_HOST: go2rtc
       GO2RTC_RTSP_PORT: "8554"
-      FRS_RECORDINGS_ROOT: /data/recordings
       FRS_RETENTION_EVENT_DAYS: ${FRS_RETENTION_EVENT_DAYS:-90}
       # Scheduled-report email (optional — empty host disables email; reports still
       # generate + are downloadable in-system).
@@ -107,7 +106,6 @@ services:
     networks:
       - internal
     volumes:
-      - recordings:/data/recordings:ro
       - frs_photos:/data/frs
     deploy:
       resources:
@@ -205,7 +203,6 @@ services:
     networks:
       - internal
     volumes:
-      - recordings:/data/recordings:ro
       - frs_photos:/data/frs
     deploy:
       resources:

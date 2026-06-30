@@ -78,7 +78,6 @@ services:
     networks:
       - internal
     volumes:
-      - recordings:/data/recordings:ro
       - ppe_snapshots:/data/ppe
       - ./models:/models:ro
     deploy:
@@ -171,7 +170,6 @@ services:
     networks:
       - internal
     volumes:
-      - recordings:/data/recordings:ro
       - ppe_snapshots:/data/ppe
       - ./models:/models:ro
     deploy:
