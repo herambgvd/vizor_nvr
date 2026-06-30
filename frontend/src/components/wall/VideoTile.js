@@ -4,7 +4,9 @@ import { Camera as CamIcon, Circle, Maximize2, Settings, Image, Video, X } from 
 import {
   ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger,
 } from "../ui/context-menu";
-import { WebRTCPlayer } from "../nvr/WebRTCPlayer";
+// MSE (fMP4 over WebSocket through nginx /go2rtc) — WebRTC's ICE/mDNS never paired
+// on this on-prem LAN behind self-signed HTTPS. MSE has no ICE; it just streams.
+import { Go2RTCPlayer as WebRTCPlayer } from "../nvr/Go2RTCPlayer";
 import { getStreamUrls, captureSnapshot, startRecording, stopRecording } from "../../api/cameras";
 import { toast } from "sonner";
 import useLicense from "../../hooks/useLicense";
