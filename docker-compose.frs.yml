@@ -16,8 +16,6 @@ services:
     depends_on:
       backend:
         condition: service_healthy
-      qdrant:
-        condition: service_started
       db:
         condition: service_healthy
       triton:
@@ -28,7 +26,6 @@ services:
       VIZOR_API_KEY: ${AI_PLUGIN_API_KEY:-}
       VIZOR_SERVICE_TOKEN: ${AI_PLUGIN_SERVICE_TOKEN:-dev-XNrW79MQknM38BVGRkDZWrUQhJsJ2HUBbYfTOkWAZY0}
       FRS_DATABASE_URL: postgresql+psycopg2://frs:${AI_FRS_DB_PASSWORD:-frs}@db:5432/frs
-      QDRANT_URL: http://qdrant:6333
       QDRANT_COLLECTION: vizor_frs_faces
       DATA_PATH: /data/frs
       # Object storage: local disk (rustfs removed). LocalObjectStore writes under
@@ -138,8 +135,6 @@ services:
         condition: service_started
       db:
         condition: service_healthy
-      qdrant:
-        condition: service_started
     environment:
       SCENARIO_SLUG: frs
       VIZOR_SERVICE_TOKEN: ${AI_PLUGIN_SERVICE_TOKEN:-dev-XNrW79MQknM38BVGRkDZWrUQhJsJ2HUBbYfTOkWAZY0}
@@ -150,7 +145,6 @@ services:
       # Recognition deps — the worker runs the full pipeline, so it needs the SAME
       # gallery vector store + person DB + snapshot dir as the app. Without QDRANT_URL
       # the gallery search returns 0 hits and every face is "Unknown 0%".
-      QDRANT_URL: http://qdrant:6333
       QDRANT_COLLECTION: ${QDRANT_COLLECTION:-vizor_frs_faces}
       FRS_DATABASE_URL: postgresql+psycopg2://frs:${AI_FRS_DB_PASSWORD:-frs}@db:5432/frs
       DATA_PATH: /data/frs

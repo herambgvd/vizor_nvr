@@ -23,7 +23,10 @@ services:
   # power our events history at scale (compression + retention + continuous
   # aggregates). Plain postgres:16-alpine works too but loses scale features.
   db:
-    image: timescale/timescaledb:2.17.2-pg16
+    # timescaledb-ha bundles pgvector (the FRS face gallery uses it now that qdrant
+    # is gone). The plain timescaledb image doesn't ship pgvector. -ha = high-availability
+    # build with timescaledb + pgvector + toolkit.
+    image: timescale/timescaledb-ha:pg16
     container_name: gvd_db
     restart: unless-stopped
     stop_grace_period: 30s

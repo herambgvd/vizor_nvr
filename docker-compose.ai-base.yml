@@ -49,25 +49,9 @@ services:
       retries: 10
       start_period: 60s
 
-  qdrant:
-    # Pin a version — :latest can change the storage format under a running
-    # deployment. Bump deliberately + test.
-    image: qdrant/qdrant:v1.18.0
-    container_name: gvd_ai_qdrant
-    restart: unless-stopped
-    networks:
-      - internal
-    volumes:
-      - qdrant_data:/qdrant/storage
-    deploy:
-      resources:
-        limits:
-          memory: ${QDRANT_MEM_LIMIT:-4g}
-    healthcheck:
-      test: ["CMD", "bash", "-lc", "exec 3<>/dev/tcp/127.0.0.1/6333"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
+  # qdrant REMOVED — FRS face embeddings now live in the FRS Postgres via pgvector
+  # (scenarios/frs/qdrant/store.py rewritten to a pgvector backend; the main db image
+  # is timescaledb-ha which bundles pgvector). No separate vector DB container.
 
   # ai-redis REMOVED — the AI event bus + control plane now live on the core `redis`
   # (db1), which is configured noeviction + AOF so the ai:events stream is durable and
@@ -83,4 +67,3 @@ networks:
     name: ${COMPOSE_PROJECT_NAME:-vizor_nvr}_internal
 
 volumes:
-  qdrant_data:
