@@ -121,22 +121,43 @@ export const Go2RTCPlayer = ({
 
     ws.onopen = () => {
       if (!mountedRef.current) return;
-      // go2rtc MSE protocol: first text message has codec info,
-      // then binary MP4 init segment, then binary media segments
+      // go2rtc MSE protocol is CLIENT-INITIATED: the browser must first announce
+      // the MSE codecs it supports; only then does go2rtc reply with the codec
+      // string, the fMP4 init segment, and media. Without this request go2rtc
+      // sends nothing and the tile hangs on "Connecting…".
+      const probe = document.createElement("video");
+      const codecs = [
+        'avc1.640029', 'avc1.64002A', 'avc1.640033', 'avc1.42E01E',
+        'mp4a.40.2', 'mp4a.40.5', 'flac', 'opus',
+      ].filter((c) => {
+        const type = c.startsWith('mp4a') || c === 'flac' || c === 'opus'
+          ? `audio/mp4; codecs="${c}"` : `video/mp4; codecs="${c}"`;
+        return (window.MediaSource || window.ManagedMediaSource)?.isTypeSupported?.(type);
+      });
+      try {
+        ws.send(JSON.stringify({ type: "mse", value: codecs.join(",") }));
+      } catch (_) {
+        // fall back to a sensible default request
+        try { ws.send(JSON.stringify({ type: "mse", value: "avc1.640029,mp4a.40.2" })); } catch (_) {}
+      }
     };
 
     ws.onmessage = (ev) => {
       if (!mountedRef.current) return;
 
-      // Text message = codec info from go2rtc (e.g. "mse" or codec string)
+      // Text message = codec info from go2rtc. go2rtc replies with a JSON frame
+      // like {"type":"mse","value":"video/mp4; codecs=\"avc1.640029,mp4a.40.2\""}.
       if (typeof ev.data === "string") {
-        // go2rtc sends the MSE codec string like:
-        // video/mp4; codecs="avc1.640029" or similar
-        mimeCodec = ev.data;
+        try {
+          const msg = JSON.parse(ev.data);
+          mimeCodec = (msg && msg.value) ? msg.value : ev.data;
+        } catch (_) {
+          mimeCodec = ev.data;   // not JSON — treat as a raw codec string
+        }
 
-        // If go2rtc sends just "mse", default to a common codec
+        // If go2rtc sent no usable mime, default to a common H.264 + AAC profile.
         if (!mimeCodec.includes("video/")) {
-          mimeCodec = 'video/mp4; codecs="avc1.640029"';
+          mimeCodec = 'video/mp4; codecs="avc1.640029, mp4a.40.2"';
         }
 
         if (!MediaSource.isTypeSupported(mimeCodec)) {
