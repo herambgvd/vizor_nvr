@@ -72,7 +72,13 @@ DECODE_SCORE_FLOOR = float(os.getenv("PPE_DECODE_SCORE_FLOOR", "0.12"))
 # by the 1280 export. Operators can still raise helmet/vest per camera in the UI.
 PERSON_CONF = float(os.getenv("PPE_PERSON_CONF", "0.20"))
 HARDHAT_CONF = float(os.getenv("PPE_HARDHAT_CONF", "0.10"))
-VEST_CONF = float(os.getenv("PPE_VEST_CONF", "0.50"))
+# Vest detection floor. Was 0.50 — far too strict given the model has NO `no_vest`
+# class: vest compliance is judged purely by ABSENCE of a `vest` detection, so any
+# frame the model fails to detect a worn vest (turned worker, occlusion, low light)
+# is read as "missing" → a flood of false no-vest alerts. Lower the floor to match
+# the helmet floor so a worn vest is detected far more reliably and false absence
+# drops sharply. (The real fix is a `no_vest` class in the model — see notes.)
+VEST_CONF = float(os.getenv("PPE_VEST_CONF", "0.20"))
 GOGGLES_CONF = float(os.getenv("PPE_GOGGLES_CONF", "0.35"))
 BOOTS_CONF = float(os.getenv("PPE_BOOTS_CONF", "0.35"))
 NO_HARDHAT_CONF = float(os.getenv("PPE_NO_HARDHAT_CONF", "0.15"))
@@ -133,7 +139,11 @@ PPE_REID_MAX_UNKNOWN = int(os.getenv("PPE_REID_MAX_UNKNOWN", "5"))
 # Missing must persist this long (s) before a violation fires under v2 — AI-Powered used
 # ~5 frames of persistence; at a few processed FPS that's ~1s. Keeps a one-frame helmet
 # drop from raising a false alert.
-V2_MISSING_GRACE = float(os.getenv("PPE_V2_MISSING_GRACE", "1.0"))
+# Seconds an item must stay absent before it counts as a violation. Raised from 1.0
+# so a brief vest/helmet detection drop (a worker turning, a momentary occlusion)
+# doesn't immediately fire a false alert — especially for the vest, which has no
+# no_vest class and is judged by absence alone.
+V2_MISSING_GRACE = float(os.getenv("PPE_V2_MISSING_GRACE", "2.5"))
 ALERT_INITIAL_MISSING = os.getenv("PPE_ALERT_INITIAL_MISSING", "true").lower() in (
     "1", "true", "yes", "on",
 )
