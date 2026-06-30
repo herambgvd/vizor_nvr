@@ -97,9 +97,20 @@ export const Go2RTCPlayer = ({
     gotFirstDataRef.current = false;
     cleanup();
 
-    const GO2RTC_URL =
-      process.env.REACT_APP_GO2RTC_URL || "/go2rtc";
-    const wsUrl = GO2RTC_URL.replace(/^http/, "ws") + `/api/ws?src=${streamId}`;
+    // Build an ABSOLUTE ws/wss URL. The go2rtc base is the nginx proxy path
+    // "/go2rtc" (relative) by default — a WebSocket() needs an absolute ws://
+    // or wss:// URL, and it must match the page's scheme (wss on https) or the
+    // browser blocks it as mixed content. A relative "/go2rtc/..." string here
+    // produced an invalid WebSocket URL and the MSE stream never opened.
+    const base = process.env.REACT_APP_GO2RTC_URL || "/go2rtc";
+    let wsUrl;
+    if (/^https?:\/\//i.test(base)) {
+      wsUrl = base.replace(/^http/i, "ws") + `/api/ws?src=${streamId}`;
+    } else {
+      const wsScheme = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const path = base.startsWith("/") ? base : `/${base}`;
+      wsUrl = `${wsScheme}//${window.location.host}${path}/api/ws?src=${streamId}`;
+    }
 
     const ws = new WebSocket(wsUrl);
     ws.binaryType = "arraybuffer";
