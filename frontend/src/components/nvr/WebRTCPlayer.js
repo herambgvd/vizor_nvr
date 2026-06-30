@@ -16,24 +16,24 @@ const BASE_RECONNECT_DELAY = 2000;
 // If the peer connects but no actual video frames arrive within this window we
 // treat the tile as a failed attempt and retry instead of showing frozen black.
 const MEDIA_WATCHDOG_MS = 8000;
-// This is an ON-PREM LAN deployment: the browser and the NVR are on the same
-// network, so the browser should connect to go2rtc's LAN host candidate
-// (192.168.1.99:8555) DIRECTLY. Using public Google STUN here was actively
-// harmful — it made the browser gather a public srflx candidate (and Chrome's
-// mDNS-obfuscated .local host candidates), none of which the on-prem go2rtc can
-// reach, so ICE never paired and live view hung on "Loading…". Default to NO ICE
-// servers (LAN host candidates only). A site behind NAT/relay can still supply a
-// TURN server via REACT_APP_ICE_SERVERS.
-const DEFAULT_ICE_SERVERS = [];
+// ICE servers are configurable so an on-prem NVR can supply a TURN relay (the
+// default Google STUN can't traverse symmetric NAT). Set REACT_APP_ICE_SERVERS
+// to a JSON array of RTCIceServer entries, e.g.
+//   [{"urls":"turn:turn.example.com:3478","username":"u","credential":"p"}]
+// Falls back to the public Google STUN servers when unset or malformed.
+const DEFAULT_ICE_SERVERS = [
+  { urls: "stun:stun.l.google.com:19302" },
+  { urls: "stun:stun1.l.google.com:19302" },
+];
 
 function resolveIceServers() {
   const raw = process.env.REACT_APP_ICE_SERVERS;
   if (!raw) return DEFAULT_ICE_SERVERS;
   try {
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) return parsed;
+    if (Array.isArray(parsed) && parsed.length > 0) return parsed;
   } catch {
-    // Malformed ICE config — fall back to LAN-only (no STUN).
+    // Malformed ICE config — fall back to the STUN defaults silently.
   }
   return DEFAULT_ICE_SERVERS;
 }

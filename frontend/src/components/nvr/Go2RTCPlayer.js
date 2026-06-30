@@ -30,6 +30,7 @@ export const Go2RTCPlayer = ({
   const objectUrlRef = useRef(null);
   const sbRef = useRef(null);
   const bufferQueue = useRef([]);
+  const initSegRef = useRef(null);   // the fMP4 init segment — never dropped
   const reconnectTimerRef = useRef(null);
   const reconnectAttemptsRef = useRef(0);
   const mountedRef = useRef(true);
@@ -230,19 +231,25 @@ export const Go2RTCPlayer = ({
         return;
       }
 
-      // Binary message = MP4 segment data
+      // Binary message = MP4 segment data. The FIRST binary message is the fMP4
+      // init segment (ftyp+moov) — it MUST be appended first and must NEVER be
+      // dropped, or the SourceBuffer has no codec config and the <video> reports
+      // "no supported sources". Previously an overflow dropped the OLDEST queued
+      // chunk, which could be that init segment.
       const data = new Uint8Array(ev.data);
       if (sbRef.current) {
-        // Limit buffer queue size to prevent unbounded memory growth
-        if (bufferQueue.current.length < MAX_BUFFER_QUEUE_SIZE) {
+        if (!initSegRef.current) {
+          // Stash the init segment separately so it can't be evicted, and make
+          // sure it's the very first thing appended.
+          initSegRef.current = data;
+          bufferQueue.current.unshift(data);
+        } else if (bufferQueue.current.length < MAX_BUFFER_QUEUE_SIZE) {
           bufferQueue.current.push(data);
         } else {
-          // Queue is full - drop oldest chunks to make room
-          // This indicates network or SourceBuffer issues
-          console.warn("Go2RTC buffer queue full, dropping oldest chunks");
-          while (bufferQueue.current.length >= MAX_BUFFER_QUEUE_SIZE - 5) {
-            bufferQueue.current.shift();
-          }
+          // Queue full: drop the NEWEST media to stay near live, but keep the
+          // init segment (index 0 if still pending) intact.
+          console.warn("Go2RTC buffer queue full, dropping newest chunk");
+          bufferQueue.current.pop();
           bufferQueue.current.push(data);
         }
         flushQueue();
