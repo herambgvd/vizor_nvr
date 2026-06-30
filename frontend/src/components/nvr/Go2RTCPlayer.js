@@ -76,15 +76,24 @@ export const Go2RTCPlayer = ({
     }
   }, []);
 
-  // Flush queued buffers into SourceBuffer
+  // Flush queued buffers into SourceBuffer. Guard against appending after the
+  // MediaSource/SourceBuffer was torn down (tile unmount, reconnect, or codec
+  // failure) — that throws InvalidStateError and spams the console.
   const flushQueue = useCallback(() => {
     const sb = sbRef.current;
-    if (!sb || sb.updating || bufferQueue.current.length === 0) return;
+    const ms = msRef.current;
+    if (!sb || !ms || ms.readyState !== "open") return;
+    if (sb.updating || bufferQueue.current.length === 0) return;
     const chunk = bufferQueue.current.shift();
     try {
       sb.appendBuffer(chunk);
     } catch (e) {
-      console.error("SourceBuffer append error:", e);
+      // Removed/closed mid-flight — stop trying and let reconnect handle it.
+      if (e.name === "InvalidStateError" || e.name === "QuotaExceededError") {
+        bufferQueue.current = [];
+      } else {
+        console.error("SourceBuffer append error:", e);
+      }
     }
   }, []);
 
@@ -160,10 +169,29 @@ export const Go2RTCPlayer = ({
           mimeCodec = 'video/mp4; codecs="avc1.640029, mp4a.40.2"';
         }
 
-        if (!MediaSource.isTypeSupported(mimeCodec)) {
-          // Try common fallback
-          mimeCodec = 'video/mp4; codecs="avc1.42E01E"';
+        // Resolve a SUPPORTED mime. go2rtc may send a profile string the exact
+        // form of which the browser rejects even though it can decode the stream
+        // (e.g. spacing, or an unsupported audio codec dragging the whole type
+        // down). Try as-is, then video-only (drop audio), then common H.264
+        // profiles, before giving up.
+        const tryTypes = [
+          mimeCodec,
+          mimeCodec.replace(/,\s*(mp4a|opus|flac)[^"]*/i, ""), // video-only
+          'video/mp4; codecs="avc1.4D401F"',
+          'video/mp4; codecs="avc1.640029"',
+          'video/mp4; codecs="avc1.42E01E"',
+        ];
+        const supported = tryTypes.find(
+          (t) => { try { return MediaSource.isTypeSupported(t); } catch (_) { return false; } }
+        );
+        if (!supported) {
+          if (mountedRef.current) {
+            setError("Codec not supported: " + mimeCodec);
+            setIsLoading(false);
+          }
+          return;
         }
+        mimeCodec = supported;
 
         // Create MediaSource and attach to video
         mediaSource = new MediaSource();
