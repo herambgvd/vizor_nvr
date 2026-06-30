@@ -25,9 +25,6 @@ const CameraDetailLayout = lazy(() =>
 const CameraDetailLive = lazy(() =>
   import("./pages/camera-detail/LiveViewPage"),
 );
-const CameraDetailRecordings = lazy(() =>
-  import("./pages/camera-detail/RecordingsPage"),
-);
 const CameraDetailOnvif = lazy(() =>
   import("./pages/camera-detail/OnvifPage"),
 );
@@ -37,7 +34,6 @@ const CameraDetailSettings = lazy(() =>
 const CameraDetailSnapshots = lazy(() =>
   import("./pages/camera-detail/SnapshotsPage"),
 );
-// Playback is the timeline-centric PlaybackConsole (see below).
 const LiveStream = lazy(() => import("./pages/LiveStream"));
 const SettingsLayout = lazy(() =>
   import("./pages/settings/SettingsLayout"),
@@ -60,8 +56,6 @@ const Events = lazy(() => import("./pages/Events"));
 const AuditLog = lazy(() => import("./pages/AuditLog"));
 const Notifications = lazy(() => import("./pages/Notifications"));
 const Users = lazy(() => import("./pages/Users"));
-const Bookmarks = lazy(() => import("./pages/Bookmarks"));
-const PlaybackConsole = lazy(() => import("./pages/PlaybackConsole"));
 const LicenseRequired = lazy(() => import("./pages/LicenseRequired"));
 const AIHome = lazy(() => import("./pages/ai/AIHome"));
 const Marketplace = lazy(() => import("./pages/ai/Marketplace"));
@@ -116,13 +110,6 @@ const LicenseGate = ({ children }) => {
   const { isActive, isLoading } = useLicense();
   if (isLoading) return <PageSpinner />;
   if (!isActive) return <Navigate to="/license-required" replace />;
-  return children;
-};
-
-const LicensedFeatureRoute = ({ feature, children }) => {
-  const { isLoading, hasFeature } = useLicense();
-  if (isLoading) return <PageSpinner />;
-  if (!hasFeature(feature)) return <Navigate to="/" replace />;
   return children;
 };
 
@@ -185,28 +172,10 @@ const AppRoutes = () => (
         <Route path="cameras/:cameraId" element={<CameraDetailLayout />}>
           <Route index element={<Navigate to="live" replace />} />
           <Route path="live" element={<CameraDetailLive />} />
-          <Route
-            path="recordings"
-            element={
-              <LicensedFeatureRoute feature="playback">
-                <CameraDetailRecordings />
-              </LicensedFeatureRoute>
-            }
-          />
           <Route path="onvif" element={<CameraDetailOnvif />} />
           <Route path="settings" element={<CameraDetailSettings />} />
           <Route path="snapshots" element={<CameraDetailSnapshots />} />
         </Route>
-        {/* Playback is now the timeline-centric PlaybackConsole. Old
-            single-cam Playback retired. /playback/multi kept as alias. */}
-        <Route
-          path="playback"
-          element={
-            <LicensedFeatureRoute feature="playback">
-              <PlaybackConsole />
-            </LicensedFeatureRoute>
-          }
-        />
         <Route path="events" element={<Events />} />
         <Route path="settings" element={<SettingsLayout />}>
           <Route index element={<Navigate to="configuration" replace />} />
@@ -229,15 +198,6 @@ const AppRoutes = () => (
             }
           />
         </Route>
-        <Route
-          path="playback/multi"
-          element={
-            <LicensedFeatureRoute feature="playback">
-              <PlaybackConsole />
-            </LicensedFeatureRoute>
-          }
-        />
-        <Route path="bookmarks" element={<Bookmarks />} />
         {/* Legacy aliases */}
         <Route path="users" element={<Navigate to="/settings/users" replace />} />
         <Route path="notifications" element={<Navigate to="/settings/notifications" replace />} />

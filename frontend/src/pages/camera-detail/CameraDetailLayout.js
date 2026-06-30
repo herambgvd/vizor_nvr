@@ -17,7 +17,6 @@ import { useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
   Video,
-  Film,
   Radio,
   SlidersHorizontal,
   RefreshCw,
@@ -29,11 +28,9 @@ import { getCamera, getLatestHealth } from "../../api/cameras";
 import { Button } from "../../components/ui/button";
 import { StatusBadge } from "../../components/nvr/StatusBadge";
 import { cn } from "../../lib/utils";
-import useLicense from "../../hooks/useLicense";
 
 const NAV = [
   { path: "live", label: "Live View", icon: Video },
-  { path: "recordings", label: "Recordings", icon: Film },
   { path: "onvif", label: "ONVIF", icon: Radio },
   { path: "settings", label: "Settings", icon: SlidersHorizontal },
   { path: "snapshots", label: "Snapshots", icon: ImageIcon },
@@ -66,8 +63,7 @@ const CameraDetailLayout = () => {
   const { cameraId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const { hasFeature } = useLicense();
-  const navItems = NAV.filter((item) => item.path !== "recordings" || hasFeature("playback"));
+  const navItems = NAV;
 
   const { data: camera, isLoading, isError, refetch } = useQuery({
     queryKey: ["camera", cameraId],

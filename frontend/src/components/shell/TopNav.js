@@ -1,26 +1,23 @@
 import React from "react";
 import { NavLink } from "react-router-dom";
 import {
-  LayoutGrid, Play, Camera, Bell, Bookmark, Settings, Search,
+  LayoutGrid, Camera, Bell, Settings, Search,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
-import useLicense from "../../hooks/useLicense";
 
-// Primary app navigation — horizontal, lives in the TopHeader so the whole
-// left gutter is freed for page content. (Replaces the old vertical LeftRail.)
+// Primary app navigation — a focused video-analytics surface: Live monitoring,
+// Cameras, Events, AI scenarios, Settings. (Playback / Bookmarks / Recordings are
+// NVR-domain features and live in the dedicated NVR product, not here.)
 const ITEMS = [
   { to: "/", label: "Live", icon: LayoutGrid, end: true },
-  { to: "/playback", label: "Playback", icon: Play },
   { to: "/cameras", label: "Cameras", icon: Camera },
   { to: "/events", label: "Events", icon: Bell },
   { to: "/ai", label: "AI", icon: Search },
-  { to: "/bookmarks", label: "Bookmarks", icon: Bookmark },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
 
 export default function TopNav() {
-  const { hasFeature } = useLicense();
-  const items = ITEMS.filter((item) => item.to !== "/playback" || hasFeature("playback"));
+  const items = ITEMS;
 
   return (
     <nav className="flex items-center gap-1">
