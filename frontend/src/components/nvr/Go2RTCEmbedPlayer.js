@@ -12,8 +12,11 @@
 import React from "react";
 import { cn } from "../../lib/utils";
 
-// Mirrors the WebRTCPlayer/Go2RTCPlayer prop surface so it's a drop-in replacement.
-export const Go2RTCEmbedPlayer = ({ streamId, className }) => {
+// Mirrors the WebRTCPlayer/Go2RTCPlayer prop surface so it's a drop-in replacement
+// everywhere (NVR grid, Live page, camera detail, AI scenario Live tabs). Props that
+// only made sense for the hand-rolled player (cameraId, onError, onPlay, controls…)
+// are accepted and ignored — the embedded go2rtc player manages its own lifecycle.
+export const Go2RTCEmbedPlayer = ({ streamId, className, controls = false }) => {
   const base = process.env.REACT_APP_GO2RTC_URL || "/go2rtc";
   // stream.html lives at the go2rtc ROOT (not under /api). go2rtc query params:
   //   mode=mse → MSE only (fMP4 over a WebSocket, all TCP). Chosen over webrtc/auto
@@ -25,9 +28,10 @@ export const Go2RTCEmbedPlayer = ({ streamId, className }) => {
   //        the loser down mid-connect, spamming the console with AbortError /
   //        "SourceBuffer removed" (video-rtc.js). MSE-only never starts that race.
   //     Trade-off vs WebRTC: ~1-2s more latency. Fine for surveillance monitoring.
-  //   muted, controls=0 → autoplay-friendly grid tile, no chrome
+  //   muted → autoplay-friendly tile; controls follows the caller (grid tiles pass
+  //     controls=false → no chrome; detail/AI views may want the scrubber).
   const src = streamId
-    ? `${base}/stream.html?src=${encodeURIComponent(streamId)}&mode=mse&muted=1&controls=0`
+    ? `${base}/stream.html?src=${encodeURIComponent(streamId)}&mode=mse&muted=1&controls=${controls ? 1 : 0}`
     : null;
 
   if (!src) {
