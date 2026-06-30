@@ -4,11 +4,7 @@ import { Camera as CamIcon, Circle, Maximize2, Settings, Image, Video, X } from 
 import {
   ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger,
 } from "../ui/context-menu";
-// MSE (WebSocket) playback. WebRTC needs ICE/UDP candidate pairing, which is
-// fragile on a LAN behind a self-signed-HTTPS reverse proxy (mDNS + public-srflx
-// candidates never paired → live view hung). MSE streams fMP4 over a plain
-// WebSocket through the nginx /go2rtc proxy — no ICE, reliable on-prem.
-import { Go2RTCPlayer as WebRTCPlayer } from "../nvr/Go2RTCPlayer";
+import { WebRTCPlayer } from "../nvr/WebRTCPlayer";
 import { getStreamUrls, captureSnapshot, startRecording, stopRecording } from "../../api/cameras";
 import { toast } from "sonner";
 import useLicense from "../../hooks/useLicense";
