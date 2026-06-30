@@ -40,8 +40,6 @@ services:
         condition: service_healthy
       triton:
         condition: service_started
-      rustfs:
-        condition: service_started
     environment:
       SCENARIO_SLUG: frs
       VIZOR_BASE_URL: http://backend:8000/api
@@ -51,11 +49,10 @@ services:
       QDRANT_URL: http://qdrant:6333
       QDRANT_COLLECTION: vizor_frs_faces
       DATA_PATH: /data/frs
-      # Object storage (rustfs) for ID documents + future media.
-      RUSTFS_ENDPOINT: ${RUSTFS_ENDPOINT:-http://rustfs:9000}
-      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-rustfsadmin}
-      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-rustfsadmin}
-      RUSTFS_BUCKET: ${RUSTFS_BUCKET:-vizor-ai}
+      # Object storage: local disk (rustfs removed). LocalObjectStore writes under
+      # STORAGE_LOCAL_ROOT, backed by the shared `objstore` volume.
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      STORAGE_LOCAL_ROOT: ${STORAGE_LOCAL_ROOT:-/data/objstore}
       # Live worker decoder: async supervisor + GStreamer (NVDEC-capable) instead of
       # the legacy ffmpeg thread workers. Default on for scenario consistency with PPE.
       FRS_LIVE_ASYNC: ${FRS_LIVE_ASYNC:-1}
@@ -84,7 +81,7 @@ services:
       # gRPC endpoint for the new worker framework (hard-timeout infer, no hang).
       TRITON_GRPC_URL: ${TRITON_GRPC_URL:-triton:8001}
       # Durable AI event/control bus (separate from the core LRU cache redis).
-      AI_REDIS_URL: ${AI_REDIS_URL:-redis://ai-redis:6379/0}
+      AI_REDIS_URL: ${AI_REDIS_URL:-redis://redis:6379/1}
       DETECTOR_MODEL_PATH: /models/scrfd_10g.onnx
       EMBED_MODEL_PATH: /models/arcface_r50.onnx
       ANTISPOOF_MODEL_PATH: /models/antispoofing.onnx
@@ -107,6 +104,7 @@ services:
       - internal
     volumes:
       - frs_photos:/data/frs
+      - objstore:/data/objstore
     deploy:
       resources:
         limits:
@@ -152,7 +150,7 @@ services:
     depends_on:
       frs:
         condition: service_started
-      ai-redis:
+      redis:
         condition: service_healthy
       triton:
         condition: service_started
@@ -166,7 +164,7 @@ services:
       INFERENCE_BACKEND: ${FRS_INFERENCE_BACKEND:-triton}
       TRITON_URL: ${TRITON_URL:-triton:8000}
       TRITON_GRPC_URL: ${TRITON_GRPC_URL:-triton:8001}
-      AI_REDIS_URL: ${AI_REDIS_URL:-redis://ai-redis:6379/0}
+      AI_REDIS_URL: ${AI_REDIS_URL:-redis://redis:6379/1}
       # Recognition deps — the worker runs the full pipeline, so it needs the SAME
       # gallery vector store + person DB + snapshot dir as the app. Without QDRANT_URL
       # the gallery search returns 0 hits and every face is "Unknown 0%".
@@ -174,6 +172,8 @@ services:
       QDRANT_COLLECTION: ${QDRANT_COLLECTION:-vizor_frs_faces}
       FRS_DATABASE_URL: postgresql+psycopg2://frs:${AI_FRS_DB_PASSWORD:-frs}@frs-db:5432/frs
       DATA_PATH: /data/frs
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      STORAGE_LOCAL_ROOT: ${STORAGE_LOCAL_ROOT:-/data/objstore}
       FRS_LIVE_ENABLED: "true"
       GO2RTC_RTSP_HOST: go2rtc
       GO2RTC_RTSP_PORT: "8554"
@@ -204,6 +204,7 @@ services:
       - internal
     volumes:
       - frs_photos:/data/frs
+      - objstore:/data/objstore
     deploy:
       resources:
         limits:
@@ -223,3 +224,4 @@ networks:
 volumes:
   frs_db_data:
   frs_photos:
+  objstore:

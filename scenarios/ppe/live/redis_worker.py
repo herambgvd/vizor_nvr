@@ -116,7 +116,7 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO)
     # Force the PPE detector onto gRPC inside the worker process.
     os.environ.setdefault("VIZOR_TRITON_GRPC", "1")
-    redis_url = os.environ.get("AI_REDIS_URL", "redis://ai-redis:6379/0")
+    redis_url = os.environ.get("AI_REDIS_URL", "redis://redis:6379/1")
     import asyncio
     asyncio.run(PpeWorker(redis_url).run())
 

@@ -39,7 +39,7 @@ class _TransientDBError(Exception):
 
 
 def _redis_url() -> str:
-    return os.environ.get("AI_REDIS_URL", "redis://ai-redis:6379/0")
+    return os.environ.get("AI_REDIS_URL", "redis://redis:6379/1")
 
 
 def _db_ready() -> bool:

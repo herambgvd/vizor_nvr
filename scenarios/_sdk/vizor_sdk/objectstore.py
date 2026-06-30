@@ -115,20 +115,69 @@ class ObjectStore:
             "get_object", Params={"Bucket": self.bucket, "Key": key}, ExpiresIn=ttl)
 
 
-_DEFAULT: Optional[ObjectStore] = None
+class LocalObjectStore:
+    """Filesystem-backed object store — same interface as ObjectStore, no S3/rustfs.
+
+    Objects are stored as files under <root>/<key>, letting the stack drop the rustfs
+    container and keep media on a local-disk volume. presigned_url returns a backend
+    route (the app serves the file with auth) instead of an S3 signed URL.
+    """
+
+    def __init__(self, root: str, url_prefix: str = "/api/storage/object"):
+        self.root = os.path.abspath(root)
+        self.url_prefix = url_prefix.rstrip("/")
+        os.makedirs(self.root, exist_ok=True)
+
+    def _path(self, key: str) -> str:
+        safe = os.path.normpath(key).lstrip("/").replace("..", "")
+        return os.path.join(self.root, safe)
+
+    def put(self, key: str, data: bytes, content_type: str = "application/octet-stream") -> str:
+        p = self._path(key)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "wb") as f:
+            f.write(data)
+        return key
+
+    def get(self, key: str) -> bytes:
+        with open(self._path(key), "rb") as f:
+            return f.read()
+
+    def exists(self, key: str) -> bool:
+        return os.path.isfile(self._path(key))
+
+    def delete(self, key: str) -> None:
+        try:
+            os.remove(self._path(key))
+        except FileNotFoundError:
+            pass
+
+    def presigned_url(self, key: str, ttl: int = 3600) -> str:
+        # No S3 signing on local disk — return a backend route that serves the file.
+        return f"{self.url_prefix}/{key}"
+
+
+_DEFAULT = None
 _DEFAULT_LOCK = threading.Lock()
 
 
-def default_store() -> ObjectStore:
-    """Process-wide ObjectStore built from the RUSTFS_* environment."""
+def default_store():
+    """Process-wide object store. STORAGE_BACKEND=local (default) uses the local-disk
+    LocalObjectStore at STORAGE_LOCAL_ROOT; STORAGE_BACKEND=s3 uses the S3/rustfs
+    ObjectStore from the RUSTFS_* env."""
     global _DEFAULT
     if _DEFAULT is None:
         with _DEFAULT_LOCK:
             if _DEFAULT is None:
-                _DEFAULT = ObjectStore(
-                    endpoint=os.getenv("RUSTFS_ENDPOINT", "http://rustfs:9000"),
-                    access_key=os.getenv("RUSTFS_ACCESS_KEY", "rustfsadmin"),
-                    secret_key=os.getenv("RUSTFS_SECRET_KEY", "rustfsadmin"),
-                    bucket=os.getenv("RUSTFS_BUCKET", "vizor-ai"),
-                )
+                backend = os.getenv("STORAGE_BACKEND", "local").lower()
+                if backend in ("s3", "rustfs", "minio"):
+                    _DEFAULT = ObjectStore(
+                        endpoint=os.getenv("RUSTFS_ENDPOINT", "http://rustfs:9000"),
+                        access_key=os.getenv("RUSTFS_ACCESS_KEY", "rustfsadmin"),
+                        secret_key=os.getenv("RUSTFS_SECRET_KEY", "rustfsadmin"),
+                        bucket=os.getenv("RUSTFS_BUCKET", "vizor-ai"),
+                    )
+                else:
+                    _DEFAULT = LocalObjectStore(
+                        root=os.getenv("STORAGE_LOCAL_ROOT", "/data/objstore"))
     return _DEFAULT

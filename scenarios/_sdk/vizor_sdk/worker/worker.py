@@ -81,7 +81,7 @@ class BaseWorker(abc.ABC):
         async def on_config_update(cmd) -> None                        — optional
 
     Lifecycle:
-        worker = MyWorker(redis_url="redis://ai-redis:6379/0")
+        worker = MyWorker(redis_url="redis://redis:6379/1")
         await worker.run()             # blocks until SIGTERM/SIGINT
     """
 

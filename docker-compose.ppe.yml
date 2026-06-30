@@ -45,6 +45,8 @@ services:
       VIZOR_SERVICE_TOKEN: ${AI_PLUGIN_SERVICE_TOKEN:-dev-XNrW79MQknM38BVGRkDZWrUQhJsJ2HUBbYfTOkWAZY0}
       PPE_DATABASE_URL: postgresql+psycopg2://ppe:${AI_PPE_DB_PASSWORD:-ppe}@ppe-db:5432/ppe
       DATA_PATH: /data/ppe
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      STORAGE_LOCAL_ROOT: ${STORAGE_LOCAL_ROOT:-/data/objstore}
       # Live worker decoder: async supervisor + GStreamer (NVDEC-capable) instead of
       # the legacy ffmpeg thread workers. Default on for scenario consistency with FRS.
       PPE_LIVE_ASYNC: ${PPE_LIVE_ASYNC:-1}
@@ -65,7 +67,7 @@ services:
       INFERENCE_BACKEND: ${PPE_INFERENCE_BACKEND:-triton}
       TRITON_URL: ${TRITON_URL:-triton:8000}
       TRITON_GRPC_URL: ${TRITON_GRPC_URL:-triton:8001}
-      AI_REDIS_URL: ${AI_REDIS_URL:-redis://ai-redis:6379/0}
+      AI_REDIS_URL: ${AI_REDIS_URL:-redis://redis:6379/1}
       PPE_MODEL_NAME: ${PPE_MODEL_NAME:-ppe_yolo26_trt}
       # Second-stage verifiers (SigLIP / DINOv2) were REMOVED — the YOLO26 model detects
       # the negative classes itself and the v2 + ReID + lifecycle pipeline handles accuracy.
@@ -79,6 +81,7 @@ services:
       - internal
     volumes:
       - ppe_snapshots:/data/ppe
+      - objstore:/data/objstore
       - ./models:/models:ro
     deploy:
       resources:
@@ -126,7 +129,7 @@ services:
     depends_on:
       ppe:
         condition: service_started
-      ai-redis:
+      redis:
         condition: service_healthy
       triton:
         condition: service_started
@@ -139,7 +142,7 @@ services:
       TRITON_URL: ${TRITON_URL:-triton:8000}
       TRITON_GRPC_URL: ${TRITON_GRPC_URL:-triton:8001}
       VIZOR_TRITON_GRPC: "1"
-      AI_REDIS_URL: ${AI_REDIS_URL:-redis://ai-redis:6379/0}
+      AI_REDIS_URL: ${AI_REDIS_URL:-redis://redis:6379/1}
       PPE_MODEL_NAME: ${PPE_MODEL_NAME:-ppe_yolo26_trt}
       PPE_LIVE_ENABLED: "true"
       GO2RTC_RTSP_HOST: go2rtc
@@ -171,6 +174,7 @@ services:
       - internal
     volumes:
       - ppe_snapshots:/data/ppe
+      - objstore:/data/objstore
       - ./models:/models:ro
     deploy:
       resources:
@@ -189,5 +193,6 @@ networks:
     name: ${COMPOSE_PROJECT_NAME:-vizor_nvr}_internal
 
 volumes:
+  objstore:
   ppe_db_data:
   ppe_snapshots:

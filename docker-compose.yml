@@ -306,18 +306,24 @@ services:
     networks:
       - internal
 
-  # ── Redis (rate limiter + cache) ──────────────────────────────────────────
-  # Used by the backend rate limiter (app/core/rate_limiter.py).
-  # Persistence disabled — cache is not authoritative.
+  # ── Redis (cache db0 + AI event/control bus db1) ─────────────────────────
+  # db0: backend rate limiter / cache (volatile, evictable).
+  # db1: the AI scenarios' event stream (ai:events) + control plane — these MUST
+  #      NOT be evicted or lost, so the whole instance runs noeviction + AOF. (db
+  #      numbers isolate keyspaces but maxmemory + the eviction policy are
+  #      instance-wide, so a shared LRU instance would silently drop ai:events.)
+  #      This replaces the separate ai-redis container.
   redis:
     image: redis:7-alpine
     container_name: gvd_redis
     restart: unless-stopped
-    command: ["redis-server", "--maxmemory", "96mb", "--maxmemory-policy", "allkeys-lru", "--save", ""]
+    command: ["redis-server", "--maxmemory", "512mb", "--maxmemory-policy", "noeviction", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes:
+      - redis_data:/data
     deploy:
       resources:
         limits:
-          memory: 128m
+          memory: 640m
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -344,3 +350,7 @@ volumes:
   exports:
   hls:
   certs:
+  # Redis AOF persistence (the AI event bus on db1 must survive a restart).
+  redis_data:
+  # Shared local-disk object store for AI media (replaces rustfs).
+  objstore:

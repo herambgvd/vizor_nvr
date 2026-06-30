@@ -206,7 +206,7 @@ class FrsWorker(BaseWorker):
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO)
-    redis_url = os.environ.get("AI_REDIS_URL", "redis://ai-redis:6379/0")
+    redis_url = os.environ.get("AI_REDIS_URL", "redis://redis:6379/1")
     import asyncio
     asyncio.run(FrsWorker(redis_url).run())
 

@@ -30,7 +30,7 @@ CONTROL_STREAM = f"ai:{USE_CASE}:control"
 
 
 def _redis_url() -> str:
-    return os.environ.get("AI_REDIS_URL", "redis://ai-redis:6379/0")
+    return os.environ.get("AI_REDIS_URL", "redis://redis:6379/1")
 
 
 def _config_sig(cfg: dict) -> str:

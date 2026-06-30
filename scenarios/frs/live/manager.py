@@ -128,7 +128,7 @@ def _worker_v2_status() -> dict | None:
     try:
         import json as _json
         import redis as _redis
-        r = _redis.from_url(os.environ.get("AI_REDIS_URL", "redis://ai-redis:6379/0"),
+        r = _redis.from_url(os.environ.get("AI_REDIS_URL", "redis://redis:6379/1"),
                             decode_responses=True, socket_timeout=2)
         entries = r.xrevrange("ai:frs:status", count=1)
         if not entries:
