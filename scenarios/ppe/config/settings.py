@@ -72,13 +72,12 @@ DECODE_SCORE_FLOOR = float(os.getenv("PPE_DECODE_SCORE_FLOOR", "0.12"))
 # by the 1280 export. Operators can still raise helmet/vest per camera in the UI.
 PERSON_CONF = float(os.getenv("PPE_PERSON_CONF", "0.20"))
 HARDHAT_CONF = float(os.getenv("PPE_HARDHAT_CONF", "0.10"))
-# Vest detection floor. Was 0.50 — far too strict given the model has NO `no_vest`
-# class: vest compliance is judged purely by ABSENCE of a `vest` detection, so any
-# frame the model fails to detect a worn vest (turned worker, occlusion, low light)
-# is read as "missing" → a flood of false no-vest alerts. Lower the floor to match
-# the helmet floor so a worn vest is detected far more reliably and false absence
-# drops sharply. (The real fix is a `no_vest` class in the model — see notes.)
-VEST_CONF = float(os.getenv("PPE_VEST_CONF", "0.20"))
+# Vest detection floor. Was 0.50 — far too strict. The original AI-Powered project
+# (whose alerts were correct) used a SINGLE uniform 0.35 conf for every PPE class,
+# not a high per-item vest floor. The high 0.50 made the model count a worn vest as
+# "absent" whenever it wasn't very confident → false no-vest alerts (the vest has no
+# no_vest class, so it's judged by absence alone). Match the original's 0.35.
+VEST_CONF = float(os.getenv("PPE_VEST_CONF", "0.35"))
 GOGGLES_CONF = float(os.getenv("PPE_GOGGLES_CONF", "0.35"))
 BOOTS_CONF = float(os.getenv("PPE_BOOTS_CONF", "0.35"))
 NO_HARDHAT_CONF = float(os.getenv("PPE_NO_HARDHAT_CONF", "0.15"))
