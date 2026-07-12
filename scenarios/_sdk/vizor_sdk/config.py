@@ -19,7 +19,7 @@ class BaseConfig:
 
         from vizor_sdk.config import BaseConfig
         class Config(BaseConfig):
-            SLUG = "anpr"
+            SLUG = "ppe"
             # ...scenario-specific fields...
         config = Config()
     """

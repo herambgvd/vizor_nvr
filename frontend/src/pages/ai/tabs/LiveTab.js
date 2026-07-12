@@ -4,7 +4,7 @@
 //
 // For FRS, recent recognition events are polled every 3s from the FRS plugin's
 // /live endpoint and overlaid per-camera as person-name + confidence badges.
-// Other scenarios (suspect-search, PPE, …) render the same camera wall without
+// Other scenarios (PPE, …) render the same camera wall without
 // the recognition overlay (they have no live per-person feed), so the Live tab
 // is consistent across every scenario.
 // =============================================================================
@@ -263,7 +263,6 @@ function violationPhrase(ev, slug) {
     }
     return "P P E not detected";
   }
-  if (slug === "anpr") return "Blacklisted vehicle detected";
   if (slug === "frs") {
     if (ev?.event_type === "spoof_detected") return "Spoof detected";
     return "Unknown person detected";
@@ -308,7 +307,7 @@ function isFrsAnnounceEvent(ev) {
 }
 
 // Does this fresh event warrant the loud alarm? Violation-ish across scenarios:
-// PPE missing PPE, FRS unknown/spoof, ANPR blacklist hit. Anything else is a
+// PPE missing PPE, FRS unknown/spoof. Anything else is a
 // routine detection → soft chirp.
 function isViolationEvent(ev) {
   const t = ev?.event_type;
@@ -364,7 +363,6 @@ function FrsAuthBadge({ ev }) {
 function liveEventLabel(ev, slug) {
   if (!ev) return "Detection";
   if (slug === "frs") return eventPersonName(ev);
-  if (slug === "anpr") return ev.plate || ev.label || friendlyEventType(ev.event_type);
   // PPE: name the actual PPE state — missing items, or "Compliant" — not the raw
   // "ppe missing" slug.
   if (slug === "ppe") {

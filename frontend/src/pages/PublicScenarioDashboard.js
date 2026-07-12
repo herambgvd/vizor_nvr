@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 
-// Public, UNAUTHENTICATED scenario analytics dashboard (FRS / PPE / ANPR / …).
+// Public, UNAUTHENTICATED scenario analytics dashboard (FRS / PPE / …).
 // Aggregate numbers only — no snapshots/raw images. Realtime via the backend SSE
 // relay. Vercel-style: full-bleed near-black surface, hairline borders, inline
 // SVG charts. Per-scenario labels come from SCENARIO_DESCRIPTORS; the data shape
@@ -34,26 +34,6 @@ const SCENARIO_DESCRIPTORS = {
     ],
     split: { title: "Compliance split", a: "compliant_today", aLabel: "Compliant", b: "violations_today", bLabel: "Violation" },
     topList: { title: "Top violations today", source: "top_violation_types", name: "type" },
-    feedLabel: (ev) => (ev.label || (ev.event_type || "").replace(/_/g, " ")),
-  },
-  anpr: {
-    title: "License Plate Recognition",
-    cards: [
-      { key: "reads_today", label: "Plate reads today", accent: "blue" },
-      { key: "blacklist_hits_today", label: "Alert hits today", accent: "amber" },
-      { key: "whitelist_hits_today", label: "Allowed today", accent: "green" },
-      { key: "unique_plates_today", label: "Unique plates", accent: "violet" },
-    ],
-    topList: { title: "By vehicle type", source: "by_vehicle_type", name: "type", count: "count" },
-    feedLabel: (ev) => (ev.label || ev.plate || (ev.event_type || "").replace(/_/g, " ")),
-  },
-  "suspect-search": {
-    title: "Suspect Search",
-    cards: [
-      { key: "searches_today", label: "Searches today", accent: "blue" },
-      { key: "matches_today", label: "Matches today", accent: "green" },
-      { key: "indexed_candidates", label: "Indexed", accent: "violet" },
-    ],
     feedLabel: (ev) => (ev.label || (ev.event_type || "").replace(/_/g, " ")),
   },
 };

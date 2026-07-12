@@ -33,8 +33,6 @@ const FEATURE_LABELS = {
   ai_modules: "AI Analytics",
   frs: "Face Recognition",
   ppe: "PPE Detection",
-  anpr: "License Plate Recognition",
-  lpr: "License Plate Recognition",
   analytics: "Advanced Analytics",
   clustering: "High Availability",
   cluster: "High Availability",

@@ -129,7 +129,7 @@ const AppRoutes = () => (
       />
 
       {/* Fully public — no auth, no license gate. Operator-toggled per-scenario
-          dashboard (/public/frs, /public/ppe, /public/anpr, …). */}
+          dashboard (/public/frs, /public/ppe, …). */}
       <Route path="/public/:slug" element={<PublicScenarioDashboard />} />
 
       {/* License gate — authenticated but reachable without a license */}

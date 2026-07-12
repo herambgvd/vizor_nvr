@@ -82,21 +82,9 @@ PRODUCT_MODULES = [
         "kind": "scenario",
     },
     {
-        "key": "anpr",
-        "label": "ANPR",
-        "description": "Automatic number plate recognition.",
-        "kind": "scenario",
-    },
-    {
         "key": "people_counting",
         "label": "People Counting",
         "description": "People counting scenario.",
-        "kind": "scenario",
-    },
-    {
-        "key": "suspect_search",
-        "label": "Suspect Search",
-        "description": "Archive search with image/query filters.",
         "kind": "scenario",
     },
 ]

@@ -340,7 +340,7 @@ const RoiField = ({ field, value, onChange, cameraId }) => {
 };
 
 // Line editor — a 2-point tripwire over a live frame, normalised (0..1) points.
-// Used for ANPR direction / speed-calibration lines.
+// Used for scenario direction / calibration lines.
 const LineField = ({ field, value, onChange, cameraId }) => {
   const points = Array.isArray(value) ? value.slice(0, 2) : [];
   const wrapRef = React.useRef(null);

@@ -231,12 +231,11 @@ services:
         REACT_APP_API_URL: ${FRONTEND_API_URL:-/api}
         REACT_APP_WS_URL: ${FRONTEND_WS_URL:-/api/ws}
         REACT_APP_GO2RTC_URL: ${FRONTEND_GO2RTC_URL:-/go2rtc}
-        # WebRTC ICE servers (JSON array). A coturn TURN relay so a browser on a
-        # DIFFERENT machine/network than the NVR can still receive the media stream
-        # (direct host candidates only work same-LAN; TURN relays through the server).
-        # Default points at the bundled coturn on this server's LAN IP — set
-        # FRONTEND_ICE_SERVERS at build time to the deployment's real server IP/creds.
-        REACT_APP_ICE_SERVERS: ${FRONTEND_ICE_SERVERS:-[{"urls":"turn:192.168.1.99:3478","username":"vizor","credential":"vizorturn"}]}
+        # WebRTC ICE servers (JSON array). EMPTY by default — go2rtc's auto-discovered
+        # host candidates handle same-LAN live view, and hardcoding a TURN/STUN default
+        # here broke live view. Only set FRONTEND_ICE_SERVERS for a deployment that
+        # genuinely needs a TURN relay (cross-subnet / internet), with that site's creds.
+        REACT_APP_ICE_SERVERS: ${FRONTEND_ICE_SERVERS:-}
     container_name: gvd_frontend
     restart: unless-stopped
     deploy:
@@ -251,28 +250,10 @@ services:
     networks:
       - internal
 
-  # ── coturn — TURN/STUN relay for WebRTC from remote machines ────────────────
-  # A browser on a different machine/network than the NVR can't reach go2rtc's
-  # LAN host candidate directly; coturn relays the media so live view works from
-  # anywhere that can reach the server. host network so it can hand out its own
-  # relay address without Docker NAT mangling the candidates.
-  coturn:
-    image: coturn/coturn:4.6-alpine
-    container_name: gvd_coturn
-    restart: unless-stopped
-    network_mode: host
-    command:
-      - -n
-      - --listening-port=3478
-      - --fingerprint
-      - --lt-cred-mech
-      - --user=${TURN_USER:-vizor}:${TURN_PASSWORD:-vizorturn}
-      - --realm=vizor
-      - --no-tls
-      - --no-dtls
-      # Relay range — open these UDP ports on the host firewall for remote clients.
-      - --min-port=49160
-      - --max-port=49200
+  # NOTE: a TURN relay (coturn) is NOT bundled by default — it isn't needed for the
+  # same-LAN path and pinning TURN/candidate config broke live view. If a deployment
+  # genuinely needs cross-subnet/remote WebRTC, add coturn at the edge and set
+  # FRONTEND_ICE_SERVERS for that site; don't make it the default.
 
   # ── Nginx reverse proxy ────────────────────────────────────────────────────
   nginx:

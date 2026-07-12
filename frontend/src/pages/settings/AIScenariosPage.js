@@ -2,7 +2,7 @@
 // Settings · AI Scenarios — /settings/ai-scenarios
 // =============================================================================
 // Page shell around AIScenariosSection so operators have a place to enable /
-// disable licensed AI scenarios (FRS / PPE / suspect-search). Licensing comes
+// disable licensed AI scenarios (FRS / PPE). Licensing comes
 // from the signed .lic file; the section itself only renders scenarios the
 // license unlocks.
 // =============================================================================

@@ -32,7 +32,7 @@ if _HAS_PYDANTIC:
     class ScenarioEvent(BaseModel):
         """Uniform event envelope across all scenarios."""
 
-        scenario: str                       # slug, e.g. "frs", "anpr", "loitering"
+        scenario: str                       # slug, e.g. "frs", "ppe", "loitering"
         camera_id: str
         event_type: str                     # scenario verb: face_match, line_cross, gun_detected…
         confidence: float = 0.0

@@ -6,7 +6,7 @@ Every scenario needs the same two operator features FRS pioneered:
      operator-minted API key.
 
 The machinery is identical across scenarios; only the *data* differs (FRS shows
-recognized/unknown faces, PPE shows violations, ANPR shows plate reads). So the
+recognized/unknown faces, PPE shows violations). So the
 SDK owns:
   - SettingsStore  — read/update the singleton settings row (public toggle, ingest
                      toggle, ingest key, show_names) on the plugin's OWN model.

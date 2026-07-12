@@ -66,7 +66,7 @@ export const proxyScenario = async (
 };
 
 // Scenario feature settings (public dashboard + third-party ingest API) — works
-// for ANY scenario (frs/ppe/anpr/suspect-search). Operator-facing, routed through
+// for ANY scenario (frs/ppe). Operator-facing, routed through
 // the authenticated proxy.
 export const getScenarioFeatureSettings = (slug) =>
   proxyScenario(slug, "/settings");
@@ -522,11 +522,10 @@ export const listTransitSessions = async (params = {}) =>
 export const deleteTransitSession = async (id) =>
   proxyScenario(FRS_SLUG, `/transit/sessions/${id}`, { method: "DELETE" });
 
-// ---------- generic scenario events / plates (plugin-owned) ----------
-// Plugin scenarios (PPE, ANPR) own their event store and expose a unified
-// {items,total,limit,offset} envelope. Read endpoint differs by scenario:
-// PPE serves /events, ANPR serves /plates (the plate reads ARE the events).
-export const SCENARIO_EVENT_ENDPOINT = { ppe: "/events", anpr: "/plates" };
+// ---------- generic scenario events (plugin-owned) ----------
+// Plugin scenarios own their event store and expose a unified
+// {items,total,limit,offset} envelope. PPE serves /events.
+export const SCENARIO_EVENT_ENDPOINT = { ppe: "/events" };
 
 export const scenarioEventEndpoint = (slug) =>
   SCENARIO_EVENT_ENDPOINT[slug] || "/events";
@@ -535,48 +534,10 @@ export const scenarioEventEndpoint = (slug) =>
 export const listScenarioPluginEvents = async (slug, params = {}) =>
   proxyScenario(slug, scenarioEventEndpoint(slug), { params });
 
-// Delete one plugin event (PPE /events/{id}, ANPR /plates/{id}).
+// Delete one plugin event (PPE /events/{id}).
 export const deleteScenarioPluginEvent = async (slug, id) =>
   proxyScenario(slug, `${scenarioEventEndpoint(slug)}/${id}`, { method: "DELETE" });
 
 // Bulk delete — accepts { ids: [...] } or { all_matching: true, ... }.
 export const bulkDeleteScenarioPluginEvents = async (slug, body) =>
   proxyScenario(slug, `${scenarioEventEndpoint(slug)}/delete`, { method: "POST", data: body });
-
-// ---------- ANPR — user-defined plate lists ----------
-const ANPR_SLUG = "anpr";
-
-// List definitions (categories, each with an action alert/allow/log).
-export const listAnprListDefs = async () =>
-  proxyScenario(ANPR_SLUG, "/lists/defs");
-
-export const createAnprListDef = async (payload) =>
-  proxyScenario(ANPR_SLUG, "/lists/defs", { method: "POST", data: payload });
-
-export const updateAnprListDef = async (id, patch) =>
-  proxyScenario(ANPR_SLUG, `/lists/defs/${id}`, { method: "PUT", data: patch });
-
-export const deleteAnprListDef = async (id) =>
-  proxyScenario(ANPR_SLUG, `/lists/defs/${id}`, { method: "DELETE" });
-
-// Plate entries (each belongs to a list_id).
-export const listAnprLists = async (params = {}) =>
-  proxyScenario(ANPR_SLUG, "/lists", { params });
-
-export const addAnprListEntry = async (payload) =>
-  proxyScenario(ANPR_SLUG, "/lists", { method: "POST", data: payload });
-
-export const deleteAnprListEntry = async (id) =>
-  proxyScenario(ANPR_SLUG, `/lists/${id}`, { method: "DELETE" });
-
-// CSV import — multipart upload (field `file`) into a target list (by id).
-export const importAnprList = async (file, listId) => {
-  const form = new FormData();
-  form.append("file", file);
-  return proxyScenario(ANPR_SLUG, "/lists/import", {
-    method: "POST",
-    data: form,
-    params: { list_id: listId },
-    headers: { "Content-Type": "multipart/form-data" },
-  });
-};

@@ -67,12 +67,10 @@ FEATURE_CHOICES = [
     "recording",
     "playback",
     "ppe",
-    "anpr",
     "frs",
     "people_counting",
-    "suspect_search",
 ]
-SCENARIO_CHOICES = ["ppe", "anpr", "frs", "people_counting", "suspect_search"]
+SCENARIO_CHOICES = ["ppe", "frs", "people_counting"]
 FEATURE_OPTION_CHOICES = {
     "frs": ["attendance", "investigation"],
 }
@@ -335,7 +333,7 @@ def _wizard(args: argparse.Namespace) -> None:
     scenarios = _prompt_multi(
         "Licensed AI scenarios",
         SCENARIO_CHOICES,
-        [s for s in ["ppe", "anpr", "frs"] if s in features],
+        [s for s in ["ppe", "frs"] if s in features],
     )
     feature_options = {}
     if "frs" in features or "frs" in scenarios:

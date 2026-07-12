@@ -24,7 +24,7 @@ def test_proxy_route_rejects_undeclared_method_or_path():
 
 
 def test_manifest_tabs_alias_populates_module_tabs():
-    manifest = {"slug": "suspect-search", "name": "Suspect Search", "tabs": ["search", "jobs"]}
+    manifest = {"slug": "demo", "name": "Demo Scenario", "tabs": ["search", "jobs"]}
 
     validate_manifest(manifest)
 
@@ -32,7 +32,7 @@ def test_manifest_tabs_alias_populates_module_tabs():
 
 
 def test_manifest_rejects_invalid_proxy_routes():
-    manifest = {"slug": "suspect-search", "name": "Suspect Search", "proxy_routes": "wide-open"}
+    manifest = {"slug": "demo", "name": "Demo Scenario", "proxy_routes": "wide-open"}
 
     with pytest.raises(ManifestError):
         validate_manifest(manifest)

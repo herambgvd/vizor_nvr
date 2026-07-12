@@ -16,7 +16,7 @@ from app.ai.models import AIScenario
 
 logger = logging.getLogger(__name__)
 
-# Static catalog. All current scenarios (frs, ppe, suspect-search) ship as
+# Static catalog. All current scenarios (frs, ppe) ship as
 # standalone microservices under scenarios/ and self-register their manifest via
 # POST /api/ai/scenarios/register on boot, so the seed catalog is intentionally
 # empty. Add an entry here only for a scenario the NVR must know about before any

@@ -93,23 +93,6 @@ const SCENARIO_TABS = {
     reports: lazy(() => import("./scenarios/ppe/ReportsTab")),
     settings: lazy(() => import("./scenarios/ppe/SettingsTab")),
   },
-  anpr: {
-    cameras: lazy(sharedCameras),
-    live: lazy(sharedLive),
-    plates: lazy(() => import("./scenarios/anpr/PlatesTab")),
-    lists: lazy(() => import("./scenarios/anpr/ListsTab")),
-    events: lazy(() => import("./scenarios/anpr/EventsTab")),
-    reports: lazy(() => import("./scenarios/anpr/ReportsTab")),
-    settings: lazy(() => import("./scenarios/anpr/SettingsTab")),
-  },
-  "suspect-search": {
-    cameras: lazy(sharedCameras),
-    search: lazy(() => import("./scenarios/suspect-search/SearchTab")),
-    jobs: lazy(() => import("./scenarios/suspect-search/JobsTab")),
-    // Suspect Search's manifest uses "info" for its settings/info surface.
-    info: lazy(() => import("./scenarios/suspect-search/SettingsTab")),
-    settings: lazy(() => import("./scenarios/suspect-search/SettingsTab")),
-  },
 };
 const EMPTY_TABS = {};
 

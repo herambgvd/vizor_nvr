@@ -1,7 +1,7 @@
 """Shared Qdrant vector store base for vector scenarios.
 
-One generic store backing every embedding scenario: FRS faces, Suspect-Search
-ReID bodies, ANPR plate-embeddings. A plugin instantiates it with its own
+One generic store backing every embedding scenario: FRS faces,
+person ReID bodies. A plugin instantiates it with its own
 collection name + vector size; the store owns connect / ensure / upsert / search
 / delete / count.
 

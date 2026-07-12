@@ -1,7 +1,7 @@
 """Shared object-store client for AI scenario plugins — RustFS / S3-compatible.
 
 A thin synchronous boto3 wrapper used by the plugins (FRS ID documents now; PPE/
-ANPR/SuspectSearch media later). Reads its config from the environment so every
+other scenario media later). Reads its config from the environment so every
 plugin shares one bucket without a DB round-trip:
 
   RUSTFS_ENDPOINT    (default http://rustfs:9000)

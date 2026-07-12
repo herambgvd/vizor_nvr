@@ -425,20 +425,12 @@ async def _proxy_to_scenario(
     manifest = _manifest(scenario)
     if not is_proxy_route_allowed(manifest, request.method, path):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "proxy route not allowed by scenario manifest")
-    # Biometric RBAC. Face scenario (FRS): enroll/delete/search need elevated
-    # perms. Suspect-search: forensic person search is a privileged action too.
+    # Biometric RBAC. Face scenario (FRS): enroll/delete/search need elevated perms.
     if slug == "frs":
         needed = _required_face_permission(request.method, path)
         if needed and not await has_permission(db, user, needed):
             raise HTTPException(status.HTTP_403_FORBIDDEN,
                                 f"requires '{needed}' permission")
-    elif slug == "suspect-search":
-        p_clean = path.strip("/")
-        if request.method == "POST" and (p_clean in ("search", "jobs/search", "jobs/index")
-                                         or p_clean.endswith("/search-similar")):
-            if not await has_permission(db, user, "search_ai_faces"):
-                raise HTTPException(status.HTTP_403_FORBIDDEN,
-                                    "requires 'search_ai_faces' permission")
     service_url = _service_url(scenario)
     if not service_url:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "scenario service_url not configured")
@@ -513,7 +505,7 @@ async def _proxy_to_scenario(
             details["plugin_response"] = upstream.text[:500]
         await write_audit(
             db,
-            action="ai_suspect_search_job_create" if slug == "suspect-search" else "ai_scenario_job_create",
+            action="ai_scenario_job_create",
             user_id=str(user.get("id") or ""),
             username=str(user.get("username") or ""),
             ip_address=client_ip(request),

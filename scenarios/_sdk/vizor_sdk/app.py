@@ -8,10 +8,10 @@ callback + startup/shutdown hooks.
     from vizor_sdk.app import build_app
     from vizor_sdk.nvr import NvrClient
     app = build_app(
-        title="Vizor ANPR", slug="anpr", version="1.0.0",
+        title="Vizor PPE", slug="ppe", version="1.0.0",
         manifest_path=config.MANIFEST_PATH,
-        nvr=NvrClient(config.VIZOR_BASE_URL, config.VIZOR_API_KEY, "anpr"),
-        routers=[plates.router],
+        nvr=NvrClient(config.VIZOR_BASE_URL, config.VIZOR_API_KEY, "ppe"),
+        routers=[detect.router],
         health_detail=lambda: {"triton": engine.status()},
         on_startup=[live.start], on_shutdown=[live.stop],
     )
