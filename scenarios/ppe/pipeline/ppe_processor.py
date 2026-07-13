@@ -23,11 +23,7 @@ import config
 
 from .association_engine import AssociationEngine, NEG_OF
 from .compliance_engine_poc import ComplianceEngine
-from .engine import (
-    Detection,
-    deduplicate_persons,
-    eligible_people,
-)
+from .engine import Detection
 from .event_manager import EventManager
 from .reid_matcher import gid_to_int
 from .reid_tracker import ReIDTracker
@@ -121,30 +117,38 @@ class PPEProcessor:
                 if d.confidence >= ppe_conf:
                     items.append(d)
 
-        persons = deduplicate_persons(
-            eligible_people(all_persons, frame_h, frame_w, config.MIN_PERSON_HEIGHT,
-                            config.MIN_FOOT_Y, config.BORDER_MARGIN,
-                            config.MAX_PERSON_ASPECT, self.min_person_frac))
+        # NO eligibility / dedup gate. The client-proven POC pipeline does NOT filter
+        # persons by size / height / border / aspect nor deduplicate — it tracks EVERY
+        # detected person (the ByteTrack buffer + ReID identity layer handle stability).
+        # vizor's earlier eligible_people()+deduplicate_persons() silently dropped far /
+        # top-down / partially-cropped workers (e.g. CS-3), which the POC kept. Removed
+        # for exact POC parity.
+        persons = list(all_persons)
         if roi is not None:
             persons = [p for p in persons if in_roi(p, roi)]
         if not persons:
             self.events.purge(now)
             return [], {}, {}
 
-        # Raw ByteTrack ids (POC-param tracker).
+        # Raw ByteTrack ids (POC custom_bytetrack.yaml params). rid==0 (unconfirmed) is
+        # kept as None; the ReIDTracker below assigns a POC fallback id so the worker is
+        # never dropped for a frame ByteTrack hasn't confirmed yet.
         dets_for_track = [(list(p.box), float(p.confidence)) for p in persons]
         raw_ids = assign_track_ids(self.tracker, dets_for_track)
-        tracked = [Detection(p.label, p.confidence, p.box, rid)
-                   for p, rid in zip(persons, raw_ids) if rid]
-        if not tracked:
-            self.events.purge(now)
-            return [], {}, {}
-        persons = tracked
+        persons = [Detection(p.label, p.confidence, p.box, (rid or None))
+                   for p, rid in zip(persons, raw_ids)]
 
-        # ReID → stable global identity per track (POC TrackerManager). gid_map: tid -> gid.
+        # ReID + fallback-id → stable identity per track (POC TrackerManager). Returns the
+        # persons with a stable track_id filled in (ByteTrack id or fallback) + gid_map.
         gid_map: dict = {}
         if self.reid_tracker is not None:
-            gid_map = self.reid_tracker.update(frame, persons)
+            persons, gid_map = self.reid_tracker.update(frame, persons)
+        else:
+            # No ReID: assign a simple fallback id to any untracked person so it isn't
+            # dropped (POC never skips a detected person).
+            persons = [p if p.track_id is not None
+                       else Detection(p.label, p.confidence, p.box, id(p) % 2_000_000 + 1)
+                       for p in persons]
 
         def _reid_lookup(tid):
             return gid_map.get(tid)

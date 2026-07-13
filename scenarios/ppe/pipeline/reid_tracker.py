@@ -64,17 +64,25 @@ class ReIDTracker:
         self._max_age = float(getattr(config, "PPE_REID_MAX_AGE_SECONDS", 12.0))
 
     def update(self, frame, persons: List[Detection]) -> Dict[int, str]:
-        """persons: tracked Detection list (track_id set). Returns {track_id -> gid}."""
+        """persons: Detection list (track_id may be None). Returns
+        (out_persons, gid_map): out_persons are the SAME persons but with a stable
+        track_id filled in (a ByteTrack id, or a POC fallback id when ByteTrack gave
+        none — so a worker is NEVER dropped for an unconfirmed frame); gid_map maps
+        that track_id -> ReID global id."""
         now_wall = time()
         seen_ids: set = set()
         gid_map: Dict[int, str] = {}
+        out_persons: List[Detection] = []
 
         for det in persons:
             if det.label != "Person":
+                out_persons.append(det)
                 continue
             tid = det.track_id
             if tid is None:
                 tid = self._assign_fallback_id(det)
+                det = Detection(det.label, det.confidence, det.box, tid)
+            out_persons.append(det)
             seen_ids.add(tid)
             state = self.tracks.get(tid)
 
@@ -146,7 +154,7 @@ class ReIDTracker:
         except Exception:  # noqa: BLE001
             pass
 
-        return gid_map
+        return out_persons, gid_map
 
     def _assign_fallback_id(self, det: Detection) -> int:
         x1, y1, x2, y2 = det.box
