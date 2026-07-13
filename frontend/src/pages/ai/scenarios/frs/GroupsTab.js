@@ -283,7 +283,10 @@ const GroupsTab = () => {
   });
 
   return (
-    <div className="p-6 flex flex-col gap-4">
+    // h-full + overflow-y-auto: the workspace content area is overflow-hidden and
+    // expects each tab to own its scroll (matches DetectTab). Without it a long group
+    // list is clipped and can't scroll.
+    <div className="p-6 flex flex-col gap-4 h-full overflow-y-auto">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <FolderTree className="h-4 w-4" style={{ color: "var(--console-accent)" }} />

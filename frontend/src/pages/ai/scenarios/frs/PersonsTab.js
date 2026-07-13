@@ -896,7 +896,11 @@ const PersonsTab = () => {
   const drawerPerson = items.find((p) => p.id === openPersonId) || null;
 
   return (
-    <div className="p-6 flex flex-col gap-4">
+    // h-full + overflow-y-auto: the workspace content area is overflow-hidden and
+    // expects each tab to own its scroll. Without this the persons grid (a full page
+    // of cards) was clipped — the grid couldn't scroll and the bottom pager sat below
+    // the fold (only visible at 70% browser zoom). Scrolling here fixes both.
+    <div className="p-6 flex flex-col gap-4 h-full overflow-y-auto">
       {/* toolbar */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2">
