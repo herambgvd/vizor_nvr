@@ -904,6 +904,20 @@ const PersonsTab = () => {
           <span className="font-telemetry text-[11px] uppercase tracking-widest" style={{ color: "var(--console-muted)" }}>
             Persons · {total}
           </span>
+          {/* Compact pagination in the toolbar — always visible without scrolling past
+              the whole grid (the bottom pager sits below a full-screen grid and was
+              easy to miss). Shown whenever there is more than one page. */}
+          {pages > 1 && (
+            <div className="flex items-center gap-1.5 ml-2">
+              <button type="button" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))} className="h-6 w-6 inline-flex items-center justify-center rounded border disabled:opacity-40" style={{ background: "var(--console-raised)", borderColor: "var(--console-border)", color: "var(--console-muted)" }}>
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </button>
+              <span className="font-telemetry text-[10px]" style={{ color: "var(--console-muted)" }}>{page + 1} / {pages}</span>
+              <button type="button" disabled={page + 1 >= pages} onClick={() => setPage((p) => p + 1)} className="h-6 w-6 inline-flex items-center justify-center rounded border disabled:opacity-40" style={{ background: "var(--console-raised)", borderColor: "var(--console-border)", color: "var(--console-muted)" }}>
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2 flex-1 justify-end flex-wrap">
           <div className="relative">
