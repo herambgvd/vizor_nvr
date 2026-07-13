@@ -1,33 +1,41 @@
-"""Shared PPE frame processor — the SINGLE place the full AI-Powered pipeline lives, so
-the live camera worker and the video-upload job behave IDENTICALLY.
+"""Shared PPE frame processor — the SINGLE place the full pipeline lives, so the live
+camera worker and the video-upload job behave IDENTICALLY.
 
-Per frame it does: detect → person filter (conf / eligibility / dedup) → ROI gate →
-ByteTrack (AI-Powered params) + stable relink → Re-ID remap to a stable global identity →
-tight-region association (associate_v2) + per-item compliance (ComplianceEngineV2) +
-presence smoothing → event lifecycle (one incident per worker, create-then-upsert).
+This runs the CLIENT-PROVEN POC pipeline (gvd_ppe_poc) VERBATIM, on Triton inference:
+  detect (Triton) → per-CATEGORY confidence gate (person 0.35 / PPE 0.50 / neg 0.50) →
+  eligibility + dedup + ROI person-gate → raw ByteTrack ids (vizor_sdk, POC params) →
+  ReIDTracker (stable global identity, 15-frame embed refresh, temporary-unknown) →
+  AssociationEngine (tight body-region scoring) → ComplianceEngine (6-of-8 temporal
+  confirm, min bbox area, per-track person-conf) → EventManager (OBSERVED→NEW→ACTIVE→
+  RESOLVED→EXPIRED lifecycle) → emit ACTIONS.
 
-It owns the cross-frame state (tracker, stable mapper, re-id matcher + cache, presence
-smoother, compliance engine, lifecycle) so the caller just feeds frames and emits/draws
-from the returned actions. No DB / drawing / video I/O here.
+It owns the cross-frame state and returns the SAME (persons, results, actions) contract
+the shell (live/worker.py, live/video_job.py) already consumes, so persistence,
+snapshots and drawing are unchanged. No DB / drawing / video I/O here.
+
+results[tid] = {"present": set[canonical], "missing": [canonical], "fired": [(evt,label)]}
+actions[tid] = {"action":"create","type":"violation","missing":[...]} on a new incident,
+               {"action":"update", ...} while it continues, or None.
 """
 from __future__ import annotations
 
-import os
-
 import config
 
-from .association_v2 import associate_v2  # noqa: F401
-from .compliance_v2 import ComplianceEngineV2
+from .association_engine import AssociationEngine, NEG_OF
+from .compliance_engine_poc import ComplianceEngine
 from .engine import (
     Detection,
-    StableIdMapper,
     deduplicate_persons,
     eligible_people,
 )
-from .event_lifecycle import EventLifecycle
-from .process_v2 import PresenceSmoother, evaluate_frame
-from .reid_matcher import ReIDMatcher, gid_to_int
+from .event_manager import EventManager
+from .reid_matcher import gid_to_int
+from .reid_tracker import ReIDTracker
 from .roi import in_roi
+
+# UI item name (lowercase) → canonical detector label; used to map per-camera
+# `required_items` (["helmet","vest"]) to canonical (["Hardhat","Safety_Vest"]).
+from .engine import ITEM_TO_CANONICAL
 
 
 def _reid_enabled() -> bool:
@@ -35,11 +43,12 @@ def _reid_enabled() -> bool:
 
 
 class PPEProcessor:
-    """Stateful per-source PPE pipeline. One instance per camera / per video job.
+    """Stateful per-source PPE pipeline (POC logic on Triton). One per camera / video job.
 
     required: canonical labels to enforce (e.g. ["Hardhat","Safety_Vest"]).
-    item_floor: callable label -> confidence floor (per-camera UI sliders). When None a
-                uniform floor is used.
+    item_floor: kept for API compatibility; the POC uses per-CATEGORY gates
+                (PERSON_CONF / PPE_CONF / NEG_PPE_CONF) applied here, so per-item
+                floors are not consulted in the ported path.
     """
 
     def __init__(self, *, required, item_floor=None, missing_grace=None, cooldown=None,
@@ -48,76 +57,69 @@ class PPEProcessor:
         self.required = list(required)
         self.item_floor = item_floor
         self.camera_id = camera_id
-        # Per-camera eligibility gates from the UI sliders (shim config). Default to the
-        # module constants when not supplied so behaviour is unchanged for callers that
-        # don't pass them. Previously process() read config.PERSON_CONF /
-        # config.MIN_PERSON_FRAC directly, so the per-camera sliders were DEAD.
+        # Person detection gate + min-size eligibility. Per-camera UI sliders still flow
+        # in via person_conf / min_person_frac; default to POC constants.
         self.person_conf = (person_conf if person_conf is not None
-                            else getattr(config, "PERSON_CONF", 0.20))
+                            else getattr(config, "PERSON_CONF", 0.35))
         self.min_person_frac = (min_person_frac if min_person_frac is not None
-                                else getattr(config, "MIN_PERSON_FRAC", 0.05))
-        grace = missing_grace if missing_grace is not None else getattr(
-            config, "V2_MISSING_GRACE", 1.0)
-        self.cooldown = cooldown if cooldown is not None else config.COOLDOWN
+                                else getattr(config, "MIN_PERSON_FRAC", 0.08))
 
-        # ByteTrack high_thresh = the confidence needed to START a new track. It MUST be
-        # <= the person-detection floor (PERSON_CONF, default 0.20), otherwise low-confidence
-        # people (night / far / dim cameras detect at ~0.2-0.4) never establish a track →
-        # track_id stays 0 → they're skipped → NO events. The AI-Powered yaml's 0.45 was
-        # tuned for a bright webcam and silently dropped every dim worker here. Default it
-        # to PERSON_CONF so anything detected can also be tracked.
-        _high = getattr(config, "PPE_TRACK_HIGH_THRESH", None)
-        if _high is None:
-            _high = min(getattr(config, "PERSON_CONF", 0.20), 0.30)
+        # ByteTrack with POC custom_bytetrack.yaml params (0.45 / 0.10 / 0.80 / 120).
         self.tracker = ByteTracker(
-            iou_threshold=getattr(config, "PPE_TRACK_MATCH_THRESH", 0.30),
-            max_age=getattr(config, "PPE_TRACK_BUFFER", 150),
-            high_thresh=_high,
-            low_thresh=getattr(config, "PPE_TRACK_LOW_THRESH", 0.05))
-        self.stable = StableIdMapper(getattr(config, "STABLE_ID_MAX_AGE", 12.0))
-        self.engine = ComplianceEngineV2(self.required, grace, self.cooldown)
-        # Presence smoothing driven by config, not hardcoded. A lower min_frac credits a
-        # worn item that only detects intermittently (favours not falsely flagging).
-        self.smoother = PresenceSmoother(
-            window=int(getattr(config, "SMOOTH_WINDOW", 15)),
-            min_frac=float(getattr(config, "PPE_PRESENCE_MIN_FRAC", 0.3)))
-        self.lifecycle = EventLifecycle(
-            enter_frames=getattr(config, "PPE_LIFECYCLE_ENTER_FRAMES", 3),
-            expire_s=getattr(config, "PPE_LIFECYCLE_EXPIRE_S", 8.0),
-            dup_cooldown_s=getattr(config, "PPE_LIFECYCLE_DUP_COOLDOWN_S", 30.0))
-        self.temporal_cache: dict = {}
+            iou_threshold=getattr(config, "PPE_TRACK_MATCH_THRESH", 0.80),
+            max_age=getattr(config, "PPE_TRACK_BUFFER", 120),
+            high_thresh=getattr(config, "PPE_TRACK_HIGH_THRESH", 0.45),
+            low_thresh=getattr(config, "PPE_TRACK_LOW_THRESH", 0.10))
 
-        # Re-ID (stable identity) — own extractor + matcher, fail-soft.
-        self.reid = self.matcher = None
-        self._reid_gid: dict = {}
+        # POC pure-logic engines. Compliance rules default to the required canonical set.
+        self.assoc = AssociationEngine(camera_id)
+        self.compliance = ComplianceEngine(
+            camera_rules={"mandatory_ppe": self.required,
+                          "min_person_confidence": getattr(config, "MIN_PERSON_CONFIDENCE", 0.50)})
+        self.events = EventManager(camera_id)
+
+        # Re-ID (stable identity) — Triton extractor + POC tracker, fail-soft.
+        self.reid_tracker = None
         if _reid_enabled():
             try:
                 from inference.reid_engine import ReIDExtractor
-                self.reid = ReIDExtractor()
-                self.reid.warmup()
-                self.matcher = ReIDMatcher(config.PPE_REID_THRESHOLD,
-                                           config.PPE_REID_HISTORY,
-                                           config.PPE_REID_MAX_UNKNOWN)
+                extractor = ReIDExtractor()
+                extractor.warmup()
+                self.reid_tracker = ReIDTracker(camera_id, extractor)
             except Exception:  # noqa: BLE001
-                self.reid = self.matcher = None
+                self.reid_tracker = None
+
+        # track_id -> event_key of the incident created for it, so a later "update"/
+        # "create" action can be routed back to the same event row via the shell.
+        self._tid_event_key: dict = {}
+
+    def _negatives_present(self, assoc) -> set:
+        return {lbl for lbl in assoc.negative_ppe if assoc.negative_ppe[lbl]}
 
     def process(self, frame, now: float, roi, frame_w: int, frame_h: int):
-        """Run one frame. Returns (persons, results, actions):
-          persons: list[Detection] kept this frame (track_id = stable global id)
-          results: {tid: {"fired","present","missing"}} from evaluate_frame
-          actions: {tid: lifecycle action dict or None}  (create / update / None)
-        The caller draws + emits from these (it owns snapshots, DB, video write)."""
+        """Run one frame. Returns (persons, results, actions) — see module docstring."""
         from vizor_sdk import assign_track_ids
-        from inference.triton_engine import detector  # module singleton OK in caller thread
+        from inference.triton_engine import detector
 
         detections = detector.detect(frame)
+
+        # Per-CATEGORY confidence gate (POC detector._parse_results): persons at
+        # PERSON_CONF, positive PPE at PPE_CONF, negatives at NEG_PPE_CONF.
+        ppe_conf = getattr(config, "PPE_CONF", 0.50)
+        neg_conf = getattr(config, "NEG_PPE_CONF", 0.50)
         all_persons, items = [], []
         for d in detections:
             if d.label == "Person":
                 if d.confidence >= self.person_conf:
                     all_persons.append(d)
+            elif d.label.startswith("NO_"):
+                if d.confidence >= neg_conf:
+                    items.append(d)
+            elif d.label == "none":
+                continue
             else:
-                items.append(d)
+                if d.confidence >= ppe_conf:
+                    items.append(d)
 
         persons = deduplicate_persons(
             eligible_people(all_persons, frame_h, frame_w, config.MIN_PERSON_HEIGHT,
@@ -126,55 +128,82 @@ class PPEProcessor:
         if roi is not None:
             persons = [p for p in persons if in_roi(p, roi)]
         if not persons:
-            self.engine.purge(now)
-            self.lifecycle.purge(now)
+            self.events.purge(now)
             return [], {}, {}
 
+        # Raw ByteTrack ids (POC-param tracker).
         dets_for_track = [(list(p.box), float(p.confidence)) for p in persons]
         raw_ids = assign_track_ids(self.tracker, dets_for_track)
-        raw_tracked = [Detection(p.label, p.confidence, p.box, rid)
-                       for p, rid in zip(persons, raw_ids) if rid]
-        if not raw_tracked:
-            self.engine.purge(now)
+        tracked = [Detection(p.label, p.confidence, p.box, rid)
+                   for p, rid in zip(persons, raw_ids) if rid]
+        if not tracked:
+            self.events.purge(now)
             return [], {}, {}
-        persons = self.stable.update(raw_tracked, now)
+        persons = tracked
 
-        # Re-ID remap → stable global identity.
-        if self.reid is not None and self.matcher is not None:
-            remapped = []
-            for p in persons:
-                if p.track_id is None:
-                    remapped.append(p)
-                    continue
-                gid = self._reid_gid.get(p.track_id)
-                if gid is None:
-                    emb = self.reid.extract_person(frame, p.box)
-                    g = self.matcher.match(emb, now) if emb is not None else None
-                    gid = gid_to_int(g) if g else p.track_id
-                    self._reid_gid[p.track_id] = gid
-                remapped.append(Detection(p.label, p.confidence, p.box, gid))
-            persons = remapped
+        # ReID → stable global identity per track (POC TrackerManager). gid_map: tid -> gid.
+        gid_map: dict = {}
+        if self.reid_tracker is not None:
+            gid_map = self.reid_tracker.update(frame, persons)
 
-        results = evaluate_frame(
-            persons, items, self.engine, required=self.required, now=now,
-            frame_w=frame_w, frame_h=frame_h, item_floor=self.item_floor,
-            temporal_cache=self.temporal_cache, camera_id=self.camera_id,
-            smoother=self.smoother)
+        def _reid_lookup(tid):
+            return gid_map.get(tid)
 
+        # Associate PPE to persons, then judge compliance (POC engines).
+        associations = self.assoc.associate(persons + items)
+        assoc_by_tid = {a.person.track_id: a for a in associations
+                        if a.person.track_id is not None}
+        violations = self.compliance.evaluate(associations, reid_lookup=_reid_lookup)
+
+        # Lifecycle: turn confirmed violations into create/update actions per event key.
+        ev_actions = self.events.update(violations, now)
+
+        # Build the (results, actions) contract keyed by track_id (int the shell expects).
+        results: dict = {}
         actions: dict = {}
+        # Which required items each person is currently missing (from this frame's
+        # violations) and which are present (associated positives).
+        missing_by_tid: dict = {}
+        for v in violations:
+            missing_by_tid.setdefault(v["track_id"], []).append(v["required_ppe"])
+
         for person in persons:
             tid = person.track_id
             if tid is None:
                 continue
-            res = results.get(tid, {"fired": [], "present": set(), "missing": []})
-            actions[tid] = self.lifecycle.update(
-                tid, compliant=not bool(res["missing"]),
-                missing=res["missing"], now=now)
+            assoc = assoc_by_tid.get(tid)
+            present = set()
+            if assoc is not None:
+                present = {lbl for lbl in assoc.ppe if assoc.ppe[lbl]}
+            missing = missing_by_tid.get(tid, [])
+            results[tid] = {"fired": [], "present": present, "missing": missing}
+
+            # Route this track's event action (identity → event key).
+            identity = gid_map.get(tid) or f"track_{tid}"
+            act = None
+            for vtype in (f"missing_{r}" for r in missing):
+                key = (self.camera_id, identity, vtype)
+                a = ev_actions.get(key)
+                if a is None:
+                    continue
+                if a["action"] == "create":
+                    self._tid_event_key[tid] = key
+                    act = {"action": "create", "type": "violation",
+                           "missing": missing, "_key": key}
+                    break
+                if a["action"] == "update" and act is None:
+                    act = {"action": "update", "event_id": a["event_id"],
+                           "obs_count": a["observation_count"],
+                           "duration_s": a["duration_s"], "_key": key}
+            actions[tid] = act
+
+        self.events.purge(now)
         return persons, results, actions
 
     def set_event_id(self, tid, event_id: str) -> None:
-        self.lifecycle.set_event_id(tid, event_id)
+        key = self._tid_event_key.get(tid)
+        if key is not None:
+            self.events.set_event_id(key, event_id)
 
     def purge(self, now: float) -> None:
-        self.engine.purge(now)
-        self.lifecycle.purge(now)
+        self.events.purge(now)

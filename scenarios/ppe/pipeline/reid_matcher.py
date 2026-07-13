@@ -40,6 +40,11 @@ class ReIDMatcher:
         self.last_seen: dict[str, float] = {}
         self.unknown_counter = 0
 
+    # POC ReIDMatcher.match sentinel: a below-threshold match that has NOT yet failed
+    # max_unknown_frames consecutive times. The caller (tracker) keeps the previous
+    # identity for the track instead of forking a new one on a single bad crop.
+    TEMPORARY_UNKNOWN = "temporary_unknown"
+
     def _new_identity(self, embedding: np.ndarray, now: float) -> str:
         gid = "gid_" + uuid.uuid4().hex[:12]
         self.embedding_history[gid] = deque([embedding], maxlen=self.history_len)
@@ -80,6 +85,45 @@ class ReIDMatcher:
         # below-threshold best match means "not this worker", not "noisy frame" — we must
         # not tentatively attach or every worker collapses into one id.)
         return self._new_identity(emb, now)
+
+    def match_poc(self, embedding, now: float = 0.0) -> dict | None:
+        """Client-proven POC ReIDMatcher.match — returns a dict {identity_id, similarity,
+        is_new}. Unlike match(), a below-threshold best match does NOT immediately fork a
+        new identity: the unknown-counter must fail max_unknown_frames consecutive times
+        first, and until then it returns the best gid (or TEMPORARY_UNKNOWN) so a single
+        bad crop can't fragment a worker's identity. This is the per-camera-worker path the
+        POC validated at the client site. (match() stays as the mint-immediately variant.)"""
+        if embedding is None:
+            return None
+        emb = np.asarray(embedding, dtype=np.float32).reshape(-1)
+
+        if not self.identity_database:
+            gid = self._new_identity(emb, now)
+            return {"identity_id": gid, "similarity": 1.0, "is_new": True}
+
+        best_gid, best_sim = None, -1.0
+        for gid, hist in self.embedding_history.items():
+            stored = np.mean(hist, axis=0)
+            sim = _cosine(emb, stored)
+            if sim > best_sim:
+                best_sim, best_gid = sim, gid
+
+        if best_gid is not None and best_sim >= self.threshold:
+            self.unknown_counter = 0
+            self.embedding_history[best_gid].append(emb)
+            self.identity_database[best_gid] = np.mean(self.embedding_history[best_gid], axis=0)
+            self.last_seen[best_gid] = now
+            return {"identity_id": best_gid, "similarity": float(best_sim), "is_new": False}
+
+        # Below threshold — hold off minting until several consecutive misses.
+        self.unknown_counter += 1
+        if self.unknown_counter < self.max_unknown_frames:
+            return {"identity_id": best_gid if best_gid is not None else self.TEMPORARY_UNKNOWN,
+                    "similarity": float(best_sim), "is_new": False}
+
+        self.unknown_counter = 0
+        gid = self._new_identity(emb, now)
+        return {"identity_id": gid, "similarity": float(best_sim), "is_new": True}
 
     def purge(self, now: float, max_age: float = 30.0) -> None:
         for gid, last in list(self.last_seen.items()):
