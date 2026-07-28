@@ -191,6 +191,29 @@ def _fmt_duration(seconds: Optional[float]) -> str:
     return f"{h}h {m}m"
 
 
+# Report display timezone — timestamps are stored naive-UTC; the raw ISO strings
+# ("2026-07-24T02:28:04.163523+00:00") are unreadable on a client report. Render
+# them in the site's local timezone, human-formatted.
+try:
+    from zoneinfo import ZoneInfo
+    _REPORT_TZ = ZoneInfo(getattr(config, "FRS_REPORT_TZ", None) or "Asia/Kolkata")
+except Exception:  # noqa: BLE001
+    _REPORT_TZ = None
+
+
+def _fmt_ts(dt) -> str:
+    """Naive-UTC datetime → '24-07-2026 07:58 AM' in the report timezone."""
+    if not dt:
+        return "—"
+    try:
+        from datetime import timezone as _tz
+        aware = dt.replace(tzinfo=_tz.utc) if dt.tzinfo is None else dt
+        local = aware.astimezone(_REPORT_TZ) if _REPORT_TZ else aware
+        return local.strftime("%d-%m-%Y %I:%M %p")
+    except Exception:  # noqa: BLE001
+        return iso(dt) or "—"
+
+
 # ── 1. Attendance: First-In, Last-Out, Duration ────────────────────────────
 # Standard working day (hours). In→out beyond this counts as overtime.
 STD_WORK_HOURS = float(getattr(config, "FRS_STD_WORK_HOURS", 9.0))
@@ -239,7 +262,7 @@ def report_attendance(day_from: str = Query(...), day_to: str = Query(...),
                 "group": group_name or "—",
                 "department": dept or "—",
                 "designation": desig or "—",
-                "first_in": iso(cin), "last_out": iso(cout) or iso(cin),
+                "first_in": _fmt_ts(cin), "last_out": _fmt_ts(cout or cin),
                 "duration": _fmt_duration(dur),
                 "overtime": _fmt_duration(ot) if ot > 0 else "—",
             })
@@ -327,8 +350,8 @@ def report_mismatch(day_from: str = Query(...), day_to: str = Query(...),
                 "person_name": name or attrs.get("person_name")
                 or (f"Person {str(sess.person_id)[:8]}" if sess.person_id else "Unknown"),
                 "group": group_name or "—",
-                "entry_time": iso(sess.started_at),
-                "exit_time": iso(sess.ended_at) or "—",
+                "entry_time": _fmt_ts(sess.started_at),
+                "exit_time": _fmt_ts(sess.ended_at) if sess.ended_at else "—",
                 "status": status,
             })
     return _respond(columns, rows, format, "Entry-Exit Mismatch")
@@ -366,7 +389,7 @@ def report_unknown(day_from: str = Query(...), day_to: str = Query(...),
                 det = float(e.confidence or 0.0)
             rows.append({
                 "snapshot": attrs.get("face_snapshot") or e.snapshot_path or "",
-                "time": iso(e.triggered_at),
+                "time": _fmt_ts(e.triggered_at),
                 "camera": attrs.get("camera_name") or cam_names.get(str(e.camera_id))
                 or (str(e.camera_id)[:8] if e.camera_id else "—"),
                 "detected_pct": round(float(det) * 100, 1),
