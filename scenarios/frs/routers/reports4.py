@@ -86,7 +86,8 @@ def _csv(columns: list[str], rows: list[dict]) -> Response:
                     headers={"Content-Disposition": "attachment; filename=report.csv"})
 
 
-def _xlsx(columns: list[str], rows: list[dict], title: str = "Report") -> Response:
+def _xlsx(columns: list[str], rows: list[dict], title: str = "Report",
+          charts: Optional[dict] = None) -> Response:
     from openpyxl import Workbook
     from openpyxl.drawing.image import Image as XLImage
     from openpyxl.styles import Alignment, Font
@@ -122,6 +123,49 @@ def _xlsx(columns: list[str], rows: list[dict], title: str = "Report") -> Respon
     for c in ws[1]:
         c.alignment = Alignment(vertical="center")
 
+    # Optional "Charts" sheet: a bar chart (e.g. working hours per person) and a
+    # pie chart (e.g. regular vs overtime split). Data is written on the sheet so
+    # the charts stay live/editable inside Excel.
+    if charts:
+        from openpyxl.chart import BarChart, PieChart, Reference
+
+        cs = wb.create_sheet("Charts")
+        bar = charts.get("bar")
+        if bar and bar.get("categories"):
+            cs["A1"] = bar.get("cat_label", "Category")
+            cs["B1"] = bar.get("value_label", "Value")
+            cs["A1"].font = cs["B1"].font = Font(bold=True)
+            for i, (cat, val) in enumerate(zip(bar["categories"], bar["values"]), start=2):
+                cs[f"A{i}"] = cat
+                cs[f"B{i}"] = round(float(val), 2)
+            n = len(bar["categories"])
+            ch = BarChart()
+            ch.type = "col"
+            ch.title = bar.get("title", "Bar")
+            ch.y_axis.title = bar.get("value_label", "Value")
+            ch.height, ch.width = 9, max(14, min(30, 2 + n * 1.2))
+            ch.add_data(Reference(cs, min_col=2, min_row=1, max_row=n + 1), titles_from_data=True)
+            ch.set_categories(Reference(cs, min_col=1, min_row=2, max_row=n + 1))
+            ch.legend = None
+            cs.add_chart(ch, "D2")
+        pie = charts.get("pie")
+        if pie and pie.get("labels"):
+            base = (len(bar["categories"]) + 3) if (bar and bar.get("categories")) else 1
+            cs[f"A{base}"] = "Segment"
+            cs[f"B{base}"] = pie.get("value_label", "Value")
+            cs[f"A{base}"].font = cs[f"B{base}"].font = Font(bold=True)
+            for i, (lab, val) in enumerate(zip(pie["labels"], pie["values"]), start=base + 1):
+                cs[f"A{i}"] = lab
+                cs[f"B{i}"] = round(float(val), 2)
+            n = len(pie["labels"])
+            pc = PieChart()
+            pc.title = pie.get("title", "Pie")
+            pc.height = pc.width = 9
+            pc.add_data(Reference(cs, min_col=2, min_row=base, max_row=base + n), titles_from_data=True)
+            pc.set_categories(Reference(cs, min_col=1, min_row=base + 1, max_row=base + n))
+            cs.add_chart(pc, "D22")
+        cs.column_dimensions["A"].width = 28
+
     bio = io.BytesIO()
     wb.save(bio)
     return Response(
@@ -130,12 +174,12 @@ def _xlsx(columns: list[str], rows: list[dict], title: str = "Report") -> Respon
         headers={"Content-Disposition": "attachment; filename=report.xlsx"})
 
 
-def _respond(columns, rows, fmt, title):
+def _respond(columns, rows, fmt, title, charts: Optional[dict] = None):
     fmt = (fmt or "json").lower()
     if fmt == "csv":
         return _csv(columns, rows)
     if fmt in ("xlsx", "excel"):
-        return _xlsx(columns, rows, title)
+        return _xlsx(columns, rows, title, charts=charts)
     return JSONResponse({"columns": columns, "items": rows, "total": len(rows)})
 
 
@@ -148,12 +192,17 @@ def _fmt_duration(seconds: Optional[float]) -> str:
 
 
 # ── 1. Attendance: First-In, Last-Out, Duration ────────────────────────────
+# Standard working day (hours). In→out beyond this counts as overtime.
+STD_WORK_HOURS = float(getattr(config, "FRS_STD_WORK_HOURS", 9.0))
+
+
 @router.get("/reports/attendance")
 def report_attendance(day_from: str = Query(...), day_to: str = Query(...),
                       format: str = Query("json"),
                       _: None = Depends(require_service_token),
                       allowed: Optional[list[str]] = Depends(allowed_camera_ids)) -> Response:
-    columns = ["snapshot", "day", "person_name", "first_in", "last_out", "duration"]
+    columns = ["snapshot", "day", "employee_id", "person_name", "group", "department",
+               "designation", "first_in", "last_out", "duration", "overtime"]
     with session() as s:
         conds = [FRSAttendance.day_key >= day_from, FRSAttendance.day_key <= day_to]
         if allowed is not None:
@@ -164,21 +213,56 @@ def report_attendance(day_from: str = Query(...), day_to: str = Query(...),
             FRSAttendance.day_key, FRSAttendance.person_id, FRSPerson.full_name,
             FRSAttendance.check_in_at, FRSAttendance.check_out_at,
             FRSAttendance.check_in_snapshot, FRSAttendance.check_out_snapshot,
+            FRSPerson.external_id, FRSPerson.department, FRSPerson.designation,
+            FRSGroup.name,
         ).outerjoin(FRSPerson, FRSPerson.id == FRSAttendance.person_id)
+         .outerjoin(FRSGroup, FRSGroup.id == FRSPerson.group_id)
          .where(and_(*conds))
          .order_by(FRSAttendance.day_key.desc(), FRSPerson.full_name))
+
         rows = []
-        for day, pid, name, cin, cout, cin_snap, cout_snap in s.execute(stmt).all():
+        std_s = STD_WORK_HOURS * 3600.0
+        person_hours: dict[str, float] = {}      # person -> total worked hours (range)
+        total_reg = 0.0                          # regular hours (<= std) across range
+        total_ot = 0.0                           # overtime hours across range
+        for (day, pid, name, cin, cout, cin_snap, cout_snap,
+             emp_id, dept, desig, group_name) in s.execute(stmt).all():
             last = cout or cin
             dur = (last - cin).total_seconds() if (cin and last) else None
+            ot = max(0.0, dur - std_s) if dur else 0.0
+            pname = name or (f"Person {str(pid)[:8]}" if pid else "Unknown")
             rows.append({
                 "snapshot": cin_snap or cout_snap or "",
                 "day": day,
-                "person_name": name or (f"Person {str(pid)[:8]}" if pid else "Unknown"),
+                "employee_id": emp_id or "—",
+                "person_name": pname,
+                "group": group_name or "—",
+                "department": dept or "—",
+                "designation": desig or "—",
                 "first_in": iso(cin), "last_out": iso(cout) or iso(cin),
                 "duration": _fmt_duration(dur),
+                "overtime": _fmt_duration(ot) if ot > 0 else "—",
             })
-    return _respond(columns, rows, format, "Attendance")
+            if dur:
+                person_hours[pname] = person_hours.get(pname, 0.0) + dur / 3600.0
+                total_ot += ot / 3600.0
+                total_reg += min(dur, std_s) / 3600.0
+
+    # XLSX gets a Charts sheet: working hours per person (bar) + regular-vs-overtime (pie).
+    top = sorted(person_hours.items(), key=lambda kv: kv[1], reverse=True)[:20]
+    charts = {
+        "bar": {
+            "title": f"Working hours per person ({day_from} → {day_to})",
+            "cat_label": "Person", "value_label": "Hours",
+            "categories": [k for k, _ in top], "values": [v for _, v in top],
+        },
+        "pie": {
+            "title": f"Regular vs overtime hours (> {STD_WORK_HOURS:g}h/day)",
+            "value_label": "Hours",
+            "labels": ["Regular", "Overtime"], "values": [total_reg, total_ot],
+        },
+    } if person_hours else None
+    return _respond(columns, rows, format, "Attendance", charts=charts)
 
 
 # ── 2. Group: Headcount, Attendance Compliance ─────────────────────────────
