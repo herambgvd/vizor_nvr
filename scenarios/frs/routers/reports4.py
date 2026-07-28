@@ -302,16 +302,17 @@ def report_group(day_from: str = Query(...), day_to: str = Query(...),
 def report_mismatch(day_from: str = Query(...), day_to: str = Query(...),
                     format: str = Query("json"),
                     _: None = Depends(require_service_token)) -> Response:
-    columns = ["snapshot", "person_name", "entry_time", "exit_time", "status"]
+    columns = ["snapshot", "person_name", "group", "entry_time", "exit_time", "status"]
     start = naive(datetime.fromisoformat(day_from)) if "T" in day_from else naive(datetime.fromisoformat(day_from + "T00:00:00"))
     end = naive(datetime.fromisoformat(day_to)) if "T" in day_to else naive(datetime.fromisoformat(day_to + "T23:59:59"))
     with session() as s:
-        stmt = (select(TransitSession, FRSPerson.full_name)
+        stmt = (select(TransitSession, FRSPerson.full_name, FRSGroup.name)
                 .outerjoin(FRSPerson, FRSPerson.id == TransitSession.person_id)
+                .outerjoin(FRSGroup, FRSGroup.id == FRSPerson.group_id)
                 .where(and_(TransitSession.started_at >= start, TransitSession.started_at <= end))
                 .order_by(TransitSession.started_at.desc()))
         rows = []
-        for sess, name in s.execute(stmt).all():
+        for sess, name, group_name in s.execute(stmt).all():
             attrs = sess.attributes or {}
             # closed = resolved (paired entry+exit); open/overdue = unpaired/unresolved.
             if sess.status == "closed":
@@ -325,6 +326,7 @@ def report_mismatch(day_from: str = Query(...), day_to: str = Query(...),
                 or attrs.get("snapshot") or "",
                 "person_name": name or attrs.get("person_name")
                 or (f"Person {str(sess.person_id)[:8]}" if sess.person_id else "Unknown"),
+                "group": group_name or "—",
                 "entry_time": iso(sess.started_at),
                 "exit_time": iso(sess.ended_at) or "—",
                 "status": status,
