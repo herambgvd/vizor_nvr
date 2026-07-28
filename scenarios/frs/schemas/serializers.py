@@ -85,10 +85,12 @@ def photo_dict(ph: FRSPhoto) -> dict[str, Any]:
 
 
 def event_dict(e: FRSEvent) -> dict[str, Any]:
+    attrs = e.attributes or {}
     return {
         "id": e.id, "camera_id": e.camera_id, "event_type": e.event_type, "severity": e.severity,
         "title": e.title, "description": e.description, "detection_type": e.detection_type,
         "person_id": e.person_id, "track_id": e.track_id, "confidence": e.confidence,
+        "group_name": attrs.get("group_name"),
         "bbox": e.bbox, "attributes": e.attributes, "snapshot_path": e.snapshot_path,
         "triggered_at": iso(e.triggered_at),
     }

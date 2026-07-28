@@ -31,6 +31,7 @@ import { getScenarioCameras, listFrsLive } from "../../../api/frs";
 import { scenarioSnapshotUrl, listScenarioPluginEvents, proxyScenario, ttsAudioUrl } from "../../../api/ai";
 import {
   eventPersonName,
+  eventGroupName,
   eventTypeBadgeClass,
   confidenceBadgeClass,
   fmtConfidence,
@@ -457,6 +458,7 @@ function LiveEventModal({ event, slug, camName, onClose }) {
     ...(slug === "ppe" ? [] : [["Label", liveEventLabel(ev, slug)]]),
     ["Time", fmtFeedTime(ev.triggered_at)],
     ["Camera", camName || ev.camera_id || "—"],
+    ...(slug === "frs" ? [["Group", eventGroupName(ev)]] : []),
     ["Confidence", confPct],
   ];
 
@@ -985,6 +987,9 @@ export default function LiveTab({ scenario }) {
                       </div>
                       <div className="font-telemetry text-[9px] uppercase tracking-widest truncate" style={{ color: "var(--console-muted)" }}>
                         {(camNameById[ev.camera_id] || ev.camera_id || "—")} · {fmtFeedTime(ev.triggered_at)}
+                      </div>
+                      <div className="font-telemetry text-[9px] truncate" style={{ color: "var(--console-muted)" }}>
+                        {eventGroupName(ev)}
                       </div>
                     </div>
                     <span className={cn("rounded border px-1 text-[10px] font-telemetry shrink-0", confidenceBadgeClass(ev.confidence))}>

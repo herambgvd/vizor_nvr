@@ -60,6 +60,13 @@ export function eventPersonName(ev) {
   return "Unknown";
 }
 
+// Resolve a group display name from an event row. The FRS pipeline stores the
+// matched person's group name inside event attributes.
+export function eventGroupName(ev) {
+  if (!ev) return "—";
+  return ev.group_name || ev.attributes?.group_name || "—";
+}
+
 // Build a servable URL for an event snapshot. snapshot_path may be a rooted
 // static path ("/thumbnails/..") or a bare storage key.
 export function snapshotUrl(snapshotPath) {

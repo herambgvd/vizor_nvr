@@ -51,6 +51,7 @@ import { cn } from "../../../../lib/utils";
 import {
   FRS_EVENT_TYPES,
   eventPersonName,
+  eventGroupName,
   eventTypeBadgeClass,
   confidenceBadgeClass,
   fmtConfidence,
@@ -185,6 +186,7 @@ function EventDetailModal({ event, camMap, onClose }) {
     ["Type", prettyEventLabel(ev.event_type)],
     ["Camera", camMap[ev.camera_id] || ev.camera_id || "—"],
     ["Person", eventPersonName(ev)],
+    ["Group", eventGroupName(ev)],
     ev.person_id ? ["Person ID", ev.person_id] : null,
     ["Confidence", confPct],
     gender ? ["Gender", `${gender}${typeof at.gender_confidence === "number" ? ` (${(at.gender_confidence * 100).toFixed(0)}%)` : ""}`] : null,
@@ -480,6 +482,7 @@ export default function EventsTab({ scenario }) {
               <th className="px-3 py-2 font-medium">Camera</th>
               <th className="px-3 py-2 font-medium">Type</th>
               <th className="px-3 py-2 font-medium">Person / Conf.</th>
+              <th className="px-3 py-2 font-medium">Group</th>
               <th className="px-3 py-2 font-medium">Face</th>
               <th className="px-3 py-2 font-medium">Match</th>
               <th className="px-3 py-2 font-medium text-right">Actions</th>
@@ -489,18 +492,18 @@ export default function EventsTab({ scenario }) {
             {isLoading ? (
               Array.from({ length: 8 }).map((_, i) => (
                 <tr key={i} className="border-t" style={{ borderColor: "var(--console-border)" }}>
-                  <td colSpan={8} className="px-3 py-3">
+                  <td colSpan={9} className="px-3 py-3">
                     <div className="h-5 rounded animate-pulse bg-zinc-800/60" />
                   </td>
                 </tr>
               ))
             ) : isError ? (
               <tr>
-                <td colSpan={8} className="px-3 py-12 text-center text-sm text-rose-400">Couldn't load events.</td>
+                <td colSpan={9} className="px-3 py-12 text-center text-sm text-rose-400">Couldn't load events.</td>
               </tr>
             ) : items.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-3 py-16 text-center">
+                <td colSpan={9} className="px-3 py-16 text-center">
                   <ScanFace className="h-9 w-9 mx-auto text-zinc-600 mb-2" />
                   <p className="text-sm text-zinc-300">No recognition events</p>
                   <p className="text-xs text-zinc-500 mt-1">
@@ -530,6 +533,9 @@ export default function EventsTab({ scenario }) {
                       <span className="text-xs text-zinc-200 truncate max-w-[140px]">{eventPersonName(ev)}</span>
                       {ConfBadge(ev)}
                     </div>
+                  </td>
+                  <td className="px-3 py-2">
+                    <span className="text-xs text-zinc-300 truncate max-w-[120px] block">{eventGroupName(ev)}</span>
                   </td>
                   <td className="px-3 py-2"><SnapshotThumb ev={ev} /></td>
                   <td className="px-3 py-2">
