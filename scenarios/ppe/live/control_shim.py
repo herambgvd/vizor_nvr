@@ -48,7 +48,9 @@ class ControlShim:
         # ANY worker generation it is gone from all PELs and a freshly-recreated worker
         # finds nothing to claim. Without this backstop, frames stay at 0 until the app
         # is restarted (which rebuilds _desired empty and re-emits). Mirrors the FRS shim.
-        self._reassert_every = int(getattr(config, "PPE_SHIM_REASSERT_EVERY", 20))
+        # Worker treats duplicate-start (unchanged config) as a NO-OP, so a fast
+        # reassert is churn-free and self-heals a dropped camera within ~a minute.
+        self._reassert_every = int(getattr(config, "PPE_SHIM_REASSERT_EVERY", 12))
         self._poll_count = 0
 
     def start(self) -> None:

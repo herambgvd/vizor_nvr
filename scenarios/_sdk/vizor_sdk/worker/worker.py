@@ -514,8 +514,26 @@ class BaseWorker(abc.ABC):
     async def _start_locked(self, cmd: Command) -> None:
         """Start a camera. CALLER MUST HOLD self._cam_lock."""
         if cmd.device_id in self._camera_tasks:
-            logger.info("[%s] device %s already running; restarting",
-                        self.use_case, cmd.device_id)
+            # Duplicate start for an ALREADY-RUNNING camera. If the stream URL and
+            # config are unchanged this is a shim safety-net re-emit (or a stale
+            # replayed command) — restarting here tore the healthy pipeline down
+            # ("already running; restarting" churn) and was the root cause of
+            # cameras randomly dropping. Make it a NO-OP so re-emits are harmless
+            # self-healing; only an actual change (url/config) restarts.
+            prev = self._camera_cmds.get(cmd.device_id)
+            task = self._camera_tasks.get(cmd.device_id)
+            unchanged = (
+                prev is not None
+                and prev.rtsp_url == cmd.rtsp_url
+                and prev.config == cmd.config
+            )
+            if unchanged and task is not None and not task.done():
+                logger.debug("[%s] device %s already running (unchanged) — ignoring duplicate start",
+                             self.use_case, cmd.device_id)
+                return
+            logger.info("[%s] device %s already running; restarting (%s)",
+                        self.use_case, cmd.device_id,
+                        "config changed" if prev is not None else "no prior cmd")
             await self._cancel_camera(cmd.device_id)
         else:
             cap = self._max_cameras()

@@ -54,12 +54,13 @@ class ControlShim:
         self._thread: threading.Thread | None = None
         # desired[device_id] = (config_sig, config_id)
         self._desired: dict[str, tuple[str, str]] = {}
-        # Re-emit all desired cameras every N polls as a safety net for a worker that
-        # restarted and missed the already-acked originals. The worker ALSO re-converges
-        # via _claim_stale on boot, so this only needs to be an occasional backstop — at
-        # ~30s it churned the control stream (and "already running; restarting" flicker)
-        # every half-minute. ~5 min (60 polls @ 5s) is enough.
-        self._reassert_every = int(getattr(config, "FRS_SHIM_REASSERT_EVERY", 60))
+        # Re-emit all desired cameras every N polls — the SELF-HEAL loop. The worker
+        # treats a duplicate start for an unchanged, healthy camera as a NO-OP (no
+        # restart churn), so reasserting often is harmless and guarantees a dropped /
+        # missed camera re-attaches within ~a minute without any manual reconcile.
+        # (Historically this was 5 min because the worker used to RESTART on duplicate
+        # start — that flicker is fixed at the worker.)
+        self._reassert_every = int(getattr(config, "FRS_SHIM_REASSERT_EVERY", 12))
         self._poll_count = 0
 
     def start(self) -> None:
