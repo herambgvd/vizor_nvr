@@ -87,20 +87,27 @@ function renderCell(col, val) {
 export default function ReportsTab() {
   const qc = useQueryClient();
   const [active, setActive] = useState("attendance");
+  // Single-date by default (the everyday case); the Range toggle reveals From/To
+  // for weekly/monthly exports.
+  const [rangeMode, setRangeMode] = useState(false);
+  const [day, setDay] = useState(todayISO(0));
   const [dayFrom, setDayFrom] = useState(todayISO(-6));
   const [dayTo, setDayTo] = useState(todayISO(0));
+  const from = rangeMode ? dayFrom : day;
+  const to = rangeMode ? dayTo : day;
 
   const { data, isFetching } = useQuery({
-    queryKey: ["frs", "report", active, dayFrom, dayTo],
-    queryFn: () => frsReport(active, { day_from: dayFrom, day_to: dayTo }),
+    queryKey: ["frs", "report", active, from, to],
+    queryFn: () => frsReport(active, { day_from: from, day_to: to }),
     placeholderData: keepPreviousData,
   });
   const columns = data?.columns || [];
   const rows = data?.items || [];
 
   const doExport = async (format) => {
-    const url = await frsReportExportUrl(active, { day_from: dayFrom, day_to: dayTo, format });
-    saveBlobUrl(url, `${active}_${dayFrom}_${dayTo}.${format === "csv" ? "csv" : "xlsx"}`);
+    const url = await frsReportExportUrl(active, { day_from: from, day_to: to, format });
+    const stamp = from === to ? from : `${from}_${to}`;
+    saveBlobUrl(url, `${active}_${stamp}.${format === "csv" ? "csv" : "xlsx"}`);
   };
 
   return (
@@ -127,21 +134,40 @@ export default function ReportsTab() {
         })}
       </div>
 
-      {/* Date range + export */}
+      {/* Date (single by default, range on toggle) + export */}
       <div className="flex flex-wrap items-end gap-3 rounded-lg border p-3"
         style={{ borderColor: "var(--console-border)", background: "var(--console-panel)" }}>
-        <div>
-          <label className="block text-[10px] uppercase tracking-widest mb-1" style={{ color: "var(--console-muted)" }}>From</label>
-          <input type="date" value={dayFrom} max={dayTo} onChange={(e) => setDayFrom(e.target.value)}
-            className="rounded-md border px-2 py-1.5 text-sm bg-transparent"
-            style={{ borderColor: "var(--console-border)", colorScheme: "dark" }} />
-        </div>
-        <div>
-          <label className="block text-[10px] uppercase tracking-widest mb-1" style={{ color: "var(--console-muted)" }}>To</label>
-          <input type="date" value={dayTo} min={dayFrom} max={todayISO(0)} onChange={(e) => setDayTo(e.target.value)}
-            className="rounded-md border px-2 py-1.5 text-sm bg-transparent"
-            style={{ borderColor: "var(--console-border)", colorScheme: "dark" }} />
-        </div>
+        {rangeMode ? (
+          <>
+            <div>
+              <label className="block text-[10px] uppercase tracking-widest mb-1" style={{ color: "var(--console-muted)" }}>From</label>
+              <input type="date" value={dayFrom} max={dayTo} onChange={(e) => setDayFrom(e.target.value)}
+                className="rounded-md border px-2 py-1.5 text-sm bg-transparent"
+                style={{ borderColor: "var(--console-border)", colorScheme: "dark" }} />
+            </div>
+            <div>
+              <label className="block text-[10px] uppercase tracking-widest mb-1" style={{ color: "var(--console-muted)" }}>To</label>
+              <input type="date" value={dayTo} min={dayFrom} max={todayISO(0)} onChange={(e) => setDayTo(e.target.value)}
+                className="rounded-md border px-2 py-1.5 text-sm bg-transparent"
+                style={{ borderColor: "var(--console-border)", colorScheme: "dark" }} />
+            </div>
+          </>
+        ) : (
+          <div>
+            <label className="block text-[10px] uppercase tracking-widest mb-1" style={{ color: "var(--console-muted)" }}>Date</label>
+            <input type="date" value={day} max={todayISO(0)} onChange={(e) => setDay(e.target.value)}
+              className="rounded-md border px-2 py-1.5 text-sm bg-transparent"
+              style={{ borderColor: "var(--console-border)", colorScheme: "dark" }} />
+          </div>
+        )}
+        <button type="button" onClick={() => setRangeMode((v) => !v)}
+          className="rounded-md border px-3 py-1.5 text-sm hover:bg-white/[0.04]"
+          style={{
+            borderColor: rangeMode ? "var(--console-accent)" : "var(--console-border)",
+            color: rangeMode ? "var(--console-accent)" : "var(--console-muted)",
+          }}>
+          Range
+        </button>
         <div className="flex-1" />
         <button type="button" onClick={() => doExport("csv")}
           className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm hover:bg-white/[0.04]"
