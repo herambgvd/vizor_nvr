@@ -228,6 +228,16 @@ export default function ReportsTab() {
   );
 }
 
+// Native <select> dropdown lists ignore bg-transparent and fall back to a WHITE
+// popup on Chrome — give selects (and their options, which inherit) an explicit
+// dark background.
+const selectStyle = {
+  borderColor: "var(--console-border)",
+  background: "var(--console-raised)",
+  color: "var(--console-text)",
+  colorScheme: "dark",
+};
+
 // ── Scheduling: create/list/run/delete + recent generated files ────────────
 function SchedulesPanel({ qc }) {
   const [form, setForm] = useState({
@@ -263,15 +273,15 @@ function SchedulesPanel({ qc }) {
         <Field label="Name"><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
           placeholder="Daily attendance" className="w-full rounded border px-2 py-1.5 text-sm bg-transparent" style={{ borderColor: "var(--console-border)" }} /></Field>
         <Field label="Report"><select value={form.report} onChange={(e) => setForm({ ...form, report: e.target.value })}
-          className="w-full rounded border px-2 py-1.5 text-sm bg-transparent" style={{ borderColor: "var(--console-border)", colorScheme: "dark" }}>
+          className="w-full rounded border px-2 py-1.5 text-sm" style={selectStyle}>
           {REPORTS.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
         </select></Field>
         <Field label="Format"><select value={form.fmt} onChange={(e) => setForm({ ...form, fmt: e.target.value })}
-          className="w-full rounded border px-2 py-1.5 text-sm bg-transparent" style={{ borderColor: "var(--console-border)", colorScheme: "dark" }}>
+          className="w-full rounded border px-2 py-1.5 text-sm" style={selectStyle}>
           <option value="xlsx">Excel</option><option value="csv">CSV</option>
         </select></Field>
         <Field label="Frequency"><select value={form.frequency} onChange={(e) => setForm({ ...form, frequency: e.target.value })}
-          className="w-full rounded border px-2 py-1.5 text-sm bg-transparent" style={{ borderColor: "var(--console-border)", colorScheme: "dark" }}>
+          className="w-full rounded border px-2 py-1.5 text-sm" style={selectStyle}>
           <option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option>
         </select></Field>
         <Field label="Time"><input type="time" value={form.at_time} onChange={(e) => setForm({ ...form, at_time: e.target.value })}
