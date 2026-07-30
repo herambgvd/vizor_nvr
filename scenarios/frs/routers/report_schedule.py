@@ -142,7 +142,8 @@ def _send_email(recipients: list[str], subject: str, body_text: str,
 
 def _run_schedule(sched: ReportSchedule) -> ReportRun:
     """Generate + email + persist one report for a schedule (or manual run)."""
-    today = datetime.utcnow().date()
+    from schemas import local_date
+    today = local_date()
     day_to = today.strftime("%Y-%m-%d")
     day_from = (today - timedelta(days=max(0, sched.range_days - 1))).strftime("%Y-%m-%d")
     path, rows = _build_report_file(sched.report, sched.fmt, day_from, day_to)
@@ -168,14 +169,25 @@ def _run_schedule(sched: ReportSchedule) -> ReportRun:
 
 
 def _compute_next(sched: ReportSchedule, now: Optional[datetime] = None) -> datetime:
+    """Next fire time as naive-UTC. at_time is the operator's SITE-LOCAL wall
+    clock (e.g. 18:00 IST), converted here to UTC for the scheduler compare."""
+    from datetime import timezone as _tz
+    from schemas import REPORT_TZ
     now = now or datetime.utcnow()
     try:
         hh, mm = (int(x) for x in sched.at_time.split(":"))
     except Exception:  # noqa: BLE001
         hh, mm = 8, 0
-    nxt = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
-    if nxt <= now:
-        nxt += timedelta(days=1)
+    if REPORT_TZ is not None:
+        local_now = now.replace(tzinfo=_tz.utc).astimezone(REPORT_TZ)
+        local_nxt = local_now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        if local_nxt <= local_now:
+            local_nxt += timedelta(days=1)
+        nxt = local_nxt.astimezone(_tz.utc).replace(tzinfo=None)
+    else:
+        nxt = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        if nxt <= now:
+            nxt += timedelta(days=1)
     if sched.frequency == "weekly":
         # next same weekday (advance until >= now+1d already handled; bump 7 if today done)
         pass

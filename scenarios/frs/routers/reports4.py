@@ -326,8 +326,13 @@ def report_mismatch(day_from: str = Query(...), day_to: str = Query(...),
                     format: str = Query("json"),
                     _: None = Depends(require_service_token)) -> Response:
     columns = ["snapshot", "person_name", "group", "entry_time", "exit_time", "status"]
-    start = naive(datetime.fromisoformat(day_from)) if "T" in day_from else naive(datetime.fromisoformat(day_from + "T00:00:00"))
-    end = naive(datetime.fromisoformat(day_to)) if "T" in day_to else naive(datetime.fromisoformat(day_to + "T23:59:59"))
+    if "T" in day_from or "T" in day_to:
+        start = naive(datetime.fromisoformat(day_from)) if "T" in day_from else naive(datetime.fromisoformat(day_from + "T00:00:00"))
+        end = naive(datetime.fromisoformat(day_to)) if "T" in day_to else naive(datetime.fromisoformat(day_to + "T23:59:59"))
+    else:
+        # Plain day strings are the operator's LOCAL days — convert to UTC bounds.
+        from schemas import local_day_bounds
+        start, end = local_day_bounds(day_from, day_to)
     with session() as s:
         stmt = (select(TransitSession, FRSPerson.full_name, FRSGroup.name)
                 .outerjoin(FRSPerson, FRSPerson.id == TransitSession.person_id)
@@ -366,8 +371,12 @@ def report_unknown(day_from: str = Query(...), day_to: str = Query(...),
     # "confidence" here is the DETECTOR confidence (a face was found) — the match score
     # is always 0 on an Unknown, so showing that read as a confusing "0%".
     columns = ["snapshot", "time", "camera", "detected_pct"]
-    start = naive(datetime.fromisoformat(day_from + "T00:00:00")) if "T" not in day_from else naive(datetime.fromisoformat(day_from))
-    end = naive(datetime.fromisoformat(day_to + "T23:59:59")) if "T" not in day_to else naive(datetime.fromisoformat(day_to))
+    if "T" in day_from or "T" in day_to:
+        start = naive(datetime.fromisoformat(day_from)) if "T" in day_from else naive(datetime.fromisoformat(day_from + "T00:00:00"))
+        end = naive(datetime.fromisoformat(day_to)) if "T" in day_to else naive(datetime.fromisoformat(day_to + "T23:59:59"))
+    else:
+        from schemas import local_day_bounds
+        start, end = local_day_bounds(day_from, day_to)
     cam_names = _camera_names()
     with session() as s:
         conds = [FRSEvent.event_type == "face_unknown",

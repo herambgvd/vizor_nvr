@@ -26,6 +26,36 @@ def iso(dt: Optional[datetime]) -> Optional[str]:
     return dt.isoformat()
 
 
+# Site-local timezone for anything DAY-based (attendance day_key, report day
+# boundaries, schedule at_time). Storage stays naive-UTC; only day semantics and
+# operator-facing wall-clock use this.
+import os as _os  # noqa: E402
+
+try:
+    from zoneinfo import ZoneInfo as _ZoneInfo
+    REPORT_TZ = _ZoneInfo(_os.getenv("FRS_REPORT_TZ", "Asia/Kolkata"))
+except Exception:  # noqa: BLE001
+    REPORT_TZ = None
+
+
+def local_date(dt: Optional[datetime] = None):
+    """Date in the site timezone for a naive-UTC datetime (default: now)."""
+    d = dt or utcnow()
+    aware = d.replace(tzinfo=timezone.utc) if d.tzinfo is None else d
+    return (aware.astimezone(REPORT_TZ) if REPORT_TZ else aware).date()
+
+
+def local_day_bounds(day_from: str, day_to: str) -> tuple[datetime, datetime]:
+    """'YYYY-MM-DD' day strings (site timezone) → naive-UTC [start, end] datetimes
+    covering those local days, for filtering naive-UTC stored timestamps."""
+    start = datetime.fromisoformat(day_from[:10] + "T00:00:00")
+    end = datetime.fromisoformat(day_to[:10] + "T23:59:59")
+    if REPORT_TZ is not None:
+        start = start.replace(tzinfo=REPORT_TZ).astimezone(timezone.utc).replace(tzinfo=None)
+        end = end.replace(tzinfo=REPORT_TZ).astimezone(timezone.utc).replace(tzinfo=None)
+    return start, end
+
+
 def day(d) -> Optional[str]:
     """ISO date string for a date/datetime column, or None."""
     return d.isoformat() if d is not None else None

@@ -14,7 +14,7 @@ import threading
 from typing import Any, Optional
 
 from db import session
-from schemas import naive, utcnow
+from schemas import local_date, naive, utcnow
 
 
 # ── realtime bus (for the public SSE dashboard) ──────────────────────────────
@@ -89,7 +89,7 @@ def record_event(
                 if p.group_id:
                     g = s.get(FRSGroup, p.group_id)
                     group_name = g.name if g else None
-                today = (ts or utcnow()).date()
+                today = local_date(ts)
                 if p.validity_start and today < p.validity_start:
                     authorized, auth_reason = False, "validity not started"
                 elif p.validity_end and today > p.validity_end:
@@ -127,7 +127,9 @@ def record_event(
         _SIGHTING_TYPES = {"face_recognized", "face_unknown", "face_detected"}
         if person_id and event_type in _SIGHTING_TYPES:
             face_snap = (attributes or {}).get("face_snapshot") or snapshot_path
-            day_key = (ts or utcnow()).date().isoformat()
+            # Site-local calendar day — a 00:30 IST sighting belongs to the IST
+            # date, not the still-previous UTC date.
+            day_key = local_date(ts).isoformat()
             existing = s.scalar(select(FRSAttendance).where(
                 FRSAttendance.person_id == person_id, FRSAttendance.day_key == day_key))
             when = naive(ts)
