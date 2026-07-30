@@ -69,13 +69,56 @@ def _build_report_file(report: str, fmt: str, day_from: str, day_to: str) -> tup
     return path, rows
 
 
+_SMTP_CACHE: dict = {"at": 0.0, "conf": None}
+
+
+def _smtp_settings() -> Optional[dict]:
+    """Effective SMTP settings. FRS_SMTP_* env wins when set; otherwise pull the
+    operator-configured SMTP from nvr's Settings → Notifications via the internal
+    API (service-token), cached for 60s. Returns None when nothing is configured."""
+    if config.SMTP_HOST:
+        return {"host": config.SMTP_HOST, "port": config.SMTP_PORT,
+                "username": config.SMTP_USER, "password": config.SMTP_PASSWORD,
+                "use_tls": config.SMTP_TLS, "use_ssl": False,
+                "from_email": config.SMTP_FROM}
+    now = time.time()
+    if _SMTP_CACHE["conf"] is not None and now - _SMTP_CACHE["at"] < 60:
+        return _SMTP_CACHE["conf"]
+    try:
+        import requests
+        resp = requests.get(
+            f"{config.VIZOR_BASE_URL}/ai/internal/smtp",
+            headers={"X-Vizor-Service-Token": config.VIZOR_SERVICE_TOKEN,
+                     "X-Vizor-Scenario": config.SCENARIO_SLUG},
+            timeout=10)
+        resp.raise_for_status()
+        c = resp.json()
+        conf = None
+        if c.get("host"):
+            frm = c.get("from_email") or c.get("username") or "noreply@vizor.local"
+            if c.get("from_name"):
+                frm = f'{c["from_name"]} <{frm}>'
+            conf = {"host": c["host"], "port": int(c.get("port") or 587),
+                    "username": c.get("username") or "",
+                    "password": c.get("password") or "",
+                    "use_tls": bool(c.get("use_tls", True)),
+                    "use_ssl": bool(c.get("use_ssl", False)),
+                    "from_email": frm}
+        _SMTP_CACHE.update(at=now, conf=conf)
+        return conf
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[report-schedule] backend smtp fetch failed: %s", e)
+        return _SMTP_CACHE["conf"]
+
+
 def _send_email(recipients: list[str], subject: str, body_text: str,
                 attachment: Path) -> bool:
-    if not config.SMTP_HOST or not recipients:
+    conf = _smtp_settings()
+    if not conf or not recipients:
         return False
     try:
         msg = EmailMessage()
-        msg["From"] = config.SMTP_FROM
+        msg["From"] = conf["from_email"]
         msg["To"] = ", ".join(recipients)
         msg["Subject"] = subject
         msg.set_content(body_text)
@@ -84,11 +127,12 @@ def _send_email(recipients: list[str], subject: str, body_text: str,
               "vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         msg.add_attachment(data, maintype="application", subtype=sub,
                            filename=attachment.name)
-        with smtplib.SMTP(config.SMTP_HOST, config.SMTP_PORT, timeout=30) as smtp:
-            if config.SMTP_TLS:
+        cls = smtplib.SMTP_SSL if conf.get("use_ssl") else smtplib.SMTP
+        with cls(conf["host"], conf["port"], timeout=30) as smtp:
+            if conf.get("use_tls") and not conf.get("use_ssl"):
                 smtp.starttls()
-            if config.SMTP_USER:
-                smtp.login(config.SMTP_USER, config.SMTP_PASSWORD)
+            if conf.get("username"):
+                smtp.login(conf["username"], conf["password"])
             smtp.send_message(msg)
         return True
     except Exception as e:  # noqa: BLE001

@@ -314,6 +314,31 @@ async def internal_camera_catalog(
     return {"items": items, "total": len(items)}
 
 
+@router.get("/internal/smtp")
+async def internal_smtp_config(
+    _service=Depends(_require_plugin_service_token),
+    db: AsyncSession = Depends(get_db),
+):
+    """SMTP settings for trusted scenario plugins (scheduled report emails).
+
+    Returns the operator-configured SMTP from Settings → Notifications so
+    plugins don't need their own FRS_SMTP_* env duplication. Service-token
+    protected — this DOES include the password (plugins must authenticate)."""
+    from app.settings.service import SettingsService
+
+    return {
+        "enabled": await SettingsService.get_bool(db, "smtp_enabled", False),
+        "host": await SettingsService.get_value(db, "smtp_host"),
+        "port": int(await SettingsService.get_value(db, "smtp_port", "587") or 587),
+        "username": await SettingsService.get_value(db, "smtp_username"),
+        "password": await SettingsService.get_value(db, "smtp_password"),
+        "use_tls": (await SettingsService.get_value(db, "smtp_use_tls", "true")).lower() in ("1", "true", "yes", "on"),
+        "use_ssl": (await SettingsService.get_value(db, "smtp_use_ssl", "false")).lower() in ("1", "true", "yes", "on"),
+        "from_email": await SettingsService.get_value(db, "smtp_from_email"),
+        "from_name": await SettingsService.get_value(db, "smtp_from_name", "Vizor NVR"),
+    }
+
+
 @router.put("/internal/camera-configs/{config_id}/state")
 async def internal_report_stream_state(
     config_id: str,
