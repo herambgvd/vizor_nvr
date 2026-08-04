@@ -111,6 +111,15 @@ def _smtp_settings() -> Optional[dict]:
         return _SMTP_CACHE["conf"]
 
 
+# Most providers cap attachments at 25 MB (Gmail) — stay under it including the
+# ~33% base64 overhead. Oversized reports are emailed as a notice instead (the
+# file stays downloadable from the Reports page).
+_MAX_ATTACH_MB = 18.0
+# Large attachments upload slowly (a 6 MB report took ~70s at SMCC) — the old
+# 30s timeout killed the send mid-upload ("Server not connected").
+_SMTP_TIMEOUT_S = 180
+
+
 def _send_email(recipients: list[str], subject: str, body_text: str,
                 attachment: Path) -> bool:
     conf = _smtp_settings()
@@ -126,23 +135,40 @@ def _send_email(recipients: list[str], subject: str, body_text: str,
         msg["From"] = conf["from_email"]
         msg["To"] = ", ".join(recipients)
         msg["Subject"] = subject
-        msg.set_content(body_text)
         data = attachment.read_bytes()
-        sub = "csv" if attachment.suffix == ".csv" else \
-              "vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        msg.add_attachment(data, maintype="application", subtype=sub,
-                           filename=attachment.name)
-        cls = smtplib.SMTP_SSL if conf.get("use_ssl") else smtplib.SMTP
-        with cls(conf["host"], conf["port"], timeout=30) as smtp:
-            if conf.get("use_tls") and not conf.get("use_ssl"):
-                smtp.starttls()
-            if conf.get("username"):
-                smtp.login(conf["username"], conf["password"])
-            smtp.send_message(msg)
-        return True
+        if len(data) > _MAX_ATTACH_MB * 1024 * 1024:
+            size_mb = len(data) / (1024 * 1024)
+            msg.set_content(
+                f"{body_text}\n\nThe report file ({attachment.name}, "
+                f"{size_mb:.0f} MB) exceeds the {_MAX_ATTACH_MB:.0f} MB email "
+                f"attachment limit, so it is not attached. Download it from the "
+                f"FRS Reports page (Recent files).")
+            logger.warning("[report-schedule] %s is %.0f MB — emailing notice "
+                           "without the attachment", attachment.name, size_mb)
+        else:
+            msg.set_content(body_text)
+            sub = "csv" if attachment.suffix == ".csv" else \
+                  "vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            msg.add_attachment(data, maintype="application", subtype=sub,
+                               filename=attachment.name)
     except Exception as e:  # noqa: BLE001
-        logger.warning("[report-schedule] email failed: %s", e)
+        logger.warning("[report-schedule] email build failed: %s", e)
         return False
+
+    cls = smtplib.SMTP_SSL if conf.get("use_ssl") else smtplib.SMTP
+    for attempt in (1, 2):
+        try:
+            with cls(conf["host"], conf["port"], timeout=_SMTP_TIMEOUT_S) as smtp:
+                if conf.get("use_tls") and not conf.get("use_ssl"):
+                    smtp.starttls()
+                if conf.get("username"):
+                    smtp.login(conf["username"], conf["password"])
+                smtp.send_message(msg)
+            return True
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[report-schedule] email failed (attempt %d/2): %s",
+                           attempt, e)
+    return False
 
 
 def _run_schedule(sched: ReportSchedule) -> ReportRun:
