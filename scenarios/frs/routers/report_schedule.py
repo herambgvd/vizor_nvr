@@ -115,6 +115,11 @@ def _send_email(recipients: list[str], subject: str, body_text: str,
                 attachment: Path) -> bool:
     conf = _smtp_settings()
     if not conf or not recipients:
+        # Loud skip — a silently-empty SMTP config looked like "email off" in the
+        # UI for days before anyone noticed. Say WHY nothing was sent.
+        logger.warning("[report-schedule] email skipped for %r: %s", subject,
+                       "no SMTP configured (Settings → Notifications)" if not conf
+                       else "no recipients")
         return False
     try:
         msg = EmailMessage()
