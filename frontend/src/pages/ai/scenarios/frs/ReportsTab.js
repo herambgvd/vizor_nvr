@@ -314,13 +314,15 @@ function SchedulesPanel({ qc }) {
         {(schedules?.items || []).length === 0 && <p className="text-[11px]" style={{ color: "var(--console-muted)" }}>No schedules yet.</p>}
       </div>
 
-      {/* Recent generated files */}
+      {/* Recent generated files — bounded, scrollable card */}
       {(runs?.items || []).length > 0 && (
-        <div>
-          <div className="text-[10px] uppercase tracking-widest mb-1.5" style={{ color: "var(--console-muted)" }}>Recent files</div>
-          <div className="space-y-1">
+        <div className="rounded-lg border overflow-hidden" style={{ borderColor: "var(--console-border)" }}>
+          <div className="px-3 py-2 text-[10px] uppercase tracking-widest" style={{ color: "var(--console-muted)", background: "var(--console-raised)" }}>
+            Recent files
+          </div>
+          <div className="max-h-64 overflow-y-auto px-3 py-2 space-y-1">
             {(runs.items || []).map((r) => (
-              <div key={r.id} className="flex items-center gap-3 text-sm">
+              <div key={r.id} className="flex items-center gap-3 text-sm py-0.5">
                 <span>{r.report}</span>
                 <span className="text-[11px]" style={{ color: "var(--console-muted)" }}>{r.rows} rows · {new Date(r.created_at).toLocaleString()}</span>
                 {r.emailed_to && <span className="text-[11px] inline-flex items-center gap-1" style={{ color: r.email_ok ? "#34d399" : "#fbbf24" }}><Mail className="h-3 w-3" />{r.email_ok ? "sent" : "email off"}</span>}
