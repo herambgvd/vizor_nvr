@@ -101,7 +101,24 @@ def _xlsx(columns: list[str], rows: list[dict], title: str = "Report",
     for c in ws[1]:
         c.font = Font(bold=True)
 
-    THUMB = 56  # px — embedded face thumbnail size
+    THUMB = 56    # px — displayed thumbnail size
+    ENCODE = 112  # px — stored image size (2x display for sharpness)
+
+    def _thumb(src) -> Optional[io.BytesIO]:
+        """Re-encode a snapshot to a small JPEG for embedding. Embedding the
+        original full-resolution bytes made a 2000-row report ~44 MB — far past
+        any mail attachment limit; ~112px JPEGs keep it a few MB."""
+        try:
+            from PIL import Image as PILImage
+            im = PILImage.open(src).convert("RGB")
+            im.thumbnail((ENCODE, ENCODE))
+            buf = io.BytesIO()
+            im.save(buf, format="JPEG", quality=72)
+            buf.seek(0)
+            return buf
+        except Exception:  # noqa: BLE001
+            return None
+
     for ri, r in enumerate(rows, start=2):
         ws.append([("" if c == "snapshot" else r.get(c, "")) for c in columns])
         if not has_snap:
@@ -110,7 +127,8 @@ def _xlsx(columns: list[str], rows: list[dict], title: str = "Report",
         if not src:
             continue
         try:
-            img = XLImage(str(src))
+            small = _thumb(src)
+            img = XLImage(small) if small is not None else XLImage(str(src))
             img.width = img.height = THUMB
             col_letter = get_column_letter(columns.index("snapshot") + 1)
             ws.row_dimensions[ri].height = THUMB * 0.78  # pt
